@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import { select } from 'd3-selection';
 import {
   zoom as d3Zoom,
@@ -16,6 +23,17 @@ import {
   type LaidOutEdge,
   type LaidOutNode,
 } from './graphElk.js';
+import {
+  buildFocusableEdges,
+  buildGraphLegendItems,
+  edgeFocusClassName,
+  edgeTooltipText,
+  nodeFocusClassName,
+  type EdgeFocusState,
+  type EdgeTooltipLabelContext,
+  type FocusableEdge,
+  type LegendItem,
+} from './graphInteraction.js';
 
 type Props = {
   topology: Topology;
@@ -27,6 +45,17 @@ type Props = {
 };
 
 type Layout = GraphElkLayout;
+
+type GraphPointerPoint = {
+  x: number;
+  y: number;
+};
+
+type EdgeTooltipState = {
+  content: string;
+  x: number;
+  y: number;
+};
 
 export { formatNodeLabelForTest } from './graphElk.js';
 
@@ -242,6 +271,7 @@ type EdgeLabelNode = Pick<LaidOutNode, 'id' | 'label' | 'kind' | 'outcome'>;
 type EdgeLabelRenderItem = {
   key: string;
   edge: LaidOutEdge;
+  edges: LaidOutEdge[];
   x: number;
   y: number;
   label: string;
@@ -342,6 +372,7 @@ function buildEdgeLabelRenderItems(
     items.push({
       key: edge.id,
       edge,
+      edges: [edge],
       x: point.x,
       y: point.y,
       label,
@@ -358,6 +389,7 @@ function buildEdgeLabelRenderItems(
     items.push({
       key,
       edge: group.edges[0],
+      edges: group.edges,
       x: point.x,
       y: point.y,
       label,
@@ -448,6 +480,10 @@ const FIT_MARGIN = 0.92;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 2.4;
 const TOOLBAR_ZOOM_FACTOR = 1.2;
+const EDGE_HIT_STROKE_WIDTH = 18;
+const EDGE_TOOLTIP_OFFSET = 12;
+const EDGE_TOOLTIP_MAX_WIDTH = 320;
+const SELECTION_CLEAR_DRAG_THRESHOLD = 4;
 
 function graphViewportExtent(this: SVGSVGElement): [[number, number], [number, number]] {
   const rect = this.getBoundingClientRect();
@@ -502,6 +538,101 @@ function scaleGraphBy(
   behavior.scaleBy(select<SVGSVGElement, unknown>(svg), factor);
 }
 
+function joinClassNames(...classNames: Array<string | false | null | undefined>): string {
+  return classNames.filter(Boolean).join(' ');
+}
+
+function edgeInteractionClassName(
+  edge: Pick<FocusableEdge, 'id' | 'routeFrom' | 'routeTo'>,
+  focus: EdgeFocusState,
+  hoveredEdgeIds: ReadonlySet<string>,
+): string {
+  return edgeFocusClassName(edge, {
+    selectedNodeId: focus.selectedNodeId,
+    hoveredEdgeId: hoveredEdgeIds.has(edge.id) ? edge.id : focus.hoveredEdgeId,
+  });
+}
+
+function edgeGroupInteractionClassName(
+  edges: ReadonlyArray<Pick<FocusableEdge, 'id' | 'routeFrom' | 'routeTo'>>,
+  focus: EdgeFocusState,
+  hoveredEdgeIds: ReadonlySet<string>,
+): string {
+  const classes = new Set<string>();
+  for (const edge of edges) {
+    for (const className of edgeInteractionClassName(edge, focus, hoveredEdgeIds).split(' ')) {
+      if (className) classes.add(className);
+    }
+  }
+  if (classes.size > 1) classes.delete('edge-dimmed');
+  return [...classes].join(' ');
+}
+
+function focusableEdgesForNodeFocus(
+  focusableEdges: ReadonlyArray<FocusableEdge>,
+  hoveredEdgeId: string | null,
+  hoveredEdgeIds: ReadonlySet<string>,
+): FocusableEdge[] {
+  if (!hoveredEdgeId || hoveredEdgeIds.size === 0 || hoveredEdgeIds.has(hoveredEdgeId)) {
+    return [...focusableEdges];
+  }
+  return [
+    ...focusableEdges,
+    ...focusableEdges
+      .filter((edge) => hoveredEdgeIds.has(edge.id))
+      .map((edge) => ({ ...edge, id: hoveredEdgeId })),
+  ];
+}
+
+function edgeGroupTooltipText(
+  edges: ReadonlyArray<
+    Pick<FocusableEdge, 'kind' | 'exit' | 'routeFrom' | 'routeTo' | 'originalFrom' | 'originalTo'>
+  >,
+  labelContext: EdgeTooltipLabelContext,
+): string {
+  const tooltips = [...new Set(edges.map((edge) => edgeTooltipText(edge, labelContext)))];
+  if (edges.length <= 1) return tooltips[0] ?? '';
+  return `summary: ${edges.length} transitions | ${tooltips.join(' || ')}`;
+}
+
+function pruneSelectedNodeId(
+  selectedNodeId: string | null,
+  visibleNodeIds: ReadonlySet<string>,
+): string | null {
+  if (!selectedNodeId) return null;
+  return visibleNodeIds.has(selectedNodeId) ? selectedNodeId : null;
+}
+
+function pointerMovedBeyondThreshold(
+  start: GraphPointerPoint | null,
+  end: GraphPointerPoint,
+  threshold = SELECTION_CLEAR_DRAG_THRESHOLD,
+): boolean {
+  if (!start) return false;
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  return dx * dx + dy * dy > threshold * threshold;
+}
+
+function clampGraphTooltipPoint(
+  point: GraphPointerPoint,
+  bounds: { width: number; height: number },
+): GraphPointerPoint {
+  const padding = EDGE_TOOLTIP_OFFSET;
+  const tooltipWidth = Math.min(EDGE_TOOLTIP_MAX_WIDTH, Math.max(0, bounds.width - padding * 2));
+  const maxX = Math.max(padding, bounds.width - tooltipWidth - padding);
+  const maxY = Math.max(padding, bounds.height - padding);
+  return {
+    x: Math.min(Math.max(padding, point.x), maxX),
+    y: Math.min(Math.max(padding, point.y), maxY),
+  };
+}
+
+function isGraphInteractionTarget(target: EventTarget | null): boolean {
+  if (typeof Element === 'undefined' || !(target instanceof Element)) return false;
+  return Boolean(target.closest('.node, .edge, .edge-hit-area, .edge-label-group, .embed-toggle'));
+}
+
 export function Graph({
   topology,
   activeStateId,
@@ -512,11 +643,16 @@ export function Graph({
 }: Props) {
   const [layout, setLayout] = useState<Layout | null>(null);
   const [expandedEmbedIds, setExpandedEmbedIds] = useState<Set<string>>(() => new Set());
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [hoveredEdgeId, setHoveredEdgeId] = useState<string | null>(null);
+  const [hoveredEdgeIds, setHoveredEdgeIds] = useState<Set<string>>(() => new Set());
+  const [edgeTooltip, setEdgeTooltip] = useState<EdgeTooltipState | null>(null);
   const [viewTransform, setViewTransform] = useState<ZoomTransform>(() =>
     zoomIdentity.translate(40, 40),
   );
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+  const canvasPointerStartRef = useRef<GraphPointerPoint | null>(null);
   const zoomBehaviorRef = useRef<ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const fittedRef = useRef(false);
   const layoutRequestsRef = useRef<LayoutRequestController>(createLayoutRequestController());
@@ -650,6 +786,60 @@ export function Graph({
     });
     return [...edgeItems, ...selfLoopItems];
   }, [edges, layout, nodeById]);
+  const topologyNodeById = useMemo(
+    () => new Map(topology.nodes.map((node) => [node.id, node])),
+    [topology],
+  );
+  const edgeTooltipLabelContext = useMemo<EdgeTooltipLabelContext>(
+    () => ({
+      visibleNodes: nodeById,
+      topologyNodes: topologyNodeById,
+    }),
+    [nodeById, topologyNodeById],
+  );
+  const focusableEdges = useMemo(
+    () =>
+      layout
+        ? buildFocusableEdges({
+            edges,
+            selfLoops: layout.selfLoops,
+          })
+        : [],
+    [edges, layout],
+  );
+  const legendItems = useMemo(
+    () =>
+      layout
+        ? buildGraphLegendItems({
+            nodes: layout.nodes,
+            edges,
+            selfLoops: layout.selfLoops,
+            firedEdgeIds,
+            activeStateId,
+            awaitsOwner,
+            selectedNodeId,
+          })
+        : [],
+    [activeStateId, awaitsOwner, edges, firedEdgeIds, layout, selectedNodeId],
+  );
+  const focusState = useMemo<EdgeFocusState>(
+    () => ({
+      selectedNodeId,
+      hoveredEdgeId,
+    }),
+    [hoveredEdgeId, selectedNodeId],
+  );
+  const nodeFocusEdges = useMemo(
+    () => focusableEdgesForNodeFocus(focusableEdges, hoveredEdgeId, hoveredEdgeIds),
+    [focusableEdges, hoveredEdgeId, hoveredEdgeIds],
+  );
+  const visibleSelectableNodeIds = useMemo(
+    () =>
+      new Set(
+        (layout?.nodes ?? []).filter((node) => !node.isExpandedEmbedHost).map((node) => node.id),
+      ),
+    [layout],
+  );
   const paintedEdgePathItems = useMemo(
     () => paintOrderedEdges(edgePathItems, firedEdgeIds),
     [edgePathItems, firedEdgeIds],
@@ -658,6 +848,76 @@ export function Graph({
     () => buildEdgeLabelRenderItems(edges, nodeById),
     [edges, nodeById],
   );
+
+  useEffect(() => {
+    setSelectedNodeId((current) => pruneSelectedNodeId(current, visibleSelectableNodeIds));
+  }, [visibleSelectableNodeIds]);
+
+  function tooltipPoint(event: ReactPointerEvent): GraphPointerPoint {
+    const rect = containerRef.current?.getBoundingClientRect();
+    const point = {
+      x: event.clientX - (rect?.left ?? 0) + EDGE_TOOLTIP_OFFSET,
+      y: event.clientY - (rect?.top ?? 0) + EDGE_TOOLTIP_OFFSET,
+    };
+    return rect ? clampGraphTooltipPoint(point, rect) : point;
+  }
+
+  function handleEdgePointerEnter(
+    event: ReactPointerEvent,
+    hoverId: string,
+    hoverEdges: ReadonlyArray<
+      Pick<
+        FocusableEdge,
+        'id' | 'kind' | 'exit' | 'routeFrom' | 'routeTo' | 'originalFrom' | 'originalTo'
+      >
+    >,
+  ) {
+    const point = tooltipPoint(event);
+    setHoveredEdgeId(hoverId);
+    setHoveredEdgeIds(new Set(hoverEdges.map((edge) => edge.id)));
+    setEdgeTooltip({
+      content: edgeGroupTooltipText(hoverEdges, edgeTooltipLabelContext),
+      x: point.x,
+      y: point.y,
+    });
+  }
+
+  function handleEdgePointerMove(event: ReactPointerEvent) {
+    const point = tooltipPoint(event);
+    setEdgeTooltip((current) => (current ? { ...current, x: point.x, y: point.y } : current));
+  }
+
+  function handleEdgePointerLeave() {
+    setHoveredEdgeId(null);
+    setHoveredEdgeIds(new Set());
+    setEdgeTooltip(null);
+  }
+
+  function handleNodeClick(event: ReactMouseEvent<SVGGElement>, id: string) {
+    event.stopPropagation();
+    setSelectedNodeId(id);
+    onNodeClick?.(id);
+  }
+
+  function handleGraphPointerDown(event: ReactPointerEvent<SVGSVGElement>) {
+    if (event.button !== 0) return;
+    canvasPointerStartRef.current = { x: event.clientX, y: event.clientY };
+  }
+
+  function handleGraphClick(event: ReactMouseEvent<SVGSVGElement>) {
+    const pointerStart = canvasPointerStartRef.current;
+    canvasPointerStartRef.current = null;
+    if (isGraphInteractionTarget(event.target)) return;
+    if (
+      pointerMovedBeyondThreshold(pointerStart, {
+        x: event.clientX,
+        y: event.clientY,
+      })
+    ) {
+      return;
+    }
+    setSelectedNodeId(null);
+  }
 
   return (
     <div className="graph-root" ref={containerRef}>
@@ -675,7 +935,12 @@ export function Graph({
           {layout ? `${layout.nodes.length} nodes · ${edges.length} edges` : 'laying out…'}
         </span>
       </div>
-      <svg ref={svgRef} className="graph-svg">
+      <svg
+        ref={svgRef}
+        className="graph-svg"
+        onPointerDown={handleGraphPointerDown}
+        onClick={handleGraphClick}
+      >
         <defs>
           <marker
             id="arrow"
@@ -746,14 +1011,37 @@ export function Graph({
                 const fired = classifyFiredEdge(e, firedEdgeIds);
                 const isVisited =
                   hasTransition(history, e.originalFrom, e.originalTo) && fired === 'none';
+                const tooltip = edgeGroupTooltipText([e], edgeTooltipLabelContext);
                 return (
-                  <g key={`p-${e.id}`} className={edgePathClassName(item, fired, isVisited)}>
-                    <title>{edgeTitleText(e)}</title>
+                  <g
+                    key={`p-${e.id}`}
+                    className={joinClassNames(
+                      edgePathClassName(item, fired, isVisited),
+                      edgeInteractionClassName(e, focusState, hoveredEdgeIds),
+                    )}
+                  >
+                    <title>{tooltip}</title>
                     <path
                       id={item.pathId}
                       d={item.d}
                       markerEnd={fired === 'exact' ? 'url(#arrow-active)' : 'url(#arrow)'}
                     />
+                    <path
+                      className="edge-hit-area"
+                      d={item.d}
+                      fill="none"
+                      aria-label={tooltip}
+                      style={{
+                        pointerEvents: 'stroke',
+                        stroke: 'transparent',
+                        strokeWidth: EDGE_HIT_STROKE_WIDTH,
+                      }}
+                      onPointerEnter={(event) => handleEdgePointerEnter(event, e.id, [e])}
+                      onPointerMove={handleEdgePointerMove}
+                      onPointerLeave={handleEdgePointerLeave}
+                    >
+                      <title>{tooltip}</title>
+                    </path>
                     {fired === 'exact' ? (
                       <EdgePulse key={`pulse-${history.length}`} pathId={item.pathId} />
                     ) : null}
@@ -766,9 +1054,23 @@ export function Graph({
                 const isVisited =
                   hasTransition(history, item.edge.originalFrom, item.edge.originalTo) &&
                   fired === 'none';
+                const tooltip = edgeGroupTooltipText(item.edges, edgeTooltipLabelContext);
+                const hoverId = item.grouped ? item.key : item.edge.id;
                 return (
-                  <g key={`l-${item.key}`} className={edgeClassName(item.edge, fired, isVisited)}>
-                    <EdgeLabelAt item={item} />
+                  <g
+                    key={`l-${item.key}`}
+                    className={joinClassNames(
+                      edgeClassName(item.edge, fired, isVisited),
+                      edgeGroupInteractionClassName(item.edges, focusState, hoveredEdgeIds),
+                    )}
+                  >
+                    <EdgeLabelAt
+                      item={item}
+                      title={tooltip}
+                      onPointerEnter={(event) => handleEdgePointerEnter(event, hoverId, item.edges)}
+                      onPointerMove={handleEdgePointerMove}
+                      onPointerLeave={handleEdgePointerLeave}
+                    />
                   </g>
                 );
               })}
@@ -779,10 +1081,20 @@ export function Graph({
                 const isVisited =
                   hasTransition(history, e.originalFrom, e.originalTo) && fired === 'none';
                 const { labelX, labelY } = selfLoopPath(node);
-                const rawLabel = edgeTitleText(e);
+                const tooltip = edgeGroupTooltipText([e], edgeTooltipLabelContext);
                 const label = `↻ ${truncateEdgeLabel(e.exit, e.labelWidth - 12)}`;
                 return (
-                  <g key={`l-${e.id}`} className={edgeClassName(e, fired, isVisited, 'edge-self')}>
+                  <g
+                    key={`l-${e.id}`}
+                    className={joinClassNames(
+                      edgeClassName(e, fired, isVisited, 'edge-self'),
+                      edgeInteractionClassName(e, focusState, hoveredEdgeIds),
+                    )}
+                    aria-label={tooltip}
+                    onPointerEnter={(event) => handleEdgePointerEnter(event, e.id, [e])}
+                    onPointerMove={handleEdgePointerMove}
+                    onPointerLeave={handleEdgePointerLeave}
+                  >
                     <rect
                       x={labelX - e.labelWidth / 2}
                       y={labelY - 10}
@@ -792,7 +1104,7 @@ export function Graph({
                       ry={7}
                       className="edge-label-bg"
                     />
-                    <title>{rawLabel}</title>
+                    <title>{tooltip}</title>
                     <text className="edge-label" x={labelX} y={labelY} textAnchor="middle">
                       {label}
                     </text>
@@ -803,18 +1115,21 @@ export function Graph({
               {layout.nodes.map((n) => {
                 if (n.isExpandedEmbedHost) return null;
                 const isActive = n.id === activeStateId;
-                const cls = nodeClassName(n, {
-                  activeStateId,
-                  visitedNodeIds,
-                  awaitsOwner,
-                  isTerminal,
-                });
+                const cls = joinClassNames(
+                  nodeClassName(n, {
+                    activeStateId,
+                    visitedNodeIds,
+                    awaitsOwner,
+                    isTerminal,
+                  }),
+                  nodeFocusClassName(n.id, focusState, nodeFocusEdges),
+                );
                 return (
                   <g
                     key={n.id}
                     className={cls}
                     transform={`translate(${n.x},${n.y})`}
-                    onClick={() => onNodeClick?.(n.id)}
+                    onClick={(event) => handleNodeClick(event, n.id)}
                     style={{ cursor: 'pointer' }}
                   >
                     <rect
@@ -921,7 +1236,20 @@ export function Graph({
           ) : null}
         </g>
       </svg>
-      <GraphLegend />
+      {edgeTooltip ? (
+        <div
+          className="graph-edge-tooltip"
+          style={{
+            left: edgeTooltip.x,
+            pointerEvents: 'none',
+            position: 'absolute',
+            top: edgeTooltip.y,
+          }}
+        >
+          {edgeTooltip.content}
+        </div>
+      ) : null}
+      <GraphLegend items={legendItems} />
     </div>
   );
 }
@@ -956,7 +1284,7 @@ function EmbedToggleControl({
   );
 }
 
-function GraphLegend() {
+function GraphLegend({ items }: { items: LegendItem[] }) {
   const [open, setOpen] = useState<boolean>(() => {
     if (typeof localStorage === 'undefined') return false;
     return localStorage.getItem('harness-ui.legend.open') === 'true';
@@ -982,77 +1310,36 @@ function GraphLegend() {
       </button>
       {open ? (
         <div className="legend-body">
-          <div className="legend-section">nodes</div>
-          <div className="legend-row">
-            <span className="legend-swatch sw-node sw-active">
-              <span className="sw-halo" />
-              <span className="sw-halo sw-halo-2" />
-            </span>
-            <span>current</span>
-          </div>
-          <div className="legend-row">
-            <span className="legend-swatch sw-node sw-awaits" />
-            <span>awaits owner</span>
-          </div>
-          <div className="legend-row">
-            <span className="legend-swatch sw-node sw-visited" />
-            <span>visited</span>
-          </div>
-          <div className="legend-row">
-            <span className="legend-swatch sw-node sw-unvisited" />
-            <span>unvisited</span>
-          </div>
-          <div className="legend-row">
-            <span className="legend-swatch sw-node sw-collapsed-embed">
-              <span className="sw-embed-glyph" />
-            </span>
-            <span>collapsed embed</span>
-          </div>
-          <div className="legend-row">
-            <span className="legend-swatch sw-node sw-descendant">
-              <span className="sw-descendant-ring" />
-              <span className="sw-descendant-dot" />
-            </span>
-            <span>active or visited child</span>
-          </div>
-          <div className="legend-row">
-            <span className="legend-swatch sw-region" />
-            <span>expanded embed</span>
-          </div>
-          <div className="legend-row">
-            <span className="legend-swatch sw-node sw-success" />
-            <span>terminal · success</span>
-          </div>
-          <div className="legend-row">
-            <span className="legend-swatch sw-node sw-failure" />
-            <span>terminal · failure</span>
-          </div>
-          <div className="legend-section">edges</div>
-          <div className="legend-row">
-            <span className="legend-swatch sw-edge sw-edge-main-forward" />
-            <span>primary path</span>
-          </div>
-          <div className="legend-row">
-            <span className="legend-swatch sw-edge sw-edge-control" />
-            <span>auxiliary/control flow</span>
-          </div>
-          <div className="legend-row">
-            <span className="legend-swatch sw-edge sw-edge-main-feedback" />
-            <span>main feedback loop</span>
-          </div>
-          <div className="legend-row">
-            <span className="legend-swatch sw-edge sw-edge-fired">
-              <span className="sw-edge-dot" />
-            </span>
-            <span>last fired</span>
-          </div>
-          <div className="legend-row">
-            <span className="legend-swatch sw-edge sw-edge-candidate" />
-            <span>candidate fired</span>
-          </div>
+          {items.map((item) => (
+            <div className="legend-row" key={item.id}>
+              <LegendSwatch className={item.swatch} />
+              <span>{item.label}</span>
+            </div>
+          ))}
         </div>
       ) : null}
     </aside>
+  );
+}
+
+function LegendSwatch({ className }: { className: string }) {
+  return (
+    <span className={`legend-swatch ${className}`}>
+      {className.includes('sw-active') ? (
+        <>
+          <span className="sw-halo" />
+          <span className="sw-halo sw-halo-2" />
+        </>
+      ) : null}
+      {className.includes('sw-collapsed-embed') ? <span className="sw-embed-glyph" /> : null}
+      {className.includes('sw-descendant') ? (
+        <>
+          <span className="sw-descendant-ring" />
+          <span className="sw-descendant-dot" />
+        </>
+      ) : null}
+      {className.includes('sw-edge-fired') ? <span className="sw-edge-dot" /> : null}
+    </span>
   );
 }
 
@@ -1121,12 +1408,28 @@ function fallbackEdgeLabelPoint(edge: LaidOutEdge): { x: number; y: number } | n
   };
 }
 
-function EdgeLabelAt({ item }: { item: EdgeLabelRenderItem }) {
+function EdgeLabelAt({
+  item,
+  title,
+  onPointerEnter,
+  onPointerMove,
+  onPointerLeave,
+}: {
+  item: EdgeLabelRenderItem;
+  title: string;
+  onPointerEnter: (event: ReactPointerEvent<SVGGElement>) => void;
+  onPointerMove: (event: ReactPointerEvent<SVGGElement>) => void;
+  onPointerLeave: () => void;
+}) {
   const label = truncateEdgeLabel(item.label, item.width);
   return (
     <g
       className={`edge-label-group ${item.grouped ? 'summary' : ''}`}
       transform={`translate(${item.x},${item.y})`}
+      aria-label={title}
+      onPointerEnter={onPointerEnter}
+      onPointerMove={onPointerMove}
+      onPointerLeave={onPointerLeave}
     >
       <rect
         x={-item.width / 2}
@@ -1137,7 +1440,7 @@ function EdgeLabelAt({ item }: { item: EdgeLabelRenderItem }) {
         ry={8}
         className="edge-label-bg"
       />
-      <title>{item.title}</title>
+      <title>{title}</title>
       <text className="edge-label" x={0} y={4} textAnchor="middle">
         {label}
       </text>
@@ -1160,7 +1463,14 @@ export const graphInternalsForTest = {
   edgePathD,
   truncateEdgeLabel,
   buildEdgeLabelRenderItems,
+  edgeGroupInteractionClassName,
+  edgeGroupTooltipText,
+  edgeInteractionClassName,
+  focusableEdgesForNodeFocus,
+  clampGraphTooltipPoint,
   nodeClassName,
+  pointerMovedBeyondThreshold,
+  pruneSelectedNodeId,
   createGraphZoomBehavior,
   fitGraphTransform,
   graphTransformAttribute,

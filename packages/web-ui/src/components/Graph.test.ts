@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { zoomIdentity } from 'd3-zoom';
@@ -7,6 +8,15 @@ import type { Topology } from '../types/topology.js';
 import { resolveFixture } from '../fixtures/registry.js';
 import { formatNodeLabelForTest, graphInternalsForTest } from './Graph.js';
 import type { GraphElkLayout, LaidOutEdge, LaidOutNode } from './graphElk.js';
+import {
+  buildFocusableEdges,
+  buildGraphLegendItems,
+  edgeEndpointRole,
+  edgeFocusClassName,
+  edgeTooltipText,
+  nodeFocusClassName,
+  type EdgeFocusState,
+} from './graphInteraction.js';
 
 const {
   EmbedToggleControl,
@@ -14,22 +24,31 @@ const {
   classifyFiredEdge,
   createGraphZoomBehavior,
   createLayoutRequestController,
+  clampGraphTooltipPoint,
   edgeClassName,
+  edgeGroupInteractionClassName,
+  edgeGroupTooltipText,
+  edgeInteractionClassName,
   edgePathD,
   fallbackEdgeLabelPoint,
   fitGraphTransform,
+  focusableEdgesForNodeFocus,
   firedEdgeIdsForLastTransition,
   graphTransformAttribute,
   GraphLegend,
   handleEmbedToggleClick,
   nodeClassName,
   paintOrderedEdges,
+  pointerMovedBeyondThreshold,
+  pruneSelectedNodeId,
   pruneExpandedEmbedIds,
   renderableEdges,
   startGraphLayoutRequest,
   stopEmbedTogglePointerEvent,
   truncateEdgeLabel,
 } = graphInternalsForTest;
+
+const componentCss = readFileSync(new URL('./components.css', import.meta.url), 'utf8');
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -153,6 +172,27 @@ function deferred<T>(): {
 async function flushPromises() {
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function cssRuleBody(selector: string): string {
+  const normalizedSelector = selector.replace(/\s+/gu, ' ').trim();
+  const rulePattern = /([^{}]+)\{([^{}]*)\}/gu;
+
+  for (const match of componentCss.matchAll(rulePattern)) {
+    const selectors = match[1]
+      .split(',')
+      .map((candidate) => candidate.replace(/\s+/gu, ' ').trim());
+    if (selectors.includes(normalizedSelector)) return match[2];
+  }
+
+  throw new Error(`Missing CSS rule for ${selector}`);
+}
+
+function expectCssRule(selector: string, declarations: string[]) {
+  const body = cssRuleBody(selector);
+  for (const declaration of declarations) {
+    expect(body).toContain(declaration);
+  }
 }
 
 describe('Graph node labels', () => {
@@ -316,6 +356,450 @@ describe('Graph zoom interactions', () => {
     expect(graphTransformAttribute(zoomIdentity.translate(12, 34).scale(1.5))).toBe(
       'translate(12,34) scale(1.5)',
     );
+  });
+});
+
+describe('Graph interaction helpers', () => {
+  it('uses visible routed endpoints for edge endpoint roles', () => {
+    const rerouted = edge({
+      routeFrom: 'visible-source',
+      routeTo: 'visible-target',
+      originalFrom: 'hidden-source',
+      originalTo: 'hidden-target',
+    });
+
+    expect(edgeEndpointRole(rerouted, 'visible-source')).toBe('source');
+    expect(edgeEndpointRole(rerouted, 'visible-target')).toBe('target');
+    expect(edgeEndpointRole(rerouted, 'hidden-source')).toBe('none');
+    expect(edgeEndpointRole(rerouted, 'hidden-target')).toBe('none');
+  });
+
+  it('classifies self-loops as connected to the selected state', () => {
+    const loop = edge({
+      from: 'review',
+      to: 'review',
+      originalFrom: 'review',
+      originalTo: 'review',
+      routeFrom: 'review',
+      routeTo: 'review',
+    });
+
+    expect(edgeEndpointRole(loop, 'review')).toBe('self');
+    expect(edgeFocusClassName(loop, { selectedNodeId: 'review', hoveredEdgeId: null })).toBe(
+      'edge-selected-self',
+    );
+  });
+
+  it('normalizes rendered ELK edges and manual self-loops into one focusable model', () => {
+    const focusableEdges = buildFocusableEdges({
+      edges: [edge({ id: 'rendered', semanticId: 'rendered' })],
+      selfLoops: [
+        edge({
+          id: 'manual-loop',
+          semanticId: 'manual-loop',
+          from: 'review',
+          to: 'review',
+          originalFrom: 'review',
+          originalTo: 'review',
+          routeFrom: 'review',
+          routeTo: 'review',
+        }),
+      ],
+    });
+
+    expect(focusableEdges).toMatchObject([
+      { id: 'rendered', focusableKind: 'elk-edge' },
+      { id: 'manual-loop', focusableKind: 'self-loop' },
+    ]);
+    expect(focusableEdges.map((candidate) => edgeEndpointRole(candidate, 'review'))).toEqual([
+      'none',
+      'self',
+    ]);
+  });
+
+  it('lets hovered edge and selected node focus classes coexist with fired classes', () => {
+    const candidate = edge({
+      id: 'selected-edge',
+      routeFrom: 'selected',
+      routeTo: 'target',
+      mainRole: 'forward',
+    });
+    const focus: EdgeFocusState = {
+      selectedNodeId: 'selected',
+      hoveredEdgeId: 'selected-edge',
+    };
+    const interactionClassName = edgeFocusClassName(candidate, focus);
+    const combinedClassName = `${edgeClassName(candidate, 'candidate', false)} ${interactionClassName}`;
+
+    expect(interactionClassName).toBe('edge-hovered edge-selected-source');
+    expect(combinedClassName).toContain('candidate-fired');
+    expect(combinedClassName).toContain('main-forward');
+    expect(combinedClassName).toContain('edge-hovered');
+    expect(combinedClassName).toContain('edge-selected-source');
+    expect(edgeFocusClassName(edge({ id: 'unrelated' }), focus)).toBe('edge-dimmed');
+  });
+
+  it('derives node focus classes from hovered edges and selected-node connected edges', () => {
+    const focusableEdges = buildFocusableEdges({
+      edges: [
+        edge({
+          id: 'selected-outgoing',
+          routeFrom: 'selected',
+          routeTo: 'target',
+        }),
+      ],
+      selfLoops: [
+        edge({
+          id: 'hovered-loop',
+          from: 'loop',
+          to: 'loop',
+          originalFrom: 'loop',
+          originalTo: 'loop',
+          routeFrom: 'loop',
+          routeTo: 'loop',
+        }),
+      ],
+    });
+    const focus: EdgeFocusState = {
+      selectedNodeId: 'selected',
+      hoveredEdgeId: 'hovered-loop',
+    };
+
+    expect(nodeFocusClassName('selected', focus, focusableEdges)).toBe('selected edge-source');
+    expect(nodeFocusClassName('target', focus, focusableEdges)).toBe('edge-target');
+    expect(nodeFocusClassName('loop', focus, focusableEdges)).toBe('edge-self');
+    expect(nodeFocusClassName('unrelated', focus, focusableEdges)).toBe('node-dimmed');
+  });
+
+  it('composes grouped-summary hover classes without picking one exact edge', () => {
+    const first = edge({
+      id: 'plan->recover',
+      routeFrom: 'plan',
+      routeTo: 'recover',
+    });
+    const second = edge({
+      id: 'execute->recover',
+      routeFrom: 'execute',
+      routeTo: 'recover',
+    });
+    const unrelated = edge({
+      id: 'done->archive',
+      routeFrom: 'done',
+      routeTo: 'archive',
+    });
+    const focus: EdgeFocusState = {
+      selectedNodeId: 'execute',
+      hoveredEdgeId: 'summary-needs-recovery',
+    };
+    const hoveredEdgeIds = new Set([first.id, second.id]);
+    const focusableEdges = buildFocusableEdges({ edges: [first, second, unrelated] });
+    const nodeFocusEdges = focusableEdgesForNodeFocus(
+      focusableEdges,
+      focus.hoveredEdgeId,
+      hoveredEdgeIds,
+    );
+
+    expect(edgeInteractionClassName(first, focus, hoveredEdgeIds)).toBe('edge-hovered');
+    expect(edgeInteractionClassName(second, focus, hoveredEdgeIds)).toBe(
+      'edge-hovered edge-selected-source',
+    );
+    expect(edgeInteractionClassName(unrelated, focus, hoveredEdgeIds)).toBe('edge-dimmed');
+    expect(edgeGroupInteractionClassName([first, second], focus, hoveredEdgeIds)).toBe(
+      'edge-hovered edge-selected-source',
+    );
+    expect(nodeFocusClassName('plan', focus, nodeFocusEdges)).toBe('edge-source');
+    expect(nodeFocusClassName('execute', focus, nodeFocusEdges)).toBe('selected edge-source');
+    expect(nodeFocusClassName('recover', focus, nodeFocusEdges)).toBe('edge-target');
+  });
+
+  it('builds summary tooltip text from every edge in a grouped label', () => {
+    const tooltip = edgeGroupTooltipText(
+      [
+        edge({
+          id: 'plan->recover',
+          routeFrom: 'plan',
+          routeTo: 'recover',
+          originalFrom: 'plan',
+          originalTo: 'recover',
+          exit: 'needsRecovery',
+        }),
+        edge({
+          id: 'execute->recover',
+          routeFrom: 'execute',
+          routeTo: 'recover',
+          originalFrom: 'execute',
+          originalTo: 'recover',
+          exit: 'needsRecovery',
+        }),
+      ],
+      {
+        visibleNodes: [
+          labelNode('plan', { label: 'Plan' }),
+          labelNode('execute', { label: 'Execute' }),
+          labelNode('recover', { label: 'Recover' }),
+        ],
+      },
+    );
+    const duplicateTooltip = edgeGroupTooltipText(
+      [
+        edge({
+          id: 'retry:first',
+          routeFrom: 'retry',
+          routeTo: 'recover',
+          originalFrom: 'retry',
+          originalTo: 'recover',
+          exit: 'again',
+        }),
+        edge({
+          id: 'retry:second',
+          routeFrom: 'retry',
+          routeTo: 'recover',
+          originalFrom: 'retry',
+          originalTo: 'recover',
+          exit: 'again',
+        }),
+      ],
+      {
+        visibleNodes: [
+          labelNode('retry', { label: 'Retry' }),
+          labelNode('recover', { label: 'Recover' }),
+        ],
+      },
+    );
+
+    expect(tooltip).toContain('summary: 2 transitions');
+    expect(tooltip).toContain('visible: Plan -> Recover');
+    expect(tooltip).toContain('visible: Execute -> Recover');
+    expect(duplicateTooltip).toContain('summary: 2 transitions');
+  });
+
+  it('prunes selected state only when it is no longer visible', () => {
+    const visible = new Set(['plan', 'execute']);
+
+    expect(pruneSelectedNodeId('plan', visible)).toBe('plan');
+    expect(pruneSelectedNodeId('done', visible)).toBeNull();
+    expect(pruneSelectedNodeId(null, visible)).toBeNull();
+  });
+
+  it('distinguishes blank-canvas clicks from drag movement', () => {
+    expect(pointerMovedBeyondThreshold({ x: 0, y: 0 }, { x: 2, y: 2 }, 4)).toBe(false);
+    expect(pointerMovedBeyondThreshold({ x: 0, y: 0 }, { x: 5, y: 0 }, 4)).toBe(true);
+    expect(pointerMovedBeyondThreshold(null, { x: 20, y: 20 }, 4)).toBe(false);
+  });
+
+  it('clamps tooltip positions so right-edge hovers keep readable width', () => {
+    expect(clampGraphTooltipPoint({ x: 490, y: 20 }, { width: 500, height: 240 })).toEqual({
+      x: 168,
+      y: 20,
+    });
+    expect(clampGraphTooltipPoint({ x: 180, y: 260 }, { width: 200, height: 180 })).toEqual({
+      x: 12,
+      y: 168,
+    });
+  });
+
+  it('formats edge tooltips with routed labels and hidden semantic labels only when needed', () => {
+    const tooltip = edgeTooltipText(
+      edge({
+        kind: 'await',
+        exit: 'child_done',
+        routeFrom: 'host',
+        routeTo: 'visible-done',
+        originalFrom: 'child-start',
+        originalTo: 'child-done',
+      }),
+      {
+        visibleNodes: [
+          labelNode('host', { label: 'Collapsed Host', kind: 'embed' }),
+          labelNode('visible-done', { label: 'Visible Done' }),
+        ],
+        topologyNodes: [
+          labelNode('child-start', { label: 'Child Start' }),
+          labelNode('child-done', { label: 'Child Done' }),
+        ],
+      },
+    );
+    const unchangedTooltip = edgeTooltipText(edge(), {
+      visibleNodes: [labelNode('a', { label: 'Alpha' }), labelNode('b', { label: 'Beta' })],
+      topologyNodes: [],
+    });
+
+    expect(tooltip).toContain('kind: await');
+    expect(tooltip).toContain('exit: child_done');
+    expect(tooltip).toContain('visible: Collapsed Host -> Visible Done');
+    expect(tooltip).toContain('original: Child Start -> Child Done');
+    expect(unchangedTooltip).toContain('visible: Alpha -> Beta');
+    expect(unchangedTooltip).not.toContain('original:');
+  });
+
+  it('derives contextual legend rows as plain legend items', () => {
+    const items = buildGraphLegendItems({
+      nodes: [
+        node({ id: 'current' }),
+        node({ id: 'selected' }),
+        node({
+          id: 'collapsed',
+          kind: 'embed',
+          isCollapsedEmbedHost: true,
+          activeDescendant: true,
+        }),
+        node({ id: 'expanded', kind: 'embed', isExpandedEmbedHost: true }),
+        node({ id: 'done', kind: 'terminal', outcome: 'success' }),
+      ],
+      edges: buildFocusableEdges({
+        edges: [
+          edge({ id: 'main', semanticId: 'main', mainRole: 'forward' }),
+          edge({
+            id: 'side',
+            semanticId: 'side',
+            layoutRole: 'auxiliary',
+            mainRole: 'side',
+          }),
+          edge({
+            id: 'feedback',
+            semanticId: 'feedback',
+            feedbackClass: 'feedback',
+            mainRole: 'feedback',
+          }),
+        ],
+      }),
+      activeStateId: 'current',
+      awaitsOwner: true,
+      selectedNodeId: 'selected',
+      firedEdgeIds: new Set(['main']),
+    });
+    const labels = items.map((item) => item.label);
+
+    expect(items[0]).toEqual({
+      id: 'current-state',
+      label: 'current state',
+      swatch: 'sw-node sw-active',
+    });
+    expect(items.every((item) => Object.keys(item).sort().join(',') === 'id,label,swatch')).toBe(
+      true,
+    );
+    expect(labels).toEqual([
+      'current state',
+      'waiting for owner',
+      'selected state',
+      'last transition',
+      'main path',
+      'side/control path',
+      'loop/back edge',
+      'collapsed embedded FSM',
+      'expanded embedded FSM',
+      'hidden child activity',
+      'final state',
+    ]);
+  });
+
+  it('omits selected and fired legend rows when the signal is not visible', () => {
+    const labels = buildGraphLegendItems({
+      nodes: [node({ id: 'visible' })],
+      edges: buildFocusableEdges({
+        edges: [edge({ id: 'visible-edge', semanticId: 'visible-edge' })],
+      }),
+      selectedNodeId: 'missing',
+      firedEdgeIds: new Set(['missing-edge']),
+    }).map((item) => item.label);
+
+    expect(labels).not.toContain('selected state');
+    expect(labels).not.toContain('last transition');
+    expect(labels).not.toContain('possible last transition');
+  });
+
+  it('derives possible last-transition legend rows for parallel fired candidates', () => {
+    const labels = buildGraphLegendItems({
+      nodes: [node({ id: 'visible' })],
+      edges: buildFocusableEdges({
+        edges: [
+          edge({ id: 'first', semanticId: 'first' }),
+          edge({ id: 'second', semanticId: 'second' }),
+        ],
+      }),
+      firedEdgeIds: new Set(['first', 'second']),
+    }).map((item) => item.label);
+
+    expect(labels).toContain('possible last transition');
+    expect(labels).not.toContain('last transition');
+  });
+});
+
+describe('Graph focus styling stylesheet', () => {
+  it('keeps edge hit areas invisible, broad, and pointer-owned', () => {
+    expectCssRule('.edge .edge-hit-area', [
+      'pointer-events: stroke;',
+      'cursor: pointer;',
+      'stroke: transparent !important;',
+      'stroke-width: 14 !important;',
+      'animation: none !important;',
+    ]);
+  });
+
+  it('makes hover and selected edge focus stronger without replacing fired semantics', () => {
+    expectCssRule('.edge.edge-hovered:not(.fired):not(.candidate-fired) path:not(.edge-hit-area)', [
+      'stroke-width: 2.75;',
+      'opacity: 1;',
+    ]);
+    expectCssRule(
+      '.edge.edge-selected-source:not(.fired):not(.candidate-fired) path:not(.edge-hit-area)',
+      ['stroke-width: 2.55;', 'opacity: 0.98;'],
+    );
+    expectCssRule(
+      '.edge.edge-selected-target:not(.fired):not(.candidate-fired) path:not(.edge-hit-area)',
+      ['stroke-width: 2.15;', 'opacity: 0.88;'],
+    );
+    expectCssRule(
+      '.edge.edge-selected-self:not(.fired):not(.candidate-fired) path:not(.edge-hit-area)',
+      ['stroke-width: 2.85;', 'opacity: 1;'],
+    );
+    expectCssRule('.edge.fired.edge-hovered path:not(.edge-hit-area)', [
+      'stroke: var(--plasma);',
+      'stroke-width: 2.95;',
+    ]);
+    expectCssRule('.edge.candidate-fired.edge-hovered path:not(.edge-hit-area)', [
+      'stroke: var(--plasma);',
+      'stroke-dasharray: 5 4;',
+    ]);
+  });
+
+  it('dims unrelated graph elements while keeping current and transition signals readable', () => {
+    expectCssRule('.edge.edge-dimmed', ['opacity: 0.3;']);
+    expectCssRule('.edge.edge-dimmed.fired', ['opacity: 0.86;']);
+    expectCssRule('.edge.edge-dimmed.candidate-fired', ['opacity: 0.78;']);
+    expectCssRule('.node.node-dimmed', ['opacity: 0.46;']);
+    expectCssRule('.node.node-dimmed.active', ['opacity: 0.82;']);
+    expectCssRule('.node.node-dimmed.node-terminal', ['opacity: 0.78;']);
+    expectCssRule('.node.node-dimmed.awaits', ['opacity: 0.78;']);
+  });
+
+  it('styles selected and connected nodes plus constrained pointer-transparent tooltips', () => {
+    expectCssRule('.node.selected .node-rect', ['stroke-width: 2.4;']);
+    expectCssRule('.node.edge-source .node-rect', ['stroke-width: 2;']);
+    expectCssRule('.node.edge-target .node-rect', ['stroke-dasharray: 6 3;']);
+    expectCssRule('.node.edge-self .node-rect', ['stroke-width: 2.3;']);
+    expectCssRule('.graph-edge-tooltip', [
+      'max-width: min(320px, calc(100% - 24px));',
+      'overflow-wrap: anywhere;',
+      'pointer-events: none;',
+    ]);
+    expect(cssRuleBody('.graph-edge-tooltip')).not.toContain('right:');
+  });
+
+  it('keeps reduced motion disabling animation-only graph affordances', () => {
+    expect(componentCss).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(componentCss).toContain('.edge.fired path,');
+    expect(componentCss).toContain('animation: none !important;');
+    expect(componentCss).toContain('.edge-pulse,\n  .legend .sw-edge-dot');
+    expect(componentCss).toContain('display: none !important;');
+  });
+
+  it('styles contextual selected and final-state legend swatches', () => {
+    expectCssRule('.sw-node.selected', ['border-width: 2px;', 'background: var(--panel-3);']);
+    expectCssRule('.sw-node.sw-final', [
+      'border-radius: 6px;',
+      'background: linear-gradient(90deg, var(--mint-soft) 0 50%, var(--rose-soft) 50% 100%);',
+    ]);
   });
 });
 
@@ -494,20 +978,45 @@ describe('Graph edge rendering helpers', () => {
     expect(className).toContain('unvisited');
   });
 
-  it('renders the semantic graph legend entries', () => {
+  it('renders only the supplied contextual graph legend entries', () => {
     vi.stubGlobal('localStorage', {
       getItem: () => 'true',
       setItem: vi.fn(),
     });
 
-    const markup = renderToStaticMarkup(createElement(GraphLegend));
+    const markup = renderToStaticMarkup(
+      createElement(GraphLegend, {
+        items: [
+          { id: 'current-state', label: 'current state', swatch: 'sw-node sw-active' },
+          { id: 'main-path', label: 'main path', swatch: 'sw-edge sw-edge-main-forward' },
+          { id: 'final-state', label: 'final state', swatch: 'sw-node sw-final' },
+        ],
+      }),
+    );
 
-    expect(markup).toContain('primary path');
-    expect(markup).toContain('main feedback loop');
-    expect(markup).toContain('auxiliary/control flow');
-    expect(markup).toContain('candidate fired');
-    expect(markup).toContain('collapsed embed');
-    expect(markup).toContain('expanded embed');
+    expect(markup).toContain('current state');
+    expect(markup).toContain('main path');
+    expect(markup).toContain('final state');
+    expect(markup).toContain('sw-node sw-final');
+    expect(markup).not.toContain('visited');
+    expect(markup).not.toContain('candidate fired');
+    expect(markup).not.toContain('collapsed embed');
+  });
+
+  it('keeps legend rows hidden when localStorage has the legend collapsed', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => 'false',
+      setItem: vi.fn(),
+    });
+
+    const markup = renderToStaticMarkup(
+      createElement(GraphLegend, {
+        items: [{ id: 'current-state', label: 'current state', swatch: 'sw-node sw-active' }],
+      }),
+    );
+
+    expect(markup).toContain('aria-expanded="false"');
+    expect(markup).not.toContain('current state');
   });
 
   it('truncates long labels to fit the deterministic label width', () => {
@@ -582,6 +1091,11 @@ describe('Graph edge rendering helpers', () => {
       title: 'needsRecovery',
       grouped: true,
     });
+    expect(labels[0]?.edges.map((candidate) => candidate.id)).toEqual([
+      'plan->recover',
+      'execute->recover',
+      'review->recover',
+    ]);
   });
 
   it('uses target outcome fallback instead of branch suffixes for visible branch labels', () => {

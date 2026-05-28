@@ -151,6 +151,12 @@ metadata. Auxiliary and control-flow transitions can be rank-neutral and routed
 by ELK as normal graph edges, so repeated recovery or resume edges remain
 visible without dominating the renderer's primary node order.
 
+Hovering a visible edge highlights the edge and its visible source and target
+states. The edge title or tooltip shows its transition kind, exit, visible
+endpoints, and original semantic endpoints only when hierarchy projection makes
+them differ. Edge click or tap pinning is not part of the current graph
+interaction contract.
+
 Embedded FSM states are collapsed by default so the parent workflow remains
 readable. Internal transitions hidden by a collapsed embed become visible when
 the embed is expanded. Use the dedicated `Expand <state>` and `Collapse <state>`
@@ -159,12 +165,22 @@ state; clicking the node body still selects that visible node. Expanded embeds
 render as labeled regions whose child states have their own local entry and
 terminal ordering.
 
+Clicking a visible state also applies graph-local connected-edge highlighting
+using the visible routed endpoints on the canvas. This local graph selection is
+separate from ActivePanel scope selection, which is still invoked through the
+node click callback. Clicking the same state keeps it selected; only a true
+blank-canvas click clears it.
+
 Retry and backtracking paths use feedback-edge styling. When multiple parallel
 transitions share the same source and target, the current run history can identify
 the possible fired edges but not the exact branch, so the graph highlights those
 edges with lower-emphasis candidate-fired styling. Repeated low-information
 edge labels may be summarized or shown on hover/focus, but the underlying edge
 paths remain inspectable.
+
+The legend is contextual. Rows describe graph-specific user-facing signals such
+as current state, selected state, last transition, hidden child activity, and
+loop/back edge; they do not expose renderer-local taxonomy names.
 
 ## FSM Packages
 

@@ -56,6 +56,14 @@ be rank-neutral so they do not determine primary node order. Rank-neutral edges
 are still passed to ELK for concrete edge sections and are rendered as normal
 graph edges with titles, styling, and fired state.
 
+Graph inspection state is local to the browser renderer. Edge hover and
+clicked-state focus are computed from visible routed endpoints, so projected
+embed-host edges highlight what the user sees on the canvas. Edge titles or
+tooltips may include original semantic endpoints when they differ from those
+visible endpoints. Node clicks still invoke the ActivePanel scope callback; the
+graph-local selected state is cleared only by a true blank-canvas click. Edge
+click or tap pinning is intentionally outside the current interaction contract.
+
 When a visible scope contains any `main: true` nodes, the renderer uses
 transitions between those marked nodes as the scope's primary spine. Unmarked
 states remain semantic graph nodes and their transitions remain inspectable, but
@@ -70,6 +78,10 @@ only when that projection crosses the current visible boundary. Transitions
 inside the embedded FSM are hidden while the host is collapsed and become visible
 inside the labeled compound region after expansion, with local ranking applied
 inside that region.
+
+The contextual legend is also derived locally from current visible graph signals
+and graph-local selection. It presents user-facing labels rather than
+renderer-local role names.
 
 ## Process Control
 

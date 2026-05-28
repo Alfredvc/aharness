@@ -493,6 +493,164 @@
   font-weight: 600;
 }
 
+.edge .edge-hit-area {
+  pointer-events: stroke;
+  cursor: pointer;
+  stroke: transparent !important;
+  stroke-width: 14 !important;
+  opacity: 1 !important;
+  filter: none !important;
+  animation: none !important;
+}
+
+.edge.edge-dimmed {
+  opacity: 0.3;
+}
+.edge.edge-dimmed.fired {
+  opacity: 0.86;
+}
+.edge.edge-dimmed.candidate-fired {
+  opacity: 0.78;
+}
+.edge.edge-dimmed path:not(.edge-hit-area) {
+  filter: none;
+}
+.edge.edge-dimmed.fired path:not(.edge-hit-area) {
+  filter: drop-shadow(0 0 5px var(--plasma-glow));
+}
+.edge.edge-dimmed.candidate-fired path:not(.edge-hit-area) {
+  opacity: 0.86;
+}
+
+.edge.edge-hovered {
+  opacity: 1;
+}
+.edge.edge-hovered:not(.fired):not(.candidate-fired) path:not(.edge-hit-area) {
+  stroke-width: 2.75;
+  opacity: 1;
+  filter: drop-shadow(0 0 7px rgba(236, 233, 223, 0.2));
+}
+.edge.edge-selected-source:not(.fired):not(.candidate-fired) path:not(.edge-hit-area) {
+  stroke-width: 2.55;
+  opacity: 0.98;
+  filter: drop-shadow(0 0 5px rgba(236, 233, 223, 0.16));
+}
+.edge.edge-selected-target:not(.fired):not(.candidate-fired) path:not(.edge-hit-area) {
+  stroke-width: 2.15;
+  opacity: 0.88;
+}
+.edge.edge-selected-self:not(.fired):not(.candidate-fired) path:not(.edge-hit-area) {
+  stroke-width: 2.85;
+  opacity: 1;
+  filter: drop-shadow(0 0 6px rgba(236, 233, 223, 0.18));
+}
+.edge.edge-hovered.edge-selected-source:not(.fired):not(.candidate-fired) path:not(.edge-hit-area) {
+  stroke-width: 3;
+}
+.edge.edge-hovered.edge-selected-target:not(.fired):not(.candidate-fired) path:not(.edge-hit-area) {
+  stroke-width: 2.6;
+  opacity: 0.96;
+}
+.edge.edge-hovered.edge-selected-self:not(.fired):not(.candidate-fired) path:not(.edge-hit-area) {
+  stroke-width: 3.1;
+}
+
+.edge.fired.edge-hovered path:not(.edge-hit-area),
+.edge.fired.edge-selected-source path:not(.edge-hit-area),
+.edge.fired.edge-selected-target path:not(.edge-hit-area),
+.edge.fired.edge-selected-self path:not(.edge-hit-area) {
+  stroke: var(--plasma);
+  color: var(--plasma);
+  stroke-width: 2.95;
+  opacity: 1;
+  filter: drop-shadow(0 0 10px var(--plasma-glow));
+}
+.edge.candidate-fired.edge-hovered path:not(.edge-hit-area),
+.edge.candidate-fired.edge-selected-source path:not(.edge-hit-area),
+.edge.candidate-fired.edge-selected-target path:not(.edge-hit-area),
+.edge.candidate-fired.edge-selected-self path:not(.edge-hit-area) {
+  stroke: var(--plasma);
+  color: var(--plasma);
+  stroke-width: 2.35;
+  stroke-dasharray: 5 4;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 7px var(--plasma-glow));
+}
+
+.edge.edge-dimmed .edge-label,
+.edge.edge-dimmed .edge-label-bg {
+  opacity: 0.44;
+}
+.edge.edge-dimmed.fired .edge-label,
+.edge.edge-dimmed.fired .edge-label-bg,
+.edge.edge-dimmed.candidate-fired .edge-label,
+.edge.edge-dimmed.candidate-fired .edge-label-bg {
+  opacity: 0.86;
+}
+.edge.edge-hovered .edge-label,
+.edge.edge-selected-source .edge-label,
+.edge.edge-selected-self .edge-label {
+  fill: var(--ink);
+  font-weight: 700;
+  opacity: 1;
+}
+.edge.edge-selected-target .edge-label {
+  fill: var(--ink-soft);
+  font-weight: 600;
+  opacity: 0.92;
+}
+.edge.fired.edge-hovered .edge-label,
+.edge.fired.edge-selected-source .edge-label,
+.edge.fired.edge-selected-target .edge-label,
+.edge.fired.edge-selected-self .edge-label,
+.edge.candidate-fired.edge-hovered .edge-label,
+.edge.candidate-fired.edge-selected-source .edge-label,
+.edge.candidate-fired.edge-selected-target .edge-label,
+.edge.candidate-fired.edge-selected-self .edge-label {
+  fill: var(--plasma);
+}
+.edge.edge-hovered .edge-label-bg,
+.edge.edge-selected-source .edge-label-bg,
+.edge.edge-selected-self .edge-label-bg {
+  fill: rgba(11, 13, 18, 0.94);
+  stroke-width: 1.5;
+}
+.edge.edge-selected-target .edge-label-bg {
+  fill: rgba(11, 13, 18, 0.9);
+  stroke-width: 1.25;
+  stroke-dasharray: 4 3;
+}
+.edge.fired.edge-hovered .edge-label-bg,
+.edge.fired.edge-selected-source .edge-label-bg,
+.edge.fired.edge-selected-target .edge-label-bg,
+.edge.fired.edge-selected-self .edge-label-bg,
+.edge.candidate-fired.edge-hovered .edge-label-bg,
+.edge.candidate-fired.edge-selected-source .edge-label-bg,
+.edge.candidate-fired.edge-selected-target .edge-label-bg,
+.edge.candidate-fired.edge-selected-self .edge-label-bg {
+  stroke: var(--plasma);
+}
+
+.graph-edge-tooltip {
+  position: absolute;
+  z-index: 4;
+  box-sizing: border-box;
+  max-width: min(320px, calc(100% - 24px));
+  padding: 7px 9px;
+  border: var(--hair) solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: rgba(7, 8, 11, 0.94);
+  color: var(--ink);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(8px);
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
 .compound-region-bg {
   fill: rgba(138, 152, 255, 0.055);
   stroke: var(--indigo-deep);
@@ -660,6 +818,11 @@
   border-color: var(--amber);
   background: var(--amber-soft);
 }
+.sw-node.selected {
+  border-width: 2px;
+  border-color: var(--ink-soft);
+  background: var(--panel-3);
+}
 .sw-node.sw-visited {
   border-color: var(--ink-quiet);
   background: var(--panel-2);
@@ -676,6 +839,19 @@
 .sw-node.sw-descendant {
   border-color: var(--indigo);
   background: var(--indigo-soft);
+}
+.sw-node.sw-final {
+  border-color: var(--ink-quiet);
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--mint-soft) 0 50%, var(--rose-soft) 50% 100%);
+}
+.sw-node.sw-final::after {
+  content: '';
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  left: 50%;
+  border-left: 1px solid var(--line-strong);
 }
 .sw-node.sw-success {
   border-color: var(--mint);
@@ -1082,6 +1258,58 @@
   animation:
     nodeBreatheAmber 2.6s ease-in-out infinite,
     nodePop 460ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.node.node-dimmed {
+  opacity: 0.46;
+}
+.node.node-dimmed.active {
+  opacity: 0.82;
+}
+.node.node-dimmed.awaits,
+.node.node-dimmed.node-terminal,
+.node.node-dimmed.active-descendant {
+  opacity: 0.78;
+}
+.node.selected .node-rect {
+  stroke-width: 2.4;
+  filter: drop-shadow(0 0 7px rgba(236, 233, 223, 0.18));
+}
+.node.selected:not(.active):not(.node-terminal) .node-rect {
+  fill: var(--panel-3);
+  stroke: var(--ink-soft);
+}
+.node.selected .node-label {
+  fill: var(--ink);
+  font-weight: 700;
+}
+.node.edge-source .node-rect {
+  stroke-width: 2;
+}
+.node.edge-source:not(.active):not(.node-terminal):not(.selected) .node-rect {
+  stroke: var(--ink-soft);
+}
+.node.edge-target .node-rect {
+  stroke-dasharray: 6 3;
+}
+.node.edge-target:not(.active):not(.node-terminal):not(.selected) .node-rect {
+  stroke: var(--ink-quiet);
+}
+.node.edge-self .node-rect {
+  stroke-width: 2.3;
+  filter: drop-shadow(0 0 6px rgba(236, 233, 223, 0.16));
+}
+.node.edge-self:not(.active):not(.node-terminal):not(.selected) .node-rect {
+  stroke: var(--ink-soft);
+}
+.node.edge-source .node-label,
+.node.edge-self .node-label {
+  fill: var(--ink);
+  font-weight: 650;
+}
+.node.edge-target .node-label {
+  fill: var(--ink-soft);
+  font-weight: 600;
 }
 
 @keyframes nodeBreatheAmber {
