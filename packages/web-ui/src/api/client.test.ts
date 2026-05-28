@@ -338,6 +338,35 @@ describe('production API client', () => {
     expect(source?.close).not.toHaveBeenCalled();
   });
 
+  it('subscribeToEvents dispatches live turn and item lifecycle events', () => {
+    const dispatch = vi.fn();
+
+    subscribeToEvents({
+      uiToken: UI_TOKEN,
+      EventSourceCtor: FakeEventSource,
+      dispatch,
+      onResyncRequired: vi.fn(),
+      onConnectionLost: vi.fn(),
+    });
+
+    FakeEventSource.instances.at(-1)?.emit('TurnStarted', {
+      kind: 'TurnStarted',
+      turnId: 'turn-1',
+    });
+    FakeEventSource.instances.at(-1)?.emit('ItemStarted', {
+      kind: 'ItemStarted',
+      id: 'tool-1',
+      type: 'function_call',
+      name: 'mcp:github/create_issue',
+      arguments: '{}',
+    });
+
+    expect(dispatch).toHaveBeenCalledWith({ kind: 'TurnStarted', turnId: 'turn-1' });
+    expect(dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'ItemStarted', id: 'tool-1' }),
+    );
+  });
+
   it('signals the connection live when a valid stream event arrives after an error', () => {
     const onConnectionLost = vi.fn();
     const onConnectionLive = vi.fn();

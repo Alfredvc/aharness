@@ -1724,13 +1724,6 @@
   color: var(--mint);
   border-radius: 3px;
 }
-.agent-msg.streaming .body::after {
-  content: '▍';
-  margin-left: 2px;
-  color: var(--plasma);
-  animation: blink 1.05s steps(1) infinite;
-}
-
 .user-msg {
   padding: 14px 16px;
   border-left: 2px solid var(--plasma);

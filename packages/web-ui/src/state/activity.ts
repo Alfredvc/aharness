@@ -48,7 +48,7 @@ function findLastStreamingOrPending(transcript: TranscriptItem[]): TranscriptIte
   for (let i = transcript.length - 1; i >= 0; i--) {
     const it = transcript[i];
     if (!it) continue;
-    if (it.type === 'tool_call' && it.status === 'pending') return it;
+    if (it.type === 'tool_call' && it.status === 'pending' && !it.reserved) return it;
     if (it.type === 'agent_message' && it.streaming) return it;
     if (it.type === 'reasoning' && it.streaming) return it;
     // Stop scanning past completed message/tool boundaries.
@@ -174,6 +174,16 @@ export function deriveActivity(s: UiState): Activity {
       label: 'transitioning',
       detail: 'awaiting state change',
       tone: 'plasma',
+      motion: 'wave',
+    };
+  }
+
+  if (s.activeTurnId) {
+    return {
+      kind: 'thinking',
+      label: 'model working',
+      detail: `turn ${trim(s.activeTurnId, 32)}`,
+      tone: 'indigo',
       motion: 'wave',
     };
   }

@@ -115,6 +115,46 @@ export type AgentMessageDelta = {
   reasoning?: boolean;
 };
 
+export type ItemStarted =
+  | {
+      kind: 'ItemStarted';
+      id: string;
+      type: 'function_call';
+      name: string;
+      arguments: string;
+    }
+  | {
+      kind: 'ItemStarted';
+      id: string;
+      type: 'function_call_output';
+      name: string;
+      output: string;
+      ok: boolean;
+    }
+  | {
+      kind: 'ItemStarted';
+      id: string;
+      type: 'agent_message';
+      text: string;
+    }
+  | {
+      kind: 'ItemStarted';
+      id: string;
+      type: 'user_message';
+      text: string;
+    }
+  | {
+      kind: 'ItemStarted';
+      id: string;
+      type: 'reasoning';
+      text: string;
+    };
+
+export type TurnStarted = {
+  kind: 'TurnStarted';
+  turnId: string;
+};
+
 export type StateChange = {
   kind: 'StateChange';
   from: string | null;
@@ -259,8 +299,10 @@ export type ResyncRequired = {
 
 export type AppEvent =
   | AgentMessageDelta
+  | ItemStarted
   | StateChange
   | FrameworkNote
+  | TurnStarted
   | TurnCompleted
   | FreshClearBoundary
   | AbandonedThreadDiagnostic
@@ -290,6 +332,7 @@ export type UiAppState = {
   mode?: UiMode;
   run: RunMeta | null;
   posture: Posture;
+  activeTurn: { turnId: string } | null;
   currentState: FsmState | null;
   topology: Topology;
   pending: {

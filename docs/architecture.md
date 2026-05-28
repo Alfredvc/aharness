@@ -30,6 +30,11 @@ does not ask Codex to remember the workflow. Instead, aharness exposes only the
 active state's allowed exits and moves the machine when a typed event satisfies
 the state's rules.
 
+The browser run UI mirrors the active turn lifecycle and user-relevant tool
+activity. It shows when a turn has started but has not produced visible text yet,
+renders tool and MCP calls as transcript rows, and keeps aharness' internal
+submit/request-input calls hidden from the default view.
+
 ## Visualization Topology
 
 The topology events sent to the browser stay semantic. Nodes describe FSM states,

@@ -58,6 +58,8 @@ export type ResyncOptions = {
 
 const STREAM_EVENT_TYPES = [
   'AgentMessageDelta',
+  'ItemStarted',
+  'TurnStarted',
   'ServerRequest',
   'OwnerInputResolved',
   'FileApprovalUpdated',

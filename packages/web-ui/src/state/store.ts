@@ -30,8 +30,17 @@ import type { Topology } from '../types/topology.js';
 // model-visible name of the dynamic_tools submit channel (headless spec §4.3.1);
 // request_user_input is codex's built-in owner-yield tool whose ServerRequest
 // is rendered separately. Dev mode reveals both.
-export const RESERVED_TOOLS = new Set<string>(['aharness_submit', 'request_user_input']);
+export const RESERVED_TOOLS = new Set<string>([
+  'aharness_submit',
+  'request_user_input',
+  'mcp__aharness_fsm__submit',
+  'mcp:aharness_fsm/submit',
+]);
 const DIAGNOSTIC_LIMIT = 100;
+
+export function isReservedToolName(name: string): boolean {
+  return RESERVED_TOOLS.has(name) || /^mcp__aharness(?:_|-).*__submit$/.test(name);
+}
 
 export type TranscriptItem =
   | {
@@ -97,6 +106,7 @@ export type UiState = {
   mode: UiMode;
   run: RunMeta | null;
   posture: Posture;
+  activeTurnId: string | null;
   state: FsmState | null;
   topology: Topology;
   transcript: TranscriptItem[];
@@ -160,6 +170,7 @@ export function createConnectingUiState(): UiState {
       submittedThisTurn: false,
       open: false,
     },
+    activeTurnId: null,
     state: null,
     topology: EMPTY_TOPOLOGY,
     transcript: [],
@@ -185,6 +196,7 @@ export function hydrateFromSnapshot(snapshot: UiSnapshot): UiState {
     mode,
     run: snapshot.state.run,
     posture: snapshot.state.posture,
+    activeTurnId: snapshot.state.activeTurn?.turnId ?? null,
     state: snapshot.state.currentState,
     topology: snapshot.state.topology ?? EMPTY_TOPOLOGY,
     transcript: [
@@ -353,6 +365,9 @@ function reduceEvent(previous: UiState, e: AppEvent): UiState {
       }
       return { ...s, transcript: t };
     }
+    case 'TurnStarted': {
+      return { ...s, activeTurnId: e.turnId };
+    }
     case 'ItemStarted': {
       // Idempotent: if an item with this id is already present, skip.
       if (s.transcript.some((i) => i.id === e.id)) return s;
@@ -389,7 +404,7 @@ function reduceEvent(previous: UiState, e: AppEvent): UiState {
           name: e.name,
           arguments: e.arguments,
           status: 'pending',
-          reserved: RESERVED_TOOLS.has(e.name),
+          reserved: isReservedToolName(e.name),
           stateVisitId: vid,
         });
       } else if (e.type === 'function_call_output') {
@@ -406,7 +421,7 @@ function reduceEvent(previous: UiState, e: AppEvent): UiState {
           name: e.name,
           output: e.output,
           ok: e.ok,
-          reserved: RESERVED_TOOLS.has(e.name),
+          reserved: isReservedToolName(e.name),
           stateVisitId: vid,
         });
       }
@@ -501,6 +516,7 @@ function reduceEvent(previous: UiState, e: AppEvent): UiState {
           },
         ],
         transcript: t,
+        activeTurnId: null,
         posture: { ...s.posture, submittedThisTurn: false },
       };
     }
@@ -554,6 +570,7 @@ function reduceEvent(previous: UiState, e: AppEvent): UiState {
             stateVisitId: vid,
           },
         ],
+        activeTurnId: null,
         posture: { ...s.posture, isAwaiting: false, submittedThisTurn: false },
       };
     }

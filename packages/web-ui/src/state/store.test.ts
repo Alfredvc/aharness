@@ -8,6 +8,7 @@ import {
   markConnectionLost,
   visibleItems,
 } from './store.js';
+import { deriveActivity } from './activity.js';
 import type { FsmState, Posture, UiSnapshot } from '../types/events.js';
 import type { Topology } from '../types/topology.js';
 
@@ -101,6 +102,7 @@ describe('headless production store helpers', () => {
     expect(state.state).toEqual(currentState);
     expect(state.topology).toEqual({ machineId: '', initial: '', nodes: [], edges: [] });
     expect(state.activeVisitId).toBe('workflow.collect#2');
+    expect(state.activeTurnId).toBeNull();
     expect(state.transcript).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -126,6 +128,64 @@ describe('headless production store helpers', () => {
         stateVisitId: 'workflow.collect#2',
       }),
     ]);
+  });
+
+  it('tracks active turns so quiet model work is visible', () => {
+    const withTurn = applyAppEvent(hydrateFromSnapshot(snapshot()), {
+      kind: 'TurnStarted',
+      turnId: 'turn-active',
+    });
+
+    expect(withTurn.activeTurnId).toBe('turn-active');
+    expect(deriveActivity(withTurn)).toEqual(
+      expect.objectContaining({
+        kind: 'thinking',
+        label: 'model working',
+      }),
+    );
+
+    const completed = applyAppEvent(withTurn, {
+      kind: 'TurnCompleted',
+      turnId: 'turn-active',
+      finishReason: 'stop',
+    });
+    expect(completed.activeTurnId).toBeNull();
+  });
+
+  it('renders non-reserved tool calls while hiding aharness internal submit calls by default', () => {
+    const initial = hydrateFromSnapshot(snapshot());
+    const withTool = applyAppEvent(initial, {
+      kind: 'ItemStarted',
+      id: 'tool-1',
+      type: 'function_call',
+      name: 'mcp:github/create_issue',
+      arguments: '{"title":"bug"}',
+    });
+    const withInternal = applyAppEvent(withTool, {
+      kind: 'ItemStarted',
+      id: 'tool-2',
+      type: 'function_call',
+      name: 'mcp__aharness_fsm__submit',
+      arguments: '{}',
+    });
+
+    expect(visibleItems(withInternal.transcript, false)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'tool_call',
+          name: 'mcp:github/create_issue',
+          reserved: false,
+        }),
+      ]),
+    );
+    expect(visibleItems(withInternal.transcript, false)).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'tool_call',
+          name: 'mcp__aharness_fsm__submit',
+        }),
+      ]),
+    );
   });
 
   it('hydrates topology from the /api/state snapshot contract', () => {

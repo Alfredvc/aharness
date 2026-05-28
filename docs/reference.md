@@ -120,6 +120,10 @@ inspection mode without starting Codex, hooks, a thread, or the FSM actor.
 Function-form prompts are shown as source so dynamic state instructions remain
 inspectable.
 
+During live runs, the same browser shell also shows the active turn state and
+user-relevant tool/MCP calls in the transcript. Internal aharness submit and
+owner-input plumbing remains hidden from the default view.
+
 ### Browser Graph
 
 The graph is laid out top-to-bottom from the FSM's semantic entry state. Reachable

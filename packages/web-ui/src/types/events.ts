@@ -43,6 +43,11 @@ export type AgentMessageDelta = {
   reasoning?: boolean;
 };
 
+export type TurnStarted = {
+  kind: 'TurnStarted';
+  turnId: string;
+};
+
 export type ItemStarted =
   | {
       kind: 'ItemStarted';
@@ -233,6 +238,7 @@ export type FrameworkNote = {
 
 export type AppEvent =
   | AgentMessageDelta
+  | TurnStarted
   | ItemStarted
   | FileChangeApproval
   | CommandApproval
@@ -260,6 +266,7 @@ export type UiAppState = {
   mode?: UiMode;
   run: RunMeta | null;
   posture: Posture;
+  activeTurn?: { turnId: string } | null;
   currentState: FsmState | null;
   topology?: Topology;
   transcript: UiTranscriptEntry[];

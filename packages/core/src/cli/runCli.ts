@@ -587,6 +587,26 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       });
     }
   };
+  const rawResponseCallNames = new Map<string, string>();
+  const threadItemToolNames = new Map<string, string>();
+  const publishThreadItemStartedForUi = (item: unknown): void => {
+    const event = threadItemStartedEventForUi(item);
+    if (!event) return;
+    if (event.type === 'function_call') {
+      threadItemToolNames.set(event.id, event.name);
+    }
+    publishUiEvent(event);
+  };
+  const publishThreadItemCompletedForUi = (item: unknown): void => {
+    const event = threadItemCompletedEventForUi(item, threadItemToolNames);
+    if (!event) return;
+    publishUiEvent(event);
+  };
+  const publishRawResponseItemForUi = (params: unknown): void => {
+    const event = rawResponseItemEventForUi(params, rawResponseCallNames);
+    if (!event) return;
+    publishUiEvent(event);
+  };
 
   let uiServer: UiServerHandle | undefined;
   const uiToken = randomBytes(18).toString('base64url');
@@ -1039,6 +1059,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
             );
             return;
           }
+          publishRawResponseItemForUi(params);
           void dispatchRawResponseItem(params, awaitResolver).catch((err: unknown) => {
             const callId = extractCallIdForLog(params);
             o.stderr.write(
@@ -1150,12 +1171,16 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   const router = startNotificationRouter({
     client: ws,
     activeThreadBinding,
-    onTurnStarted: () => {
+    onTurnStarted: (turnId) => {
       // Phase 2a: every fresh `turn/started` resets the cross-state
       // dispatcher's "I drove the next turn" flag so a subsequent
       // self-loop / no-cross-state turn falls through to drive-forward's
       // default branch.
       clearSubmittedThisTurn();
+      publishUiEvent({
+        kind: 'TurnStarted',
+        turnId: turnId ?? '<unknown>',
+      });
     },
     onTurnCompleted: () => driveForwardHandle.onTurnCompleted(),
     onItemStarted: (item, itemTurnId) => {
@@ -1166,6 +1191,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
           item,
         });
       }
+      publishThreadItemStartedForUi(item);
     },
     onItemCompleted: (item, itemTurnId) => {
       if (itemTurnId) {
@@ -1179,6 +1205,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       // dance's watcher resolves on the matching `item/completed`
       // payload and proceeds to `turn/interrupt` + `turn/start`.
       watcherRegistry.dispatch(item);
+      publishThreadItemCompletedForUi(item);
     },
     onAbandonedThreadDiagnostic: publishAbandonedThreadDiagnostic,
   });
@@ -1236,6 +1263,259 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     await closeHookSocket();
     await closeUiServer();
   }
+}
+
+type UiItemStartedEvent = Extract<AppEvent, { kind: 'ItemStarted' }>;
+
+function threadItemStartedEventForUi(item: unknown): UiItemStartedEvent | null {
+  const record = asUiRecord(item);
+  if (!record) return null;
+
+  const type = readStringField(record, 'type');
+  const id = readItemId(record);
+  if (!type || !id) return null;
+
+  if (type === 'agentMessage') {
+    return { kind: 'ItemStarted', id, type: 'agent_message', text: readItemText(record) };
+  }
+  if (type === 'userMessage') {
+    return { kind: 'ItemStarted', id, type: 'user_message', text: readItemText(record) };
+  }
+  if (type === 'reasoning' || type === 'agentReasoning') {
+    return { kind: 'ItemStarted', id, type: 'reasoning', text: readItemText(record) };
+  }
+  if (isUiToolThreadItemType(type)) {
+    return {
+      kind: 'ItemStarted',
+      id,
+      type: 'function_call',
+      name: readUiToolName(record, type),
+      arguments: readUiToolArguments(record, type),
+    };
+  }
+
+  return null;
+}
+
+function threadItemCompletedEventForUi(
+  item: unknown,
+  startedToolNames: Map<string, string>,
+): UiItemStartedEvent | null {
+  const record = asUiRecord(item);
+  if (!record) return null;
+
+  const type = readStringField(record, 'type');
+  const id = readItemId(record);
+  if (!type || !id || !isUiToolThreadItemType(type)) return null;
+
+  const name = startedToolNames.get(id) ?? readUiToolName(record, type);
+  startedToolNames.delete(id);
+  return {
+    kind: 'ItemStarted',
+    id: `${id}:output`,
+    type: 'function_call_output',
+    name,
+    output: readUiToolOutput(record),
+    ok: readUiToolOk(record),
+  };
+}
+
+function rawResponseItemEventForUi(
+  params: unknown,
+  callNames: Map<string, string>,
+): UiItemStartedEvent | null {
+  const record = asUiRecord(params);
+  const item = asUiRecord(record?.['item']);
+  if (!item) return null;
+
+  const type = readStringField(item, 'type');
+  if (type === 'function_call') {
+    const callId = readStringField(item, 'call_id');
+    const name = readStringField(item, 'name');
+    const args = readStringField(item, 'arguments');
+    if (!callId || !name || args === undefined) return null;
+    callNames.set(callId, name);
+    return {
+      kind: 'ItemStarted',
+      id: callId,
+      type: 'function_call',
+      name,
+      arguments: args,
+    };
+  }
+
+  if (type === 'function_call_output') {
+    const callId = readStringField(item, 'call_id');
+    if (!callId) return null;
+    const name = readStringField(item, 'name') ?? callNames.get(callId) ?? 'function_call';
+    callNames.delete(callId);
+    return {
+      kind: 'ItemStarted',
+      id: `${callId}:output`,
+      type: 'function_call_output',
+      name,
+      output: formatUiValue(readUnknownField(item, 'output')),
+      ok: readUiToolOk(item),
+    };
+  }
+
+  return null;
+}
+
+function isUiToolThreadItemType(type: string): boolean {
+  return (
+    type === 'functionCall' ||
+    type === 'mcpToolCall' ||
+    type === 'commandExecution' ||
+    type === 'execCommand' ||
+    type === 'collabAgentToolCall' ||
+    type === 'spawnAgentToolCall'
+  );
+}
+
+function readUiToolName(record: Record<string, unknown>, type: string): string {
+  if (type === 'commandExecution' || type === 'execCommand') return 'bash';
+  if (type === 'mcpToolCall') {
+    const server =
+      readStringField(record, 'serverName') ??
+      readStringField(record, 'server') ??
+      readNestedStringField(record, ['params', 'serverName']) ??
+      readNestedStringField(record, ['params', 'server']);
+    const tool =
+      readStringField(record, 'toolName') ??
+      readStringField(record, 'name') ??
+      readNestedStringField(record, ['params', 'toolName']) ??
+      readNestedStringField(record, ['params', 'name']);
+    if (server && tool) return `mcp:${server}/${tool}`;
+    if (tool) return `mcp:${tool}`;
+    return 'mcp tool';
+  }
+  if (type === 'spawnAgentToolCall') return 'spawn_agent';
+  if (type === 'collabAgentToolCall') return 'collab_agent';
+  return readStringField(record, 'name') ?? readStringField(record, 'toolName') ?? type;
+}
+
+function readUiToolArguments(record: Record<string, unknown>, type: string): string {
+  if (type === 'commandExecution' || type === 'execCommand') {
+    const command =
+      readStringField(record, 'command') ??
+      readNestedStringField(record, ['params', 'command']) ??
+      readStringField(record, 'cmd');
+    const cwd = readStringField(record, 'cwd') ?? readNestedStringField(record, ['params', 'cwd']);
+    return formatUiValue(compactObject({ command, cwd }));
+  }
+
+  return formatUiValue(
+    readUnknownField(record, 'arguments') ??
+      readUnknownField(record, 'args') ??
+      readUnknownField(record, 'input') ??
+      readUnknownField(record, 'params'),
+  );
+}
+
+function readUiToolOutput(record: Record<string, unknown>): string {
+  const error = readUnknownField(record, 'error');
+  if (error !== undefined && error !== null) return formatUiValue(error);
+  return formatUiValue(
+    readUnknownField(record, 'output') ??
+      readUnknownField(record, 'result') ??
+      readUnknownField(record, 'message') ??
+      readUnknownField(record, 'status'),
+  );
+}
+
+function readUiToolOk(record: Record<string, unknown>): boolean {
+  if (
+    readUnknownField(record, 'error') !== undefined &&
+    readUnknownField(record, 'error') !== null
+  ) {
+    return false;
+  }
+  const status = readStringField(record, 'status')?.toLowerCase();
+  if (!status) return true;
+  return !['failed', 'failure', 'error', 'errored', 'cancelled', 'canceled', 'declined'].includes(
+    status,
+  );
+}
+
+function readItemId(record: Record<string, unknown>): string | null {
+  return (
+    readStringField(record, 'id') ??
+    readStringField(record, 'callId') ??
+    readStringField(record, 'call_id') ??
+    null
+  );
+}
+
+function readItemText(record: Record<string, unknown>): string {
+  const text =
+    readStringField(record, 'text') ??
+    readStringField(record, 'message') ??
+    readContentText(readUnknownField(record, 'content')) ??
+    readContentText(readUnknownField(record, 'contentItems'));
+  return text ?? '';
+}
+
+function readContentText(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (!Array.isArray(value)) return null;
+  const parts: string[] = [];
+  for (const item of value) {
+    const record = asUiRecord(item);
+    const text = record ? readStringField(record, 'text') : null;
+    if (text) parts.push(text);
+  }
+  return parts.length > 0 ? parts.join('\n') : null;
+}
+
+function asUiRecord(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function readStringField(record: Record<string, unknown>, field: string): string | undefined {
+  const value = record[field];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function readNestedStringField(
+  record: Record<string, unknown>,
+  path: ReadonlyArray<string>,
+): string | undefined {
+  let current: unknown = record;
+  for (const segment of path) {
+    const nested = asUiRecord(current);
+    if (!nested) return undefined;
+    current = nested[segment];
+  }
+  return typeof current === 'string' ? current : undefined;
+}
+
+function readUnknownField(record: Record<string, unknown>, field: string): unknown {
+  return record[field];
+}
+
+function compactObject(record: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
+}
+
+function formatUiValue(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value === 'string') return value;
+  try {
+    return JSON.stringify(value, null, 2) ?? formatUiValueFallback(value);
+  } catch {
+    return formatUiValueFallback(value);
+  }
+}
+
+function formatUiValueFallback(value: unknown): string {
+  if (typeof value === 'bigint') return value.toString();
+  if (typeof value === 'symbol') {
+    return value.description ? `Symbol(${value.description})` : 'Symbol()';
+  }
+  if (typeof value === 'function') return '[function]';
+  return '[unserializable value]';
 }
 
 function formatInputFlagError(o: {

@@ -193,6 +193,7 @@ describe('startUiServer', () => {
           submittedThisTurn: false,
           open: false,
         },
+        activeTurn: null,
         currentState: state,
         topology: {
           machineId: '',
@@ -320,6 +321,7 @@ describe('startUiServer', () => {
           submittedThisTurn: true,
           open: true,
         },
+        activeTurn: null,
         currentState: state,
         topology: {
           machineId: '',

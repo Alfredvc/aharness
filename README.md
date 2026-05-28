@@ -86,7 +86,9 @@ npx aharness ./workflow.fsm.ts
 
 `verify` checks the machine before any model run. `visualize` opens the browser
 graph without starting Codex. Running the FSM starts Codex, opens the aharness
-UI, and writes run artifacts under `.aharness/runs/<runId>/`.
+UI, shows live turn/tool activity in the browser transcript, and writes run
+artifacts under `.aharness/runs/<runId>/`. Internal aharness submit calls stay
+out of the default transcript.
 
 ## Write A Workflow
 

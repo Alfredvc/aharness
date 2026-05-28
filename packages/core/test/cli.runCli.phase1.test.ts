@@ -2043,7 +2043,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
     );
   }, 10_000);
 
-  it('publishes StateChange and AgentMessageDelta while preserving stdout fallback', async () => {
+  it('publishes StateChange, AgentMessageDelta, and visible tool-call events while preserving stdout fallback', async () => {
     const { machine, sidecar } = buildTwoStateMachineAndSidecar();
     const { handle, connect } = makeSyntheticConnectStub();
     const { stdout, chunks: stdoutChunks } = makeStdoutCapture();
@@ -2066,6 +2066,37 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
         jsonrpc: '2.0',
         method: METHOD.agentMessageDelta,
         params: { threadId, turnId: 't-kick', itemId: 'msg-1', delta: 'hello browser' },
+      });
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.itemStarted,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          item: {
+            type: 'mcpToolCall',
+            id: 'mcp-1',
+            serverName: 'github',
+            toolName: 'create_issue',
+            params: { title: 'bug' },
+          },
+        },
+      });
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          item: {
+            type: 'mcpToolCall',
+            id: 'mcp-1',
+            serverName: 'github',
+            toolName: 'create_issue',
+            status: 'completed',
+            output: 'created #1',
+          },
+        },
       });
 
       handle.push({
@@ -2104,9 +2135,28 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
     expect(stdoutChunks.join('')).toContain('[transition] a --done--> b');
 
     expect(events.map((e) => e.event)).toContainEqual({
+      kind: 'TurnStarted',
+      turnId: 't-kick',
+    });
+    expect(events.map((e) => e.event)).toContainEqual({
       kind: 'AgentMessageDelta',
       id: 'msg-1',
       delta: 'hello browser',
+    });
+    expect(events.map((e) => e.event)).toContainEqual({
+      kind: 'ItemStarted',
+      id: 'mcp-1',
+      type: 'function_call',
+      name: 'mcp:github/create_issue',
+      arguments: JSON.stringify({ title: 'bug' }, null, 2),
+    });
+    expect(events.map((e) => e.event)).toContainEqual({
+      kind: 'ItemStarted',
+      id: 'mcp-1:output',
+      type: 'function_call_output',
+      name: 'mcp:github/create_issue',
+      output: 'created #1',
+      ok: true,
     });
     expect(events.map((e) => e.event)).toContainEqual(
       expect.objectContaining({

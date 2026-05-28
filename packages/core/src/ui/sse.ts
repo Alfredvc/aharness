@@ -51,6 +51,7 @@ function createInitialState(run: RunMeta | null, topology: Topology, mode?: UiMo
       submittedThisTurn: false,
       open: false,
     },
+    activeTurn: null,
     currentState: null,
     topology,
     pending: emptyPending(),
@@ -93,6 +94,11 @@ function applyEventToState(state: UiAppState, event: AppEvent): void {
       }
       break;
     }
+    case 'ItemStarted':
+      break;
+    case 'TurnStarted':
+      state.activeTurn = { turnId: event.turnId };
+      break;
     case 'StateChange':
       state.currentState = event.newState;
       break;
@@ -101,6 +107,9 @@ function applyEventToState(state: UiAppState, event: AppEvent): void {
       break;
     case 'TurnCompleted':
       state.completedTurns.push(event);
+      if (state.activeTurn === null || state.activeTurn.turnId === event.turnId) {
+        state.activeTurn = null;
+      }
       break;
     case 'FreshClearBoundary':
       state.transcript = [];
@@ -111,6 +120,7 @@ function applyEventToState(state: UiAppState, event: AppEvent): void {
         isAwaiting: false,
         submittedThisTurn: false,
       };
+      state.activeTurn = null;
       break;
     case 'AbandonedThreadDiagnostic':
       state.diagnostics = [...state.diagnostics, event].slice(-DIAGNOSTIC_LIMIT);

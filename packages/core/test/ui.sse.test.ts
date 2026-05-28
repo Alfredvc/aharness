@@ -93,6 +93,7 @@ describe('createUiEventLog', () => {
           submittedThisTurn: false,
           open: false,
         },
+        activeTurn: null,
         currentState: state,
         topology: {
           machineId: '',
@@ -291,6 +292,16 @@ describe('createUiEventLog', () => {
       submittedThisTurn: true,
       open: false,
     });
+  });
+
+  it('tracks the active turn in the replayable snapshot', () => {
+    const log = createUiEventLog({ capacity: 8, run: runMeta });
+
+    log.publish({ kind: 'TurnStarted', turnId: 'turn-1' });
+    expect(log.snapshot().state.activeTurn).toEqual({ turnId: 'turn-1' });
+
+    log.publish({ kind: 'TurnCompleted', turnId: 'turn-1', finishReason: 'stop' });
+    expect(log.snapshot().state.activeTurn).toBeNull();
   });
 
   it('fresh-clear boundary clears active transcript turns and pending state while preserving run state', () => {
