@@ -1,5 +1,5 @@
 import { assign } from 'xstate';
-import { harness, state, exit, final, embed, arg } from '@aharness/core';
+import { aharness, state, exit, final, embed, arg } from '@aharness/core';
 import child from './child-spec.fsm.js';
 
 interface ParentCtx {
@@ -10,7 +10,7 @@ interface GoPayload {
   readonly ready: boolean;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'pipeline',
   input: {
     topic: arg<string>({ description: 'Project topic' }),

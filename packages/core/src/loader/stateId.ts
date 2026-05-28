@@ -7,14 +7,14 @@
  *       parent: {
  *         states: {
  *           child: {
- *             meta: { harness: state({ exits: { ... } }) },   <-- the call expression
+ *             meta: { aharness: state({ exits: { ... } }) },   <-- the call expression
  *           },
  *         },
  *       },
  *     }
  *
  * Walking up parents from the `state({ exits: { ... } })` call yields a chain of
- * `PropertyAssignment` nodes (`harness`, `meta`, `child`, `parent`,
+ * `PropertyAssignment` nodes (`aharness`, `meta`, `child`, `parent`,
  * `states`, …). The state-id segments are exactly those `PropertyAssignment`s
  * whose enclosing `ObjectLiteralExpression` is the value of a sibling
  * `PropertyAssignment` named `states` (i.e. they live directly under a

@@ -9,7 +9,7 @@ import { checkPackageSourceConstraints } from '../src/fsmPackage/sourceConstrain
 import type { DiscoveredFsmCommand } from '../src/fsmPackage/types.js';
 
 function tmpPackage(): string {
-  return mkdtempSync(path.join(os.tmpdir(), 'harness-fsm-package-source-'));
+  return mkdtempSync(path.join(os.tmpdir(), 'aharness-fsm-package-source-'));
 }
 
 async function writeSource(root: string, relativePath: string, body: string): Promise<string> {

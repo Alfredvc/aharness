@@ -3,10 +3,10 @@
 // to verify the loader's cycle guard breaks the recursion at the AST level.
 // At runtime, the matching pair would form an import cycle and fail; that
 // is the runtime verifier's `embedding-acyclic` job, not the loader's.
-import { harness, state, exit, final, embed } from '@aharness/core';
+import { aharness, state, exit, final, embed } from '@aharness/core';
 import other from './loader-cycle-b.fsm.js';
 
-export default harness.machine({
+export default aharness.machine({
   id: 'loaderCycleA',
   initial: 'go',
   states: {

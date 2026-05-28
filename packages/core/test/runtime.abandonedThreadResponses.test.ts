@@ -39,7 +39,7 @@ function ownerInputParams(): ToolRequestUserInputParams {
 describe('abandoned-thread response helpers', () => {
   it('pins the abandoned dynamic-tool response message and shape', () => {
     expect(ABANDONED_THREAD_DYNAMIC_TOOL_MESSAGE).toBe(
-      'harness: request belongs to an abandoned thread after clearOnEntry; ignored.',
+      'aharness: request belongs to an abandoned thread after clearOnEntry; ignored.',
     );
     expect(buildAbandonedDynamicToolCallResponse()).toEqual({
       success: false,

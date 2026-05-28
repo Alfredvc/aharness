@@ -12,14 +12,14 @@
  *                                                              │
  *                                                              └→ done (final)
  */
-import { harness, state, exit, final, embed } from '../../../src/index.js';
+import { aharness, state, exit, final, embed } from '../../../src/index.js';
 import child from './child-with-await-final.fsm.js';
 
 interface RouteData {
   readonly choice: 'embed' | 'skip';
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'parent-await',
   initial: 'router',
   states: {

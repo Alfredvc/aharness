@@ -73,7 +73,7 @@
 // `approval_policy = OnRequest` for the headless DAEMON. The spike opts
 // OUT (`approval_policy=never`, `sandbox_mode=danger-full-access`) to
 // keep the measurement free of approval ServerRequests. Production
-// daemon uses the locked policy; the measurement harness does not.
+// daemon uses the locked policy; the measurement aharness does not.
 //
 // ## CLI
 //

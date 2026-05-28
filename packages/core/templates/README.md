@@ -1,6 +1,6 @@
 # __PROJECT_NAME__
 
-A harness FSM scaffolded by `aharness init`.
+An aharness FSM scaffolded by `aharness init`.
 
 ## Run
 
@@ -13,7 +13,7 @@ A harness FSM scaffolded by `aharness init`.
 ## Edit
 
 - `hello.fsm.ts` — the FSM definition. Add states, exits, payloads.
-- See the harness docs and example FSMs at `<harness-repo-url>`.
+- See the aharness docs and example FSMs at `<aharness-repo-url>`.
 
 ## Develop
 

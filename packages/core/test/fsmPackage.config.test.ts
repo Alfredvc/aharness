@@ -11,7 +11,7 @@ import {
 } from '../src/fsmPackage/config.js';
 
 async function tmpPackage(): Promise<string> {
-  return mkdtemp(path.join(os.tmpdir(), 'harness-fsm-package-config-'));
+  return mkdtemp(path.join(os.tmpdir(), 'aharness-fsm-package-config-'));
 }
 
 function validPackageJson(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -24,7 +24,7 @@ function validPackageJson(overrides: Record<string, unknown> = {}): Record<strin
     dependencies: {
       '@aharness/core': '^0.1.0',
     },
-    harness: {
+    aharness: {
       package: {
         bin: 'ah-superpowers',
         fsmsDir: 'fsms',
@@ -113,18 +113,18 @@ describe('fsm package config', () => {
     }
   });
 
-  it('rejects missing or malformed harness.package metadata', () => {
+  it('rejects missing or malformed aharness.package metadata', () => {
     const missing = validatePackageConfig({
       packageRoot: '/repo/package',
-      packageJson: validPackageJson({ harness: undefined }),
+      packageJson: validPackageJson({ aharness: undefined }),
     });
     expect(missing.ok).toBe(false);
     if (!missing.ok)
-      expect(missing.diagnostics.map((d) => d.code)).toContain('harness-package-missing');
+      expect(missing.diagnostics.map((d) => d.code)).toContain('aharness-package-missing');
 
     const malformed = validatePackageConfig({
       packageRoot: '/repo/package',
-      packageJson: validPackageJson({ harness: { package: { bin: 42, fsmsDir: 'fsms' } } }),
+      packageJson: validPackageJson({ aharness: { package: { bin: 42, fsmsDir: 'fsms' } } }),
     });
     expect(malformed.ok).toBe(false);
     if (!malformed.ok) expect(malformed.diagnostics.map((d) => d.code)).toContain('bin-invalid');
@@ -135,7 +135,7 @@ describe('fsm package config', () => {
       packageRoot: '/repo/package',
       packageJson: validPackageJson({
         bin: { superpowers: './bin/superpowers.mjs' },
-        harness: { package: { bin: 'superpowers', fsmsDir: 'fsms' } },
+        aharness: { package: { bin: 'superpowers', fsmsDir: 'fsms' } },
       }),
     });
 
@@ -204,7 +204,7 @@ describe('fsm package config', () => {
     const result = validatePackageConfig({
       packageRoot: '/repo/package',
       packageJson: validPackageJson({
-        harness: { package: { bin: 'ah-superpowers', fsmsDir: '../fsms' } },
+        aharness: { package: { bin: 'ah-superpowers', fsmsDir: '../fsms' } },
       }),
     });
 

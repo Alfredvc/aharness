@@ -141,14 +141,14 @@ describe('spawnAppServer argv construction', () => {
     const { spawnAppServer } = await import('../src/appServer/spawn.js');
     const promise = spawnAppServer({
       host: '127.0.0.1',
-      extraEnv: { HARNESS_TEST_ARGV_MARKER: '1' },
+      extraEnv: { AHARNESS_TEST_ARGV_MARKER: '1' },
     });
 
     queueMicrotask(() => child.emit('exit', 1));
     await expect(promise).rejects.toBeDefined();
 
     const opts = spawnMock.mock.calls[0]![2] as { env: Record<string, string> };
-    expect(opts.env['HARNESS_TEST_ARGV_MARKER']).toBe('1');
+    expect(opts.env['AHARNESS_TEST_ARGV_MARKER']).toBe('1');
     // CODEX_HOME must not be injected by spawnAppServer; it inherits from
     // process.env if (and only if) the parent had it set.
     if (process.env['CODEX_HOME'] === undefined) {
@@ -181,7 +181,7 @@ describe('spawnAppServer unix transport', () => {
     // throw synchronously with a clear message before exec.
     await expect(
       spawnAppServerForTest({
-        sockPath: '/tmp/harness/run-x/app-server.sock',
+        sockPath: '/tmp/aharness/run-x/app-server.sock',
         host: '127.0.0.1',
         spawn: fakeSpawn,
         waitForReady: async () => undefined,
@@ -190,14 +190,14 @@ describe('spawnAppServer unix transport', () => {
 
     // With only `sockPath`, the argv must list `--listen unix://<path>`.
     await spawnAppServerForTest({
-      sockPath: '/tmp/harness/run-x/app-server.sock',
+      sockPath: '/tmp/aharness/run-x/app-server.sock',
       spawn: fakeSpawn,
       waitForReady: async () => undefined,
     });
     expect(captured.args).toEqual([
       'app-server',
       '--listen',
-      'unix:///tmp/harness/run-x/app-server.sock',
+      'unix:///tmp/aharness/run-x/app-server.sock',
     ]);
   });
 });

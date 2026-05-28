@@ -1,9 +1,9 @@
 import { describe, expectTypeOf, it } from 'vitest';
-import { embed, harness, state, exit, final, arg, createFsm, type InputOf } from '../src/index.js';
+import { embed, aharness, state, exit, final, arg, createFsm, type InputOf } from '../src/index.js';
 
 describe('embed() — static type-check of input projection', () => {
   // Build a child once for all tests; type inference reads from `typeof child`.
-  const child = harness.machine({
+  const child = aharness.machine({
     input: {
       topic: arg<string>(),
       runs: arg<number>({ default: 3 }),
@@ -98,7 +98,7 @@ describe('createFsm().embed — canonical input projection contract', () => {
     },
   });
 
-  it('accepts a HarnessMachine child and an input projection returning InputOf<typeof child>', () => {
+  it('accepts a AharnessMachine child and an input projection returning InputOf<typeof child>', () => {
     const parentFsm = createFsm<ParentData>();
     parentFsm.embed(child, {
       input: (data) => {

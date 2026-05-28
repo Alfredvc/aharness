@@ -97,7 +97,7 @@ export const REQUIREMENT_SPEC_SHORTEST_WALK: ReadonlyArray<WalkStep> = [
  * marks it as accepting "other" text before emitting the server request.
  *
  * Why built-in instead of an MCP tool: the prior design routed the
- * owner-yield through a harness-owned `request_owner_text` MCP tool, but
+ * owner-yield through an aharness-owned `request_owner_text` MCP tool, but
  * that deadlocked codex's turn loop — the daemon had to observe the
  * user's reply mid-tool-call, but `userMessage` thread items are only
  * emitted after the turn loop drains pending input, which doesn't
@@ -132,12 +132,12 @@ export function buildAssistantTurnForOwnerText(messageToUser: string): SseEvent[
  * dispatch (single dynamic tool; the daemon routes on `state` + `exit`).
  *
  * The function_call output_item is split as
- * `{name: "submit", namespace: "mcp__harness_fsm__"}` per codex's
+ * `{name: "submit", namespace: "mcp__aharness_fsm__"}` per codex's
  * namespace-tool registration shape — the MCP child registers `submit`
- * under server `harness_fsm`, codex namespaces it model-side, and
+ * under server `aharness_fsm`, codex namespaces it model-side, and
  * `connection_manager.resolve_tool_info()` does strict equality on
  * `ToolName{name, namespace}` (`codex-mcp/src/connection_manager.rs:616-621`).
- * A flat `name="mcp__harness_fsm__submit"` would silently miss the
+ * A flat `name="mcp__aharness_fsm__submit"` would silently miss the
  * lookup and route to a non-existent function handler.
  */
 export function buildSubmitTurn(stateId: string, exitName: string, data: unknown): SseEvent[] {
@@ -146,7 +146,7 @@ export function buildSubmitTurn(stateId: string, exitName: string, data: unknown
       'submit',
       { state: stateId, exit: exitName, data },
       undefined,
-      'mcp__harness_fsm__',
+      'mcp__aharness_fsm__',
     ),
     sseTurnComplete(),
   ];

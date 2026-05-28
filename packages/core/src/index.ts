@@ -24,8 +24,8 @@ export const PACKAGE_NAME = '@aharness/core' as const;
 // ---------------------------------------------------------------------------
 
 // Author primitives.
-export { harness } from './state/machine.js';
-export type { HarnessMachine } from './state/machine.js';
+export { aharness } from './state/machine.js';
+export type { AharnessMachine } from './state/machine.js';
 export { createFsm } from './state/createFsm.js';
 export { state, exit, terminal, final, passive, exitCatalogFromMeta } from './state/exits.js';
 export type {
@@ -61,7 +61,7 @@ export type {
   PermissionRequestHook,
 } from './state/hooks.js';
 export { discoverDeclaredHookKinds } from './state/discoverHooks.js';
-export type { HarnessOps } from './state/harnessOps.js';
+export type { AharnessOps } from './state/aharnessOps.js';
 export { arg, isArgSentinel } from './state/args.js';
 export type {
   ArgSentinel,
@@ -90,13 +90,13 @@ export { deriveRunId, ensureRunDir, fsmHash6 } from './run.js';
 export { loadSnapshot, type Snapshot } from './snapshot.js';
 
 // State-introspection / schema-meta helpers.
-export { iterStates, getHarnessMeta, stateKeyPath } from './state.js';
+export { iterStates, getAharnessMeta, stateKeyPath } from './state.js';
 
 // Types.
 export type {
-  HarnessInput,
-  HarnessMeta,
-  HarnessStateMeta,
+  AharnessInput,
+  AharnessMeta,
+  AharnessStateMeta,
   RunCtx,
   RunDir,
   SchemaSidecar,

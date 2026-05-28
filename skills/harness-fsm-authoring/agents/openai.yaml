@@ -1,4 +1,0 @@
-interface:
-  display_name: 'Harness FSM Authoring'
-  short_description: 'Author general @aharness/core FSMs'
-  default_prompt: 'Use $harness-fsm-authoring to design and author a @aharness/core FSM for this workflow.'

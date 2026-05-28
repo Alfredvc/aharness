@@ -1,5 +1,5 @@
-import { harness, state, exit, final } from '../../../src/index.js';
-export default harness.machine({
+import { aharness, state, exit, final } from '../../../src/index.js';
+export default aharness.machine({
   id: 'cyclicB',
   initial: 'go',
   states: {

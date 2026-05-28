@@ -54,7 +54,7 @@ async function runPackage(
     cwd,
     stdout: stdout.stream,
     stderr: stderr.stream,
-    harnessCoreVersion: '1.2.3',
+    aharnessCoreVersion: '1.2.3',
   });
   return { exitCode: result.exitCode, stdout: stdout.text(), stderr: stderr.text() };
 }
@@ -111,8 +111,8 @@ afterEach(async () => {
 
 describe('generated FSM package bin', () => {
   it('builds through the package CLI and executes list and verify with node', async () => {
-    const packageRoot = tmpRoot('harness-package-runner-integration-');
-    const callerRoot = tmpRoot('harness-package-runner-caller-');
+    const packageRoot = tmpRoot('aharness-package-runner-integration-');
+    const callerRoot = tmpRoot('aharness-package-runner-caller-');
     await cp(fixtureRoot, packageRoot, { recursive: true });
 
     const init = await runPackage(packageRoot, [

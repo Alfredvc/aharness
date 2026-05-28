@@ -1,6 +1,6 @@
 /**
  * State-entry observer — composes the per-state orientation nudge from the
- * active leaf's `HarnessStateMeta` and routes it through `injectNudge`.
+ * active leaf's `AharnessStateMeta` and routes it through `injectNudge`.
  *
  * The submit dispatcher (see `daemon/dispatchSubmit.ts` §5.5 step 5) injects
  * the post-transition orientation **inline** with its success reply, which
@@ -27,7 +27,7 @@
  * orientation and the inject-side orientation cannot drift.
  */
 import type { RunCtx, SchemaSidecar } from '../types.js';
-import type { HarnessOps } from '../state/harnessOps.js';
+import type { AharnessOps } from '../state/aharnessOps.js';
 
 import type { ActorHost } from './actorHost.js';
 import { composeStateNudge, type ExitSpec } from './nudge.js';
@@ -46,12 +46,12 @@ export interface OnStateEntryOpts {
   /**
    * Author-facing meta-ops facade. When provided AND `firedFromResume`
    * is `false`, the active leaf's
-   * `meta.harness.onEntry(ctx, ops)` is invoked after the orientation
+   * `meta.aharness.onEntry(ctx, ops)` is invoked after the orientation
    * nudge composes (FSM meta-ops design §4.3). Errors from the author
    * hook are re-injected via `injectNudge` so the model sees the
    * failure; the entry pipeline does not propagate them.
    */
-  readonly ops?: HarnessOps;
+  readonly ops?: AharnessOps;
   /**
    * `true` when this entry observation is rehydrating from a snapshot
    * rather than reacting to a live transition (FSM meta-ops design
@@ -62,7 +62,7 @@ export interface OnStateEntryOpts {
   readonly firedFromResume?: boolean;
   /**
    * Optional skill-injection service. When provided and the active
-   * state declares `meta.harness.skills`, each undeduped skill body is
+   * state declares `meta.aharness.skills`, each undeduped skill body is
    * resolved + read, the wrapped `<skill>…</skill>` text is appended to
    * the composed nudge, and the corresponding keys are committed to
    * the run-level injected set after the inject succeeds. When
@@ -70,7 +70,7 @@ export interface OnStateEntryOpts {
    * not exercise the injection path.
    */
   readonly skillService?: {
-    readonly composeBlocksForActive: (meta: import('../state/exits.js').HarnessStateMeta) => {
+    readonly composeBlocksForActive: (meta: import('../state/exits.js').AharnessStateMeta) => {
       readonly textBlocks: ReadonlyArray<string>;
       readonly commit: () => void;
     };
@@ -79,7 +79,7 @@ export interface OnStateEntryOpts {
 
 /**
  * Compose and inject the orientation nudge for the host's currently active
- * leaf. No-ops when the leaf has no harness meta or is non-stateful
+ * leaf. No-ops when the leaf has no aharness meta or is non-stateful
  * (terminal / passive) — those leaves have no exits to advertise and no
  * `entryPrompt` to evaluate.
  *
@@ -104,20 +104,20 @@ export async function onStateEntry(o: OnStateEntryOpts): Promise<void> {
       const schema = o.sidecar[stateId]?.[name]?.jsonSchema ?? { type: 'object' };
       exits.push({ kind: 'submit', name, schema });
     } else if (def.kind === 'await') {
-      const ask = resolveAwaitAsk(def.__harnessCanonical, o.host.currentContext() as RunCtx);
+      const ask = resolveAwaitAsk(def.__aharnessCanonical, o.host.currentContext() as RunCtx);
       exits.push({ kind: 'await', name, ...(ask !== undefined ? { ask } : {}) });
     }
   }
 
   let promptText: string;
   try {
-    // `currentContext()` returns `Record<string, unknown>`; the harness
-    // wrapper guarantees the framework-managed `__harness_*` fields are
+    // `currentContext()` returns `Record<string, unknown>`; the aharness
+    // wrapper guarantees the framework-managed `__aharness_*` fields are
     // populated on every snapshot, so widening to `RunCtx` is safe.
     // Mirrors the pattern used by `dispatchSubmit.ts` for the same call.
     promptText = resolveEntryPrompt(meta.entryPrompt, o.host.currentContext() as RunCtx);
   } catch (e) {
-    promptText = `(harness: error computing entryPrompt: ${(e as Error).message})`;
+    promptText = `(aharness: error computing entryPrompt: ${(e as Error).message})`;
   }
 
   // Resolve `awaitsOwnerText.messageToUser` (string or function form).
@@ -133,7 +133,7 @@ export async function onStateEntry(o: OnStateEntryOpts): Promise<void> {
       try {
         resolved = m(o.host.currentContext() as RunCtx);
       } catch (e) {
-        resolved = `(harness: error computing awaitsOwnerText.messageToUser: ${(e as Error).message})`;
+        resolved = `(aharness: error computing awaitsOwnerText.messageToUser: ${(e as Error).message})`;
       }
     }
     awaitsOwnerText = { messageToUser: resolved };
@@ -172,7 +172,7 @@ export async function onStateEntry(o: OnStateEntryOpts): Promise<void> {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       try {
-        await o.injectNudge(`(harness: onEntry hook for state '${stateId}' threw: ${msg})`);
+        await o.injectNudge(`(aharness: onEntry hook for state '${stateId}' threw: ${msg})`);
       } catch {
         // best effort — the original error already surfaced via the
         // entry-side nudge above
@@ -182,7 +182,7 @@ export async function onStateEntry(o: OnStateEntryOpts): Promise<void> {
 }
 
 function resolveAwaitAsk(
-  meta: import('../state/exits.js').AwaitExitDef['__harnessCanonical'],
+  meta: import('../state/exits.js').AwaitExitDef['__aharnessCanonical'],
   ctx: RunCtx,
 ): string | undefined {
   if (meta?.kind !== 'await') return undefined;
@@ -190,6 +190,6 @@ function resolveAwaitAsk(
   try {
     return meta.ask(ctx);
   } catch (e) {
-    return `(harness: error computing await ask: ${(e as Error).message})`;
+    return `(aharness: error computing await ask: ${(e as Error).message})`;
   }
 }

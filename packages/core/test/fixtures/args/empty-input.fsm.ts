@@ -1,6 +1,6 @@
-import { harness, state, exit, final } from '@aharness/core';
+import { aharness, state, exit, final } from '@aharness/core';
 
-export default harness.machine({
+export default aharness.machine({
   input: {},
   initial: 'go',
   states: {

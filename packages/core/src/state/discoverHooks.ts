@@ -1,6 +1,6 @@
 /**
  * Walk an XState machine and return the union of codex hook kinds the FSM
- * declares on `meta.harness.hooks` or canonical built-in hook events. Returned
+ * declares on `meta.aharness.hooks` or canonical built-in hook events. Returned
  * in PascalCase (codex's wire form) so the result is suitable as a
  * `-c hooks.<Kind>=...` key.
  *
@@ -8,7 +8,7 @@
  */
 import type { AnyStateMachine } from 'xstate';
 
-import { getHarnessMeta, iterStates } from '../state.js';
+import { getAharnessMeta, iterStates } from '../state.js';
 import type { HookKind } from './hooks.js';
 
 /**
@@ -26,7 +26,7 @@ const KIND_FIELD_TO_PASCAL: ReadonlyArray<readonly [string, HookKind]> = [
 export function discoverDeclaredHookKinds(machine: AnyStateMachine): ReadonlyArray<HookKind> {
   const found = new Set<HookKind>();
   for (const node of iterStates(machine)) {
-    const meta = getHarnessMeta(node);
+    const meta = getAharnessMeta(node);
     if (!meta || meta.kind !== 'stateful') continue;
     const hooks = meta.hooks as Record<string, ReadonlyArray<unknown> | undefined> | undefined;
     for (const [field, pascal] of KIND_FIELD_TO_PASCAL) {

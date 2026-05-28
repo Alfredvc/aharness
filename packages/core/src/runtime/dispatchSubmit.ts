@@ -1,7 +1,7 @@
 /**
  * Phase 1 + 2a + 2b + 2c submit dispatcher — server-side handler for the codex
- * `item/tool/call` server-request that routes to the harness
- * `harness_submit` dynamic tool. Sole-WS-client topology: no MCP child,
+ * `item/tool/call` server-request that routes to the aharness
+ * `aharness_submit` dynamic tool. Sole-WS-client topology: no MCP child,
  * no per-run UDS framing.
  *
  * Phase-1 scope (headless transport backbone, plan
@@ -66,7 +66,7 @@
  */
 import type { AnyStateMachine } from 'xstate';
 
-import { getHarnessMeta, iterStates, stateKeyPath } from '../state.js';
+import { getAharnessMeta, iterStates, stateKeyPath } from '../state.js';
 import { SUBMIT_TOOL_NAME } from '../protocol/submitTool.js';
 import type {
   DynamicToolCallParams,
@@ -74,8 +74,8 @@ import type {
   JsonValue,
 } from '../protocol/types.js';
 import type { ServerRequestMeta } from '../jsonrpc/client.js';
-import type { HarnessMeta, HarnessStateMeta, RunCtx, SchemaSidecar } from '../types.js';
-import type { HarnessOps } from '../state/harnessOps.js';
+import type { AharnessMeta, AharnessStateMeta, RunCtx, SchemaSidecar } from '../types.js';
+import type { AharnessOps } from '../state/aharnessOps.js';
 import {
   cloneCanonicalCallbackData,
   payloadWithCanonicalCommit,
@@ -97,7 +97,7 @@ export interface CreateSubmitDispatcherOpts {
   readonly sidecar: SchemaSidecar;
   /**
    * Flush callback. Caller closes over `runDir.snapshotPath`, `threadId`,
-   * and `harnessSubmitToolName: 'harness_submit'` and calls
+   * and `aharnessSubmitToolName: 'aharness_submit'` and calls
    * `flushHeadlessSnapshotEnvelope` internally. The dispatcher passes only the
    * actor snapshot (`host.snapshot()`) because it does not know its own
    * threadId. See Phase 1b Task 17 step 11 for the closure shape.
@@ -156,7 +156,7 @@ export interface CreateSubmitDispatcherOpts {
   }) => void;
   /**
    * Phase 2a: compose the FULL nudge for the active (post-commit) state
-   * — header (`[harness] Now in state "<id>"`), schema-rendered valid
+   * — header (`[aharness] Now in state "<id>"`), schema-rendered valid
    * exits, resolved `entryPrompt`, optional `awaitsOwnerText` preamble,
    * optional `stopGuidance`. Same shape `driveForward`'s default branch
    * sends. Invoked AFTER `host.commitSubmit` so the closure reads the
@@ -173,7 +173,7 @@ export interface CreateSubmitDispatcherOpts {
    * and before returning a success reply.
    */
   readonly runOnEntry?: () => Promise<void>;
-  readonly ops?: HarnessOps;
+  readonly ops?: AharnessOps;
   readonly writeFinalArtifacts?: (
     terminalStateId: string,
     context?: Record<string, unknown>,
@@ -188,7 +188,7 @@ export type SubmitDispatcher = (
 /**
  * Build a submit dispatcher closed over one run's host + sidecar. The
  * returned function is the JSON-RPC server-request handler the runtime
- * registers for `item/tool/call` whose `tool === 'harness_submit'`.
+ * registers for `item/tool/call` whose `tool === 'aharness_submit'`.
  */
 export function createSubmitDispatcher(o: CreateSubmitDispatcherOpts): SubmitDispatcher {
   return (
@@ -202,7 +202,7 @@ async function dispatch(
   params: DynamicToolCallParams,
   serverMeta: ServerRequestMeta | undefined,
 ): Promise<DynamicToolCallResponse> {
-  // Defensive: the runtime only routes `harness_submit` to this handler,
+  // Defensive: the runtime only routes `aharness_submit` to this handler,
   // but reject anything else with a clear internal error to avoid silent
   // misrouting.
   if (params.tool !== SUBMIT_TOOL_NAME) {
@@ -233,7 +233,7 @@ async function dispatch(
   const meta = currentStatefulMeta(o.host);
   if (!meta) {
     return errReply(
-      `Internal harness error: state '${cur}' is not stateful and has no submit exits.`,
+      `Internal aharness error: state '${cur}' is not stateful and has no submit exits.`,
     );
   }
   const exitDef = meta.exits[exit];
@@ -251,7 +251,7 @@ async function dispatch(
   // Step 4: schema validation.
   const sidecarEntry = o.sidecar[cur]?.[exit];
   if (!sidecarEntry) {
-    return errReply(`Internal harness error: no schema sidecar entry for (${cur}, ${exit}).`);
+    return errReply(`Internal aharness error: no schema sidecar entry for (${cur}, ${exit}).`);
   }
   const validation = sidecarEntry.validate(data);
   if (!validation.ok) {
@@ -269,7 +269,7 @@ async function dispatch(
   let nextContextForOrientation: Record<string, unknown> | undefined;
   let selectedBranchIndex: number | undefined;
   let selectedTarget: string | undefined;
-  const canonicalSubmit = exitDef.__harnessCanonical;
+  const canonicalSubmit = exitDef.__aharnessCanonical;
   if (canonicalSubmit?.kind === 'submit') {
     const selected = selectCanonicalSubmitBranch(
       canonicalSubmit,
@@ -291,7 +291,7 @@ async function dispatch(
   const dry = o.host.dryRunSubmit(cur, exit, dryRunPayload);
   if (!dry.ok) {
     return errReply(
-      `Internal harness error during transition projection for (${cur}, ${exit}): ` +
+      `Internal aharness error during transition projection for (${cur}, ${exit}): ` +
         `${dry.error}. Submit not applied.`,
     );
   }
@@ -347,7 +347,7 @@ async function dispatch(
   });
   if (!orientation.ok) {
     return errReply(
-      `Internal harness error while computing orientation for state '${dry.nextStateId}': ` +
+      `Internal aharness error while computing orientation for state '${dry.nextStateId}': ` +
         `${orientation.error}. Submit not applied.`,
     );
   }
@@ -364,7 +364,7 @@ async function dispatch(
       const settledMeta = o.host.currentMeta();
       if (!settledMeta || settledMeta.kind !== 'terminal') {
         return errReply(
-          `Internal harness error: passive submit target '${dry.nextStateId}' settled ` +
+          `Internal aharness error: passive submit target '${dry.nextStateId}' settled ` +
             `at non-terminal state '${settledStateId}'. Submit was applied.`,
         );
       }
@@ -462,7 +462,7 @@ async function dispatch(
     try {
       nudge = o.composeActiveStateNudge();
     } catch (e) {
-      nudge = `(harness: error composing nudge for state '${dry.nextStateId}': ${(e as Error).message})`;
+      nudge = `(aharness: error composing nudge for state '${dry.nextStateId}': ${(e as Error).message})`;
     }
     if (!o.scheduleCrossStateDance) {
       throw new Error('crossStateDance not wired');
@@ -501,7 +501,7 @@ interface OrientationErr {
 type OrientationResult = OrientationOk | OrientationErr;
 
 /**
- * Walk `iterStates` to find the projected next state's harness meta and
+ * Walk `iterStates` to find the projected next state's aharness meta and
  * resolve its orientation. Passive states ARE valid resting points in
  * general (reached via XState `always`/`entry` transitions), but they
  * cannot be SUBMIT TARGETS — a passive leaf has no exits to advertise,
@@ -535,7 +535,7 @@ function resolveOrientationForNextState(args: {
       isPassive: false,
     };
   }
-  const meta = lookupHarnessMetaByPath(args.machine, args.nextStateId);
+  const meta = lookupAharnessMetaByPath(args.machine, args.nextStateId);
   if (!meta) {
     return {
       ok: true,
@@ -580,16 +580,16 @@ function resolveOrientationForNextState(args: {
 }
 
 /**
- * Walk the machine's state tree to find the harness meta for `targetPath`.
+ * Walk the machine's state tree to find the aharness meta for `targetPath`.
  * Returns `undefined` when not found.
  */
-function lookupHarnessMetaByPath(
+function lookupAharnessMetaByPath(
   machine: AnyStateMachine,
   targetPath: string,
-): HarnessMeta | undefined {
+): AharnessMeta | undefined {
   for (const node of iterStates(machine)) {
     if (stateKeyPath(node) === targetPath) {
-      return getHarnessMeta(node);
+      return getAharnessMeta(node);
     }
   }
   return undefined;
@@ -685,11 +685,11 @@ function humanizeAjvPath(instancePath: string): string {
 }
 
 /**
- * Read the current leaf's `HarnessStateMeta` if and only if the leaf is
+ * Read the current leaf's `AharnessStateMeta` if and only if the leaf is
  * stateful. Returns `undefined` for terminal/passive/missing meta — the
  * dispatcher has no business advancing those.
  */
-function currentStatefulMeta(host: ActorHost): HarnessStateMeta | undefined {
+function currentStatefulMeta(host: ActorHost): AharnessStateMeta | undefined {
   const meta = host.currentMeta();
   if (meta?.kind === 'stateful') return meta;
   return undefined;
@@ -704,7 +704,7 @@ function errReply(text: string): DynamicToolCallResponse {
 }
 
 function selectCanonicalSubmitBranch(
-  meta: NonNullable<HarnessStateMeta['exits'][string]['__harnessCanonical']> & {
+  meta: NonNullable<AharnessStateMeta['exits'][string]['__aharnessCanonical']> & {
     kind: 'submit';
   },
   context: Record<string, unknown>,
@@ -728,7 +728,7 @@ function selectCanonicalSubmitBranch(
 }
 
 function targetForSubmitExit(
-  exitDef: HarnessStateMeta['exits'][string],
+  exitDef: AharnessStateMeta['exits'][string],
   branchIndex = 0,
 ): string | undefined {
   if (exitDef.kind === 'await') return exitDef.to;
@@ -741,8 +741,8 @@ function targetForSubmitExit(
 }
 
 function hasSubmitBranches(
-  exitDef: HarnessStateMeta['exits'][string],
-): exitDef is HarnessStateMeta['exits'][string] & {
+  exitDef: AharnessStateMeta['exits'][string],
+): exitDef is AharnessStateMeta['exits'][string] & {
   readonly when: ReadonlyArray<{ readonly to?: unknown }>;
 } {
   return 'when' in exitDef && Array.isArray(exitDef.when);

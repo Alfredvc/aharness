@@ -11,7 +11,7 @@
  *   - the submit dispatcher (validates payloads via `sidecar[stateId].validate`).
  *
  * Cache semantics: hash all `.ts`/`.tsx` files under `dirname(filePath)`
- * (recursive, skipping `node_modules`/`dist`/`.harness`/dot-dirs) plus a
+ * (recursive, skipping `node_modules`/`dist`/`.aharness`/dot-dirs) plus a
  * loader-version salt and the entry file's basename. The entry-basename
  * salt keeps two FSMs in the same directory (e.g. `parent.fsm.ts` +
  * `child-spec.fsm.ts`) from colliding on the same cache entry. On hit,
@@ -21,7 +21,7 @@
  * esbuild bundler. `noCache: true` skips the read side; the write side
  * always runs so subsequent loads warm up.
  *
- * Cache location is `<repoRoot>/.harness/cache/<hash>/`. `repoRoot` is the
+ * Cache location is `<repoRoot>/.aharness/cache/<hash>/`. `repoRoot` is the
  * user's project root (where their `package.json` and `node_modules` sit).
  * The bundled `fsm.mjs` keeps `xstate` and `@aharness/core` as runtime
  * externals; node's upward `node_modules` resolution from the cache
@@ -47,7 +47,7 @@ import type { ArgFlagMeta } from './inputSchema.js';
 export interface LoadFsmOptions {
   /** Absolute or relative path to the user's `<file>.fsm.ts`. */
   readonly filePath: string;
-  /** Project root — where `.harness/cache/` and `node_modules/` live. */
+  /** Project root — where `.aharness/cache/` and `node_modules/` live. */
   readonly repoRoot: string;
   /** When `true`, skip the cache read side (for tests / debug). */
   readonly noCache?: boolean;
@@ -66,14 +66,14 @@ export interface LoadFsmResult {
   readonly hash: string;
   /**
    * Top-level JSON Schema for the FSM's `input` declaration. Present iff the
-   * source file's default-export `harness.machine(...)` declared `input: {...}`.
-   * Consumed by the CLI argv parser (Task 14) and `harness __complete` (Phase 4).
+   * source file's default-export `aharness.machine(...)` declared `input: {...}`.
+   * Consumed by the CLI argv parser (Task 14) and `aharness __complete` (Phase 4).
    */
   readonly inputSchema?: JSONSchema7;
   /**
    * Per-field `arg<T>(meta?)` metadata. Present alongside `inputSchema`.
    * `completion: {dynamic: <fn>}` declarations are reduced to `{dynamic: true}`
-   * — the live callback is not JSON-serialisable. Phase 4's `harness __complete`
+   * — the live callback is not JSON-serialisable. Phase 4's `aharness __complete`
    * re-imports the FSM source to obtain the live callback when the user presses
    * Tab on a dynamic flag value.
    */

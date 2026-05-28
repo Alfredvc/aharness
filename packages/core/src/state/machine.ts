@@ -1,5 +1,5 @@
 /**
- * `harness.machine(config)` — wrapper that augments an XState v5 machine
+ * `aharness.machine(config)` — wrapper that augments an XState v5 machine
  * config with framework-owned actions before handing it to `setup()` +
  * `createMachine()`.
  *
@@ -9,24 +9,24 @@
  *
  * **Pass 1 — synthesis** (in `injectFrameworkActions`):
  *   For every stateful state, synthesizes `SUBMIT__<stateId>__<exitName>`
- *   and `AWAIT__<stateId>__<exitName>` `on:` keys from `meta.harness.exits`.
+ *   and `AWAIT__<stateId>__<exitName>` `on:` keys from `meta.aharness.exits`.
  *   Authors never write these keys; the verifier check
  *   `no-handwritten-submit-await-handlers` rejects FSMs that try. Before
  *   overwriting any existing keys, the synthesizer snapshots them onto
- *   `meta.harness.__harness_authoredOnKeys` so the verifier can detect
+ *   `meta.aharness.__aharness_authoredOnKeys` so the verifier can detect
  *   author collisions post-`createMachine`.
  *
  * **Pass 2 — framework action injection** (also in `injectFrameworkActions`):
- *   - Prepends a parameterised `__harnessIncrementVisit` entry action on
+ *   - Prepends a parameterised `__aharnessIncrementVisit` entry action on
  *     every stateful state (params: `{ stateId }`).
  *   - On synthesized `SUBMIT__*` transitions: prepends
- *     `__harnessClearOwnerReply` UNLESS the branch is a self-loop (`to ===
+ *     `__aharnessClearOwnerReply` UNLESS the branch is a self-loop (`to ===
  *     stateId`). Self-loop branches use `reenter: false` (XState 5 internal
- *     transition) and additionally prepend `__harnessIncrementVisit` on the
+ *     transition) and additionally prepend `__aharnessIncrementVisit` on the
  *     transition's action chain (entry does not re-fire on internal
  *     transitions, so visit++ must happen in the transition itself).
  *   - On synthesized `AWAIT__*` transitions: always prepends
- *     `__harnessAssignOwnerReply` (writes `event.payload.ownerReply` into
+ *     `__aharnessAssignOwnerReply` (writes `event.payload.ownerReply` into
  *     context).
  *
  * Author-supplied `context` factory is forwarded with its full XState v5
@@ -52,12 +52,12 @@ import {
   payloadWithCanonicalEmbeddedFinalCommit,
 } from './canonicalTransition.js';
 import { cloneConfigPreservingFns } from './cloneConfigPreservingFns.js';
-import type { HarnessInput } from '../types.js';
+import type { AharnessInput } from '../types.js';
 import type { DefaultedExitDef, FinalConfig } from './exits.js';
 import type { EmbeddedInputProjection, MinimalChildConfig } from './embed.js';
 
 /**
- * Typed wrapper return of `harness.machine({...})`. Extends `AnyStateMachine`
+ * Typed wrapper return of `aharness.machine({...})`. Extends `AnyStateMachine`
  * so existing call sites that consume the return as `AnyStateMachine`
  * continue to compile; adds two phantom slots that surface FSM-level type
  * facts at the type level:
@@ -80,7 +80,7 @@ import type { EmbeddedInputProjection, MinimalChildConfig } from './embed.js';
  * referenced in the body — hence the underscore prefix to satisfy
  * `no-unused-vars`.
  */
-export interface HarnessMachine<
+export interface AharnessMachine<
   _TContext,
   _TEvent,
   TInput,
@@ -100,7 +100,7 @@ export interface HarnessMachine<
  * Falls back to a never-keyed empty record when `TStates` widens past the
  * literal shape (e.g. when the call site annotates `states: Record<string,
  * unknown>` instead of letting `const TStates` capture the literal). The
- * `harness.machine`'s `const TStates` generic is the inference path that
+ * `aharness.machine`'s `const TStates` generic is the inference path that
  * keeps this walk live.
  */
 export type ExtractFinals<TStates> = {
@@ -109,10 +109,10 @@ export type ExtractFinals<TStates> = {
     : never]: TStates[K] extends FinalConfig<infer O> ? O : never;
 };
 
-const VISIT_ACTION = '__harnessIncrementVisit';
-const ASSIGN_OWNER_REPLY = '__harnessAssignOwnerReply';
-const CLEAR_OWNER_REPLY = '__harnessClearOwnerReply';
-const EMBEDDED_FINAL_RAISE = '__harnessEmbeddedFinalRaise';
+const VISIT_ACTION = '__aharnessIncrementVisit';
+const ASSIGN_OWNER_REPLY = '__aharnessAssignOwnerReply';
+const CLEAR_OWNER_REPLY = '__aharnessClearOwnerReply';
+const EMBEDDED_FINAL_RAISE = '__aharnessEmbeddedFinalRaise';
 
 type FinalOutputFn = (a: { context: unknown; event: unknown }) => unknown;
 type OutputRegistry = Map<string, FinalOutputFn>;
@@ -124,14 +124,14 @@ type OutputRegistry = Map<string, FinalOutputFn>;
 type AnyConfig = Record<string, unknown>;
 
 interface StateConfigShape {
-  meta?: { harness?: { kind?: string } };
+  meta?: { aharness?: { kind?: string } };
   entry?: unknown;
   on?: Record<string, unknown>;
   states?: Record<string, StateConfigShape>;
 }
 
 function isStateful(node: StateConfigShape | undefined): boolean {
-  return node?.meta?.harness?.kind === 'stateful';
+  return node?.meta?.aharness?.kind === 'stateful';
 }
 
 function asArray<T>(v: T | T[] | undefined): T[] {
@@ -157,9 +157,9 @@ interface SynthesizedTransition {
  * last entry is the unguarded catch-all).
  *
  * For each branch, framework actions are prepended in this order:
- *   1. `__harnessAssignOwnerReply` if AWAIT.
- *   2. `__harnessClearOwnerReply` if SUBMIT and NOT a self-loop.
- *   3. `__harnessIncrementVisit` if a self-loop (visit++ deposit;
+ *   1. `__aharnessAssignOwnerReply` if AWAIT.
+ *   2. `__aharnessClearOwnerReply` if SUBMIT and NOT a self-loop.
+ *   3. `__aharnessIncrementVisit` if a self-loop (visit++ deposit;
  *      external transitions get visit++ via the destination state's
  *      entry action, internal self-loops have no dest-entry).
  *   4. ...branch.actions (author actions, untouched).
@@ -286,16 +286,16 @@ function resolveEmbeddedChildContext(
 
 /**
  * Walk every state node in place. Atomic replacement of the legacy
- * walker — synthesizes SUBMIT__/AWAIT__ on: keys from `meta.harness.exits`
+ * walker — synthesizes SUBMIT__/AWAIT__ on: keys from `meta.aharness.exits`
  * (replacing any hand-written wrapping) and snapshots any pre-existing
  * SUBMIT__/AWAIT__ keys to a side-channel for the verifier to detect.
  *
  * Phase 2 additions (T8):
- *   - On embed-host nodes (`meta.harness.embedded` set, no `kind`), synthesize
+ *   - On embed-host nodes (`meta.aharness.embedded` set, no `kind`), synthesize
  *     `on: { <finalId>: <transition> }` keys from `embed.onMap` and update
  *     the recursion's `embeddedSource` cursor for descendants.
  *   - On `final()` nodes (`kind === 'terminal'`) reached while an embed
- *     subtree is active, append an `entry: __harnessEmbeddedFinalRaise`
+ *     subtree is active, append an `entry: __aharnessEmbeddedFinalRaise`
  *     action; the user's `output()` callback (when present) is registered
  *     in `outputRegistry` under a path-keyed identifier and resolved at
  *     run time by the named-action body via closure capture.
@@ -310,8 +310,8 @@ function injectFrameworkActions(
   //    synthesis overwrites them. Runs on EVERY state node (not just stateful
   //    ones) so the verifier check `no-handwritten-submit-await-handlers` can
   //    detect author-written SUBMIT__/AWAIT__ keys on passive/terminal states
-  //    too. Prefixed `__harness_` so author keys cannot collide with this field.
-  const harnessMeta = node.meta?.harness as
+  //    too. Prefixed `__aharness_` so author keys cannot collide with this field.
+  const aharnessMeta = node.meta?.aharness as
     | (Record<string, unknown> & {
         exits?: Record<
           string,
@@ -330,22 +330,22 @@ function injectFrameworkActions(
         output?: FinalOutputFn;
       })
     | undefined;
-  if (harnessMeta) {
-    // Embedded-compound nodes (`meta.harness.embedded` set, no `kind`
+  if (aharnessMeta) {
+    // Embedded-compound nodes (`meta.aharness.embedded` set, no `kind`
     // discriminant) are not stateful leaves and do not get
     // framework-synthesized SUBMIT__/AWAIT__ keys. Writing the marker on
     // them would false-flag the compound for any grandparent re-embedding
-    // walker that scans for `__harness_authoredOnKeys` to detect authored
+    // walker that scans for `__aharness_authoredOnKeys` to detect authored
     // collisions. Spec §5.1. Skip the marker; the existing recursion below
     // still walks `node.states` so leaf descendants are processed.
     const isEmbeddedCompound =
-      harnessMeta['embedded'] !== undefined && harnessMeta['kind'] === undefined;
+      aharnessMeta['embedded'] !== undefined && aharnessMeta['kind'] === undefined;
     if (!isEmbeddedCompound) {
       const originalKeys: string[] = [];
       for (const k of Object.keys(node.on ?? {})) {
         if (/^(SUBMIT|AWAIT)__/.test(k)) originalKeys.push(k);
       }
-      (harnessMeta as { __harness_authoredOnKeys?: string[] }).__harness_authoredOnKeys =
+      (aharnessMeta as { __aharness_authoredOnKeys?: string[] }).__aharness_authoredOnKeys =
         originalKeys;
     }
   }
@@ -354,28 +354,28 @@ function injectFrameworkActions(
   //     embed.onMap, and update the recursion's embeddedSource so descendant
   //     final() nodes know they are inside an embed subtree.
   let nextEmbeddedSource: string | null = embeddedSource;
-  if (harnessMeta?.embedded) {
-    nextEmbeddedSource = harnessMeta.embedded.source;
-    const materializeInput = materializeEmbeddedChildContextAction(harnessMeta.embedded);
+  if (aharnessMeta?.embedded) {
+    nextEmbeddedSource = aharnessMeta.embedded.source;
+    const materializeInput = materializeEmbeddedChildContextAction(aharnessMeta.embedded);
     if (materializeInput !== undefined) {
       const entries = asArray(node.entry);
       entries.unshift(materializeInput);
       node.entry = entries;
     }
     if (!node.on) node.on = {};
-    for (const [finalId, transition] of Object.entries(harnessMeta.embedded.onMap)) {
+    for (const [finalId, transition] of Object.entries(aharnessMeta.embedded.onMap)) {
       // Bare final-id event-type. Spec §5.2. Collision-safe because the host is
       // exclusive (verifier check `embedded-state-exclusive` in T11.5).
       const actions = asArray(transition.actions);
-      if (harnessMeta.embedded.canonicalOnMap?.[finalId] !== undefined) {
+      if (aharnessMeta.embedded.canonicalOnMap?.[finalId] !== undefined) {
         actions.unshift(
           assign(({ event }) => {
             const commitContext = canonicalEmbeddedFinalCommitContext(event);
             if (commitContext === undefined) {
               if (isCanonicalDryRun()) return {};
               throw new Error(
-                `Canonical embedded final '${finalId}' entered without harness preflight metadata. ` +
-                  'Drive canonical embeds through harness submit, await, or event dispatchers.',
+                `Canonical embedded final '${finalId}' entered without aharness preflight metadata. ` +
+                  'Drive canonical embeds through aharness submit, await, or event dispatchers.',
               );
             }
             return commitContext;
@@ -395,14 +395,14 @@ function injectFrameworkActions(
   // 1b. Terminal node inside an embed subtree — inject the entry-raise.
   //     Stash the user's output fn (if any) in the per-machine registry under
   //     a path-keyed identifier; the named-action body resolves it at run time.
-  if (harnessMeta?.kind === 'terminal' && embeddedSource !== null) {
+  if (aharnessMeta?.kind === 'terminal' && embeddedSource !== null) {
     const finalId = path[path.length - 1] ?? '';
     let registryKey: string | null = null;
-    if (typeof harnessMeta.output === 'function') {
+    if (typeof aharnessMeta.output === 'function') {
       // Use '::output' as a separator — XState state-keys cannot contain colons,
       // so '<path>::output' cannot collide with any author identifier.
       registryKey = path.join('.') + '::output';
-      outputRegistry.set(registryKey, harnessMeta.output);
+      outputRegistry.set(registryKey, aharnessMeta.output);
     }
     const entries = asArray(node.entry);
     entries.push({
@@ -422,7 +422,7 @@ function injectFrameworkActions(
     entries.unshift({ type: VISIT_ACTION, params: { stateId } });
     node.entry = entries;
     // 3. Synthesis pass — overwrite (or create) SUBMIT__/AWAIT__ keys.
-    const exits = harnessMeta?.exits ?? {};
+    const exits = aharnessMeta?.exits ?? {};
     if (!node.on) node.on = {};
     for (const [exitName, exit] of Object.entries(exits)) {
       const isAwait = exit.kind === 'await';
@@ -449,7 +449,7 @@ function injectFrameworkActions(
  * authors keep working.
  */
 function wrapContext(originalContext: unknown): unknown {
-  const defaults = { __harness_lastOwnerReply: undefined, __harness_visitCount: {} };
+  const defaults = { __aharness_lastOwnerReply: undefined, __aharness_visitCount: {} };
   if (typeof originalContext === 'function') {
     return (args: unknown) => ({
       ...defaults,
@@ -463,12 +463,12 @@ function wrapContext(originalContext: unknown): unknown {
 }
 
 /**
- * Context factory shape exposed on the `harness.machine` wrapper. Mirrors
+ * Context factory shape exposed on the `aharness.machine` wrapper. Mirrors
  * XState's `ContextFactory` but pins the `input` parameter to the resolved
  * shape of the FSM's `input: { field: arg<T>() }` declaration intersected
- * with the framework-injected `HarnessInput` slot (`runDir`, `runId`), so
+ * with the framework-injected `AharnessInput` slot (`runDir`, `runId`), so
  * authors read `input.runDir` / `input.runId` without the historical
- * `as unknown as HarnessInput` cast. The CLI runtime merges
+ * `as unknown as AharnessInput` cast. The CLI runtime merges
  * `{runId, runDir, ...userInput}` into the actor input before `createActor`
  * (see `cli/main.ts`); this type just surfaces that contract. `spawn` and
  * `self` are intentionally typed as `unknown` — XState's downstream wiring
@@ -476,13 +476,13 @@ function wrapContext(originalContext: unknown): unknown {
  * verbatim through `wrapContext`); authors who need typed actor/spawn
  * handles can fall back to XState's `setup({...}).createMachine(...)` directly.
  */
-type HarnessContextFactory<TInput, TContext> = (args: {
-  readonly input: HarnessInput & TInput;
+type AharnessContextFactory<TInput, TContext> = (args: {
+  readonly input: AharnessInput & TInput;
   readonly spawn: unknown;
   readonly self: unknown;
 }) => TContext;
 
-interface HarnessNamespace {
+interface AharnessNamespace {
   /**
    * Generic order is `<const TInput, TContext>` so TS's contextual-typing
    * pass infers `TInput` from the non-context-sensitive `input:` literal
@@ -491,7 +491,7 @@ interface HarnessNamespace {
    * return type. Authors get a typed `input` automatically (no manual
    * `({input}: {input: {topic: string}}): Ctx => …` annotation) and a
    * typed `TContext` flowing from the factory's return value (no explicit
-   * `harness.machine<Ctx>(…)` generic). The `const` modifier on `TInput`
+   * `aharness.machine<Ctx>(…)` generic). The `const` modifier on `TInput`
    * preserves `arg<string>(…)` as `ArgSentinel<string>` (otherwise TS
    * widens to `ArgSentinel<unknown>`). Pattern: TanStack Query's
    * `useQuery({queryFn, select})`.
@@ -524,7 +524,7 @@ interface HarnessNamespace {
     > & {
       // Top-level `MachineConfig` adds `version`, `output`, and a
       // conditional `context: …` intersection on top of `StateNodeConfig`.
-      // We expose `version` and the harness-typed `context:` directly here;
+      // We expose `version` and the aharness-typed `context:` directly here;
       // we deliberately DO NOT extend `MachineConfig` because the conditional
       // `(MachineContext extends TContext ? {context?:…} : {context:…})`
       // intersection breaks TS's contextual typing of our `context:` callback
@@ -535,7 +535,7 @@ interface HarnessNamespace {
       readonly version?: string;
       // Optional root-level `input` declaration: a record of `arg<T>()`
       // sentinels. The field stays on the root config after synthesis
-      // (Phase 1's `embed()` already snapshots `__harnessRawConfig` BEFORE
+      // (Phase 1's `embed()` already snapshots `__aharnessRawConfig` BEFORE
       // synthesis runs, so the snapshot preserves it for free); the
       // verifier and CLI loader read the declaration from
       // `embedded.childConfig.input` and `machine.config.input`
@@ -547,31 +547,31 @@ interface HarnessNamespace {
       // declared `input:` fields — so authors get a typed `input` without
       // manual `({input}: {input: {topic: string}}): Ctx => …` annotations.
       // The factory's return type is the inference site for `TContext`.
-      readonly context?: HarnessContextFactory<ResolveInput<TInput>, TContext>;
+      readonly context?: AharnessContextFactory<ResolveInput<TInput>, TContext>;
       // Author-visible `states:` map. Lifted out of the `Omit<…>` parent
       // (we elide `'states'` above) and re-declared here with `const
       // TStates` literal-preserving inference so `ExtractFinals<TStates>`
       // can walk each `FinalConfig<TOutput>` entry to populate
-      // `HarnessMachine.__finalsType`. The narrower `Record<string,
+      // `AharnessMachine.__finalsType`. The narrower `Record<string,
       // unknown>` constraint on `TStates` is structurally compatible with
-      // XState's per-state config shape — the `harnessMachineImpl` body
+      // XState's per-state config shape — the `aharnessMachineImpl` body
       // casts the config to `AnyConfig` before the synthesis walk runs
       // either way, so the public-surface relaxation does not weaken
       // runtime semantics.
       readonly states: TStates;
     },
-  ): HarnessMachine<TContext, AnyEventObject, ResolveInput<TInput>, ExtractFinals<TStates>>;
+  ): AharnessMachine<TContext, AnyEventObject, ResolveInput<TInput>, ExtractFinals<TStates>>;
 }
 
-// Implementation: `harness.machine(config)`. Author-facing generics
-// (`TContext`, `TEvent`, `TInput`) are declared on the `HarnessNamespace`
+// Implementation: `aharness.machine(config)`. Author-facing generics
+// (`TContext`, `TEvent`, `TInput`) are declared on the `AharnessNamespace`
 // signature above and erased here — the body cannot prove its concrete
 // return shape is assignable to the call-site-instantiated generic, so the
 // implementation accepts `config: unknown` and returns `AnyStateMachine`,
-// then the `harness` export casts the assembled namespace literal as
-// `HarnessNamespace` (a single boundary cast). Runtime semantics are
+// then the `aharness` export casts the assembled namespace literal as
+// `AharnessNamespace` (a single boundary cast). Runtime semantics are
 // identical to the typed public surface.
-function harnessMachineImpl(config: unknown): AnyStateMachine {
+function aharnessMachineImpl(config: unknown): AnyStateMachine {
   // Internally re-cast to the loose walker type because
   // `injectFrameworkActions` mutates the config (adding synthesized `on:`
   // keys, prepending entry actions) — operations that are awkward to
@@ -584,18 +584,18 @@ function harnessMachineImpl(config: unknown): AnyStateMachine {
   // `entryPrompt`, etc.) — `structuredClone` would strip them. The
   // top-level is shallow-frozen so callers cannot replace `states`; inner
   // objects stay writable so `embed()` can clone them and mutate the clone.
-  // Spec §5.1: `embed()` reads this snapshot via `__harnessRawConfig` to
+  // Spec §5.1: `embed()` reads this snapshot via `__aharnessRawConfig` to
   // walk a clean pre-synthesis copy of the child config.
   const rawSnapshot = Object.freeze(cloneConfigPreservingFns(looseConfig));
   // Per-machine registry of `final({output})` callbacks, keyed by the
   // qualified state path. The synthesizer registers each callback during
-  // the walk; the named action `__harnessEmbeddedFinalRaise` resolves
+  // the walk; the named action `__aharnessEmbeddedFinalRaise` resolves
   // entries at run time via closure capture below. No module-global
   // state — multiple compiled machines in the same process keep their
   // own callbacks. Spec §5.2.
   const outputRegistry: OutputRegistry = new Map();
   // Mutate in place — never JSON-clone. The user's config is consumed once
-  // by `harness.machine` so in-place augmentation is safe.
+  // by `aharness.machine` so in-place augmentation is safe.
   injectFrameworkActions(looseConfig, [], null, outputRegistry);
   const augmentedConfig = {
     ...(looseConfig as object),
@@ -615,14 +615,15 @@ function harnessMachineImpl(config: unknown): AnyStateMachine {
           typeof (params as { stateId?: unknown }).stateId !== 'string'
         ) {
           throw new Error(
-            `__harnessIncrementVisit: missing or non-string 'stateId' param (got ${JSON.stringify(params)})`,
+            `__aharnessIncrementVisit: missing or non-string 'stateId' param (got ${JSON.stringify(params)})`,
           );
         }
         const { stateId } = params as { stateId: string };
         const counts =
-          (context as { __harness_visitCount?: Record<string, number> }).__harness_visitCount ?? {};
+          (context as { __aharness_visitCount?: Record<string, number> }).__aharness_visitCount ??
+          {};
         return {
-          __harness_visitCount: {
+          __aharness_visitCount: {
             ...counts,
             [stateId]: (counts[stateId] ?? 0) + 1,
           },
@@ -631,13 +632,13 @@ function harnessMachineImpl(config: unknown): AnyStateMachine {
       // ASSIGN_OWNER_REPLY reads the triggering event from the first arg.
       // No params channel needed — the event itself carries the payload.
       [ASSIGN_OWNER_REPLY]: assign(({ event }) => ({
-        __harness_lastOwnerReply: (event as { payload?: { ownerReply?: string } }).payload
+        __aharness_lastOwnerReply: (event as { payload?: { ownerReply?: string } }).payload
           ?.ownerReply,
       })),
       // CLEAR_OWNER_REPLY clears unconditionally. Self-loops never receive
       // this action — `injectFrameworkActions` skips them at config-walk
       // time so the resolved transition's action array stays untouched.
-      [CLEAR_OWNER_REPLY]: assign(() => ({ __harness_lastOwnerReply: undefined })),
+      [CLEAR_OWNER_REPLY]: assign(() => ({ __aharness_lastOwnerReply: undefined })),
       // EMBEDDED_FINAL_RAISE — entry action injected on every `final()` node
       // reached inside an embed subtree. Resolves the user's `output()`
       // callback (registered by `injectFrameworkActions`) via closure-captured
@@ -677,7 +678,7 @@ function harnessMachineImpl(config: unknown): AnyStateMachine {
     },
   });
 
-  // The `harness.machine` wrapper accepts any user config shape (typed
+  // The `aharness.machine` wrapper accepts any user config shape (typed
   // through their own `setup({ types: { context, events } })` call).
   // Setup's `createMachine` expects a config narrowed against the resolved
   // generic types of the inner setup() — but our inner setup() only declares
@@ -692,7 +693,7 @@ function harnessMachineImpl(config: unknown): AnyStateMachine {
   // child's config under qualified state IDs. Non-enumerable so it does
   // not surface in `Object.keys` / `JSON.stringify`; non-configurable +
   // non-writable so callers cannot redefine or overwrite it.
-  Object.defineProperty(machine, '__harnessRawConfig', {
+  Object.defineProperty(machine, '__aharnessRawConfig', {
     value: rawSnapshot,
     enumerable: false,
     configurable: false,
@@ -703,12 +704,12 @@ function harnessMachineImpl(config: unknown): AnyStateMachine {
 }
 
 // Cast the implementation to the typed namespace surface. The runtime
-// `harnessMachineImpl` returns `AnyStateMachine`; the namespace declares
-// `HarnessMachine<TContext, TEvent, {…}>` parameterised by the call site.
-// Both are equal at runtime — `HarnessMachine<…>` extends `AnyStateMachine`
+// `aharnessMachineImpl` returns `AnyStateMachine`; the namespace declares
+// `AharnessMachine<TContext, TEvent, {…}>` parameterised by the call site.
+// Both are equal at runtime — `AharnessMachine<…>` extends `AnyStateMachine`
 // and adds only phantom (compile-time-only) fields whose runtime value is
-// `undefined`. The single `as HarnessNamespace` cast is the boundary where
+// `undefined`. The single `as AharnessNamespace` cast is the boundary where
 // the implementation's erased type meets the typed public surface.
-export const harness: HarnessNamespace = {
-  machine: harnessMachineImpl,
-} as HarnessNamespace;
+export const aharness: AharnessNamespace = {
+  machine: aharnessMachineImpl,
+} as AharnessNamespace;

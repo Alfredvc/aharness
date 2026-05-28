@@ -11,8 +11,8 @@ const servedStaticDir = fileURLToPath(new URL('../src/ui/static', import.meta.ur
 
 const jsAssetReference = /<script[^>]+type="module"[^>]+src="\.\/assets\/[^"]+\.js"/;
 const cssAssetReference = /<link[^>]+rel="stylesheet"[^>]+href="\.\/assets\/[^"]+\.css"/;
-const placeholderBody = '<main id="root">Harness Web UI</main>';
-const placeholderTitle = '<title>Harness Web UI</title>';
+const placeholderBody = '<main id="root">aharness Web UI</main>';
+const placeholderTitle = '<title>aharness Web UI</title>';
 
 describe('packaged UI static assets', () => {
   it('configures Vite to emit relative asset URLs into the served source static directory', () => {

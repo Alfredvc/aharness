@@ -38,7 +38,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { harness, state, exit, terminal } from '../src/index.js';
+import { aharness, state, exit, terminal } from '../src/index.js';
 import { runCliForTest, type RunCliTestHooks } from '../src/cli/runCli.js';
 import type { AppServerHandle } from '../src/appServer/index.js';
 import { JsonRpcClient, type Transport } from '../src/jsonrpc/client.js';
@@ -57,7 +57,7 @@ function makeStubAppServer(wsUrl = 'ws+unix:///nonexistent.sock'): AppServerHand
 }
 
 interface SyntheticTransportHandle {
-  /** All outbound JSON-RPC envelopes the harness CLI sent, in order. */
+  /** All outbound JSON-RPC envelopes the aharness CLI sent, in order. */
   readonly outbound: ReadonlyArray<{ id?: number; method?: string; result?: unknown }>;
   /** Inject an incoming JSON-RPC envelope from the synthetic peer. */
   push(envelope: unknown): void;
@@ -181,7 +181,7 @@ describe('runCliForTest — Phase 2b await-exit walk (synthetic transport)', () 
     }
     // Author the machine in-process. The `loadFsmImpl` test hook skips
     // esbuild + dynamic-import so the on-disk file is a no-op stub.
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'await-exit-walk',
       initial: 'a',
       states: {
@@ -227,7 +227,7 @@ describe('runCliForTest — Phase 2b await-exit walk (synthetic transport)', () 
     // Capture the post-flush XState snapshot's `value` (state id for
     // flat machines) on each `flushSnapshotFn` call. Production fires
     // the flush after every transition: post-AWAIT__ commit (a→b) and
-    // post-`harness_submit` commit (b→c). The kickoff turn does NOT
+    // post-`aharness_submit` commit (b→c). The kickoff turn does NOT
     // flush — only commits do — so the sequence is exactly two entries.
     const flushedStates: string[] = [];
     const onSnapshotFlush = (xs: unknown): void => {
@@ -341,7 +341,7 @@ describe('runCliForTest — Phase 2b await-exit walk (synthetic transport)', () 
           threadId,
           turnId: 't-b',
           callId: 'call-submit-1',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'b', exit: 'done', data: {} }),
         },
       });
@@ -386,7 +386,7 @@ describe('runCliForTest — Phase 2b await-exit walk (synthetic transport)', () 
     expect(flushedStates).toEqual(['b', 'b', 'c']);
 
     // The post-AWAIT__ default-branch turn/start carries state b's
-    // composed nudge — same `[harness] Now in state "b"` marker the
+    // composed nudge — same `[aharness] Now in state "b"` marker the
     // Phase-2a cross-state tests assert. This proves drive-forward
     // (NOT the dispatcher) issued the turn/start AFTER the AWAIT__
     // transition moved the host to state b.
@@ -396,6 +396,6 @@ describe('runCliForTest — Phase 2b await-exit walk (synthetic transport)', () 
     }>;
     expect(turnStarts.length).toBeGreaterThanOrEqual(2);
     const secondTurnStart = turnStarts[1];
-    expect(secondTurnStart?.params?.input?.[0]?.text).toContain('[harness] Now in state "b"');
+    expect(secondTurnStart?.params?.input?.[0]?.text).toContain('[aharness] Now in state "b"');
   }, 10_000);
 });

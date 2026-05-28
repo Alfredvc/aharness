@@ -1,6 +1,6 @@
 /**
  * Verified JSON-RPC method-name constants for the codex `app-server`
- * surface the harness consumes. This module is the **single source of
+ * surface the aharness consumes. This module is the **single source of
  * truth** for wire literals; downstream call sites must reference
  * `METHOD.<name>` instead of inlining string literals so a codex pin
  * bump can update every site by editing one file.
@@ -82,7 +82,7 @@ export const METHOD = {
   // Notifications (server → client, no response).
   // app-server-protocol/src/protocol/common.rs:1354
   // (`ThreadStarted => "thread/started" (v2::ThreadStartedNotification)`).
-  // Emitted after `thread/start` / `thread/resume`; the headless harness
+  // Emitted after `thread/start` / `thread/resume`; the headless aharness
   // CLI is the sole WebSocket client for the run.
   threadStarted: 'thread/started',
   // app-server-protocol/src/protocol/common.rs:1387
@@ -126,7 +126,7 @@ export const METHOD = {
   // per-server MCP startup status (tools advertised, optional
   // startup-error string). Retained as a typed protocol literal for
   // diagnostics and future author-declared tool surfaces; the live
-  // submit path uses `dynamic_tools`, not a harness MCP server.
+  // submit path uses `dynamic_tools`, not an aharness MCP server.
   mcpServerStatusList: 'mcpServerStatus/list',
 } as const;
 

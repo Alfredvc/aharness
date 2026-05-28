@@ -3,7 +3,7 @@
  *
  * These follow the existing real-Codex gate used by Phase 2 integration
  * tests: ordinary local/CI runs compile this file but skip execution unless
- * `codex` is on PATH and `HARNESS_E2E_REAL_CODEX=1`.
+ * `codex` is on PATH and `AHARNESS_E2E_REAL_CODEX=1`.
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -34,15 +34,15 @@ function hasCodex(): boolean {
   }
 }
 
-const E2E_ENABLED = hasCodex() && process.env['HARNESS_E2E_REAL_CODEX'] === '1';
+const E2E_ENABLED = hasCodex() && process.env['AHARNESS_E2E_REAL_CODEX'] === '1';
 
-const APPROVAL_WALK_FSM_SOURCE = `import { harness, state, exit, terminal } from '@aharness/core';
+const APPROVAL_WALK_FSM_SOURCE = `import { aharness, state, exit, terminal } from '@aharness/core';
 
 interface DonePayload {
   _empty?: never;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'approval-walk',
   initial: 'work',
   states: {
@@ -181,7 +181,7 @@ function summarizeTools(tools: unknown): unknown {
 }
 
 function uiAuthHeaders(session: UiSession): Record<string, string> {
-  return { 'x-harness-ui-token': session.token };
+  return { 'x-aharness-ui-token': session.token };
 }
 
 async function readUiState(session: UiSession): Promise<UiSnapshot> {
@@ -328,7 +328,7 @@ describe.skipIf(!E2E_ENABLED)('runCli — real app-server approvals (end-to-end)
     mock.queueTurn(firstTurn as Parameters<typeof mock.queueTurn>[0]);
     mock.queueTurn([
       sseResponseCreated(),
-      sseFunctionCall('harness_submit', { state: 'work', exit: 'done', data: {} }, 'call-submit'),
+      sseFunctionCall('aharness_submit', { state: 'work', exit: 'done', data: {} }, 'call-submit'),
       sseTurnComplete(),
     ]);
 

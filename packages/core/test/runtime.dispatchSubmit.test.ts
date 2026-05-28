@@ -31,13 +31,13 @@
  *     `request_user_input` preamble carrying the verbatim
  *     `messageToUser`) flows verbatim into the dance opts.
  *
- * The Phase-1 wire shape uses tool name `'harness_submit'` (renamed
+ * The Phase-1 wire shape uses tool name `'aharness_submit'` (renamed
  * from `'submit'` in Task 5).
  */
 import { describe, expect, it, vi } from 'vitest';
 import { assign } from 'xstate';
 
-import { harness, state, terminal, passive, exit, createFsm } from '@aharness/core';
+import { aharness, state, terminal, passive, exit, createFsm } from '@aharness/core';
 import type { SchemaSidecar } from '@aharness/core';
 
 import { ActorHost } from '../src/runtime/actorHost.js';
@@ -69,7 +69,7 @@ function call(args: unknown): DynamicToolCallParams {
     threadId: 't',
     turnId: 'tr',
     callId: 'c1',
-    tool: 'harness_submit',
+    tool: 'aharness_submit',
     arguments: args as DynamicToolCallParams['arguments'],
   };
 }
@@ -77,7 +77,7 @@ function call(args: unknown): DynamicToolCallParams {
 // Two-state machine `a → b` where `b` is terminal. Exercises the
 // terminal reply path and the R6 atomicity / `onTerminal` signalling.
 function buildSelfTerminalMachine() {
-  return harness.machine({
+  return aharness.machine({
     id: 'm',
     initial: 'a',
     context: (): Ctx => ({ count: 0 }),
@@ -132,7 +132,7 @@ function makeSelfTerminalHost() {
 // for the terse-`'ok'` reply path without crossing into Phase 2's
 // cross-state territory.
 function buildSelfLoopMachine() {
-  return harness.machine({
+  return aharness.machine({
     id: 'm',
     initial: 'a',
     context: (): Ctx => ({ count: 0 }),
@@ -182,7 +182,7 @@ function makeSelfLoopHost() {
 // Two-state machine `a → b` where `b` is stateful (non-terminal,
 // non-self-loop). Used to exercise the Phase-2 cross-state throw.
 function buildCrossStateMachine() {
-  return harness.machine({
+  return aharness.machine({
     id: 'm',
     initial: 'a',
     context: (): Ctx => ({ count: 0 }),
@@ -215,7 +215,7 @@ const sidecarCrossState: SchemaSidecar = {
 };
 
 function buildCrossStateClearOnEntryMachine() {
-  return harness.machine({
+  return aharness.machine({
     id: 'm',
     initial: 'a',
     context: (): Ctx => ({ count: 0 }),
@@ -240,7 +240,7 @@ function buildCrossStateClearOnEntryMachine() {
 // dance with the composed nudge — which itself carries the
 // request_user_input preamble built by `composeStateNudge`).
 function buildCrossStateAwaitsOwnerTextMachine() {
-  return harness.machine({
+  return aharness.machine({
     id: 'm',
     initial: 'a',
     context: (): Ctx => ({ count: 0 }),
@@ -515,7 +515,7 @@ const sidecarCanonicalEmbeddedSubmit: SchemaSidecar = {
 // machine-load time, but the dispatcher's job is to gate it at runtime
 // for FSMs that bypass verification (raw `createMachine`, tests, etc).
 function buildPassiveTargetMachine() {
-  return harness.machine({
+  return aharness.machine({
     id: 'm',
     initial: 'a',
     context: (): Ctx => ({ count: 0 }),
@@ -1005,7 +1005,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
     host.start();
     const flush = vi.fn();
     const composeActiveStateNudge = vi.fn(
-      () => '[harness] Now in state "b"\n\nValid exits:\n  back: object\n\nin b',
+      () => '[aharness] Now in state "b"\n\nValid exits:\n  back: object\n\nin b',
     );
     const scheduleCrossStateDance = vi.fn();
     const dispatch = createSubmitDispatcher({
@@ -1138,7 +1138,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
         threadId: 'thread-old',
         turnId: 'turn-old',
         callId: 'cid-1',
-        tool: 'harness_submit',
+        tool: 'aharness_submit',
         arguments: JSON.stringify({ state: 'a', exit: 'go', data: {} }),
       },
       {
@@ -1209,7 +1209,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
     const machine = buildCrossStateMachine();
     const host = new ActorHost(machine, undefined);
     host.start();
-    const composedNudge = '[harness] Now in state "b"\n\nValid exits:\n  back: object\n\nin b';
+    const composedNudge = '[aharness] Now in state "b"\n\nValid exits:\n  back: object\n\nin b';
     const composeActiveStateNudge = vi.fn(() => composedNudge);
     const scheduleCrossStateDance = vi.fn();
     const dispatch = createSubmitDispatcher({
@@ -1224,7 +1224,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
       threadId: 'thr-1',
       turnId: 'tur-1',
       callId: 'cid-1',
-      tool: 'harness_submit',
+      tool: 'aharness_submit',
       arguments: JSON.stringify({ state: 'a', exit: 'go', data: {} }),
     });
     expect(scheduleCrossStateDance).toHaveBeenCalledTimes(1);
@@ -1291,7 +1291,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
       orientationText: string;
     };
     expect(arg.orientationText).toMatch(
-      /^\(harness: error composing nudge for state '[^']+': boom\)$/,
+      /^\(aharness: error composing nudge for state '[^']+': boom\)$/,
     );
     expect(arg.orientationText).toContain("'b'");
     // Actor advanced to the new leaf — commit was not rolled back.

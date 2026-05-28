@@ -9,9 +9,9 @@
 // builds its own TS program with skipTypeCheck:true so AST extraction still works.
 //
 // @ts-nocheck
-import { harness, state, exit, final } from '@aharness/core';
+import { aharness, state, exit, final } from '@aharness/core';
 
-export default harness.machine({
+export default aharness.machine({
   initial: 's1',
   states: {
     s1: state({

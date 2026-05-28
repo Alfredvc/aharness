@@ -10,7 +10,7 @@ import { parseInputFlags } from '../loader/inputFlags.js';
 import { fsmHash6 } from '../run.js';
 import { resolveEntryPrompt } from '../runtime/resolvePrompt.js';
 import type { RunCtx } from '../types.js';
-import { getHarnessMeta, iterStates, stateKeyPath } from '../state.js';
+import { getAharnessMeta, iterStates, stateKeyPath } from '../state.js';
 import type { StateNode } from 'xstate';
 import { createUiEventLog } from '../ui/sse.js';
 import { startUiServer, type UiServerHandle } from '../ui/server.js';
@@ -151,7 +151,7 @@ function initialInspectState(
   const node = nodes.find((candidate) => candidate.id === initial) ?? nodes[0];
   const path = node?.id ?? initial;
   const stateNode = findStateNode(machine, path);
-  const meta = stateNode ? getHarnessMeta(stateNode) : undefined;
+  const meta = stateNode ? getAharnessMeta(stateNode) : undefined;
   const detail = node?.detail;
   const exits = (detail?.exits ?? [])
     .filter((exit) => exit.kind === 'submit' || exit.kind === 'await')
@@ -193,7 +193,7 @@ function resolveStaticEntryPrompt(entryPrompt: string | ((ctx: RunCtx) => string
   try {
     return resolveEntryPrompt(entryPrompt, {} as RunCtx);
   } catch (e) {
-    return `(harness: error computing entryPrompt: ${(e as Error).message})`;
+    return `(aharness: error computing entryPrompt: ${(e as Error).message})`;
   }
 }
 

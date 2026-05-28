@@ -15,10 +15,10 @@ describe('loader cache — keying', () => {
   let tmpRepo: string;
 
   beforeEach(async () => {
-    tmpRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'harness-cache-key-'));
+    tmpRepo = await fs.mkdtemp(path.join(os.tmpdir(), 'aharness-cache-key-'));
     // Symlink node_modules so the bundle's externalised @aharness/core / xstate
     // imports resolve at module-import time (loadFsm dynamic-imports the bundle
-    // out of <tmpRepo>/.harness/cache/<hash>/fsm.mjs, which uses absolute paths
+    // out of <tmpRepo>/.aharness/cache/<hash>/fsm.mjs, which uses absolute paths
     // for externals — the symlink isn't strictly required, but mirrors the
     // shape the loader documents).
     await fs.symlink(path.join(repoRoot, 'node_modules'), path.join(tmpRepo, 'node_modules'));

@@ -6,23 +6,23 @@ describe('final()', () => {
   it('returns an XState final config with terminal meta', () => {
     const node = final({ outcome: 'success' });
     expect(node.type).toBe('final');
-    expect(node.meta.harness.kind).toBe('terminal');
-    expect(node.meta.harness.outcome).toBe('success');
-    expect(node.meta.harness.output).toBeUndefined();
+    expect(node.meta.aharness.kind).toBe('terminal');
+    expect(node.meta.aharness.outcome).toBe('success');
+    expect(node.meta.aharness.output).toBeUndefined();
   });
 
   it('carries an output callback when provided', () => {
     const cb = ({ context }: { context: { x: number } }) => ({ x: context.x });
     const node = final({ outcome: 'success', output: cb });
-    expect(node.meta.harness.output).toBe(cb);
+    expect(node.meta.aharness.output).toBe(cb);
   });
 
   it('is structurally compatible with terminal() for downstream consumers', () => {
     const a = terminal('failure');
     const b = final({ outcome: 'failure' });
     expect(a.type).toBe(b.type);
-    expect(a.meta.harness.kind).toBe(b.meta.harness.kind);
-    expect(a.meta.harness.outcome).toBe(b.meta.harness.outcome);
+    expect(a.meta.aharness.kind).toBe(b.meta.aharness.kind);
+    expect(a.meta.aharness.outcome).toBe(b.meta.aharness.outcome);
   });
 
   it('throws when outcome is missing', () => {
@@ -49,8 +49,8 @@ describe('createFsm().final()', () => {
     });
 
     expect(node.type).toBe('final');
-    expect(node.meta.harness.kind).toBe('terminal');
-    expect(node.meta.harness.output).toEqual(expect.any(Function));
-    expect(node.meta.harness.artifacts).toEqual({ 'result.md': render });
+    expect(node.meta.aharness.kind).toBe('terminal');
+    expect(node.meta.aharness.output).toEqual(expect.any(Function));
+    expect(node.meta.aharness.artifacts).toEqual({ 'result.md': render });
   });
 });

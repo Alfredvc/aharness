@@ -1,7 +1,7 @@
-import { harness, final, embed } from '../../../src/index.js';
+import { aharness, final, embed } from '../../../src/index.js';
 import child from './child-with-input.fsm.js';
 
-export default harness.machine({
+export default aharness.machine({
   id: 'parentMissingInput',
   initial: 'inner',
   states: {

@@ -151,7 +151,7 @@ function submitFrame(id: string, args: object): Frame {
       kind: 'ItemStarted',
       id,
       type: 'function_call',
-      name: 'harness_submit',
+      name: 'aharness_submit',
       arguments: JSON.stringify(args, null, 2),
     },
   };
@@ -239,7 +239,7 @@ export const scenes: Scene[] = [
       syntheticOrientation('orient-1', P('drafting_drivers')),
       ...modelMsg(
         'm-2',
-        `Drafting drivers. Two constraints look load-bearing but one is ambiguous — "two-process topology" could mean the old harness shape or the new one. I'll ask a clarification before committing the artifact.`,
+        `Drafting drivers. Two constraints look load-bearing but one is ambiguous — "two-process topology" could mean the old aharness shape or the new one. I'll ask a clarification before committing the artifact.`,
       ),
       {
         at: 200,
@@ -276,7 +276,7 @@ export const scenes: Scene[] = [
             },
           ],
           reason:
-            'Add the gathering_constraints state shell so the harness has a real first leaf to land in.',
+            'Add the gathering_constraints state shell so the aharness has a real first leaf to land in.',
         },
       },
     ],

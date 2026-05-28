@@ -9,7 +9,7 @@ description: Use when starting feature work that needs isolation from current wo
 
 Ensure work happens in an isolated workspace. Prefer your platform's native worktree tools. Fall back to manual git worktrees only when no native tool is available.
 
-**Core principle:** Detect existing isolation first. Then use native tools. Then fall back to git. Never fight the harness.
+**Core principle:** Detect existing isolation first. Then use native tools. Then fall back to git. Never fight the aharness.
 
 **Announce at start:** "I'm using the using-git-worktrees skill to set up an isolated workspace."
 
@@ -52,7 +52,7 @@ Honor any existing declared preference without asking. If the user declines cons
 
 The user has asked for an isolated workspace (Step 0 consent). Do you already have a way to create a worktree? It might be a tool with a name like `EnterWorktree`, `WorktreeCreate`, a `/worktree` command, or a `--worktree` flag. If you do, use it and skip to Step 3.
 
-Native tools handle directory placement, branch creation, and cleanup automatically. Using `git worktree add` when you have a native tool creates phantom state your harness can't see or manage.
+Native tools handle directory placement, branch creation, and cleanup automatically. Using `git worktree add` when you have a native tool creates phantom state your aharness can't see or manage.
 
 Only proceed to Step 1b if you have no native worktree tool available.
 
@@ -171,7 +171,7 @@ Ready to implement <feature-name>
 
 ## Common Mistakes
 
-### Fighting the harness
+### Fighting the aharness
 
 - **Problem:** Using `git worktree add` when the platform already provides isolation
 - **Fix:** Step 0 detects existing isolation. Step 1a defers to native tools.

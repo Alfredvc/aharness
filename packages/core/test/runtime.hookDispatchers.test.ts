@@ -6,7 +6,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createFsm, exit, harness, state, terminal } from '@aharness/core';
+import { createFsm, exit, aharness, state, terminal } from '@aharness/core';
 
 import { ActorHost } from '../src/runtime/actorHost.js';
 import { createActiveThreadBinding } from '../src/runtime/activeThreadBinding.js';
@@ -28,7 +28,7 @@ const baseEvent = {
 };
 
 function buildHost(hookConfig: Record<string, unknown> | undefined): ActorHost {
-  const machine = harness.machine({
+  const machine = aharness.machine({
     id: 'm',
     initial: 's',
     states: {
@@ -356,7 +356,7 @@ describe('createPerStateHookDispatcher — canonical built-in hook events', () =
             },
           }),
           meta: {
-            harness: {
+            aharness: {
               ...fsm.state({
                 prompt: 'p',
                 on: {
@@ -367,7 +367,7 @@ describe('createPerStateHookDispatcher — canonical built-in hook events', () =
                     }),
                   },
                 },
-              }).meta.harness,
+              }).meta.aharness,
               hooks: { preToolUse: [{ matcher: '^Bash$', handler: legacy }] },
             },
           },
@@ -445,8 +445,8 @@ describe('createPerStateHookDispatcher — canonical built-in hook events', () =
         s: {
           ...canonicalState,
           meta: {
-            harness: {
-              ...canonicalState.meta.harness,
+            aharness: {
+              ...canonicalState.meta.aharness,
               hooks: { preToolUse: [{ matcher: '^Bash$', handler: legacy }] },
             },
           },
@@ -567,7 +567,7 @@ describe('createPerStateHookDispatcher — broad tool matchers', () => {
       activeThreadBinding: activeThread('parentT'),
     });
     const reply = await dispatch(
-      JSON.stringify({ ...baseEvent, tool_name: 'mcp__harness_fsm__submit' }),
+      JSON.stringify({ ...baseEvent, tool_name: 'mcp__aharness_fsm__submit' }),
     );
     expect(JSON.parse(reply.body)).toMatchObject({
       hookSpecificOutput: {

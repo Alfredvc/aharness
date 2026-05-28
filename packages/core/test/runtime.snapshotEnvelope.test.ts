@@ -3,9 +3,9 @@
  * reader/writer and cutover-detection. Spec §4.4, §5.8.
  *
  * The headless envelope schema is
- *   `{ xstate, harnessSubmitToolName: 'harness_submit', threadId }`.
+ *   `{ xstate, aharnessSubmitToolName: 'aharness_submit', threadId }`.
  * Snapshots written by the legacy MCP-era daemon do not carry
- * `harnessSubmitToolName`; those are detected as incompatible so the
+ * `aharnessSubmitToolName`; those are detected as incompatible so the
  * caller can refuse to resume across the cutover boundary.
  */
 import { describe, it, expect } from 'vitest';
@@ -20,19 +20,19 @@ import {
 } from '../src/runtime.js';
 
 describe('headless snapshot envelope', () => {
-  it('round-trips xstate + harnessSubmitToolName + threadId', () => {
+  it('round-trips xstate + aharnessSubmitToolName + threadId', () => {
     const dir = mkdtempSync(join(tmpdir(), 'h-snap-'));
     try {
       const path = join(dir, 'snapshot.json');
       flushHeadlessSnapshotEnvelope(path, {
         xstate: { value: 'idle' },
-        harnessSubmitToolName: 'harness_submit',
+        aharnessSubmitToolName: 'aharness_submit',
         threadId: 'tid-1',
       });
       const loaded = loadHeadlessSnapshotEnvelope(path);
       expect(loaded.kind).toBe('ok');
       if (loaded.kind === 'ok') {
-        expect(loaded.envelope.harnessSubmitToolName).toBe('harness_submit');
+        expect(loaded.envelope.aharnessSubmitToolName).toBe('aharness_submit');
         expect(loaded.envelope.threadId).toBe('tid-1');
         expect(loaded.envelope.xstate).toEqual({ value: 'idle' });
       }
@@ -49,7 +49,7 @@ describe('headless snapshot envelope', () => {
         path,
         JSON.stringify({
           xstate: { value: 'idle' },
-          harnessSubmitToolName: 'harness_submit',
+          aharnessSubmitToolName: 'aharness_submit',
           threadId: 'tid-1',
           pendingClear: true,
           turnsSinceLastClear: 3,
@@ -61,7 +61,7 @@ describe('headless snapshot envelope', () => {
       if (loaded.kind === 'ok') {
         expect(loaded.envelope).toEqual({
           xstate: { value: 'idle' },
-          harnessSubmitToolName: 'harness_submit',
+          aharnessSubmitToolName: 'aharness_submit',
           threadId: 'tid-1',
         });
       }
@@ -76,7 +76,7 @@ describe('headless snapshot envelope', () => {
       const path = join(dir, 'snapshot.json');
       flushHeadlessSnapshotEnvelope(path, {
         xstate: { value: 'idle' },
-        harnessSubmitToolName: 'harness_submit',
+        aharnessSubmitToolName: 'aharness_submit',
         threadId: 'tid-1',
       });
       const written = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
@@ -88,7 +88,7 @@ describe('headless snapshot envelope', () => {
     }
   });
 
-  it('reports cutover-detection failure when harnessSubmitToolName is absent (legacy)', () => {
+  it('reports cutover-detection failure when aharnessSubmitToolName is absent (legacy)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'h-snap-'));
     try {
       const path = join(dir, 'snapshot.json');
@@ -96,14 +96,14 @@ describe('headless snapshot envelope', () => {
       const r: CutoverDetectionResult = loadHeadlessSnapshotEnvelope(path);
       expect(r.kind).toBe('incompatible');
       if (r.kind === 'incompatible') {
-        expect(r.reason).toMatch(/harnessSubmitToolName/);
+        expect(r.reason).toMatch(/aharnessSubmitToolName/);
       }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it('reports cutover-detection failure when harnessSubmitToolName mismatches', () => {
+  it('reports cutover-detection failure when aharnessSubmitToolName mismatches', () => {
     const dir = mkdtempSync(join(tmpdir(), 'h-snap-'));
     try {
       const path = join(dir, 'snapshot.json');
@@ -111,7 +111,7 @@ describe('headless snapshot envelope', () => {
         path,
         JSON.stringify({
           xstate: {},
-          harnessSubmitToolName: 'mcp__harness_fsm__submit',
+          aharnessSubmitToolName: 'mcp__aharness_fsm__submit',
           threadId: 't',
         }),
       );

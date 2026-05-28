@@ -20,10 +20,10 @@ describe('composeStateNudge', () => {
       ],
       entryPromptText: 'List one requirement, then call submit.',
     });
-    expect(n).toContain('[harness] Now in state "iterateRequirements".');
+    expect(n).toContain('[aharness] Now in state "iterateRequirements".');
     expect(n).toContain('Valid exits:');
     expect(n).toContain(
-      '"submit" → call harness_submit({state: "iterateRequirements", exit: "submit", data: ',
+      '"submit" → call aharness_submit({state: "iterateRequirements", exit: "submit", data: ',
     );
     expect(n).toContain('"wait" → call request_user_input');
     expect(n).toContain('"done"'); // schema embedded inline on the bullet line
@@ -48,7 +48,7 @@ describe('composeStateNudge', () => {
       exits: [{ kind: 'submit', name: 'go', schema: { type: 'object' } }],
       entryPromptText: '',
     });
-    expect(n).toContain('[harness] Now in state "s".');
+    expect(n).toContain('[aharness] Now in state "s".');
     // No trailing blank-line + prompt-text block: the message ends with
     // the exits section. With the compact one-line schema rendering
     // each submit exit's bullet IS the last line; there is no blank

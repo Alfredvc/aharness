@@ -9,21 +9,21 @@
  * rejection into an `ERROR` reply on the wire.
  *
  * The actual daemon-exit-1 path (spec §8) is exercised by the running
- * `harness` CLI, not by `runDaemonForTest`; the wire-path assertion here
+ * `aharness` CLI, not by `runDaemonForTest`; the wire-path assertion here
  * verifies the load-bearing pre-conditions: ERROR reply on the wire and
  * a structured event line in `events.jsonl`. Confirming the §5.6
  * shutdown ordering after the exit is out of scope for this rig.
  */
-import { exit, harness, state, terminal } from '@aharness/core';
+import { exit, aharness, state, terminal } from '@aharness/core';
 
 interface OkPayload {
   readonly note: string;
 }
 
-export const machine = harness.machine({
+export const machine = aharness.machine({
   id: 'per-state-hooks-throw-e2e',
   initial: 'risky',
-  context: () => ({ __harness_visitCount: {} as Record<string, number> }),
+  context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
   states: {
     risky: state({
       entryPrompt: 'Risky.',

@@ -39,7 +39,7 @@ function runScript(rootDir) {
 
 const tempdirs = [];
 function makeTempdir() {
-  const d = mkdtempSync(join(tmpdir(), 'harness-chk-'));
+  const d = mkdtempSync(join(tmpdir(), 'aharness-chk-'));
   tempdirs.push(d);
   return d;
 }

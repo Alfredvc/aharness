@@ -2,7 +2,7 @@
  * Phase 2a `item/completed` watcher registry. Spec §5.3.
  *
  * Cross-state submit dance step 1: when the dispatcher routes a
- * cross-state `harness_submit`, it must wait for codex to confirm the
+ * cross-state `aharness_submit`, it must wait for codex to confirm the
  * satisfied dynamic tool call (the `item/completed` payload whose
  * `ThreadItem::DynamicToolCall.id` field echoes the dispatcher's
  * `DynamicToolCallParams.call_id`) before issuing `turn/interrupt`.
@@ -15,8 +15,8 @@
  * `id` field (see `codex-rs/app-server-protocol/src/protocol/v2/item.rs`
  * `ThreadItem::DynamicToolCall { id, … }` and `event_mapping.rs`
  * `id: response.call_id`). The single-watcher-at-a-time invariant is
- * guaranteed by codex's per-turn write lock on `harness_submit` dispatch
- * (`harness_submit` is NOT opted into `parallel_mcp_server_names`), so
+ * guaranteed by codex's per-turn write lock on `aharness_submit` dispatch
+ * (`aharness_submit` is NOT opted into `parallel_mcp_server_names`), so
  * we do not need to serialise here.
  *
  * Pure module: no JsonRpcClient dependency. The notification router

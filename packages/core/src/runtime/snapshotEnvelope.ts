@@ -3,15 +3,15 @@
  *
  * Schema: {
  *   xstate,
- *   harnessSubmitToolName: "harness_submit",
+ *   aharnessSubmitToolName: "aharness_submit",
  *   threadId
  * }
  *
  * Cutover-detection:
  *   - File missing ⇒ {kind: 'absent'} (fresh boot path; caller decides).
- *   - File present, harnessSubmitToolName absent ⇒ legacy MCP-era;
+ *   - File present, aharnessSubmitToolName absent ⇒ legacy MCP-era;
  *     {kind: 'incompatible', reason}. Caller exits 2.
- *   - File present, harnessSubmitToolName !== 'harness_submit' ⇒ incompatible.
+ *   - File present, aharnessSubmitToolName !== 'aharness_submit' ⇒ incompatible.
  *   - Otherwise ⇒ {kind: 'ok', envelope}.
  *
  * Fresh-clear runtime state is intentionally not persisted: each CLI
@@ -21,7 +21,7 @@ import { existsSync, readFileSync } from 'node:fs';
 
 import { flushSnapshot } from './snapshotFlush.js';
 
-const HARNESS_SUBMIT_TOOL_NAME = 'harness_submit' as const;
+const AHARNESS_SUBMIT_TOOL_NAME = 'aharness_submit' as const;
 
 function describeEnvelopeField(value: unknown): string {
   if (value === null) return 'null';
@@ -35,13 +35,13 @@ function describeEnvelopeField(value: unknown): string {
 
 export interface Phase1Envelope {
   readonly xstate: unknown;
-  readonly harnessSubmitToolName: typeof HARNESS_SUBMIT_TOOL_NAME;
+  readonly aharnessSubmitToolName: typeof AHARNESS_SUBMIT_TOOL_NAME;
   readonly threadId: string;
 }
 
 export interface HeadlessSnapshotEnvelope {
   readonly xstate: unknown;
-  readonly harnessSubmitToolName: typeof HARNESS_SUBMIT_TOOL_NAME;
+  readonly aharnessSubmitToolName: typeof AHARNESS_SUBMIT_TOOL_NAME;
   readonly threadId: string;
 }
 
@@ -65,22 +65,22 @@ export function loadHeadlessSnapshotEnvelope(path: string): CutoverDetectionResu
     return { kind: 'incompatible', reason: 'snapshot.json is not an object envelope' };
   }
   const env = parsed as {
-    harnessSubmitToolName?: unknown;
+    aharnessSubmitToolName?: unknown;
     threadId?: unknown;
     xstate?: unknown;
   };
-  if (env.harnessSubmitToolName === undefined) {
+  if (env.aharnessSubmitToolName === undefined) {
     return {
       kind: 'incompatible',
       reason:
-        'snapshot from incompatible build (harnessSubmitToolName=MISSING); terminate run cleanly before upgrading',
+        'snapshot from incompatible build (aharnessSubmitToolName=MISSING); terminate run cleanly before upgrading',
     };
   }
-  if (env.harnessSubmitToolName !== HARNESS_SUBMIT_TOOL_NAME) {
+  if (env.aharnessSubmitToolName !== AHARNESS_SUBMIT_TOOL_NAME) {
     return {
       kind: 'incompatible',
-      reason: `snapshot from incompatible build (harnessSubmitToolName=${describeEnvelopeField(
-        env.harnessSubmitToolName,
+      reason: `snapshot from incompatible build (aharnessSubmitToolName=${describeEnvelopeField(
+        env.aharnessSubmitToolName,
       )}); terminate run cleanly before upgrading`,
     };
   }
@@ -91,7 +91,7 @@ export function loadHeadlessSnapshotEnvelope(path: string): CutoverDetectionResu
     kind: 'ok',
     envelope: {
       xstate: env.xstate,
-      harnessSubmitToolName: HARNESS_SUBMIT_TOOL_NAME,
+      aharnessSubmitToolName: AHARNESS_SUBMIT_TOOL_NAME,
       threadId: env.threadId,
     },
   };
@@ -100,7 +100,7 @@ export function loadHeadlessSnapshotEnvelope(path: string): CutoverDetectionResu
 export function flushHeadlessSnapshotEnvelope(path: string, env: HeadlessSnapshotEnvelope): void {
   flushSnapshot(path, {
     xstate: env.xstate,
-    harnessSubmitToolName: env.harnessSubmitToolName,
+    aharnessSubmitToolName: env.aharnessSubmitToolName,
     threadId: env.threadId,
   });
 }

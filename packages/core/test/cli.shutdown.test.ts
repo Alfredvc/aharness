@@ -51,7 +51,7 @@ describe('cli/shutdown sequence (Phase 1)', () => {
   });
 
   it('reaps app-server.sock and hook.sock from runDir.root after the children are down', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'harness-shutdown-'));
+    const root = mkdtempSync(join(tmpdir(), 'aharness-shutdown-'));
     try {
       const appSock = join(root, 'app-server.sock');
       const hookSock = join(root, 'hook.sock');
@@ -74,7 +74,7 @@ describe('cli/shutdown sequence (Phase 1)', () => {
   });
 
   it('does not throw when the per-run sockets are already gone', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'harness-shutdown-'));
+    const root = mkdtempSync(join(tmpdir(), 'aharness-shutdown-'));
     try {
       // Sockets intentionally absent — runShutdown must be a no-op for reap.
       await expect(

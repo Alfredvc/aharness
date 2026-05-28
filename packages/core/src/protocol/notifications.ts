@@ -2,12 +2,12 @@ import type { ResponseItem } from './types.js';
 
 /**
  * JSON-RPC notification payloads emitted by the codex `app-server` that
- * the harness runtime observes. Pinned to codex-rs commit
+ * the aharness runtime observes. Pinned to codex-rs commit
  * `127434cd8b96` (see `SUPPORTED_CODEX.md`). Wire field names are
  * camelCase (every notification struct upstream is decorated with
  * `#[serde(rename_all = "camelCase")]`).
  *
- * The harness consumes a narrow slice of the upstream notification set
+ * The aharness consumes a narrow slice of the upstream notification set
  * — drive-forward arbitration, hook lifecycle, item lifecycle, and turn
  * boundaries. Any notification not in this union is treated as a
  * no-op by the router; do not add fields here unless the runtime
@@ -17,7 +17,7 @@ import type { ResponseItem } from './types.js';
 /**
  * Narrow `Turn` snapshot embedded in `turn/started` and `turn/completed`.
  * Matches a subset of `app-server-protocol/src/protocol/v2.rs:5193-5211`
- * — the harness reads only `id`. Additional fields (`status`, timing,
+ * — the aharness reads only `id`. Additional fields (`status`, timing,
  * etc.) are deliberately untyped here and may be added when the
  * notification router or telemetry consumer needs them.
  */
@@ -50,7 +50,7 @@ export interface TurnCompletedNotification {
 /**
  * Narrow `ThreadItem` envelope. Upstream
  * `app-server-protocol/src/protocol/v2.rs:5861-...` defines a wide
- * discriminated union; the harness reads `type` plus the
+ * discriminated union; the aharness reads `type` plus the
  * function-call-specific fields produced when codex relays a dynamic
  * tool call's lifecycle as a thread item. All other variants are
  * passed through as `unknown`-typed extra fields.
@@ -181,7 +181,7 @@ export interface AgentMessageDeltaNotification {
 /**
  * `rawResponseItem/completed` notification. Matches
  * `app-server-protocol/src/protocol/v2.rs:6945-6952`. Carries one
- * `ResponseItem` (`protocol/src/models.rs:741-743`); for the harness
+ * `ResponseItem` (`protocol/src/models.rs:741-743`); for the aharness
  * the relevant variants are `function_call` and `function_call_output`
  * for built-in function tools that do not surface through
  * `item/completed` (see `daemon/awaitResolver.ts` doc-comment).

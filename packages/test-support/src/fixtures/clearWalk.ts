@@ -9,7 +9,7 @@
  * a committed non-self transition into `b`, the runtime replaces the
  * parent thread and starts a fresh turn with state b's orientation.
  */
-import { harness, state, exit, terminal } from '@aharness/core';
+import { aharness, state, exit, terminal } from '@aharness/core';
 import { sseFunctionCall, sseResponseCreated, sseTurnComplete, type SseEvent } from '../sse.js';
 
 interface NextPayload {
@@ -20,7 +20,7 @@ interface DonePayload {
   readonly ok: boolean;
 }
 
-export const clearWalkMachine: unknown = harness.machine({
+export const clearWalkMachine: unknown = aharness.machine({
   id: 'clear-walk',
   initial: 'a',
   states: {
@@ -41,7 +41,7 @@ export const clearWalkMachine: unknown = harness.machine({
   },
 });
 
-export const CLEAR_WALK_FSM_SOURCE = `import { harness, state, exit, terminal } from '@aharness/core';
+export const CLEAR_WALK_FSM_SOURCE = `import { aharness, state, exit, terminal } from '@aharness/core';
 
 interface NextPayload {
   note: string;
@@ -51,7 +51,7 @@ interface DonePayload {
   ok: boolean;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'clear-walk',
   initial: 'a',
   states: {
@@ -80,7 +80,7 @@ export function buildClearWalkSubmitTurn(
 ): SseEvent[] {
   return [
     sseResponseCreated(),
-    sseFunctionCall('harness_submit', { state: stateId, exit: exitName, data }),
+    sseFunctionCall('aharness_submit', { state: stateId, exit: exitName, data }),
     sseTurnComplete(),
   ];
 }

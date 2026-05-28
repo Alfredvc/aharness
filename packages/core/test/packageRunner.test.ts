@@ -16,7 +16,7 @@ import { runPackagedFsmCliForTest } from '../src/fsmPackage/runner.js';
 import type { LoadFsmResult } from '../src/loader/index.js';
 
 function tmpPackage(): string {
-  return mkdtempSync(path.join(os.tmpdir(), 'harness-package-runner-'));
+  return mkdtempSync(path.join(os.tmpdir(), 'aharness-package-runner-'));
 }
 
 function captureStream(): { stream: NodeJS.WritableStream; text: () => string } {
@@ -60,7 +60,7 @@ async function writePackage(
         dependencies: {
           '@aharness/core': '^0.1.0',
         },
-        harness: {
+        aharness: {
           package: {
             bin: 'ah-example',
             fsmsDir: 'fsms',
@@ -321,7 +321,7 @@ describe('@aharness/core/package-runner', () => {
       expect(discovery.diagnostics).toEqual([
         expect.objectContaining({
           code: 'commands-missing',
-          field: 'harness.package.fsmsDir',
+          field: 'aharness.package.fsmsDir',
           path: 'fsms',
           message: 'FSM packages must contain at least one direct child .fsm.ts command',
         }),
@@ -333,7 +333,7 @@ describe('@aharness/core/package-runner', () => {
     expect(result.exitCode).toBe(2);
     expect(result.stderr).toContain('package runner failed:');
     expect(result.stderr).toContain(
-      'harness.package.fsmsDir: [commands-missing] FSM packages must contain at least one direct child .fsm.ts command',
+      'aharness.package.fsmsDir: [commands-missing] FSM packages must contain at least one direct child .fsm.ts command',
     );
     expect(result.stderr).toContain('fsms');
     expect(result.stderr).not.toContain('[files-missing-entry]');

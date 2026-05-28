@@ -16,7 +16,7 @@ const fixtureRoot = path.join(
 );
 
 function tmpPackage(): string {
-  return mkdtempSync(path.join(tmpdir(), 'harness-package-build-verify-'));
+  return mkdtempSync(path.join(tmpdir(), 'aharness-package-build-verify-'));
 }
 
 function captureStream(): { stream: NodeJS.WritableStream; text: () => string } {
@@ -41,7 +41,7 @@ async function runPackage(
     cwd,
     stdout: stdout.stream,
     stderr: stderr.stream,
-    harnessCoreVersion: '1.2.3',
+    aharnessCoreVersion: '1.2.3',
   });
   return { exitCode: result.exitCode, stdout: stdout.text(), stderr: stderr.text() };
 }
@@ -56,7 +56,7 @@ function packageJson(overrides: Record<string, unknown> = {}): Record<string, un
     dependencies: {
       '@aharness/core': '^0.1.0',
     },
-    harness: {
+    aharness: {
       package: {
         bin: 'example-fsms',
         fsmsDir: 'fsms',
@@ -107,11 +107,11 @@ describe('aharness package verify', () => {
     await writeFile(
       path.join(root, 'fsms', 'stuck.fsm.ts'),
       `
-        import { harness, passive, terminal } from '@aharness/core';
-        export const machine = harness.machine({
+        import { aharness, passive, terminal } from '@aharness/core';
+        export const machine = aharness.machine({
           id: 'stuck',
           initial: 'stuck',
-          context: () => ({ __harness_visitCount: {} as Record<string, number> }),
+          context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
           states: {
             stuck: passive(),
             done: terminal('success'),

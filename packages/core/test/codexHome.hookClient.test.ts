@@ -57,7 +57,7 @@ describe('hookClient.cjs', () => {
     // Defensive: codex's hook timeout is 30 s; if codex spawns the
     // hook but never closes stdin, we must surface a clean error
     // before codex SIGKILLs the script (at which point the daemon
-    // never observes the hook fire). HARNESS_HOOK_STDIN_TIMEOUT_MS
+    // never observes the hook fire). AHARNESS_HOOK_STDIN_TIMEOUT_MS
     // overrides the default 28 s for fast tests.
     const path = tempSock();
     // Spin up an idle UDS server so connect() won't fail before the
@@ -71,7 +71,7 @@ describe('hookClient.cjs', () => {
     const TIMEOUT_MS = 200;
     const child = spawn('node', [HOOK_CLIENT, 'PRE_TOOL_USE', path], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, HARNESS_HOOK_STDIN_TIMEOUT_MS: String(TIMEOUT_MS) },
+      env: { ...process.env, AHARNESS_HOOK_STDIN_TIMEOUT_MS: String(TIMEOUT_MS) },
     });
     let stderr = '';
     child.stderr.setEncoding('utf8');
@@ -163,7 +163,7 @@ describe('hookClient.cjs — tag argument', () => {
       const { path, framedRequests } = await startServer();
       const child = spawn(process.execPath, [HOOK_CLIENT, tag, path], {
         stdio: ['pipe', 'pipe', 'pipe'],
-        env: { ...process.env, HARNESS_HOOK_STDIN_TIMEOUT_MS: '500' },
+        env: { ...process.env, AHARNESS_HOOK_STDIN_TIMEOUT_MS: '500' },
       });
       child.stdin.write('{"hook_event_name":"X"}');
       child.stdin.end();
@@ -178,7 +178,7 @@ describe('hookClient.cjs — tag argument', () => {
     const { path, framedRequests } = await startServer();
     const child = spawn(process.execPath, [HOOK_CLIENT, path], {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, HARNESS_HOOK_STDIN_TIMEOUT_MS: '500' },
+      env: { ...process.env, AHARNESS_HOOK_STDIN_TIMEOUT_MS: '500' },
     });
     child.stdin.write('{}');
     child.stdin.end();

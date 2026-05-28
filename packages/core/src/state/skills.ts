@@ -14,7 +14,7 @@
  * `optional: true` downgrades a missing-resolution from error to warning at
  * verify time and from inject-failure to silent-skip at runtime.
  *
- * `__harnessSkillRef: true` is an opaque sentinel the rest of the framework
+ * `__aharnessSkillRef: true` is an opaque sentinel the rest of the framework
  * uses to validate that an entry on a state's `skills:` array came from this
  * factory. Authors never set it directly.
  *
@@ -29,14 +29,14 @@
 export type SkillKey = string;
 
 export interface SkillRefName {
-  readonly __harnessSkillRef: true;
+  readonly __aharnessSkillRef: true;
   readonly source: 'name';
   readonly name: string;
   readonly optional: boolean;
 }
 
 export interface SkillRefPath {
-  readonly __harnessSkillRef: true;
+  readonly __aharnessSkillRef: true;
   readonly source: 'path';
   readonly path: string;
   readonly optional: boolean;
@@ -72,7 +72,7 @@ export function skill(arg: string | (SkillByPath & SkillOptions), opts?: SkillOp
       );
     }
     return {
-      __harnessSkillRef: true,
+      __aharnessSkillRef: true,
       source: 'name',
       name: arg,
       optional: opts?.optional === true,
@@ -85,7 +85,7 @@ export function skill(arg: string | (SkillByPath & SkillOptions), opts?: SkillOp
     throw new TypeError('skill(): path must be a non-empty string');
   }
   return {
-    __harnessSkillRef: true,
+    __aharnessSkillRef: true,
     source: 'path',
     path: arg.path,
     optional: arg.optional === true,
@@ -97,7 +97,7 @@ export function isSkillRef(v: unknown): v is SkillRef {
   return (
     v !== null &&
     typeof v === 'object' &&
-    (v as { __harnessSkillRef?: unknown }).__harnessSkillRef === true
+    (v as { __aharnessSkillRef?: unknown }).__aharnessSkillRef === true
   );
 }
 

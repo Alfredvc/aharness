@@ -8,7 +8,7 @@
  * round-trip (`mcpServerStatus/list`) succeeds against the live thread.
  *
  * Skip conditions: requires a `codex` binary on PATH; CI configurations
- * that build codex first set `HARNESS_E2E_REAL_CODEX=1` (parity with
+ * that build codex first set `AHARNESS_E2E_REAL_CODEX=1` (parity with
  * `cli.runCli.phase1.test.ts`).
  */
 import { execFileSync } from 'node:child_process';
@@ -29,7 +29,7 @@ function hasCodex(): boolean {
   }
 }
 
-const E2E_ENABLED = hasCodex() && process.env['HARNESS_E2E_REAL_CODEX'] === '1';
+const E2E_ENABLED = hasCodex() && process.env['AHARNESS_E2E_REAL_CODEX'] === '1';
 
 describe.skipIf(!E2E_ENABLED)('startHeadlessApp', () => {
   let cleanups: Array<() => Promise<void> | void> = [];

@@ -20,7 +20,7 @@
  *
  * Cache layout:
  *
- *   <repoRoot>/.harness/cache/<hash>/
+ *   <repoRoot>/.aharness/cache/<hash>/
  *     fsm.mjs        # esbuild bundle of <file>.fsm.ts; re-exports
  *                    # `__sidecar` (a SerializedSidecar literal injected
  *                    # via esbuild's `banner` option at compile time).
@@ -33,13 +33,13 @@
  *     `.ts` and `.tsx` files. This captures the typical user layout
  *     (`src/index.fsm.ts` + `src/types.ts` + `src/render.ts`) without
  *     having to introspect the TypeScript program.
- *   - Skips `node_modules`, `dist`, `.harness`, and any directory whose
+ *   - Skips `node_modules`, `dist`, `.aharness`, and any directory whose
  *     basename starts with `.` (so `.git`, `.idea`, etc. don't bloat the
  *     hash). The user can still place a project source file under a
  *     dot-directory; that's a deliberate trade-off for cache stability.
  *   - Salts the hash with the loader's own version marker so a future
  *     change to the schema-extraction algorithm invalidates every cache
- *     without having to clear `.harness/cache/` manually.
+ *     without having to clear `.aharness/cache/` manually.
  */
 
 import { createHash } from 'node:crypto';
@@ -59,7 +59,7 @@ import type { ArgFlagMeta } from './inputSchema.js';
  *
  * v3 (2026-05-08): adds optional `inputSchema` + `inputFlags` fields for
  *   `arg<T>()` / `input` declarations on the root machine config. Phase 4's
- *   `harness __complete` consumes these for shell completion.
+ *   `aharness __complete` consumes these for shell completion.
  *
  *   The `inputFlags` value persists `{dynamic: true}` as a sentinel for
  *   `completion: {dynamic: <fn>}` — the function reference is not
@@ -73,7 +73,7 @@ import type { ArgFlagMeta } from './inputSchema.js';
  */
 const CACHE_VERSION = 'v4';
 
-const SKIP_DIR_NAMES = new Set(['node_modules', 'dist', '.harness']);
+const SKIP_DIR_NAMES = new Set(['node_modules', 'dist', '.aharness']);
 
 export interface CachePaths {
   readonly cacheRoot: string;
@@ -95,14 +95,14 @@ export interface SerializedSidecar {
   readonly issues: readonly SidecarIssue[];
   /**
    * Top-level JSON Schema for the FSM's `input` declaration. Present iff the
-   * source file's default-export `harness.machine(...)` declared `input: {...}`.
+   * source file's default-export `aharness.machine(...)` declared `input: {...}`.
    * Empty `input: {}` is persisted as a non-empty schema with zero properties.
    */
   readonly inputSchema?: JSONSchema7;
   /**
    * Per-field `arg<T>(meta?)` metadata. Present iff `inputSchema` is present.
    * `completion: {dynamic: <fn>}` declarations persist as `{dynamic: true}` —
-   * the live callback is not JSON-serialisable; Phase 4's `harness __complete`
+   * the live callback is not JSON-serialisable; Phase 4's `aharness __complete`
    * re-imports the source module to invoke it.
    */
   readonly inputFlags?: Record<string, ArgFlagMeta>;
@@ -121,7 +121,7 @@ export async function hashSourceTree(sourceRoot: string, entryFile: string): Pro
   files.sort();
 
   const hasher = createHash('sha256');
-  hasher.update(`harness-loader-cache:${CACHE_VERSION}\n`);
+  hasher.update(`aharness-loader-cache:${CACHE_VERSION}\n`);
   hasher.update(`E:${path.basename(entryFile)}\n`);
   for (const file of files) {
     const rel = path.relative(sourceRoot, file);
@@ -156,7 +156,7 @@ async function collectFiles(dir: string, out: string[]): Promise<void> {
 }
 
 export function cachePathsFor(repoRoot: string, hash: string): CachePaths {
-  const cacheRoot = path.join(repoRoot, '.harness', 'cache');
+  const cacheRoot = path.join(repoRoot, '.aharness', 'cache');
   const cacheDir = path.join(cacheRoot, hash);
   return {
     cacheRoot,

@@ -5,7 +5,7 @@ export function LeftRail({ session }: { session: UiState }) {
   return (
     <aside className="left">
       <div className="brand">
-        <span>harness</span>
+        <span>aharness</span>
         <span className="dot" aria-hidden />
         <span className="it">·&nbsp;run</span>
       </div>

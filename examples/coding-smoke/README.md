@@ -1,7 +1,7 @@
 # Coding Smoke Demo
 
 This demo is intentionally small: one broken TypeScript function, one Vitest
-test, and a Harness FSM that forces the same gates used for larger coding
+test, and an aharness FSM that forces the same gates used for larger coding
 migrations.
 
 The fixture starts with a failing implementation:
@@ -21,7 +21,7 @@ node packages/core/dist/cli/main.js verify examples/coding-smoke.fsm.ts
 node packages/core/dist/cli/main.js examples/coding-smoke.fsm.ts
 ```
 
-During the run, approve the plan when Harness asks for owner input. The model
+During the run, approve the plan when aharness asks for owner input. The model
 should repair the fixture and run:
 
 ```bash

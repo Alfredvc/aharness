@@ -11,7 +11,7 @@
  *   - `commitSubmit(...)` / `commitAwait(...)` — actually send the event;
  *     the actor advances and the inspector pipeline (snapshot persist,
  *     trace) fires through the daemon's own subscriptions.
- *   - `currentMeta()` — `HarnessMeta` for the active leaf, used by the
+ *   - `currentMeta()` — `AharnessMeta` for the active leaf, used by the
  *     dispatcher to read posture (`open` / `entryPrompt` /
  *     `stopGuidance`) without having to walk `iterStates` again.
  *
@@ -41,7 +41,7 @@ import {
   type SnapshotFrom,
   type StateNode,
 } from 'xstate';
-import { getHarnessMeta, iterStates, stateKeyPath } from '../state.js';
+import { getAharnessMeta, iterStates, stateKeyPath } from '../state.js';
 import {
   prepareCanonicalEmbeddedFinalCommit,
   payloadWithCanonicalCommit,
@@ -49,8 +49,8 @@ import {
   withCanonicalDryRun,
 } from '../state/canonicalTransition.js';
 import type { EmbeddedMeta } from '../state/embed.js';
-import type { HarnessOps } from '../state/harnessOps.js';
-import type { HarnessMeta } from '../types.js';
+import type { AharnessOps } from '../state/aharnessOps.js';
+import type { AharnessMeta } from '../types.js';
 
 /**
  * Result of `dryRunSubmit`. `ok: true` carries the projected post-
@@ -167,7 +167,7 @@ export class ActorHost {
 
   /**
    * Send `AWAIT__<stateId>__<exitName>` with the user's reply text.
-   * The harness wrapper attaches `__harnessAssignOwnerReply` to every
+   * The aharness wrapper attaches `__aharnessAssignOwnerReply` to every
    * `AWAIT__*` transition, which copies `event.payload.ownerReply`
    * into context. The dispatcher passes the reply through under the
    * agreed payload shape.
@@ -206,7 +206,7 @@ export class ActorHost {
     readonly target: string | undefined;
     readonly context: Record<string, unknown>;
     readonly event: unknown;
-    readonly ops?: HarnessOps;
+    readonly ops?: AharnessOps;
   }): Promise<EmbeddedFinalCommitResult> {
     const match = this.resolveCanonicalEmbeddedFinal(args.sourceStateId, args.target);
     if (match === undefined) {
@@ -214,7 +214,7 @@ export class ActorHost {
     }
     let output: unknown;
     try {
-      const outputFn = readHarnessField(match.finalNode, 'output');
+      const outputFn = readAharnessField(match.finalNode, 'output');
       output =
         typeof outputFn === 'function'
           ? (outputFn as (input: { context: unknown; event: unknown }) => unknown)({
@@ -236,25 +236,25 @@ export class ActorHost {
   }
 
   /**
-   * `HarnessMeta` for the current leaf (post-commit). Returns
-   * `undefined` when the leaf has no `meta.harness` annotation.
+   * `AharnessMeta` for the current leaf (post-commit). Returns
+   * `undefined` when the leaf has no `meta.aharness` annotation.
    * Walks `iterStates` once per call — the dispatcher only invokes
    * this on transition boundaries, so the cost is negligible.
    */
-  currentMeta(): HarnessMeta | undefined {
+  currentMeta(): AharnessMeta | undefined {
     const id = this.currentStateId();
     if (id === '') return undefined;
     return this.metaForState(id);
   }
 
   /**
-   * `HarnessMeta` for an arbitrary state id in this actor's machine.
+   * `AharnessMeta` for an arbitrary state id in this actor's machine.
    * Dispatchers use this for pre-commit checks where the target state must be
    * classified before the live actor moves.
    */
-  metaForState(stateId: string): HarnessMeta | undefined {
+  metaForState(stateId: string): AharnessMeta | undefined {
     for (const node of iterStates(this.machine)) {
-      if (stateKeyPath(node) === stateId) return getHarnessMeta(node);
+      if (stateKeyPath(node) === stateId) return getAharnessMeta(node);
     }
     return undefined;
   }
@@ -296,7 +296,7 @@ export class ActorHost {
       const finalPath = resolveTargetPath(hostPath, target);
       if (finalPath === undefined) continue;
       const finalNode = this.findStateNode(finalPath);
-      if (finalNode === undefined || readHarnessField(finalNode, 'kind') !== 'terminal') {
+      if (finalNode === undefined || readAharnessField(finalNode, 'kind') !== 'terminal') {
         continue;
       }
       const finalId = finalPath.slice(hostPath.length + 1);
@@ -337,15 +337,15 @@ function leafStateId(snapshot: AnyMachineSnapshot): string {
 function readEmbeddedMeta(node: StateNode): EmbeddedMeta | undefined {
   const raw: unknown = node.config.meta;
   if (raw === null || typeof raw !== 'object') return undefined;
-  const embedded = (raw as { harness?: { embedded?: unknown } }).harness?.embedded;
+  const embedded = (raw as { aharness?: { embedded?: unknown } }).aharness?.embedded;
   if (embedded !== null && typeof embedded === 'object') return embedded as EmbeddedMeta;
   return undefined;
 }
 
-function readHarnessField(node: StateNode, field: string): unknown {
+function readAharnessField(node: StateNode, field: string): unknown {
   const raw: unknown = node.config.meta;
   if (raw === null || typeof raw !== 'object') return undefined;
-  return (raw as { harness?: Record<string, unknown> }).harness?.[field];
+  return (raw as { aharness?: Record<string, unknown> }).aharness?.[field];
 }
 
 function resolveTargetPath(hostPath: string, target: string): string | undefined {

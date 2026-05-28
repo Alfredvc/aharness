@@ -2,7 +2,7 @@
  * Author-facing types for codex per-state hooks.
  *
  * Closed-world surface — every shape mirrors codex's hook stdin/stdout JSON
- * verbatim, with PascalCase field names converted to camelCase per harness
+ * verbatim, with PascalCase field names converted to camelCase per aharness
  * convention. New shapes require an SDK release.
  *
  * Spec: docs/specs/2026-05-08-per-state-hooks-design.md §4.
@@ -126,7 +126,7 @@ export type PermissionRequestDecision =
  * `RegExp` is used for pre-flight validation, a strict superset for the
  * matcher constructs codex itself accepts). Required — authors who want
  * exact match write `'^Bash$'`. Codex does not deliver `dynamic_tools`
- * or selected built-in tool calls, including `harness_submit` and
+ * or selected built-in tool calls, including `aharness_submit` and
  * `request_user_input`, to `PreToolUse` / `PostToolUse`; matchers that
  * target those names are inert rather than verifier errors.
  */
@@ -153,7 +153,7 @@ export type PermissionRequestHook<TContext> = ToolHookMatcher<
 >;
 
 /**
- * Author surface attached to `meta.harness.hooks` of a `state(...)` block.
+ * Author surface attached to `meta.aharness.hooks` of a `state(...)` block.
  * Optional — states without `hooks` keep current behavior verbatim.
  *
  * The four `never`-typed fields reserve future hook kinds. They reject

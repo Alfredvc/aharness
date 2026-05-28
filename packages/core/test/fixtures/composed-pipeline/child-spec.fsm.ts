@@ -1,4 +1,4 @@
-import { harness, state, exit, final, arg } from '@aharness/core';
+import { aharness, state, exit, final, arg } from '@aharness/core';
 
 interface ChildCtx {
   readonly topic: string;
@@ -7,7 +7,7 @@ interface Decision {
   readonly accepted: boolean;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'spec',
   input: {
     topic: arg<string>({ description: 'Topic to spec' }),

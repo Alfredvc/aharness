@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { createHarnessOps } from '../src/state/harnessOps.js';
+import { createAharnessOps } from '../src/state/aharnessOps.js';
 
-describe('createHarnessOps', () => {
+describe('createAharnessOps', () => {
   it('exposes an empty reserved operations object', () => {
-    const h = createHarnessOps();
+    const h = createAharnessOps();
     expect(h.ops).toEqual({});
   });
 
   it('does not expose clear at runtime', () => {
-    const h = createHarnessOps();
+    const h = createAharnessOps();
     expect('clear' in h.ops).toBe(false);
   });
 });

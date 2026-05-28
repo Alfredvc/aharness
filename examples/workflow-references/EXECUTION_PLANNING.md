@@ -1,4 +1,4 @@
-# Execution Planning — Step 3 of Autonomous Agent Harness
+# Execution Planning — Step 3 of Autonomous Agent Aharness
 
 Task decomposition and execution policy for an LLM agent that is about to build what Step 1 (requirements) and Step 2 (design) specified. Takes the full Step 1 and Step 2 output set as inputs — `docs/REQUIREMENTS.md`, `docs/CONTEXT.md`, `docs/SCOPE.md`, `docs/SMOKE.md`, `docs/OPEN_QUESTIONS.md` (Step 1), `docs/DESIGN.md`, `docs/GOVERNANCE.md`, `docs/INCIDENT.md`, `docs/TRACEABILITY.md` (Step 2 — created only on HEAVY) — and produces an executable task graph plus the policies that govern execution.
 
@@ -16,7 +16,7 @@ The central finding from the 2024–2026 empirical literature is counter-intuiti
 6. **Re-plan triggers are declared up front, not improvised.** Cursor stops at 25 tool calls [Cursor docs]; OpenAI Agents SDK defaults `max_turns=10` and raises `MaxTurnsExceeded` [OpenAI Agents SDK]; Claude Code retries 10× at transport layer only and is known to repeat identical failing calls without diagnosis [Claude Code issues #29944, #41659]. Our defaults are explicit, not inherited.
 7. **Independent reviewer per task, same pattern as Step 1.** The gatherer does not review. The executor does not review. Reviewer agent spawns as a separate subagent.
 8. **Context is cleared on task and step boundaries. State lives in files, not in conversation.** Chroma's context-rot study measured continuous performance decay at every length increment — Claude code bug-fixing dropped from 29% at 32K to 3% at 256K [trychroma.com/research/context-rot, 2025]. Self-conditioning on prior errors accounts for 20–48% of agent failures independent of context length [arXiv 2509.09677]. The mitigation is structural, not threshold-based: each task runs in a fresh context, resumes from files it declares up front, and writes its outputs back to files before returning. The orchestrator clears between waves. Every task must be resumable from `CLAUDE.md` + its continuation prompt + its declared required files — nothing else.
-9. **Step 3 runs fully autonomously. No human in the loop.** The initial conversation with the owner happens in Step 1 only. Asking the owner anything during Step 3 is a disqualifying act (per harness contract). Gates that would otherwise be "owner confirmation" are replaced by the independent `tasks-reviewer` subagent's PASS verdict. If a decision genuinely cannot be made without owner input, append a new `Q<n>` entry to `docs/OPEN_QUESTIONS.md` using **Step 1's canonical format** (§8.3) — `Q<n>.` / `Why unresolved:` / `Blast radius:` / `Proposed resolution path:` — and let that be the escalation. Do not block, do not invent alternate schemas, do not create per-step subsections.
+9. **Step 3 runs fully autonomously. No human in the loop.** The initial conversation with the owner happens in Step 1 only. Asking the owner anything during Step 3 is a disqualifying act (per aharness contract). Gates that would otherwise be "owner confirmation" are replaced by the independent `tasks-reviewer` subagent's PASS verdict. If a decision genuinely cannot be made without owner input, append a new `Q<n>` entry to `docs/OPEN_QUESTIONS.md` using **Step 1's canonical format** (§8.3) — `Q<n>.` / `Why unresolved:` / `Blast radius:` / `Proposed resolution path:` — and let that be the escalation. Do not block, do not invent alternate schemas, do not create per-step subsections.
 
 ---
 
@@ -221,7 +221,7 @@ Design choices and why they differ from production systems:
 - **Escalate on is required** — none of the production systems require a per-task escalation condition. Claude Code's known retry-without-diagnosis bug (issues #29944, #41659) is the failure this prevents.
 - **Blocked by is a structured list** — Spec-Kit uses prose for dependencies. We require a machine-readable list so the decomposition reviewer can check DAG acyclicity.
 - **Continuation prompt + required/output files are first-class** — Anthropic's orchestrator-worker pattern uses file-based artifact handoff for exactly this reason [Anthropic multi-agent research]. No production `tasks.md` format carries a continuation prompt as a schema field. Ours does, because the executor runs in a fresh context per task (see §8.5) and cannot rely on conversation history.
-- **Model tier is first-class** — production task schemas do not carry a per-task model tier. Our harness operates under a hard budget cap, so cost-per-task must be planned, not inherited from whichever model the orchestrator happened to be using.
+- **Model tier is first-class** — production task schemas do not carry a per-task model tier. Our aharness operates under a hard budget cap, so cost-per-task must be planned, not inherited from whichever model the orchestrator happened to be using.
 
 ---
 
@@ -320,7 +320,7 @@ A re-plan trigger firing is never "retry the same task harder" by the failing ag
 
 ## 8.5 Agent Economics & Context Management
 
-This section is the core agent-specific adaptation. Human project plans do not need it. Agent harnesses do.
+This section is the core agent-specific adaptation. Human project plans do not need it. Agent runtime adapters do.
 
 ### 8.5.1 Cost model
 
@@ -470,7 +470,7 @@ A `docs/RUN_REPORT.md` is terminal for the current run. It is never silently cle
 2. **If `phase: step2`:** Step 3 cannot recover from a Step 2 halt. Write an INCIDENT.md entry (`status: deferred`, `trigger: "Step 2 halted — cannot start Step 3"`) and stop. The owner must resolve Step 2 first.
 3. **If `phase: step3`:** read `docs/TASKS.md` in full. Reconcile: which tasks are `completed`, which are `in_progress` (never resumed after halt), which are `pending`. Count completed vs. total.
 4. **Check Step 3 exit criteria 1–7 (§10).** If all pass except criterion 8, the halt was transient and the work is intact — the owner may delete `RUN_REPORT.md` to resume. The halt-recovery procedure does not delete it autonomously.
-5. **If exit criteria 1–7 fail (decomposition is incomplete or corrupt):** the halt was fatal. Do not retry automatically. Append a new INCIDENT.md entry naming the unrecoverable state (`status: deferred`, `detection: agent_self_report`), and stop. The harness is now outside Step 3's responsibility — the next runtime layer (observer, operator, next phase orchestrator) decides whether to re-plan from Step 2, abandon the project, or intervene.
+5. **If exit criteria 1–7 fail (decomposition is incomplete or corrupt):** the halt was fatal. Do not retry automatically. Append a new INCIDENT.md entry naming the unrecoverable state (`status: deferred`, `detection: agent_self_report`), and stop. The aharness is now outside Step 3's responsibility — the next runtime layer (observer, operator, next phase orchestrator) decides whether to re-plan from Step 2, abandon the project, or intervene.
 6. **The halt-recovery procedure itself never writes to `docs/TASKS.md` or `docs/TRACEABILITY.md`.** It only reads, writes INCIDENT entries, and optionally appends context to `RUN_REPORT.md`. Structural edits require a fresh Step 3 run triggered by the next runtime layer.
 
 ---
@@ -552,5 +552,5 @@ A `docs/RUN_REPORT.md` is terminal for the current run. It is never silently cle
 - Anthropic Claude pricing. https://www.anthropic.com/pricing
 
 **Internal:**
-- `docs/REQUIREMENTS_GATHERING.md` — Step 1 of this harness; source of Rigor Score, traceability convention (`R<n>`), and reviewer-separation pattern.
+- `docs/REQUIREMENTS_GATHERING.md` — Step 1 of this aharness; source of Rigor Score, traceability convention (`R<n>`), and reviewer-separation pattern.
 - `docs/PROCESS_EVALUATION.md` — prior autonomous-run post-mortem; evidence for the self-conditioning and retry-without-diagnosis failure modes.

@@ -25,8 +25,8 @@ export type FsmState = {
   // Resolved `entryPrompt` (the per-state prompt the framework injects on
   // entry); omitted for non-stateful states.
   entryPrompt?: string;
-  // XState context, stripped of harness-internal keys (`__harness_*`,
-  // `harness`). Surfaced for the dev-mode context inspector.
+  // XState context, stripped of aharness-internal keys (`__aharness_*`,
+  // `aharness`). Surfaced for the dev-mode context inspector.
   context?: Record<string, unknown>;
 };
 

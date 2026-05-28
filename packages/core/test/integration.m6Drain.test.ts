@@ -14,11 +14,11 @@
  *   - Boots the full Phase 2a stack via `runCliForTest` against a real
  *     codex `app-server` + local mock-model HTTP server.
  *   - Mock-model queues two cross-state turns:
- *       Turn 1: `harness_submit(a, next, {note})` — drives a → b; the
+ *       Turn 1: `aharness_submit(a, next, {note})` — drives a → b; the
  *               dispatcher schedules the cross-state dance
  *               (`wait-for-item-completed → turn/interrupt →
  *               turn/start({input: <state-b nudge>})`).
- *       Turn 2: `harness_submit(b, done, {ok})` — drives b → c; the
+ *       Turn 2: `aharness_submit(b, done, {ok})` — drives b → c; the
  *               dispatcher's terminal branch fires and the run exits 0.
  *
  * Assertions per iteration:
@@ -26,14 +26,14 @@
  *       `turn/interrupt` resolving (= `TurnAborted` per CF-1 — the await
  *       IS the abort-confirmed signal) and the dance's `turn/start` send.
  *       The spike's settle-window framework is unnecessary here because
- *       the harness's dance issues `turn/start` immediately after the
+ *       the aharness's dance issues `turn/start` immediately after the
  *       interrupt resolves; any `item/completed` arriving in that gap is
  *       a stray from the aborted turn (M6 50/50 in the spike → 5/5 here).
  *   (b) Rollout JSONL inspection: every `function_call` is paired with a
  *       matching `function_call_output`. (M6 invariant (c).)
  *
  * Skip gate matches `cli.runCli.phase1.test.ts:54` — requires the
- * `codex` binary on PATH plus `HARNESS_E2E_REAL_CODEX=1` so CI without
+ * `codex` binary on PATH plus `AHARNESS_E2E_REAL_CODEX=1` so CI without
  * the binary skips cleanly. Loops 5× via `it.each`; the spike's 50×
  * stays in the one-off script for pre-merge manual verification.
  */
@@ -58,7 +58,7 @@ function hasCodex(): boolean {
   }
 }
 
-const E2E_ENABLED = hasCodex() && process.env['HARNESS_E2E_REAL_CODEX'] === '1';
+const E2E_ENABLED = hasCodex() && process.env['AHARNESS_E2E_REAL_CODEX'] === '1';
 
 interface RequestRecord {
   readonly method: string;

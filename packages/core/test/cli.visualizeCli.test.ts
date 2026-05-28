@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { exit, harness, state, terminal } from '../src/index.js';
+import { exit, aharness, state, terminal } from '../src/index.js';
 import { runVisualizeCliForTest, type RunVisualizeCliTestHooks } from '../src/cli/visualizeCli.js';
 import type { StartUiServerOptions } from '../src/ui/server.js';
 import type { UiSnapshot } from '../src/ui/events.js';
@@ -25,7 +25,7 @@ function makeWritableBuffer(): {
 }
 
 function makeLoadFsmResult() {
-  const machine = harness.machine({
+  const machine = aharness.machine({
     id: 'visualize-demo',
     initial: 'plan',
     states: {
@@ -54,7 +54,7 @@ describe('runVisualizeCliForTest', () => {
   let repoRoot: string;
 
   beforeEach(() => {
-    repoRoot = mkdtempSync(join(tmpdir(), 'harness-visualize-'));
+    repoRoot = mkdtempSync(join(tmpdir(), 'aharness-visualize-'));
   });
 
   afterEach(() => {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createActor } from 'xstate';
-import { harness } from '../src/state/machine.js';
+import { aharness } from '../src/state/machine.js';
 import { state, exit, final } from '../src/state/exits.js';
 import { embed, isEmbeddedNode } from '../src/state/embed.js';
 import { createFsm } from '../src/state/createFsm.js';
@@ -41,7 +41,7 @@ function submitCall(stateId: string, exitName: string, data: unknown) {
     threadId: 'thread',
     turnId: 'turn',
     callId: 'call',
-    tool: 'harness_submit',
+    tool: 'aharness_submit',
     arguments: JSON.stringify({ state: stateId, exit: exitName, data }),
   };
 }
@@ -192,9 +192,9 @@ const canonicalEmbedSidecar: SchemaSidecar = {
 };
 
 // Build a fresh compiled child per `it()` to avoid sharing mutated state
-// across tests. The child's pre-synthesis snapshot lives on `child.__harnessRawConfig`.
+// across tests. The child's pre-synthesis snapshot lives on `child.__aharnessRawConfig`.
 function buildChild() {
-  return harness.machine({
+  return aharness.machine({
     id: 'child',
     initial: 'go',
     states: {
@@ -221,15 +221,15 @@ describe('embed()', () => {
     expect(compound.initial).toBe('go');
     expect(compound.states).toBeDefined();
     expect(isEmbeddedNode(compound)).toBe(true);
-    expect([...compound.meta.harness.embedded.exits].sort()).toEqual(['failed', 'shipped']);
+    expect([...compound.meta.aharness.embedded.exits].sort()).toEqual(['failed', 'shipped']);
   });
 
   it('records the on-map for the synthesizer to consume', () => {
     const compound = embed(buildChild(), {
       on: { shipped: { target: 'next' }, failed: { target: 'router' } },
     });
-    expect(compound.meta.harness.embedded.onMap.shipped).toEqual({ target: 'next' });
-    expect(compound.meta.harness.embedded.onMap.failed).toEqual({ target: 'router' });
+    expect(compound.meta.aharness.embedded.onMap.shipped).toEqual({ target: 'next' });
+    expect(compound.meta.aharness.embedded.onMap.failed).toEqual({ target: 'router' });
   });
 
   it('records the input projection function when supplied', () => {
@@ -238,7 +238,7 @@ describe('embed()', () => {
       input: proj,
       on: { shipped: { target: 'next' }, failed: { target: 'router' } },
     });
-    expect(compound.meta.harness.embedded.input).toBe(proj);
+    expect(compound.meta.aharness.embedded.input).toBe(proj);
   });
 
   it('rejects an on-map missing keys for declared finals', () => {
@@ -259,7 +259,7 @@ describe('embed()', () => {
     ).toThrow(/on-map references unknown final\(s\): bogus/);
   });
 
-  it('reads the pre-synthesis snapshot from a compiled machine via __harnessRawConfig', () => {
+  it('reads the pre-synthesis snapshot from a compiled machine via __aharnessRawConfig', () => {
     const child = buildChild();
     const compound = embed(child, {
       on: { shipped: { target: 'next' }, failed: { target: 'router' } },
@@ -272,7 +272,7 @@ describe('embed()', () => {
   });
 
   it('also accepts a raw MachineConfig (advanced case)', () => {
-    // No __harnessRawConfig — embed() uses the raw object directly.
+    // No __aharnessRawConfig — embed() uses the raw object directly.
     const rawConfig = {
       id: 'inline',
       initial: 'go',
@@ -286,7 +286,7 @@ describe('embed()', () => {
     };
     const compound = embed(rawConfig as never, { on: { done: { target: 'next' } } });
     expect(compound.initial).toBe('go');
-    expect(compound.meta.harness.embedded.exits).toEqual(['done']);
+    expect(compound.meta.aharness.embedded.exits).toEqual(['done']);
   });
 
   it('produces independent compounds when embed() is called twice on the same child', () => {
@@ -304,8 +304,8 @@ describe('embed()', () => {
     const goB = (compoundB.states as Record<string, unknown>).go;
     expect(goA).not.toBe(goB);
     // Sanity: both compounds carry the same final IDs.
-    expect([...compoundA.meta.harness.embedded.exits].sort()).toEqual(['failed', 'shipped']);
-    expect([...compoundB.meta.harness.embedded.exits].sort()).toEqual(['failed', 'shipped']);
+    expect([...compoundA.meta.aharness.embedded.exits].sort()).toEqual(['failed', 'shipped']);
+    expect([...compoundB.meta.aharness.embedded.exits].sort()).toEqual(['failed', 'shipped']);
   });
 });
 

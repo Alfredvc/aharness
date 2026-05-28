@@ -41,7 +41,7 @@ export async function checkPackageSourceConstraints(
   const fsmsDirResult = validatePackagePath({
     packageRoot,
     relativePath: opts.fsmsDir,
-    field: 'harness.package.fsmsDir',
+    field: 'aharness.package.fsmsDir',
   });
   if (!fsmsDirResult.ok) return fsmsDirResult;
 
@@ -125,9 +125,9 @@ async function realpathFsmsDir(
   } catch (err) {
     diagnostics.push({
       code: 'fsms-dir-realpath-failed',
-      field: 'harness.package.fsmsDir',
+      field: 'aharness.package.fsmsDir',
       path: fsmsDirPath,
-      message: `could not resolve harness.package.fsmsDir realpath: ${errorMessage(err)}`,
+      message: `could not resolve aharness.package.fsmsDir realpath: ${errorMessage(err)}`,
     });
     return null;
   }
@@ -155,8 +155,8 @@ async function validateSourceFileLocation(opts: {
       resolvedFile: sourceFilePath,
       ...(opts.line ? { line: opts.line } : {}),
       message: opts.importSpecifier
-        ? `relative TypeScript import '${opts.importSpecifier}' resolves outside harness.package.fsmsDir`
-        : 'discovered FSM source must resolve under harness.package.fsmsDir',
+        ? `relative TypeScript import '${opts.importSpecifier}' resolves outside aharness.package.fsmsDir`
+        : 'discovered FSM source must resolve under aharness.package.fsmsDir',
     });
     return false;
   }
@@ -227,8 +227,8 @@ async function validateSourceFileLocation(opts: {
       resolvedFile: realSourceFilePath,
       ...(opts.line ? { line: opts.line } : {}),
       message: opts.importSpecifier
-        ? `relative TypeScript import '${opts.importSpecifier}' resolves outside harness.package.fsmsDir`
-        : 'discovered FSM source must resolve under harness.package.fsmsDir',
+        ? `relative TypeScript import '${opts.importSpecifier}' resolves outside aharness.package.fsmsDir`
+        : 'discovered FSM source must resolve under aharness.package.fsmsDir',
     });
     return false;
   }

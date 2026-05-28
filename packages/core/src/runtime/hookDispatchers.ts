@@ -24,7 +24,7 @@ import {
   runCanonicalEventReturn,
 } from '../state/canonicalTransition.js';
 import type { CanonicalEventMeta } from '../state/exits.js';
-import type { HarnessOps } from '../state/harnessOps.js';
+import type { AharnessOps } from '../state/aharnessOps.js';
 import type {
   HookKind,
   PostToolUseDecision,
@@ -60,7 +60,7 @@ export interface PerStateHookDispatcherInput {
     readonly error: Error;
   }) => void;
   readonly flushSnapshot?: (xstateSnapshot: unknown) => void;
-  readonly ops?: HarnessOps;
+  readonly ops?: AharnessOps;
   readonly writeFinalArtifacts?: (
     terminalStateId: string,
     context?: Record<string, unknown>,
@@ -300,7 +300,7 @@ export async function dispatchCanonicalBuiltinEvent(i: {
   readonly payload: unknown;
   readonly defaultReturn?: unknown;
   readonly flushSnapshot?: (xstateSnapshot: unknown) => void;
-  readonly ops?: HarnessOps;
+  readonly ops?: AharnessOps;
   readonly writeFinalArtifacts?: (
     terminalStateId: string,
     context?: Record<string, unknown>,

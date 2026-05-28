@@ -41,7 +41,7 @@ the compatibility gate and drift-check details.
   keys in state `on` maps.
 
 The lower-level compatibility exports remain available from `@aharness/core`:
-`harness.machine`, `state`, `exit`, `final`, `terminal`, `passive`, `arg`,
+`aharness.machine`, `state`, `exit`, `final`, `terminal`, `passive`, `arg`,
 `embed`, and `skill`. New examples should prefer `createFsm`.
 
 ## State Options
@@ -114,7 +114,7 @@ provided flags are checked for name/type validity but are not used to start an
 actor.
 
 `aharness verify` checks an FSM without starting a run. `aharness doctor` checks
-the Codex CLI version gate and reports active run health from `.harness/runs`.
+the Codex CLI version gate and reports active run health from `.aharness/runs`.
 `aharness visualize` verifies and opens the browser graph/details UI in
 inspection mode without starting Codex, hooks, a thread, or the FSM actor.
 Function-form prompts are shown as source so dynamic state instructions remain
@@ -140,7 +140,7 @@ edges, so they stay visible and routed, but not every main edge can point
 downward in a cyclic workflow.
 
 ELK owns the base node placement, crossing minimization, and structural edge
-routing. Harness supplies semantic model order, cycle and feedback metadata,
+routing. aharness supplies semantic model order, cycle and feedback metadata,
 fixed center ports and straightness priority for marked main-forward paths, and
 CSS styling.
 

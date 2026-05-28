@@ -1,15 +1,15 @@
 ---
-name: harness-fsm-authoring
-description: Author, review, and verify general @aharness/core finite state machines. Use when Codex needs to design or write a harness FSM for any workflow, convert an informal process into typed states and transitions, choose between strict/open/await/passive/embed/final states, or diagnose harness FSM verifier and authoring errors.
+name: aharness-fsm-authoring
+description: Author, review, and verify general @aharness/core finite state machines. Use when Codex needs to design or write an aharness FSM for any workflow, convert an informal process into typed states and transitions, choose between strict/open/await/passive/embed/final states, or diagnose aharness FSM verifier and authoring errors.
 ---
 
-# Harness FSM Authoring
+# aharness FSM Authoring
 
 ## Core Rule
 
 Author the FSM from the workflow the user asked for. Do not import assumptions from an unrelated task, hard-code hidden answers, or choose a prebuilt process shape unless the user's workflow actually has that shape.
 
-Harness controls deterministic process flow. The model performs bounded language, coding, inspection, or judgment work inside the active state and advances only through declared typed exits.
+aharness controls deterministic process flow. The model performs bounded language, coding, inspection, or judgment work inside the active state and advances only through declared typed exits.
 
 ## Authoring Workflow
 
@@ -21,7 +21,7 @@ Harness controls deterministic process flow. The model performs bounded language
 4. Define FSM data: durable facts, counters, decisions, artifacts inputs, and outputs needed by later states.
 5. Choose state mechanisms:
    - `fsm.state` for normal model work.
-   - strict mode for harness-driven progress.
+   - strict mode for aharness-driven progress.
    - open mode for owner-paced discussion.
    - `ask` when the model needs owner text before a typed submit.
    - `fsm.await` when the owner reply itself should advance the FSM.
@@ -31,7 +31,7 @@ Harness controls deterministic process flow. The model performs bounded language
    - `withEvents`/`fsm.event` only when an advanced FSM has typed runtime inputs that are not ordinary submits, awaits, or built-in hook events.
 6. Author with the canonical `createFsm` API.
 7. Run `aharness verify <file.fsm.ts>` and fix verifier errors using [fsm-authoring.md](references/fsm-authoring.md).
-8. If the user asked to execute the harness, run `aharness <file.fsm.ts>` and inspect the run artifacts.
+8. If the user asked to execute the aharness, run `aharness <file.fsm.ts>` and inspect the run artifacts.
 
 ## Design Checklist
 

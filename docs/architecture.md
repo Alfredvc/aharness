@@ -1,7 +1,7 @@
 # Architecture
 
-Harness is a middle layer for coding-agent workflows. Skills and prompts can
-describe a process, but Harness makes the process executable: the FSM owns the
+aharness is a middle layer for coding-agent workflows. Skills and prompts can
+describe a process, but aharness makes the process executable: the FSM owns the
 states, gates, typed submissions, approval routing, and final artifacts while
 Codex performs the language and coding work.
 
@@ -25,8 +25,8 @@ For read-only FSM inspection, `aharness visualize <file.fsm.ts>` verifies and
 opens the same graph/details UI without starting Codex, hooks, a thread, or the
 FSM actor.
 
-Codex writes code, runs tools, and produces natural-language reasoning. Harness
-does not ask Codex to remember the workflow. Instead, Harness exposes only the
+Codex writes code, runs tools, and produces natural-language reasoning. aharness
+does not ask Codex to remember the workflow. Instead, aharness exposes only the
 active state's allowed exits and moves the machine when a typed event satisfies
 the state's rules.
 
@@ -42,7 +42,7 @@ The browser graph derives visualization details locally from that semantic
 topology. It projects collapsed or expanded embedded FSM hierarchy, ranks each
 visible scope from its entry state, keeps local sink terminals at the bottom of
 their own scope, classifies renderer-local edge roles, and then asks ELK for
-concrete coordinates and structural edge routes. Harness supplies semantic model
+concrete coordinates and structural edge routes. aharness supplies semantic model
 order, cycle and feedback metadata, fixed center ports for marked main-forward
 edges, straightness priority, and styling. This keeps runtime and event
 contracts independent from the current graph layout strategy while allowing the
@@ -85,7 +85,7 @@ renderer-local role names.
 
 ## Process Control
 
-The model submits structured payloads through Harness-controlled tools. Harness
+The model submits structured payloads through aharness-controlled tools. aharness
 validates the payload against the active state's generated sidecar schema,
 executes the configured reducer or effect, and emits the transition into the
 FSM. If the active state does not expose an exit, the model cannot take it.
@@ -97,12 +97,12 @@ Owner input has two paths:
 - Built-in approval and hook events route Codex permission, pre-tool,
   post-tool, and prompt-submission events through the active state's `on` map.
 
-This is the core boundary: Codex performs the work; Harness constrains the
+This is the core boundary: Codex performs the work; aharness constrains the
 process around that work.
 
 ## Artifacts And Runs
 
-Each invocation creates a fresh run directory under `.harness/runs/<runId>/`.
+Each invocation creates a fresh run directory under `.aharness/runs/<runId>/`.
 Run artifacts include snapshots, event logs, terminal reports, and any final
 artifacts declared by the FSM. These files are inspection evidence for the run;
 the current public CLI starts a new run and Codex thread for each invocation.
@@ -115,6 +115,6 @@ utilities. It has a regular dependency on `@aharness/core`; it is not a peer
 dependency.
 
 Reusable FSM packages can be built with `aharness package`. Package authors own
-their `fsms/` and bundled `skills/`; Harness owns the generated executable and
+their `fsms/` and bundled `skills/`; aharness owns the generated executable and
 delegates package commands back through the same verifier and runtime used for
 direct `.fsm.ts` files.

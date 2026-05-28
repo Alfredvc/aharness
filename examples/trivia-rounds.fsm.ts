@@ -85,7 +85,7 @@ export default fsm.machine({
     }),
     pickGenreFresh: fsm.state({
       prompt: (data) =>
-        `This is round ${data.round} of 3. The harness cleared your model context between rounds — ` +
+        `This is round ${data.round} of 3. The aharness cleared your model context between rounds — ` +
         'tell the owner one short sentence acknowledging that you have no memory of the earlier rounds, ' +
         'then ask for the new genre. Map the owner reply to a short genre label ' +
         '(e.g. "movies", "science", "history", "sports"). Submit the genre.',

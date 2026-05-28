@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 
 const root = process.cwd();
 const publishablePackageDirs = ['packages/core', 'packages/test-support'];
-const retiredVizPackageName = ['harness', 'viz'].join('-');
+const retiredVizPackageName = ['aharness', 'viz'].join('-');
 const retiredVizPackageDir = `packages/${retiredVizPackageName}`;
 
 function readPackageJson(path: string): Record<string, unknown> {
@@ -109,6 +109,6 @@ describe('release manifest readiness', () => {
 
     expect(template).toContain(`"@aharness/core": "^${String(rootPkg.version)}"`);
     expect(template).not.toContain(`"${retiredVizPackageName}"`);
-    expect(template).not.toContain('__HARNESS_VERSION__');
+    expect(template).not.toContain('__AHARNESS_VERSION__');
   });
 });

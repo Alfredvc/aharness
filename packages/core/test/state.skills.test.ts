@@ -82,7 +82,7 @@ describe('resolveSkill', () => {
     abs: (rel: string) => string;
     write: (rel: string, body?: string) => string;
   } {
-    const root = mkdtempSync(join(tmpdir(), 'harness-skill-test-'));
+    const root = mkdtempSync(join(tmpdir(), 'aharness-skill-test-'));
     const repoRoot = join(root, 'repo');
     const fsmFileDir = join(repoRoot, 'fsm');
     const homeDir = join(root, 'home');

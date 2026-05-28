@@ -17,8 +17,8 @@ const scriptPath = resolve(here, 'check-no-stale-stateless-contracts.mjs');
 const requiredFiles = [
   'README.md',
   'CLAUDE.md',
-  'docs/HARNESS_IDEA.md',
-  'docs/SPEC_SDK.md',
+  'docs/architecture.md',
+  'docs/reference.md',
   'examples/DEMOS.md',
   'packages/core/README.md',
   'packages/core/scripts/browserGoldenServer.mjs',
@@ -26,7 +26,7 @@ const requiredFiles = [
   'packages/core/src/index.ts',
   'packages/core/src/snapshot.ts',
   'packages/core/src/cli/runCli.ts',
-  'packages/core/src/state/harnessOps.ts',
+  'packages/core/src/state/aharnessOps.ts',
   'packages/core/src/runtime/freshClear.ts',
 ];
 
@@ -52,7 +52,7 @@ function runScript(rootDir) {
 const tempdirs = [];
 
 function makeTempdir() {
-  const d = mkdtempSync(join(tmpdir(), 'harness-stateless-chk-'));
+  const d = mkdtempSync(join(tmpdir(), 'aharness-stateless-chk-'));
   tempdirs.push(d);
   return d;
 }
@@ -101,7 +101,7 @@ describe('check-no-stale-stateless-contracts', () => {
 
   it('rejects framework resume recovery guidance', async () => {
     const root = makeCleanRepo();
-    write(root, 'README.md', 'Crash recovery: resume with: harness <file.fsm.ts> --resume\n');
+    write(root, 'README.md', 'Crash recovery: resume with: aharness <file.fsm.ts> --resume\n');
 
     const { code, stderr } = await runScript(root);
 
@@ -177,7 +177,7 @@ describe('check-no-stale-stateless-contracts', () => {
 
   it('does not scan historical docs, protocol pins, tests, or generated static UI', async () => {
     const root = makeCleanRepo();
-    write(root, 'docs/specs/old-design.md', 'resume with: harness <file.fsm.ts> --resume\n');
+    write(root, 'docs/specs/old-design.md', 'resume with: aharness <file.fsm.ts> --resume\n');
     write(root, 'docs/plans/old-plan.md', 'pendingClear and thread/rollback\n');
     write(root, 'packages/core/SUPPORTED_CODEX.md', 'thread/resume and thread/rollback\n');
     write(root, 'packages/web-ui/src/App.test.tsx', 'const text = "Rollback";\n');

@@ -25,12 +25,12 @@
  *   1. `request_user_input({questions: [{id: "q", header: "",
  *       question: "What?", isOther: false, isSecret: false}]})` —
  *       resolver fires `AWAIT__a__reply`; state advances a → b.
- *   2. `harness_submit({state: "b", exit: "done", data: {}})` —
+ *   2. `aharness_submit({state: "b", exit: "done", data: {}})` —
  *       terminal transition; run exits 0.
  *
  * Per `docs/plans/2026-05-13-headless-phase-2b-owner-yield.md` §Task 8.
  */
-import { harness, state, exit, terminal, type HarnessMachine } from '@aharness/core';
+import { aharness, state, exit, terminal, type AharnessMachine } from '@aharness/core';
 
 interface DonePayload {
   // Intentionally empty — state b's submit carries no data. The mock
@@ -45,11 +45,11 @@ interface DonePayload {
  * The integration test still writes the source string to disk and lets
  * `loadFsm` esbuild + dynamic-import it.
  */
-export const awaitExitWalkMachine: HarnessMachine<
+export const awaitExitWalkMachine: AharnessMachine<
   unknown,
   unknown,
   Record<string, unknown>
-> = harness.machine({
+> = aharness.machine({
   id: 'await-exit-walk',
   initial: 'a',
   states: {
@@ -80,13 +80,13 @@ export const awaitExitWalkMachine: HarnessMachine<
  * install paths — see `packages/core/src/loader/compile.ts`).
  * Kept in sync with `awaitExitWalkMachine` above.
  */
-export const AWAIT_EXIT_WALK_FSM_SOURCE = `import { harness, state, exit, terminal } from '@aharness/core';
+export const AWAIT_EXIT_WALK_FSM_SOURCE = `import { aharness, state, exit, terminal } from '@aharness/core';
 
 interface DonePayload {
   _empty?: never;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'await-exit-walk',
   initial: 'a',
   states: {

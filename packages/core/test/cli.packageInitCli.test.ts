@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { runPackageCli } from '../src/cli/packageCli.js';
 
 function tmpPackage(): string {
-  return mkdtempSync(path.join(tmpdir(), 'harness-package-init-'));
+  return mkdtempSync(path.join(tmpdir(), 'aharness-package-init-'));
 }
 
 function captureStream(): { stream: NodeJS.WritableStream; text: () => string } {
@@ -25,7 +25,7 @@ function captureStream(): { stream: NodeJS.WritableStream; text: () => string } 
 async function runInit(
   cwd: string,
   argv: ReadonlyArray<string>,
-  harnessCoreVersion = '1.2.3',
+  aharnessCoreVersion = '1.2.3',
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const stdout = captureStream();
   const stderr = captureStream();
@@ -34,7 +34,7 @@ async function runInit(
     cwd,
     stdout: stdout.stream,
     stderr: stderr.stream,
-    harnessCoreVersion,
+    aharnessCoreVersion,
   });
   return { exitCode: result.exitCode, stdout: stdout.text(), stderr: stderr.text() };
 }
@@ -110,7 +110,7 @@ describe('aharness package init', () => {
     expect(pkg['dependencies']).toEqual({
       '@aharness/core': '1.2.3',
     });
-    expect(pkg['harness']).toEqual({
+    expect(pkg['aharness']).toEqual({
       package: {
         bin: 'ah-superpowers',
         fsmsDir: 'fsms',
@@ -132,7 +132,7 @@ describe('aharness package init', () => {
       dependencies: {
         xstate: '^5.19.0',
       },
-      harness: {
+      aharness: {
         package: {
           commands: {
             plan: { target: 'writing-plans' },
@@ -160,7 +160,7 @@ describe('aharness package init', () => {
       xstate: '^5.19.0',
       '@aharness/core': '1.2.3',
     });
-    expect(pkg['harness']).toEqual({
+    expect(pkg['aharness']).toEqual({
       package: {
         commands: {
           plan: { target: 'writing-plans' },
@@ -190,7 +190,7 @@ describe('aharness package init', () => {
       'do-stuff': './bin/do-stuff.mjs',
     });
     expect(pkg['files']).toEqual(['bin', 'workflows', 'skills']);
-    expect(pkg['harness']).toEqual({
+    expect(pkg['aharness']).toEqual({
       package: {
         bin: 'do-stuff',
         fsmsDir: 'workflows',
@@ -213,7 +213,7 @@ describe('aharness package init', () => {
     expect(existsSync(path.join(root, 'workflows\\nested'))).toBe(false);
     const pkg = readPackageJson(root);
     expect(pkg['files']).toEqual(['bin', 'workflows/nested', 'skills']);
-    expect(pkg['harness']).toEqual({
+    expect(pkg['aharness']).toEqual({
       package: {
         bin: 'workflow-pack',
         fsmsDir: 'workflows/nested',
@@ -256,7 +256,7 @@ describe('aharness package init', () => {
       files: 'dist',
       scripts: [],
       dependencies: [],
-      harness: [],
+      aharness: [],
     });
 
     const result = await runInit(root, ['--force']);
@@ -265,7 +265,7 @@ describe('aharness package init', () => {
     expect(result.stderr).toContain('files');
     expect(result.stderr).toContain('scripts');
     expect(result.stderr).toContain('dependencies');
-    expect(result.stderr).toContain('harness');
+    expect(result.stderr).toContain('aharness');
   });
 
   it('rejects unsafe fsmsDir paths before writing package metadata or creating directories', async () => {
@@ -274,7 +274,7 @@ describe('aharness package init', () => {
     const result = await runInit(root, ['--name', 'unsafe-pack', '--fsms-dir', '../escape']);
 
     expect(result.exitCode).toBe(2);
-    expect(result.stderr).toContain('harness.package.fsmsDir');
+    expect(result.stderr).toContain('aharness.package.fsmsDir');
     expect(existsSync(path.join(root, 'package.json'))).toBe(false);
     expect(existsSync(path.join(root, '..', 'escape'))).toBe(false);
   });
@@ -289,7 +289,7 @@ describe('aharness package init', () => {
       cwd: root,
       stdout: stdout.stream,
       stderr: stderr.stream,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
     });
 
     expect(unknown.exitCode).toBe(2);
@@ -302,7 +302,7 @@ describe('aharness package init', () => {
       cwd: root,
       stdout: captureStream().stream,
       stderr: captureStream().stream,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
     });
 
     expect(missingValue.exitCode).toBe(2);
@@ -329,7 +329,7 @@ describe('aharness package init', () => {
       cwd: root,
       stdout: stdout.stream,
       stderr: stderr.stream,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
     });
 
     expect(result.exitCode).toBe(2);

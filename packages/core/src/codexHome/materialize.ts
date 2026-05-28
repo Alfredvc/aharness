@@ -12,7 +12,7 @@ import type { HookKind } from '../state/hooks.js';
 export interface MaterializeHookScriptsInput {
   /** Absolute target directory; will be `mkdir -p`'d. */
   readonly hookDir: string;
-  /** Absolute path to the harness runtime's hook UDS (baked into rendered scripts). */
+  /** Absolute path to the aharness runtime's hook UDS (baked into rendered scripts). */
   readonly hookSocket: string;
   /** Retained for call-site compatibility; Stop hook framing was retired in Phase 2d. */
   readonly stopHookTimeoutSec: number;
@@ -20,8 +20,8 @@ export interface MaterializeHookScriptsInput {
    * Hook kinds the FSM declares — write a wrapper only for these. Empty
    * array ⇒ zero per-state-hook scripts written. Codex's hook discovery
    * concatenates user `[[hooks.<Kind>]]` entries from
-   * `~/.codex/config.toml` and `~/.codex/hooks.json` alongside the harness
-   * wrapper at runtime; the harness does NOT read or parse user config.
+   * `~/.codex/config.toml` and `~/.codex/hooks.json` alongside the aharness
+   * wrapper at runtime; the aharness does NOT read or parse user config.
    * See `docs/specs/2026-05-08-per-state-hooks-design.md` §5.5.
    */
   readonly declaredHookKinds: ReadonlyArray<HookKind>;

@@ -1,15 +1,15 @@
 /**
  * WebSocket {@link Transport} for the JSON-RPC client.
  *
- * Intended use: harness ↔ codex `app-server`. Codex's app-server speaks
+ * Intended use: aharness ↔ codex `app-server`. Codex's app-server speaks
  * WebSocket framing on both its TCP and UDS transports — see
  * `app-server-transport/src/transport/websocket.rs` and
  * `app-server-transport/src/transport/unix_socket.rs:78` (`accept_async`) at
  * the pinned codex commit. This is therefore the primary transport for
- * harness↔codex traffic; one JSON-RPC message per WS Text frame.
+ * aharness↔codex traffic; one JSON-RPC message per WS Text frame.
  *
- * For harness-internal line-delimited UDS traffic, use `udsTransport.ts`
- * instead — that path is for harness components, not for talking to codex.
+ * For aharness-internal line-delimited UDS traffic, use `udsTransport.ts`
+ * instead — that path is for aharness components, not for talking to codex.
  */
 
 import WebSocket from 'ws';

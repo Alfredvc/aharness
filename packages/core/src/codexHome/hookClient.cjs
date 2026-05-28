@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* Minimal Node UDS client for the harness hook UDS.
+/* Minimal Node UDS client for the aharness hook UDS.
  *
  * Reads stdin into a buffer, frames it as `<TAG> <byteLen>\n<body>`
  * (per spec docs/specs/2026-05-04-mcp-submit-route-design.md §5.2),
@@ -50,10 +50,10 @@ const READ_TIMEOUT_MS = 25_000;
 // on every 'data' chunk so it only fires when stdin is genuinely idle,
 // not when a large payload is mid-flight.
 //
-// Overridable via `HARNESS_HOOK_STDIN_TIMEOUT_MS` so tests can run in
+// Overridable via `AHARNESS_HOOK_STDIN_TIMEOUT_MS` so tests can run in
 // ~200 ms rather than 28 s.
 const STDIN_TIMEOUT_MS = (() => {
-  const raw = process.env.HARNESS_HOOK_STDIN_TIMEOUT_MS;
+  const raw = process.env.AHARNESS_HOOK_STDIN_TIMEOUT_MS;
   if (raw == null || raw === '') return 28_000;
   const n = Number(raw);
   return Number.isFinite(n) && n > 0 ? n : 28_000;
@@ -61,7 +61,7 @@ const STDIN_TIMEOUT_MS = (() => {
 
 let stdinTimer = setTimeout(onStdinIdle, STDIN_TIMEOUT_MS);
 function onStdinIdle() {
-  process.stderr.write('harness-hook-client: stdin inactivity timeout\n');
+  process.stderr.write('aharness-hook-client: stdin inactivity timeout\n');
   process.exit(1);
 }
 function bumpStdinTimer() {

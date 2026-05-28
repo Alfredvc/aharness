@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto';
 
 import { SUBMIT_TOOL } from '../src/protocol/submitTool.js';
 
-const PINNED_SHA256 = '90e1b27477e116aaea086a3b7b3e5f53658b43249a6ee2d3e0a02f8ba746861a';
+const PINNED_SHA256 = '0bd11a6aa265e4dec9f1e7b9c7657418435e5e6dd876946f644fd8113a1e8b7b';
 
 describe('SUBMIT_TOOL', () => {
   it('matches the pinned SHA-256 of its JSON serialization', () => {
@@ -37,8 +37,8 @@ describe('SUBMIT_TOOL', () => {
     expect(SUBMIT_TOOL).not.toHaveProperty('parameters');
   });
 
-  it('has tool name "harness_submit"', () => {
-    expect(SUBMIT_TOOL.name).toBe('harness_submit');
+  it('has tool name "aharness_submit"', () => {
+    expect(SUBMIT_TOOL.name).toBe('aharness_submit');
   });
 
   it('declares `readOnlyHint: true` so codex skips the synchronous approval prompt', () => {

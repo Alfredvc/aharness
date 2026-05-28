@@ -5,9 +5,9 @@
  *   1. `final<TOutput>()` returns `FinalConfig<TOutput>`, stamping the
  *      author-supplied output-callback return type into a phantom
  *      `__outputType` slot.
- *   2. `harness.machine({states: TStates})` walks `TStates` via
+ *   2. `aharness.machine({states: TStates})` walks `TStates` via
  *      `ExtractFinals<TStates>` and surfaces the resulting `<finalId,
- *      TOutput>` record on `HarnessMachine<…, TFinals>.__finalsType`.
+ *      TOutput>` record on `AharnessMachine<…, TFinals>.__finalsType`.
  *   3. `embed(child, opts)` reads that phantom via `FinalsOf<typeof child>`
  *      and types the `on:` map entries' `actions` / `guard` callbacks so
  *      `event.output` matches the child final's resolved `TOutput`.
@@ -22,13 +22,13 @@
  */
 import { assign } from 'xstate';
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import { embed, harness, state, exit, final, createFsm, type HarnessOps } from '../src/index.js';
+import { embed, aharness, state, exit, final, createFsm, type AharnessOps } from '../src/index.js';
 
 describe('embed() — typed event.output via FinalsOf<>', () => {
   // Build a child whose `shipped` final returns `{topic: string}`. This
   // is the load-bearing scenario: `event.output.topic` must type-check
   // without a cast in the parent's `actions:` callback.
-  const child = harness.machine({
+  const child = aharness.machine({
     initial: 'compose',
     states: {
       compose: state({
@@ -98,14 +98,14 @@ describe('embed() — typed event.output via FinalsOf<>', () => {
   });
 
   it('phantom carriers are never set at runtime', () => {
-    // HarnessMachine.__inputType and __finalsType are declared as phantom
-    // (type-level-only) fields on the HarnessMachine interface. The runtime
+    // AharnessMachine.__inputType and __finalsType are declared as phantom
+    // (type-level-only) fields on the AharnessMachine interface. The runtime
     // value of the compiled machine must never carry these properties —
     // they exist purely as TS-level carriers consumed by InputOf<> and
     // FinalsOf<> / embed(). A regression where the implementation
     // accidentally writes the fields would break serialization and violate
     // the spec comment ("never set at runtime").
-    const m = harness.machine({
+    const m = aharness.machine({
       initial: 'go',
       states: {
         go: state({
@@ -120,8 +120,8 @@ describe('embed() — typed event.output via FinalsOf<>', () => {
     expect(machine['__inputType']).toBeUndefined();
     expect(machine['__finalsType']).toBeUndefined();
 
-    // __outputType lives on FinalConfig, not HarnessMachine. Verify that the
-    // raw return value of final() — before it's processed by harness.machine()
+    // __outputType lives on FinalConfig, not AharnessMachine. Verify that the
+    // raw return value of final() — before it's processed by aharness.machine()
     // into an XState node — also never carries the phantom at runtime.
     const finalDef = final<{ topic: string }>({
       outcome: 'success',
@@ -177,7 +177,7 @@ describe('createFsm().embed — canonical child-final output contract', () => {
           effect: async ({ data, output, ops }) => {
             expectTypeOf(data).toEqualTypeOf<Readonly<ParentData>>();
             expectTypeOf(output).toEqualTypeOf<{ topic: string; status: 'shipped' }>();
-            expectTypeOf(ops).toEqualTypeOf<HarnessOps>();
+            expectTypeOf(ops).toEqualTypeOf<AharnessOps>();
           },
           reduce: (draft, output) => {
             expectTypeOf(draft).toEqualTypeOf<ParentData>();

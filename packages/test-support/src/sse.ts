@@ -72,10 +72,10 @@ export function sseAssistantText(text: string): SseEvent {
  * Without a namespace, codex deserializes the call as a flat-name tool
  * (built-ins) — pass `name` only.
  *
- * Example for `mcp__harness_fsm__submit`:
+ * Example for `mcp__aharness_fsm__submit`:
  *
  *   sseFunctionCall('submit', {state, exit, data}, undefined,
- *                   'mcp__harness_fsm__')
+ *                   'mcp__aharness_fsm__')
  *
  * Wire shape verified at `protocol/src/models.rs:2090-2110`
  * (`function_call_deserializes_optional_namespace` test).

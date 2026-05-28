@@ -1,10 +1,10 @@
-import { harness, state, exit, final } from '@aharness/core';
+import { aharness, state, exit, final } from '@aharness/core';
 
 interface LeafPayload {
   readonly leafOk: boolean;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'grandchild',
   initial: 'leaf',
   states: {

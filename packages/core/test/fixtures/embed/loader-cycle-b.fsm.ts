@@ -1,8 +1,8 @@
 // See `loader-cycle-a.fsm.ts` for the static-only fixture rationale.
-import { harness, state, exit, final, embed } from '@aharness/core';
+import { aharness, state, exit, final, embed } from '@aharness/core';
 import other from './loader-cycle-a.fsm.js';
 
-export default harness.machine({
+export default aharness.machine({
   id: 'loaderCycleB',
   initial: 'go',
   states: {

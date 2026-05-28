@@ -1,10 +1,10 @@
-import { harness, state, exit, final, arg } from '../../../src/index.js';
+import { aharness, state, exit, final, arg } from '../../../src/index.js';
 
 interface PayloadOk {
   readonly ok: boolean;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'childWithInput',
   input: { topic: arg<string>() },
   initial: 'go',

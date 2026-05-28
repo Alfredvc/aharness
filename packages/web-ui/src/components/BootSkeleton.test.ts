@@ -16,7 +16,7 @@ describe('BootSkeleton', () => {
   it('describes lost connections as ended foreground runs with inspectable artifacts', () => {
     const html = renderToStaticMarkup(createElement(BootSkeleton, { connection: 'lost' }));
 
-    expect(html).toContain('The foreground harness run ended.');
+    expect(html).toContain('The foreground aharness run ended.');
     expect(html).toContain('Run artifacts remain inspectable.');
     expect(html).not.toContain('--resume');
     expect(html).not.toContain('reconnect');

@@ -1,9 +1,9 @@
 // Static-only fixture: the child's submit exit declares `exit<any>(...)`
 // so the loader emits an `exit-payload-any` issue. Used to assert that child
 // issues forward up to the parent's sidecar with stateIds prefixed.
-import { harness, state, exit, final } from '@aharness/core';
+import { aharness, state, exit, final } from '@aharness/core';
 
-export default harness.machine({
+export default aharness.machine({
   id: 'childWithError',
   initial: 'broken',
   states: {

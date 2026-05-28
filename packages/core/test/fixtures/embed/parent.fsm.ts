@@ -1,4 +1,4 @@
-import { harness, state, exit, final, embed } from '../../../src/index.js';
+import { aharness, state, exit, final, embed } from '../../../src/index.js';
 import { assign } from 'xstate';
 import child from './child.fsm.js';
 
@@ -10,7 +10,7 @@ interface ParentCtx {
   readonly capturedFailedOutput: unknown;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'parent',
   initial: 'router',
   context: (): ParentCtx => ({

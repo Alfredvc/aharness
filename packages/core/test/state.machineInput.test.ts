@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { assign, createActor } from 'xstate';
-import { harness, state, exit, final, arg, createFsm } from '../src/index.js';
+import { aharness, state, exit, final, arg, createFsm } from '../src/index.js';
 
-describe('harness.machine({input})', () => {
+describe('aharness.machine({input})', () => {
   it('preserves the input declaration on the compiled machine config', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       input: {
         ideafilePath: arg<string>({ description: 'path' }),
         topic: arg<string>(),
@@ -26,8 +26,8 @@ describe('harness.machine({input})', () => {
     ]);
   });
 
-  it('preserves the input declaration on the __harnessRawConfig snapshot', () => {
-    const m = harness.machine({
+  it('preserves the input declaration on the __aharnessRawConfig snapshot', () => {
+    const m = aharness.machine({
       input: { topic: arg<string>() },
       initial: 'go',
       states: {
@@ -38,14 +38,14 @@ describe('harness.machine({input})', () => {
         done: final({ outcome: 'success' }),
       },
     });
-    const snap = (m as { __harnessRawConfig?: { input?: Record<string, unknown> } })
-      .__harnessRawConfig;
+    const snap = (m as { __aharnessRawConfig?: { input?: Record<string, unknown> } })
+      .__aharnessRawConfig;
     expect(snap?.input).toBeDefined();
     expect(Object.keys(snap!.input as Record<string, unknown>)).toEqual(['topic']);
   });
 
   it('passes input through to context via XState createActor', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       input: { topic: arg<string>() },
       context: ({ input }: { input: { topic?: string } }) => ({ topic: input.topic ?? '' }),
       initial: 'go',
@@ -105,14 +105,14 @@ describe('createFsm().machine({ input, data })', () => {
     const input = (
       embedded as {
         meta: {
-          harness: {
+          aharness: {
             embedded: {
               input?: (args: { readonly context: { topic: string; count: number } }) => unknown;
             };
           };
         };
       }
-    ).meta.harness.embedded.input;
+    ).meta.aharness.embedded.input;
 
     expect(input?.({ context: { topic: 'auth', count: 4 } })).toEqual({
       topic: 'auth',
@@ -120,14 +120,14 @@ describe('createFsm().machine({ input, data })', () => {
     });
   });
 
-  it('merges canonical state xstate.meta without overwriting harness metadata', () => {
+  it('merges canonical state xstate.meta without overwriting aharness metadata', () => {
     const fsm = createFsm<{ count: number }>();
     const node = fsm.state({
       prompt: 'count',
       xstate: {
         meta: {
           author: { label: 'Count state' },
-          harness: { authorSupplied: true },
+          aharness: { authorSupplied: true },
         },
         tags: ['visible'],
       },
@@ -142,15 +142,15 @@ describe('createFsm().machine({ input, data })', () => {
     }) as {
       readonly meta: {
         readonly author?: { readonly label?: string };
-        readonly harness?: { readonly kind?: string; readonly authorSupplied?: boolean };
+        readonly aharness?: { readonly kind?: string; readonly authorSupplied?: boolean };
       };
       readonly tags?: ReadonlyArray<string>;
     };
 
     expect(node.tags).toEqual(['visible']);
     expect(node.meta.author).toEqual({ label: 'Count state' });
-    expect(node.meta.harness?.kind).toBe('stateful');
-    expect(node.meta.harness?.authorSupplied).toBeUndefined();
+    expect(node.meta.aharness?.kind).toBe('stateful');
+    expect(node.meta.aharness?.authorSupplied).toBeUndefined();
   });
 
   it('runs low-level direct submit actions before canonical reducers', () => {

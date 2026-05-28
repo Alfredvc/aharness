@@ -189,7 +189,7 @@ git worktree remove "$WORKTREE_PATH"
 git worktree prune  # Self-healing: clean up any stale registrations
 ```
 
-**Otherwise:** The host environment (harness) owns this workspace. Do NOT remove it. If your platform provides a workspace-exit tool, use it. Otherwise, leave the workspace in place.
+**Otherwise:** The host environment (aharness) owns this workspace. Do NOT remove it. If your platform provides a workspace-exit tool, use it. Otherwise, leave the workspace in place.
 
 ## Quick Reference
 
@@ -222,8 +222,8 @@ git worktree prune  # Self-healing: clean up any stale registrations
 - **Problem:** Command fails silently when CWD is inside the worktree being removed
 - **Fix:** Always `cd` to main repo root before `git worktree remove`
 
-**Cleaning up harness-owned worktrees**
-- **Problem:** Removing a worktree the harness created causes phantom state
+**Cleaning up aharness-owned worktrees**
+- **Problem:** Removing a worktree the aharness created causes phantom state
 - **Fix:** Only clean up worktrees under `.worktrees/`, `worktrees/`, or `~/.config/superpowers/worktrees/`
 
 **No confirmation for discard**

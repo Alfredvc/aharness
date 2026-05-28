@@ -165,7 +165,7 @@ async function waitForSocket(path: string, timeoutMs = 2_000): Promise<void> {
 }
 
 function onlyRunRoot(repoRoot: string): string {
-  const runsRoot = join(repoRoot, '.harness', 'runs');
+  const runsRoot = join(repoRoot, '.aharness', 'runs');
   const dirs = readdirSync(runsRoot)
     .map((name) => join(runsRoot, name))
     .filter((path) => statSync(path).isDirectory());
@@ -282,7 +282,7 @@ describe('runCliForTest — Phase 2d hook walk', () => {
           threadId,
           turnId: 'turn-1',
           callId: 'call-next',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'hooked', exit: 'next', data: {} }),
         },
       });
@@ -297,7 +297,7 @@ describe('runCliForTest — Phase 2d hook walk', () => {
           threadId,
           turnId: 'turn-1',
           callId: 'call-finish',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'quiet', exit: 'finish', data: {} }),
         },
       });

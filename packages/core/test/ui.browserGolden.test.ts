@@ -157,7 +157,7 @@ describe('Phase 3 browser-rendered golden contract', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toContain('text/html');
     expect(body).toContain('<div id="root">');
-    expect(body).toContain('id="harness-preboot"');
+    expect(body).toContain('id="aharness-preboot"');
     expect(assets.some((asset) => asset.endsWith('.js'))).toBe(true);
     expect(assets.some((asset) => asset.endsWith('.css'))).toBe(true);
     expect(assets.every((asset) => asset.startsWith('assets/index-'))).toBe(true);

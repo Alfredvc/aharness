@@ -19,7 +19,7 @@ import { appendFileSync } from 'node:fs';
 /**
  * Module-level mutable state — this is intentional.
  *
- * Each daemon process runs a single Harness run, so a process-global
+ * Each daemon process runs a single Aharness run, so a process-global
  * slot is the right scope for the run log path. Threading a handle
  * through every call site (snapshot persister, hook pipe, submit
  * dispatcher, await dispatcher, artifact writer) would add noise

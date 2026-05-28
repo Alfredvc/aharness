@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "license": "Apache-2.0",
-  "description": "Monorepo root for @aharness/core (Codex-substrate FSM harness) and @aharness/test-support.",
+  "description": "Monorepo root for @aharness/core (Codex-substrate FSM aharness) and @aharness/test-support.",
   "type": "module",
   "packageManager": "pnpm@9.15.4",
   "engines": {

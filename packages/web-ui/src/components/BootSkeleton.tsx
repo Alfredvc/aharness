@@ -39,13 +39,13 @@ export function BootSkeleton({ connection }: Props) {
           <span className="boot-orbit-ring r2" />
           <span className="boot-orbit-ring r3" />
         </div>
-        <div className="boot-eyebrow">harness · headless</div>
+        <div className="boot-eyebrow">aharness · headless</div>
         <h1 className="boot-title">
           {connection === 'lost' ? 'connection lost' : 'spinning up the run'}
         </h1>
         <p className="boot-sub">
           {connection === 'lost'
-            ? 'The foreground harness run ended. Run artifacts remain inspectable.'
+            ? 'The foreground aharness run ended. Run artifacts remain inspectable.'
             : 'Codex is starting in the background. State and topology will appear here as soon as the first frame lands.'}
         </p>
         <ol className="boot-stages">

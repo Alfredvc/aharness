@@ -12,13 +12,13 @@
  *   VC-4 — WS-drop test: kill the app-server mid-run → exit 1.
  *   VC-5 — Two-process shutdown test: SIGTERM the CLI; child receives
  *          SIGTERM ≤ 2 s.
- *   VC-6 — Verifier suite + `harness-submit-name-collision` (covered
- *          cross-suite in `verify.harnessSubmitNameCollision.test.ts`;
+ *   VC-6 — Verifier suite + `aharness-submit-name-collision` (covered
+ *          cross-suite in `verify.aharnessSubmitNameCollision.test.ts`;
  *          this entry documents the coverage source).
  *
- * VC-1, VC-2, VC-4, VC-5 spawn the real `harness` CLI binary against a
+ * VC-1, VC-2, VC-4, VC-5 spawn the real `aharness` CLI binary against a
  * real codex `app-server` + a mock-model HTTP server. They are gated
- * behind `HARNESS_E2E_REAL_CODEX=1` for parity with the other phase-1
+ * behind `AHARNESS_E2E_REAL_CODEX=1` for parity with the other phase-1
  * end-to-end tests (`cli.runCli.phase1.test.ts`): the gate skips cleanly
  * when the `codex` binary is unavailable on PATH or the opt-in env var is
  * unset.
@@ -46,7 +46,7 @@ function hasCodex(): boolean {
   }
 }
 
-const E2E_ENABLED = hasCodex() && process.env['HARNESS_E2E_REAL_CODEX'] === '1';
+const E2E_ENABLED = hasCodex() && process.env['AHARNESS_E2E_REAL_CODEX'] === '1';
 
 describe('Phase 1 verify checklist', () => {
   let cleanups: Array<() => Promise<void> | void> = [];
@@ -68,15 +68,15 @@ describe('Phase 1 verify checklist', () => {
     expect(true).toBe(true);
   });
 
-  it('VC-6: harness-submit-name-collision — covered by verify.harnessSubmitNameCollision.test.ts', () => {
+  it('VC-6: aharness-submit-name-collision — covered by verify.aharnessSubmitNameCollision.test.ts', () => {
     // Structural assertion: the cross-suite test exists (verified at
     // file-listing time; this entry documents the coverage source so
     // the checklist remains legible in the vitest reporter).
     expect(true).toBe(true);
   });
 
-  // VC-1, VC-2, VC-4, VC-5 spawn the real `harness` CLI binary plus a real
-  // codex `app-server`; gated behind `HARNESS_E2E_REAL_CODEX=1` (parity
+  // VC-1, VC-2, VC-4, VC-5 spawn the real `aharness` CLI binary plus a real
+  // codex `app-server`; gated behind `AHARNESS_E2E_REAL_CODEX=1` (parity
   // with `cli.runCli.phase1.test.ts` and the other e2e tests). Timing
   // tolerance for VC-4 / VC-5 uses vitest 4's `{retry}` options-object
   // form (the legacy chainable `it.retry(...)` was removed).
@@ -93,14 +93,14 @@ describe('Phase 1 verify checklist', () => {
       cleanups.push(() => mock.close());
       mock.queueTurn([
         sseResponseCreated(),
-        sseFunctionCall('harness_submit', { state: 'greet', exit: 'finish', data: {} }),
+        sseFunctionCall('aharness_submit', { state: 'greet', exit: 'finish', data: {} }),
         sseTurnComplete(),
       ]);
 
-      const result = await runHarnessBin({
+      const result = await runAharnessBin({
         cwd: repo,
         args: ['hello.fsm.ts'],
-        env: { HARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
+        env: { AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
       });
       expect(result.exitCode, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
     });
@@ -121,7 +121,7 @@ describe('Phase 1 verify checklist', () => {
         for (let i = 0; i < 3; i++) {
           mock.queueTurn([
             sseResponseCreated(),
-            sseFunctionCall('harness_submit', {
+            sseFunctionCall('aharness_submit', {
               state: 'counting',
               exit: 'increment',
               data: { delta: 1 },
@@ -131,14 +131,14 @@ describe('Phase 1 verify checklist', () => {
         }
         mock.queueTurn([
           sseResponseCreated(),
-          sseFunctionCall('harness_submit', { state: 'counting', exit: 'finish', data: {} }),
+          sseFunctionCall('aharness_submit', { state: 'counting', exit: 'finish', data: {} }),
           sseTurnComplete(),
         ]);
 
-        const result = await runHarnessBin({
+        const result = await runAharnessBin({
           cwd: repo,
           args: ['mssl.fsm.ts'],
-          env: { HARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
+          env: { AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
         });
         expect(result.exitCode, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
       },
@@ -158,7 +158,7 @@ describe('Phase 1 verify checklist', () => {
 
       const child = spawn(process.execPath, [CLI_BIN, 'hello.fsm.ts'], {
         cwd: repo,
-        env: { ...process.env, HARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
+        env: { ...process.env, AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       cleanups.push(async () => {
@@ -190,7 +190,7 @@ describe('Phase 1 verify checklist', () => {
 
         const child = spawn(process.execPath, [CLI_BIN, 'hello.fsm.ts'], {
           cwd: repo,
-          env: { ...process.env, HARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
+          env: { ...process.env, AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
         cleanups.push(async () => {
@@ -213,7 +213,7 @@ describe('Phase 1 verify checklist', () => {
   });
 });
 
-async function runHarnessBin(opts: {
+async function runAharnessBin(opts: {
   cwd: string;
   args: string[];
   env?: Record<string, string>;

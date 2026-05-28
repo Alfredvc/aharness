@@ -1,7 +1,7 @@
 {
   "name": "@aharness/superpowers",
   "version": "0.1.0",
-  "description": "Harness FSM package for the Superpowers workflow.",
+  "description": "aharness FSM package for the Superpowers workflow.",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -19,7 +19,7 @@
   "dependencies": {
     "@aharness/core": "workspace:*"
   },
-  "harness": {
+  "aharness": {
     "package": {
       "bin": "ah-superpowers",
       "fsmsDir": "fsms",

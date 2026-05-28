@@ -1,7 +1,7 @@
 // scripts/spikes/lib.mjs
 //
-// Shared helpers for the headless-codex empirical spike harness.
-// See docs/ideas/2026-05-11-headless-spikes.md §"Spike harness shape".
+// Shared helpers for the headless-codex empirical spike aharness.
+// See docs/ideas/2026-05-11-headless-spikes.md §"Spike aharness shape".
 //
 // Spikes are deliberately decoupled from `packages/core` so a
 // regression in the SDK cannot mask a codex-substrate regression. The
@@ -42,7 +42,7 @@ export function pickEphemeralPort(host = '127.0.0.1') {
 
 // Spawns `codex app-server --listen ws://127.0.0.1:<port>` and waits for
 // the WS handshake to succeed. Mirrors packages/core/src/appServer/spawn.ts
-// but kept inline so the spike harness depends on nothing in the SDK.
+// but kept inline so the spike aharness depends on nothing in the SDK.
 //
 // `cliOverrides` is an array of `[key, value]` rendered as repeated
 // `-c key=value`. TOML escaping is the caller's job (use `tomlStr` below).

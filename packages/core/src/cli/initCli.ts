@@ -1,7 +1,7 @@
 /**
  * `aharness init --dir <path>` — scaffolder.
  *
- * See spec: docs/specs/2026-05-10-harness-init-design.md.
+ * See spec: docs/specs/2026-05-10-aharness-init-design.md.
  *
  * Internals:
  *   1. Resolve absolute target dir.
@@ -45,7 +45,7 @@ export interface InitOpts {
   /** Override for tests; production resolves from `import.meta.url`. */
   readonly templatesDir?: string;
   /** Override for tests; production reads own package.json. */
-  readonly harnessCoreVersion?: string;
+  readonly aharnessCoreVersion?: string;
   /** Override for tests; production wraps `execFile`. */
   readonly runCommand?: RunCommandFn;
   /** Used for `npm_config_user_agent` parsing; defaults to `process.env`. */
@@ -68,14 +68,14 @@ export async function runInitCli(opts: InitOpts): Promise<{ exitCode: number }> 
   const target = isAbsolute(opts.dir) ? opts.dir : resolve(opts.cwd, opts.dir);
   const projectName = sanitizePackageName(basename(target));
   const templatesDir = opts.templatesDir ?? resolveTemplatesDir();
-  const ownVersion = opts.harnessCoreVersion ?? readOwnVersion();
+  const ownVersion = opts.aharnessCoreVersion ?? readOwnVersion();
   // 0.0.0 is the unpublished-monorepo placeholder; fall back to "latest" so
   // the scaffolded project can install something. Warn the user — they may
   // be in a private dev tree and the npm "latest" tag may not match the
   // @aharness/core they're running.
-  let harnessCoreVersion = ownVersion;
+  let aharnessCoreVersion = ownVersion;
   if (ownVersion === '0.0.0') {
-    harnessCoreVersion = 'latest';
+    aharnessCoreVersion = 'latest';
     opts.stderr.write(
       `aharness init: warning — running an unpublished @aharness/core (version 0.0.0). ` +
         `Scaffolded package.json pins "@aharness/core": "latest" — this may not match the ` +
@@ -122,7 +122,7 @@ export async function runInitCli(opts: InitOpts): Promise<{ exitCode: number }> 
   for (const { src, dest, substitute } of TEMPLATE_FILES) {
     let body = readFileSync(join(templatesDir, src), 'utf8');
     if (substitute) {
-      body = substituteTemplate(body, projectName, harnessCoreVersion);
+      body = substituteTemplate(body, projectName, aharnessCoreVersion);
     }
     writeFileSync(join(target, dest), body);
   }
@@ -157,7 +157,7 @@ export async function runInitCli(opts: InitOpts): Promise<{ exitCode: number }> 
         } else {
           const commitResult = await run(
             'git',
-            ['commit', '-m', 'initial harness FSM scaffold', '--no-verify'],
+            ['commit', '-m', 'initial aharness FSM scaffold', '--no-verify'],
             { cwd: target },
           );
           if (commitResult.exitCode !== 0) {
@@ -199,10 +199,10 @@ export async function runInitCli(opts: InitOpts): Promise<{ exitCode: number }> 
   return { exitCode: 0 };
 }
 
-function substituteTemplate(body: string, projectName: string, harnessVersion: string): string {
+function substituteTemplate(body: string, projectName: string, aharnessVersion: string): string {
   return body
-    .replace(/__HARNESS_VERSION__/g, harnessVersion)
-    .replace(/("(?:@aharness\/core)"\s*:\s*)"[^"]+"/g, `$1"${harnessVersion}"`)
+    .replace(/__AHARNESS_VERSION__/g, aharnessVersion)
+    .replace(/("(?:@aharness\/core)"\s*:\s*)"[^"]+"/g, `$1"${aharnessVersion}"`)
     .replace(/__PROJECT_NAME__/g, projectName);
 }
 

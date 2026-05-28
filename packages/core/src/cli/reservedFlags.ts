@@ -1,5 +1,5 @@
 /**
- * Top-level harness CLI verbs and flags. The runtime warning emitted by
+ * Top-level aharness CLI verbs and flags. The runtime warning emitted by
  * `runCli` after `loadFsm` checks each loaded `inputFlags` field's
  * kebab-case form against this set. A collision means the field is
  * unreachable from the user-facing `aharness <file> --<flag>` command line

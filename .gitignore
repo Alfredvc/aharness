@@ -1,7 +1,7 @@
 .env
 .secrets
 .ccairgap
-.harness
+.aharness
 .DS_Store
 
 # Plans
@@ -34,8 +34,8 @@ coverage/
 
 # pnpm local store (when pnpm chooses the workspace as store-dir)
 .pnpm-store/
-.harness/runs/
-.harness/cache/
+.aharness/runs/
+.aharness/cache/
 
 # Local vendored checkouts
 vendored/superpowers/

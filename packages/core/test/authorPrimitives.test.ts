@@ -7,19 +7,19 @@
  */
 import { describe, expect, it } from 'vitest';
 import { assign, createActor } from 'xstate';
-import { harness, state, terminal, passive, exit, createFsm } from '../src/index.js';
+import { aharness, state, terminal, passive, exit, createFsm } from '../src/index.js';
 
 describe('state() new shape', () => {
-  it('returns a state config with meta.harness populated', () => {
+  it('returns a state config with meta.aharness populated', () => {
     const cfg = state({
       entryPrompt: 'do thing',
       exits: { submit: exit<{ x: number }>({ to: 'next' }) },
       clearOnEntry: true,
     });
-    expect(cfg).toHaveProperty('meta.harness.kind', 'stateful');
-    expect(cfg).toHaveProperty('meta.harness.exits.submit.kind', 'submit');
-    expect(cfg).toHaveProperty('meta.harness.exits.submit.to', 'next');
-    expect(cfg).toHaveProperty('meta.harness.clearOnEntry', true);
+    expect(cfg).toHaveProperty('meta.aharness.kind', 'stateful');
+    expect(cfg).toHaveProperty('meta.aharness.exits.submit.kind', 'submit');
+    expect(cfg).toHaveProperty('meta.aharness.exits.submit.to', 'next');
+    expect(cfg).toHaveProperty('meta.aharness.clearOnEntry', true);
   });
 
   it('defaults kind:"submit" on exit declarations omitting kind', () => {
@@ -27,8 +27,8 @@ describe('state() new shape', () => {
       entryPrompt: 'do thing',
       exits: { submit: exit<{ x: number }>({ to: 'next' }) },
     });
-    const exits = (cfg as { meta: { harness: { exits: Record<string, { kind: string }> } } }).meta
-      .harness.exits;
+    const exits = (cfg as { meta: { aharness: { exits: Record<string, { kind: string }> } } }).meta
+      .aharness.exits;
     expect(exits['submit']?.kind).toBe('submit');
   });
 
@@ -37,8 +37,8 @@ describe('state() new shape', () => {
       entryPrompt: 'wait',
       exits: { ownerReply: { kind: 'await', to: 'process' } },
     });
-    const exits = (cfg as { meta: { harness: { exits: Record<string, { kind: string }> } } }).meta
-      .harness.exits;
+    const exits = (cfg as { meta: { aharness: { exits: Record<string, { kind: string }> } } }).meta
+      .aharness.exits;
     expect(exits['ownerReply']?.kind).toBe('await');
   });
 
@@ -55,8 +55,8 @@ describe('state() new shape', () => {
       },
     });
     const submitExit = (
-      cfg as { meta: { harness: { exits: Record<string, { when?: unknown[] }> } } }
-    ).meta.harness.exits['submit'];
+      cfg as { meta: { aharness: { exits: Record<string, { when?: unknown[] }> } } }
+    ).meta.aharness.exits['submit'];
     expect(submitExit?.when).toHaveLength(2);
   });
 });
@@ -70,8 +70,8 @@ interface DemoCtx {
 }
 
 describe('@aharness/core author primitives (R22)', () => {
-  it('constructs a tiny FSM from harness/state/terminal/passive/type', () => {
-    const machine = harness.machine({
+  it('constructs a tiny FSM from aharness/state/terminal/passive/type', () => {
+    const machine = aharness.machine({
       id: 'demo',
       initial: 'start',
       context: (): DemoCtx => ({ count: 0 }),
@@ -192,13 +192,13 @@ describe('createFsm() canonical authoring surface', () => {
     });
     const passiveNode = fsm.passive({ always: { target: 'done' }, main: true });
 
-    expect(clearOnEntry).toHaveProperty('meta.harness.kind', 'stateful');
-    expect(clearOnEntry).toHaveProperty('meta.harness.clearOnEntry', true);
-    expect(routed).toHaveProperty('meta.harness.kind', 'stateful');
-    expect(awaited).toHaveProperty('meta.harness.kind', 'stateful');
-    expect(done).toHaveProperty('meta.harness.kind', 'terminal');
-    expect(passiveNode).toHaveProperty('meta.harness.kind', 'passive');
-    expect(passiveNode).toHaveProperty('meta.harness.main', true);
+    expect(clearOnEntry).toHaveProperty('meta.aharness.kind', 'stateful');
+    expect(clearOnEntry).toHaveProperty('meta.aharness.clearOnEntry', true);
+    expect(routed).toHaveProperty('meta.aharness.kind', 'stateful');
+    expect(awaited).toHaveProperty('meta.aharness.kind', 'stateful');
+    expect(done).toHaveProperty('meta.aharness.kind', 'terminal');
+    expect(passiveNode).toHaveProperty('meta.aharness.kind', 'passive');
+    expect(passiveNode).toHaveProperty('meta.aharness.main', true);
     expect(passiveNode).toHaveProperty('always', { target: 'done' });
   });
 
@@ -212,15 +212,15 @@ describe('createFsm() canonical authoring surface', () => {
 });
 
 describe('passive() new shape', () => {
-  it('returns a spreadable state config with meta.harness.kind="passive"', () => {
+  it('returns a spreadable state config with meta.aharness.kind="passive"', () => {
     const cfg = passive();
-    expect(cfg).toEqual({ meta: { harness: { kind: 'passive' } } });
+    expect(cfg).toEqual({ meta: { aharness: { kind: 'passive' } } });
   });
 
   it('lets author spread it alongside entry/always', () => {
     const author = { ...passive(), entry: 'render', always: { target: 'next' } };
     expect(author).toMatchObject({
-      meta: { harness: { kind: 'passive' } },
+      meta: { aharness: { kind: 'passive' } },
       entry: 'render',
       always: { target: 'next' },
     });
@@ -232,7 +232,7 @@ describe('terminal() new shape', () => {
     const cfg = terminal('success');
     expect(cfg).toEqual({
       type: 'final',
-      meta: { harness: { kind: 'terminal', outcome: 'success' } },
+      meta: { aharness: { kind: 'terminal', outcome: 'success' } },
     });
   });
 
@@ -240,7 +240,7 @@ describe('terminal() new shape', () => {
     // Compile-time check only — runtime accepts strings; TS narrows the
     // signature to 'success' | 'failure'. Pick one to confirm runtime works.
     const cfg = terminal('failure');
-    expect((cfg as { meta: { harness: { outcome: string } } }).meta.harness.outcome).toBe(
+    expect((cfg as { meta: { aharness: { outcome: string } } }).meta.aharness.outcome).toBe(
       'failure',
     );
   });
@@ -248,7 +248,7 @@ describe('terminal() new shape', () => {
 
 describe('injectFrameworkActions synthesis', () => {
   it('synthesizes SUBMIT__<state>__<exit> on: handler from sugar exits', () => {
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'm',
       initial: 'a',
       states: {
@@ -256,7 +256,7 @@ describe('injectFrameworkActions synthesis', () => {
           entryPrompt: 'go',
           exits: { submit: exit<{ x: number }>({ to: 'b' }) },
         }),
-        b: { type: 'final', meta: { harness: { kind: 'terminal', outcome: 'success' } } },
+        b: { type: 'final', meta: { aharness: { kind: 'terminal', outcome: 'success' } } },
       },
     });
     const aNode = machine.getStateNodeById('m.a');
@@ -265,7 +265,7 @@ describe('injectFrameworkActions synthesis', () => {
   });
 
   it('synthesizes one transition entry per when[] branch', () => {
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'm',
       initial: 'a',
       states: {
@@ -280,7 +280,7 @@ describe('injectFrameworkActions synthesis', () => {
             }),
           },
         }),
-        b: { type: 'final', meta: { harness: { kind: 'terminal', outcome: 'success' } } },
+        b: { type: 'final', meta: { aharness: { kind: 'terminal', outcome: 'success' } } },
       },
     });
     const aNode = machine.getStateNodeById('m.a');
@@ -290,7 +290,7 @@ describe('injectFrameworkActions synthesis', () => {
   });
 
   it('emits reenter:false on self-loop branches', () => {
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'm',
       initial: 'a',
       states: {
@@ -305,7 +305,7 @@ describe('injectFrameworkActions synthesis', () => {
             }),
           },
         }),
-        b: { type: 'final', meta: { harness: { kind: 'terminal', outcome: 'success' } } },
+        b: { type: 'final', meta: { aharness: { kind: 'terminal', outcome: 'success' } } },
       },
     });
     const aNode = machine.getStateNodeById('m.a');
@@ -324,10 +324,10 @@ describe('self-loop visit-count semantics', () => {
     // `path` excludes the machine id (the walker is invoked with `path: []`
     // and recurses into `machine.config.states`). For `id: 'm', states: { a }`
     // the visit-count key is `'a'`, NOT `'m.a'`. Guards are registered via
-    // `.provide({guards})` against the machine returned by `harness.machine()`
+    // `.provide({guards})` against the machine returned by `aharness.machine()`
     // — verified that the wrapper produces a machine supporting `.provide()`
     // (XState v5 `AnyStateMachine` exposes `.provide()`).
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'm',
       initial: 'a',
       states: {
@@ -342,7 +342,7 @@ describe('self-loop visit-count semantics', () => {
             }),
           },
         }),
-        b: { type: 'final', meta: { harness: { kind: 'terminal', outcome: 'success' } } },
+        b: { type: 'final', meta: { aharness: { kind: 'terminal', outcome: 'success' } } },
       },
     });
     const actor = createActor(
@@ -355,26 +355,26 @@ describe('self-loop visit-count semantics', () => {
     actor.start();
     // Initial entry: visit=1.
     expect(
-      (actor.getSnapshot().context as { __harness_visitCount: Record<string, number> })
-        .__harness_visitCount['a'],
+      (actor.getSnapshot().context as { __aharness_visitCount: Record<string, number> })
+        .__aharness_visitCount['a'],
     ).toBe(1);
     // Self-loop submit: visit=2.
     actor.send({ type: 'SUBMIT__a__submit', payload: { done: false } });
     expect(
-      (actor.getSnapshot().context as { __harness_visitCount: Record<string, number> })
-        .__harness_visitCount['a'],
+      (actor.getSnapshot().context as { __aharness_visitCount: Record<string, number> })
+        .__aharness_visitCount['a'],
     ).toBe(2);
     // Self-loop submit again: visit=3.
     actor.send({ type: 'SUBMIT__a__submit', payload: { done: false } });
     expect(
-      (actor.getSnapshot().context as { __harness_visitCount: Record<string, number> })
-        .__harness_visitCount['a'],
+      (actor.getSnapshot().context as { __aharness_visitCount: Record<string, number> })
+        .__aharness_visitCount['a'],
     ).toBe(3);
     // External submit: leaves a → b. a's visit count stays at 3.
     actor.send({ type: 'SUBMIT__a__submit', payload: { done: true } });
     expect(
-      (actor.getSnapshot().context as { __harness_visitCount: Record<string, number> })
-        .__harness_visitCount['a'],
+      (actor.getSnapshot().context as { __aharness_visitCount: Record<string, number> })
+        .__aharness_visitCount['a'],
     ).toBe(3);
     expect(actor.getSnapshot().value).toBe('b');
   });
@@ -386,7 +386,7 @@ describe('AWAIT self-loop branch action ordering', () => {
     // the current state (isSelfLoop=true). Expected synthesized actions:
     //   [{ type: ASSIGN_OWNER_REPLY }, { type: VISIT_ACTION, params: { stateId } }]
     // CLEAR_OWNER_REPLY must NOT appear (it's skipped for both AWAIT and self-loops).
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'm',
       initial: 'a',
       states: {
@@ -413,11 +413,14 @@ describe('AWAIT self-loop branch action ordering', () => {
     expect(branch?.target).toBe('a');
     const actions = branch?.actions ?? [];
     // ASSIGN_OWNER_REPLY must be first.
-    expect(actions[0]).toMatchObject({ type: '__harnessAssignOwnerReply' });
+    expect(actions[0]).toMatchObject({ type: '__aharnessAssignOwnerReply' });
     // VISIT_ACTION must be second (with stateId param).
-    expect(actions[1]).toMatchObject({ type: '__harnessIncrementVisit', params: { stateId: 'a' } });
+    expect(actions[1]).toMatchObject({
+      type: '__aharnessIncrementVisit',
+      params: { stateId: 'a' },
+    });
     // CLEAR_OWNER_REPLY must not appear at all.
-    expect(actions.every((a) => a.type !== '__harnessClearOwnerReply')).toBe(true);
+    expect(actions.every((a) => a.type !== '__aharnessClearOwnerReply')).toBe(true);
     // No author actions beyond the two framework ones.
     expect(actions).toHaveLength(2);
   });
@@ -499,7 +502,7 @@ describe('state() hooks runtime guards', () => {
   });
 });
 
-describe('typed harness.machine(...) + state<Ctx>(...) + exit<P>(...) author surface', () => {
+describe('typed aharness.machine(...) + state<Ctx>(...) + exit<P>(...) author surface', () => {
   it('flows TContext + TPayload into inline assign / guard / entry callbacks', () => {
     interface TestCtx {
       count: number;
@@ -511,7 +514,7 @@ describe('typed harness.machine(...) + state<Ctx>(...) + exit<P>(...) author sur
     }
 
     const renderEntry = ({ context }: { context: TestCtx }) => {
-      // Acts as the typed-entry-action regression guard. If `harness.machine`
+      // Acts as the typed-entry-action regression guard. If `aharness.machine`
       // regresses to the loose AnyConfig shape — or the `context()` factory's
       // return type stops flowing into TContext — this const fails to assign
       // to `entry: renderEntry` below and the test file does not compile.
@@ -521,7 +524,7 @@ describe('typed harness.machine(...) + state<Ctx>(...) + exit<P>(...) author sur
     // Compile-time assertions: if any of Tasks 1-4 regress, the assign /
     // guard / entry callbacks below fail to type-check and the file does
     // not compile. The runtime body confirms semantics are unchanged.
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'tm',
       initial: 'a',
       context: (): TestCtx => ({ count: 0, lastGoal: null }),

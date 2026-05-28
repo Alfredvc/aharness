@@ -1,6 +1,6 @@
 # @aharness/superpowers
 
-`@aharness/superpowers` packages the Superpowers workflow as Harness FSM commands.
+`@aharness/superpowers` packages the Superpowers workflow as aharness FSM commands.
 
 Slice 1 exposes two commands: `brainstorming` and `writing-plans`. Execution commands, helper FSMs, and the end-to-end `flow` command are not exposed yet.
 

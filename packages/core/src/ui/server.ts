@@ -159,7 +159,7 @@ function isAuthorized(
   url: URL,
   mode: TokenMode,
 ): boolean {
-  const header = readSingleHeader(request.headers['x-harness-ui-token']);
+  const header = readSingleHeader(request.headers['x-aharness-ui-token']);
   const query = url.searchParams.get('token');
   if (mode === 'header-or-query') {
     return header === options.uiToken || query === options.uiToken;
@@ -264,7 +264,7 @@ function serveStatic(path: string, method: string, response: http.ServerResponse
   }
 
   // Each run prints a fresh per-process URL, so caching the bundle across
-  // runs is never desirable: the user iterates on the harness and expects
+  // runs is never desirable: the user iterates on the aharness and expects
   // the new code, not whatever the browser cached. Tell the browser not to
   // hold on to anything we serve from here.
   response.setHeader('cache-control', 'no-store, must-revalidate');

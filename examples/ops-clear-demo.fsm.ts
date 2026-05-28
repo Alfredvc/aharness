@@ -30,7 +30,7 @@ export default fsm.machine({
     say: fsm.state({
       prompt:
         'Take the owner reply verbatim and submit it as `word`. Trim whitespace; lowercase is fine.',
-      ask: 'Pick any short secret word and type it. The harness will then wipe your context.',
+      ask: 'Pick any short secret word and type it. The aharness will then wipe your context.',
       on: {
         submit: fsm.submit<{ word: string }>({
           to: 'forget',

@@ -11,9 +11,9 @@
  * `packages/core/test/integration.crossStateWalk.test.ts` queues
  * two mock-model turns:
  *
- *   1. `harness_submit({state: "a", exit: "next", data: {note: "hi"}})`
+ *   1. `aharness_submit({state: "a", exit: "next", data: {note: "hi"}})`
  *      — drives a → b; the dispatcher fires the cross-state dance.
- *   2. `harness_submit({state: "b", exit: "done", data: {ok: true}})`
+ *   2. `aharness_submit({state: "b", exit: "done", data: {ok: true}})`
  *      — drives b → c; the dispatcher's terminal branch fires and the
  *      run exits 0.
  *
@@ -27,12 +27,12 @@
  *     directory.
  *   - `buildCrossStateSubmitTurn(stateId, exitName, data)` — assembles
  *     a single-tool-call turn whose function_call carries the bare
- *     `harness_submit` name (no MCP namespace; Phase 2a uses
+ *     `aharness_submit` name (no MCP namespace; Phase 2a uses
  *     `dynamic_tools`, not the per-run MCP server).
  *
  * Per `docs/plans/2026-05-12-headless-phase-2a-cross-state.md` §Task 5.
  */
-import { harness, state, exit, terminal, type HarnessMachine } from '@aharness/core';
+import { aharness, state, exit, terminal, type AharnessMachine } from '@aharness/core';
 import { sseFunctionCall, sseResponseCreated, sseTurnComplete, type SseEvent } from '../sse.js';
 
 interface NextPayload {
@@ -52,11 +52,11 @@ interface DonePayload {
  * `runCliForTest` consumes; this in-process machine is a convenience
  * mirror, not the runtime entry point.
  */
-export const crossStateWalkMachine: HarnessMachine<
+export const crossStateWalkMachine: AharnessMachine<
   unknown,
   unknown,
   Record<string, unknown>
-> = harness.machine({
+> = aharness.machine({
   id: 'cross-state-walk',
   initial: 'a',
   states: {
@@ -80,7 +80,7 @@ export const crossStateWalkMachine: HarnessMachine<
  * FSM source for the cross-state walk. Two stateful states + one
  * terminal. The `entryPrompt` on `b` contains the `"state b active"`
  * substring asserted by the integration test (alongside the
- * framework-generated `[harness] Now in state "b"` header and the
+ * framework-generated `[aharness] Now in state "b"` header and the
  * rendered `done` exit, both of which the test also asserts).
  *
  * Written to disk in the integration test's synthetic `repoRoot` so
@@ -89,7 +89,7 @@ export const crossStateWalkMachine: HarnessMachine<
  * install paths — see `packages/core/src/loader/compile.ts`).
  * Kept in sync with `crossStateWalkMachine` above.
  */
-export const CROSS_STATE_WALK_FSM_SOURCE = `import { harness, state, exit, terminal } from '@aharness/core';
+export const CROSS_STATE_WALK_FSM_SOURCE = `import { aharness, state, exit, terminal } from '@aharness/core';
 
 interface NextPayload {
   note: string;
@@ -99,7 +99,7 @@ interface DonePayload {
   ok: boolean;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'cross-state-walk',
   initial: 'a',
   states: {
@@ -121,7 +121,7 @@ export default harness.machine({
 `;
 
 /**
- * Build a single-turn SSE stream that emits one `harness_submit`
+ * Build a single-turn SSE stream that emits one `aharness_submit`
  * function_call. Wire shape mirrors `cli.runCli.phase1.test.ts:90-98`'s
  * encoding — `response.created` → `function_call` (bare name, no
  * namespace) → `response.completed`.
@@ -137,7 +137,7 @@ export function buildCrossStateSubmitTurn(
 ): SseEvent[] {
   return [
     sseResponseCreated(),
-    sseFunctionCall('harness_submit', { state: stateId, exit: exitName, data }),
+    sseFunctionCall('aharness_submit', { state: stateId, exit: exitName, data }),
     sseTurnComplete(),
   ];
 }

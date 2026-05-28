@@ -45,7 +45,7 @@ export {
   type VersionGateResult,
 } from './appServer/index.js';
 
-// Per-run hook-script materializer + helpers. The harness does not
+// Per-run hook-script materializer + helpers. The aharness does not
 // fabricate an ephemeral CODEX_HOME; codex reads the user's `~/.codex/`
 // directly, and runCli passes request_user_input plus any declared
 // per-state hook wrappers via `--enable` / `-c key=value` CLI overrides.
@@ -86,7 +86,7 @@ export type {
 // stability).
 export { buildDynamicToolsRegistration } from './transport/dynamicToolsRegistration.js';
 
-// Submit dispatcher: validates harness_submit args against per-(state, exit)
+// Submit dispatcher: validates aharness_submit args against per-(state, exit)
 // sidecar schemas, dry-runs the transition, commits + flushes (R6), and
 // dispatches the four-step cross-state dance via scheduleCrossStateDance
 // when the target is a different stateful state. awaitsOwnerText-target

@@ -16,16 +16,16 @@
  *     }
  *   }
  */
-import { exit, harness, state, terminal } from '@aharness/core';
+import { exit, aharness, state, terminal } from '@aharness/core';
 
 interface OkPayload {
   readonly note: string;
 }
 
-export const machine = harness.machine({
+export const machine = aharness.machine({
   id: 'per-state-hooks-sub-thread-e2e',
   initial: 'observe',
-  context: () => ({ __harness_visitCount: {} as Record<string, number> }),
+  context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
   states: {
     observe: state({
       entryPrompt: 'Observe sub-thread tagging.',

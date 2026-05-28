@@ -110,7 +110,7 @@ describe('production API client', () => {
 
     await expect(fetchSnapshot({ fetch, uiToken: UI_TOKEN })).resolves.toEqual(snapshot());
     expect(fetch).toHaveBeenCalledWith('/api/state', {
-      headers: { 'X-Harness-Ui-Token': UI_TOKEN },
+      headers: { 'X-Aharness-Ui-Token': UI_TOKEN },
     });
   });
 
@@ -121,7 +121,7 @@ describe('production API client', () => {
       ApiClientError,
     );
     expect(fetch).toHaveBeenCalledWith('/api/state', {
-      headers: { 'X-Harness-Ui-Token': UI_TOKEN },
+      headers: { 'X-Aharness-Ui-Token': UI_TOKEN },
     });
   });
 
@@ -415,7 +415,7 @@ describe('production API client', () => {
     await vi.waitFor(() => expect(hydrated).toHaveLength(1));
 
     expect(fetch).toHaveBeenCalledWith('/api/state', {
-      headers: { 'X-Harness-Ui-Token': UI_TOKEN },
+      headers: { 'X-Aharness-Ui-Token': UI_TOKEN },
     });
     expect(closeCurrent).toHaveBeenCalledOnce();
     expect(hydrated).toEqual([expect.objectContaining({ latestEventId: '9' })]);
@@ -449,7 +449,7 @@ describe('production API client', () => {
     await expect(postReply(payload, { fetch, uiToken: UI_TOKEN })).resolves.toBeUndefined();
     expect(fetch).toHaveBeenCalledWith('/api/reply', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'X-Harness-Ui-Token': UI_TOKEN },
+      headers: { 'content-type': 'application/json', 'X-Aharness-Ui-Token': UI_TOKEN },
       body: JSON.stringify(payload),
     });
   });
@@ -469,7 +469,7 @@ describe('production API client', () => {
     ).rejects.toBeInstanceOf(ApiClientError);
     expect(fetch).toHaveBeenCalledWith('/api/reply', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'X-Harness-Ui-Token': UI_TOKEN },
+      headers: { 'content-type': 'application/json', 'X-Aharness-Ui-Token': UI_TOKEN },
       body: JSON.stringify({ kind: 'user-prompt', text: 'continue' }),
     });
   });

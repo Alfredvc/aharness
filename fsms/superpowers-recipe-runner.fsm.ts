@@ -391,7 +391,7 @@ export default runner.machine({
           currentSliceLine(data),
           currentPlanLine(data),
           '',
-          'Let the detailed plan guide task order internally. Do not route through Harness for every subtask.',
+          'Let the detailed plan guide task order internally. Do not route through Aharness for every subtask.',
           'Keep changes inside the slice boundary, preserve existing behavior unless the plan changes it, and update docs with behavior changes.',
           'Run task-local checks where useful, but the final verification gate is later.',
           'If implementation cannot continue, submit needsRecovery with concrete evidence and a suggested recovery route.',

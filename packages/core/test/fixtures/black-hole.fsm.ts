@@ -11,12 +11,12 @@
  * `always`/`after`/`invoke.onDone`. Without any of these the state is
  * a true black hole.
  */
-import { harness, passive, terminal } from '@aharness/core';
+import { aharness, passive, terminal } from '@aharness/core';
 
-export const machine = harness.machine({
+export const machine = aharness.machine({
   id: 'black-hole',
   initial: 'stuck',
-  context: () => ({ __harness_visitCount: {} as Record<string, number> }),
+  context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
   states: {
     // Intentionally no `always` / `after` / `on` — passive black hole.
     stuck: passive(),

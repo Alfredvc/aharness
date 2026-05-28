@@ -9,9 +9,9 @@
  * semantics on the AWAIT path through the embed boundary, parallel to
  * `child.fsm.ts`'s SUBMIT path.
  */
-import { harness, state, final } from '../../../src/index.js';
+import { aharness, state, final } from '../../../src/index.js';
 
-export default harness.machine({
+export default aharness.machine({
   id: 'child-await',
   initial: 'ask',
   states: {

@@ -1,9 +1,9 @@
 /**
- * Notification methods the headless harness opts out of via the
+ * Notification methods the headless aharness opts out of via the
  * `optOutNotificationMethods` capability at `initialize`. Spec §5.7.
  *
  * Codex's `OutgoingMessageSender` honours this list for both parent and
- * auto-attached sub-thread notifications (CF-17). The harness CLI
+ * auto-attached sub-thread notifications (CF-17). The aharness CLI
  * receives only the methods NOT in this list — the router only needs to
  * subscribe to the parent-thread variants of `turn/started`,
  * `turn/completed`, `item/started`, `item/completed` plus the

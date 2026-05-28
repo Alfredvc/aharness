@@ -1,16 +1,16 @@
-import { harness, state, exit, terminal } from '@aharness/core';
+import { aharness, state, exit, terminal } from '@aharness/core';
 
 interface FinishPayload {
   _empty?: never;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'multi-state-self-loop',
   initial: 'counting',
   states: {
     counting: state({
       entryPrompt:
-        'Call harness_submit with exit=increment to self-loop, or exit=finish to terminate.',
+        'Call aharness_submit with exit=increment to self-loop, or exit=finish to terminate.',
       exits: {
         increment: exit<{ delta: number }>({
           to: 'counting',

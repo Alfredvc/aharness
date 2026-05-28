@@ -1,4 +1,4 @@
-# Harness demos
+# aharness demos
 
 For the launch coding workflow, start with
 [`coding-smoke.fsm.ts`](coding-smoke.fsm.ts). It runs a tiny real fixture through
@@ -45,7 +45,7 @@ drops you into the run. From there:
   the TUI.
 - **Model output** (narration, questions, summaries) appears in the
   TUI as normal codex turns.
-- **Artifacts** (`*.md`) land in `<repoRoot>/.harness/runs/<runId>/artifacts/`.
+- **Artifacts** (`*.md`) land in `<repoRoot>/.aharness/runs/<runId>/artifacts/`.
 - **Snapshot + event log** live alongside in the same run dir.
 
 Runs are foreground-only. If the process dies, re-run the command to

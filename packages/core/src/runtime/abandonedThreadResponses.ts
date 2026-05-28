@@ -9,7 +9,7 @@ import type {
 } from '../protocol/types.js';
 
 export const ABANDONED_THREAD_DYNAMIC_TOOL_MESSAGE =
-  'harness: request belongs to an abandoned thread after clearOnEntry; ignored.';
+  'aharness: request belongs to an abandoned thread after clearOnEntry; ignored.';
 
 export const DECLINED_ANSWER_TEXT = '(declined)';
 

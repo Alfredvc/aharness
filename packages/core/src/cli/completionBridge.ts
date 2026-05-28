@@ -32,7 +32,7 @@ import type { ArgSentinel } from '../state/args.js';
 /**
  * Reachable shape of `machine.config.input` after `loadFsm()` returns. Phase 3
  * Task 12 leaves the runtime `arg<T>(meta?)` sentinel verbatim on the root
- * config — `harness.machine()` does not strip the `input` field, and
+ * config — `aharness.machine()` does not strip the `input` field, and
  * `cloneConfigPreservingFns` keeps function references intact — so the
  * `{dynamic: fn}` callback survives at `machine.config.input?.[field]?.meta?.completion?.dynamic`.
  *
@@ -259,7 +259,7 @@ async function emitValueCompletion(
  * to using `cwd` directly as the repo root.
  *
  * Used only on the dynamic-callback path: `loadFsm()` needs a repo root
- * to resolve the user's `node_modules` and the `.harness/cache/` location.
+ * to resolve the user's `node_modules` and the `.aharness/cache/` location.
  */
 function findRepoRoot(start: string): string | null {
   let dir = start;

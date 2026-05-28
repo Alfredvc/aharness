@@ -133,38 +133,38 @@ export function validatePackageConfig(
     });
   }
 
-  const harnessPackage = readHarnessPackage(pkg, diagnostics);
-  const parsedCommands = harnessPackage ? parseCommandMetadata(harnessPackage, diagnostics) : {};
+  const aharnessPackage = readAharnessPackage(pkg, diagnostics);
+  const parsedCommands = aharnessPackage ? parseCommandMetadata(aharnessPackage, diagnostics) : {};
 
-  const binName = harnessPackage ? stringField(harnessPackage, 'bin') : null;
-  if (harnessPackage && !binName) {
+  const binName = aharnessPackage ? stringField(aharnessPackage, 'bin') : null;
+  if (aharnessPackage && !binName) {
     diagnostics.push({
       code: 'bin-invalid',
-      field: 'harness.package.bin',
-      message: 'harness.package.bin must be a non-empty string',
+      field: 'aharness.package.bin',
+      message: 'aharness.package.bin must be a non-empty string',
     });
   } else if (binName && !BIN_NAME_RE.test(binName)) {
     diagnostics.push({
       code: 'bin-invalid',
-      field: 'harness.package.bin',
-      message: 'harness.package.bin must be a valid command name',
+      field: 'aharness.package.bin',
+      message: 'aharness.package.bin must be a valid command name',
     });
   }
 
-  const fsmsDir = harnessPackage ? stringField(harnessPackage, 'fsmsDir') : null;
+  const fsmsDir = aharnessPackage ? stringField(aharnessPackage, 'fsmsDir') : null;
   let fsmsDirPath: string | null = null;
   let fsmsDirRelative: string | null = null;
-  if (harnessPackage && !fsmsDir) {
+  if (aharnessPackage && !fsmsDir) {
     diagnostics.push({
       code: 'fsms-dir-invalid',
-      field: 'harness.package.fsmsDir',
-      message: 'harness.package.fsmsDir must be a non-empty string',
+      field: 'aharness.package.fsmsDir',
+      message: 'aharness.package.fsmsDir must be a non-empty string',
     });
   } else if (fsmsDir) {
     const fsmsDirResult = validatePackagePath({
       packageRoot,
       relativePath: fsmsDir,
-      field: 'harness.package.fsmsDir',
+      field: 'aharness.package.fsmsDir',
     });
     if (fsmsDirResult.ok) {
       fsmsDirPath = fsmsDirResult.value.absolutePath;
@@ -179,8 +179,8 @@ export function validatePackageConfig(
     if (binName !== expected) {
       diagnostics.push({
         code: 'official-bin-invalid',
-        field: 'harness.package.bin',
-        message: `official Harness packages must use bin '${expected}'`,
+        field: 'aharness.package.bin',
+        message: `official aharness packages must use bin '${expected}'`,
       });
     }
   }
@@ -217,44 +217,44 @@ export function validatePackageConfig(
   };
 }
 
-function readHarnessPackage(
+function readAharnessPackage(
   pkg: PackageJsonObject,
   diagnostics: FsmPackageDiagnostic[],
 ): Record<string, unknown> | null {
-  const harness = pkg['harness'];
-  if (!isRecord(harness)) {
+  const aharness = pkg['aharness'];
+  if (!isRecord(aharness)) {
     diagnostics.push({
-      code: 'harness-package-missing',
-      field: 'harness.package',
-      message: 'package.json must contain harness.package metadata',
+      code: 'aharness-package-missing',
+      field: 'aharness.package',
+      message: 'package.json must contain aharness.package metadata',
     });
     return null;
   }
 
-  const harnessPackage = harness['package'];
-  if (!isRecord(harnessPackage)) {
+  const aharnessPackage = aharness['package'];
+  if (!isRecord(aharnessPackage)) {
     diagnostics.push({
-      code: 'harness-package-missing',
-      field: 'harness.package',
-      message: 'package.json must contain harness.package metadata',
+      code: 'aharness-package-missing',
+      field: 'aharness.package',
+      message: 'package.json must contain aharness.package metadata',
     });
     return null;
   }
 
-  return harnessPackage;
+  return aharnessPackage;
 }
 
 function parseCommandMetadata(
-  harnessPackage: Record<string, unknown>,
+  aharnessPackage: Record<string, unknown>,
   diagnostics: FsmPackageDiagnostic[],
 ): Record<string, CommandMetadata> {
-  const rawCommands = harnessPackage['commands'];
+  const rawCommands = aharnessPackage['commands'];
   if (rawCommands === undefined) return {};
   if (!isRecord(rawCommands)) {
     diagnostics.push({
       code: 'commands-invalid',
-      field: 'harness.package.commands',
-      message: 'harness.package.commands must be an object when present',
+      field: 'aharness.package.commands',
+      message: 'aharness.package.commands must be an object when present',
     });
     return {};
   }
@@ -264,7 +264,7 @@ function parseCommandMetadata(
     if (!isRecord(raw)) {
       diagnostics.push({
         code: 'command-metadata-invalid',
-        field: `harness.package.commands.${name}`,
+        field: `aharness.package.commands.${name}`,
         commandName: name,
         message: 'command metadata entries must be objects',
       });
@@ -277,7 +277,7 @@ function parseCommandMetadata(
       if (typeof target !== 'string' || target.length === 0) {
         diagnostics.push({
           code: 'command-target-invalid',
-          field: `harness.package.commands.${name}.target`,
+          field: `aharness.package.commands.${name}.target`,
           commandName: name,
           message: 'command metadata target must be a non-empty string',
         });
@@ -291,7 +291,7 @@ function parseCommandMetadata(
       if (typeof description !== 'string') {
         diagnostics.push({
           code: 'command-description-invalid',
-          field: `harness.package.commands.${name}.description`,
+          field: `aharness.package.commands.${name}.description`,
           commandName: name,
           message: 'command metadata description must be a string',
         });
@@ -420,7 +420,7 @@ function validateFiles(
       code: 'files-missing-entry',
       field: 'files',
       path: fsmsDir,
-      message: `package.json files must include harness.package.fsmsDir '${fsmsDir}'`,
+      message: `package.json files must include aharness.package.fsmsDir '${fsmsDir}'`,
     });
   }
 

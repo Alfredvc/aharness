@@ -21,7 +21,7 @@ the issue.
 Security fixes target the current release line. Before the first published
 release, that means the `0.1.x` line represented by this repository.
 
-Harness requires:
+aharness requires:
 
 - Node.js `>=20`
 - Codex CLI `>=0.130.0`
@@ -30,17 +30,17 @@ Older Node or Codex versions are outside the supported security boundary.
 
 ## Threat Model Boundary
 
-Harness constrains workflow control around coding agents. It verifies FSM
+aharness constrains workflow control around coding agents. It verifies FSM
 structure before runtime, validates structured submissions, routes owner input
-and approval requests through Harness-controlled paths, and protects the
+and approval requests through aharness-controlled paths, and protects the
 loopback browser UI with a per-run token.
 
-Harness does not make untrusted code safe to execute. A run may ask Codex to
+aharness does not make untrusted code safe to execute. A run may ask Codex to
 edit files, run commands, inspect a repository, or handle content supplied by a
 model or local project. Treat those actions with the same care as any local
 developer tooling:
 
-- run Harness only in repositories and worktrees you intend the coding agent to
+- run aharness only in repositories and worktrees you intend the coding agent to
   modify;
 - review approval requests before granting file or command access;
 - do not paste secrets into model prompts, run artifacts, or issue reports;
@@ -50,4 +50,4 @@ developer tooling:
 
 Security issues inside Codex, Node.js, package managers, shells, editors, or
 other tools invoked by a workflow should be reported to those projects unless
-Harness incorrectly expands or bypasses their intended boundary.
+aharness incorrectly expands or bypasses their intended boundary.

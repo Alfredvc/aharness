@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { harness, state, terminal, exit } from '@aharness/core';
+import { aharness, state, terminal, exit } from '@aharness/core';
 import type { SchemaSidecar } from '@aharness/core';
 
 import { verify } from '../src/verify/verify.js';
@@ -12,7 +12,7 @@ describe('verify: no-submit-in-spawn-agent-reachable-states', () => {
   it('rejects an FSM with a submit exit AND a spawn_agent reference in author code', () => {
     // The detection signal MVP: any author-fn that mentions "spawn_agent"
     // by name in its body (per spec §7.1 conservative analysis).
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'm',
       initial: 'a',
       context: () => ({}),
@@ -35,7 +35,7 @@ describe('verify: no-submit-in-spawn-agent-reachable-states', () => {
   });
 
   it('passes an FSM that has no spawn_agent references', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'm',
       initial: 'a',
       context: () => ({}),

@@ -10,7 +10,7 @@ export function renderHookCliOverride(
 ): readonly [string, string] {
   return [
     `hooks.${kind}`,
-    `[{ hooks = [{ type = "command", command = ${escapeTomlBasicString(shellQuote(scriptPath))}, timeout = ${HOOK_TIMEOUT_SEC}, statusMessage = ${escapeTomlBasicString(`harness ${kind}`)} }] }]`,
+    `[{ hooks = [{ type = "command", command = ${escapeTomlBasicString(shellQuote(scriptPath))}, timeout = ${HOOK_TIMEOUT_SEC}, statusMessage = ${escapeTomlBasicString(`aharness ${kind}`)} }] }]`,
   ];
 }
 

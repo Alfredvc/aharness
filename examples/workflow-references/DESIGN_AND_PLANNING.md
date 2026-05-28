@@ -1,4 +1,4 @@
-# Design & Planning — Step 2 of Autonomous Agent Harness
+# Design & Planning — Step 2 of Autonomous Agent Aharness
 
 High-level architecture and project-level policies for an LLM agent that will execute autonomously after the human product owner goes unreachable. Step 1 (`REQUIREMENTS_GATHERING.md`) produces the requirements artifacts. Step 2 produces the architecture, the vetted tool/skill/test selections, and the project-level policies (abort conditions, scope-drop order, fitness-function invariants, incident-log schema). Step 3 (`EXECUTION_PLANNING.md`) consumes Step 2's output and produces the task DAG with per-task budgets, fallback edges, and scheduling. **Step 2 is high-level only — no task-level decomposition.**
 
@@ -101,7 +101,7 @@ Missing required tools → abort via `AskUserQuestion` asking owner whether to i
 
 Task-level artefacts (`PLAN.md` with DAG, per-task budgets, fallback edges, walking-skeleton scheduling, escalation-ladder budgets) are produced by Step 3 (`EXECUTION_PLANNING.md`) using Step 2's outputs as inputs.
 
-All outputs are prerequisites for Step 3 (execution planning) of the harness.
+All outputs are prerequisites for Step 3 (execution planning) of the aharness.
 
 ### 1.1 `RUN_REPORT.md` schema
 
@@ -129,7 +129,7 @@ budget_spent:
 - <concrete, machine-checkable items the owner must resolve before re-run>
 ```
 
-`halt_reason` enum is closed. `rigor_score_at_halt` = `"unscored"` only when halt pre-dated §2.1. `<...>` placeholders MUST be filled; none may be omitted. Last-saved artefact state is inferred from git — not duplicated here. Next-step recommendation dropped — agent self-narrating its own failure is the least-trustworthy signal in the harness.
+`halt_reason` enum is closed. `rigor_score_at_halt` = `"unscored"` only when halt pre-dated §2.1. `<...>` placeholders MUST be filled; none may be omitted. Last-saved artefact state is inferred from git — not duplicated here. Next-step recommendation dropped — agent self-narrating its own failure is the least-trustworthy signal in the aharness.
 
 ---
 
@@ -334,7 +334,7 @@ Run on: every third-party skill, every third-party MCP server, every plugin bund
 
 **Exempt from this protocol:**
 - Anthropic-bundled skills and first-party agents.
-- Project-internal agents — those whose definitions live in this repo under `plugin/agents/` (e.g., `requirements-reviewer`, `tasks-reviewer`, `replan-agent`). These are authored in-tree as part of the harness and reviewed through normal code-review, not through §7. Step 2 does not probe or scan them.
+- Project-internal agents — those whose definitions live in this repo under `plugin/agents/` (e.g., `requirements-reviewer`, `tasks-reviewer`, `replan-agent`). These are authored in-tree as part of the aharness and reviewed through normal code-review, not through §7. Step 2 does not probe or scan them.
 
 The protocol targets code arriving from outside the repo boundary — the attack surface §7 exists for.
 
@@ -756,7 +756,7 @@ Remaining checks run inline:
 
 ### 11.5 Plan-critique subagent (STANDARD and HEAVY)
 
-The `agentfiles:plan-critique` skill's default "Before You Start" section references `docs/live/decisions.md|flows.md|testing.md` — files that do not exist in this harness. Invoking it with its default prompt produces garbage. Therefore Step 2 spawns a critique subagent with an explicit prompt that overrides the skill's defaults:
+The `agentfiles:plan-critique` skill's default "Before You Start" section references `docs/live/decisions.md|flows.md|testing.md` — files that do not exist in this aharness. Invoking it with its default prompt produces garbage. Therefore Step 2 spawns a critique subagent with an explicit prompt that overrides the skill's defaults:
 
 - **Subagent type:** `general-purpose`.
 - **Prompt (verbatim template — do not paraphrase):**
@@ -783,7 +783,7 @@ The `agentfiles:plan-critique` skill's default "Before You Start" section refere
     > 6. **Check scope appropriateness** — too big (while-I'm-here improvements, hypothetical-future abstractions) or too small (hand-wavy steps, missing edge cases the spec implies).
     > 7. **Scrutinise any proposed code** — type safety, error handling, no silent catches, no leaked secrets, race conditions in async code.
     >
-    > **This harness's specific hard rules (non-negotiable — flag any violation):**
+    > **This aharness's specific hard rules (non-negotiable — flag any violation):**
     > - Every architectural element in `DESIGN.md` must trace to a requirement in `REQUIREMENTS.md`.
     > - Every quality attribute in `REQUIREMENTS.md` must have a fitness function in `DESIGN.md`.
     > - Every third-party skill/MCP in `GOVERNANCE.md` must have source, version, hash, static scan result, manual review, fallback.
@@ -915,11 +915,11 @@ If any criterion fails, Step 2 is not done. Do not proceed to Step 3.
 - Spracklen et al. (2025). We Have a Package for You (package hallucination / slopsquatting). *USENIX Security.*
 - Salt Labs (2024). Security Flaws within ChatGPT Extensions.
 
-### Agent harness prior art
+### Agent aharness prior art
 
 - GitHub Spec-Kit. https://github.com/github/spec-kit
 - Fowler, M. Understanding Spec-Driven Development: Kiro, Spec-Kit, Tessl. https://martinfowler.com/articles/exploring-gen-ai/sdd-3-tools.html
-- Fowler, M. Harness Engineering — first thoughts. https://martinfowler.com/articles/exploring-gen-ai/harness-engineering-memo.html
+- Fowler, M. Aharness Engineering — first thoughts. https://martinfowler.com/articles/exploring-gen-ai/aharness-engineering-memo.html
 - GitHub Copilot Workspace user manual. https://github.com/githubnext/copilot-workspace-user-manual
 - MetaGPT. arXiv 2308.00352.
 - ChatDev. arXiv 2307.07924.
@@ -983,5 +983,5 @@ If any criterion fails, Step 2 is not done. Do not proceed to Step 3.
 
 ### Internal
 
-- `docs/REQUIREMENTS_GATHERING.md` — Step 1 of the harness; sets inputs for this step.
+- `docs/REQUIREMENTS_GATHERING.md` — Step 1 of the aharness; sets inputs for this step.
 - `docs/PROCESS_EVALUATION.md` — root-cause analysis of prior autonomous run; source for process-eval callouts.

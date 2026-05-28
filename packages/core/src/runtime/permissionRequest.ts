@@ -2,7 +2,7 @@ import type { ActorHost } from './actorHost.js';
 import { dispatchCanonicalBuiltinEvent } from './hookDispatchers.js';
 import type { CanonicalBuiltinEventErrorInfo } from './hookDispatchers.js';
 import type { ServerRequestMeta } from '../jsonrpc/client.js';
-import type { HarnessOps } from '../state/harnessOps.js';
+import type { AharnessOps } from '../state/aharnessOps.js';
 import type { PermissionRequestDecision, PermissionRequestEvent } from '../state/hooks.js';
 
 export interface PermissionRequestResult {
@@ -18,7 +18,7 @@ export interface PermissionRequestDispatcherInput {
     readonly error: Error;
   }) => void;
   readonly flushSnapshot?: (xstateSnapshot: unknown) => void;
-  readonly ops?: HarnessOps;
+  readonly ops?: AharnessOps;
   readonly writeFinalArtifacts?: (
     terminalStateId: string,
     context?: Record<string, unknown>,

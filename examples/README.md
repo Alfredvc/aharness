@@ -1,4 +1,4 @@
-# Harness Examples
+# aharness Examples
 
 Start with the coding smoke demo, then use the mechanism demos as focused
 references for individual FSM primitives.

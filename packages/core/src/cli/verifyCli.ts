@@ -24,7 +24,7 @@ export interface RunVerifyCliOpts {
   /** Absolute or `repoRoot`-relative path to the user's `<file>.fsm.ts`. */
   readonly fsmPath: string;
   /**
-   * Project root — where `.harness/cache/` (loader's hashed bundle cache)
+   * Project root — where `.aharness/cache/` (loader's hashed bundle cache)
    * and `node_modules/` live. Defaults to `process.cwd()`. Tests inject a
    * tmpdir so the cache does not pollute the workspace.
    */

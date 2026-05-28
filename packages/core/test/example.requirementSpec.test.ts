@@ -7,7 +7,7 @@
  * The runtime traversal lives in `phase9.realtui.e2e.test.ts`, which
  * spawns a real `codex --remote` TUI through the CLI and asserts on
  * the run-dir artifacts. That test is gated behind `hasCodex` + an
- * explicit `HARNESS_E2E_REAL_CODEX=1` opt-in.
+ * explicit `AHARNESS_E2E_REAL_CODEX=1` opt-in.
  */
 import { describe, expect, it } from 'vitest';
 

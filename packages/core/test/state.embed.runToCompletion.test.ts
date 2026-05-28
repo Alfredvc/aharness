@@ -153,7 +153,7 @@ describe('embed() — run-to-completion subscriber semantics', () => {
     ]);
   });
 
-  it('canonical embed rejects raw XState sends into child finals without harness preflight metadata', async () => {
+  it('canonical embed rejects raw XState sends into child finals without aharness preflight metadata', async () => {
     const actor = createActor(buildCanonicalParent());
     const error = new Promise<unknown>((resolve) => {
       actor.subscribe({
@@ -167,7 +167,7 @@ describe('embed() — run-to-completion subscriber semantics', () => {
     actor.send({ type: 'SUBMIT__inner.compose__finish', payload: { summary: 'draft' } });
 
     await expect(error).resolves.toMatchObject({
-      message: expect.stringContaining('without harness preflight metadata'),
+      message: expect.stringContaining('without aharness preflight metadata'),
     });
   });
 });

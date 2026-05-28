@@ -1,13 +1,13 @@
-import { exit, harness, state, terminal } from '@aharness/core';
+import { exit, aharness, state, terminal } from '@aharness/core';
 
 interface HelloPayload {
   name: string;
 }
 
-export const machine = harness.machine({
+export const machine = aharness.machine({
   id: 'hello',
   initial: 'ask',
-  context: () => ({ __harness_visitCount: {} as Record<string, number> }),
+  context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
   states: {
     ask: state({
       entryPrompt: 'Ask for a name.',

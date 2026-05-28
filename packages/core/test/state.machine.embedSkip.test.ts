@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { harness } from '../src/state/machine.js';
+import { aharness } from '../src/state/machine.js';
 import { state, exit, final } from '../src/state/exits.js';
 import { embed } from '../src/state/embed.js';
 
 describe('injectFrameworkActions — embedded-compound marker skip', () => {
-  it('does NOT write __harness_authoredOnKeys onto an embedded-compound node', () => {
+  it('does NOT write __aharness_authoredOnKeys onto an embedded-compound node', () => {
     const childConfig = {
       id: 'child',
       initial: 'go',
@@ -16,8 +16,8 @@ describe('injectFrameworkActions — embedded-compound marker skip', () => {
         done: final({ outcome: 'success' as const }),
       },
     };
-    const child = harness.machine(childConfig as never);
-    const parent = harness.machine({
+    const child = aharness.machine(childConfig as never);
+    const parent = aharness.machine({
       id: 'parent',
       initial: 'inner',
       states: {
@@ -26,14 +26,14 @@ describe('injectFrameworkActions — embedded-compound marker skip', () => {
       },
     } as never);
     const innerNode = parent.root.states['inner'];
-    const innerHarnessMeta = (
+    const innerAharnessMeta = (
       innerNode!.meta as
-        | { harness?: { embedded?: unknown; __harness_authoredOnKeys?: unknown } }
+        | { aharness?: { embedded?: unknown; __aharness_authoredOnKeys?: unknown } }
         | undefined
-    )?.harness;
-    expect(innerHarnessMeta?.embedded).toBeDefined();
-    // The marker must NOT be set on the embedded-compound's harness meta.
-    expect(innerHarnessMeta?.__harness_authoredOnKeys).toBeUndefined();
+    )?.aharness;
+    expect(innerAharnessMeta?.embedded).toBeDefined();
+    // The marker must NOT be set on the embedded-compound's aharness meta.
+    expect(innerAharnessMeta?.__aharness_authoredOnKeys).toBeUndefined();
   });
 
   it('still writes the marker on leaf states inside the embedded compound', () => {
@@ -48,8 +48,8 @@ describe('injectFrameworkActions — embedded-compound marker skip', () => {
         done: final({ outcome: 'success' as const }),
       },
     };
-    const child = harness.machine(childConfig as never);
-    const parent = harness.machine({
+    const child = aharness.machine(childConfig as never);
+    const parent = aharness.machine({
       id: 'parent',
       initial: 'inner',
       states: {
@@ -59,8 +59,8 @@ describe('injectFrameworkActions — embedded-compound marker skip', () => {
     } as never);
     const innerGoNode = parent.root.states['inner']!.states['go'];
     const innerGoMeta = (
-      innerGoNode?.meta as { harness?: { __harness_authoredOnKeys?: unknown } } | undefined
-    )?.harness;
-    expect(innerGoMeta?.__harness_authoredOnKeys).toBeDefined();
+      innerGoNode?.meta as { aharness?: { __aharness_authoredOnKeys?: unknown } } | undefined
+    )?.aharness;
+    expect(innerGoMeta?.__aharness_authoredOnKeys).toBeDefined();
   });
 });

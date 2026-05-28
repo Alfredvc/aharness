@@ -8,7 +8,7 @@
 //
 // Does codex `app-server` behave correctly when driven by a single WS
 // client (the "daemon") with NO TUI ever connected, across all four
-// load-bearing surfaces of the harness design:
+// load-bearing surfaces of the aharness design:
 //
 //   1. `request_user_input` (built-in tool, server-request reply)
 //   2. Cross-state transitions (drain → `turn/interrupt` → `turn/start`)
@@ -23,7 +23,7 @@
 // ## Vehicle
 //
 // Wire-level spike, fully decoupled from `packages/core` (per
-// the lib.mjs principle: spike harness depends on nothing in the SDK so
+// the lib.mjs principle: spike aharness depends on nothing in the SDK so
 // SDK regressions can't mask substrate regressions). A single
 // `connectJsonRpc` client plays the daemon's role.
 //

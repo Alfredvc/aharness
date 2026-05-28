@@ -9,7 +9,7 @@ import { discoverPackageCommands } from '../src/fsmPackage/discovery.js';
 import { validatePackagePath, validatePackageWriteTarget } from '../src/fsmPackage/paths.js';
 
 function tmpPackage(): string {
-  return mkdtempSync(path.join(os.tmpdir(), 'harness-fsm-package-discovery-'));
+  return mkdtempSync(path.join(os.tmpdir(), 'aharness-fsm-package-discovery-'));
 }
 
 async function makeFsms(root: string, entries: Record<string, string>): Promise<void> {
@@ -28,7 +28,7 @@ describe('fsm package path helpers', () => {
       const result = validatePackagePath({
         packageRoot: root,
         relativePath: unsafePath,
-        field: 'harness.package.fsmsDir',
+        field: 'aharness.package.fsmsDir',
       });
       expect(result.ok).toBe(false);
     }
@@ -40,7 +40,7 @@ describe('fsm package path helpers', () => {
     const result = validatePackagePath({
       packageRoot: root,
       relativePath: 'workflows\\nested',
-      field: 'harness.package.fsmsDir',
+      field: 'aharness.package.fsmsDir',
     });
 
     expect(result.ok).toBe(true);
@@ -56,7 +56,7 @@ describe('fsm package path helpers', () => {
     const result = validatePackagePath({
       packageRoot: root,
       relativePath: 'workflows\\..\\escape',
-      field: 'harness.package.fsmsDir',
+      field: 'aharness.package.fsmsDir',
     });
 
     expect(result.ok).toBe(false);
@@ -65,7 +65,7 @@ describe('fsm package path helpers', () => {
 
   it('rejects write targets whose existing parent realpath escapes the package root', async () => {
     const root = tmpPackage();
-    const outside = mkdtempSync(path.join(os.tmpdir(), 'harness-outside-'));
+    const outside = mkdtempSync(path.join(os.tmpdir(), 'aharness-outside-'));
     const linkPath = path.join(root, 'bin');
     await symlink(outside, linkPath, 'dir');
 

@@ -11,7 +11,7 @@
  *      mutating the live actor.
  *   3. `commitSubmit(...)` actually advances the actor.
  *
- * The fixture uses `harness.machine` (the framework wrapper) plus `assign`
+ * The fixture uses `aharness.machine` (the framework wrapper) plus `assign`
  * inside the SUBMIT transition's `actions` array — that is the only XState
  * v5 path that compiles against `setup`'s typed-action contract.
  */
@@ -21,7 +21,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { promises as fs } from 'node:fs';
 
-import { harness, state, terminal, exit, final, arg } from '@aharness/core';
+import { aharness, state, terminal, exit, final, arg } from '@aharness/core';
 
 import { ActorHost } from '../src/runtime/actorHost.js';
 import { ensureRunDir } from '../src/run.js';
@@ -35,7 +35,7 @@ interface GoPayload {
 }
 
 function buildMachine() {
-  return harness.machine({
+  return aharness.machine({
     id: 'm',
     initial: 'a',
     context: (): Ctx => ({ count: 0 }),
@@ -122,7 +122,7 @@ describe('ActorHost', () => {
 
 describe('ActorHost — merged input flows into context factory (Task 15b)', () => {
   it('passes merged framework + user input to the user context factory', async () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       input: { topic: arg<string>() },
       context: ({ input }: { input: { runId: string; topic: string } }) => ({
         runId: input.runId,
@@ -164,7 +164,7 @@ describe('ActorHost — merged input flows into context factory (Task 15b)', () 
   // that swap — the existing test above would still pass because both sides
   // would deliver the same `runId` value.
   it('user-declared fields override framework defaults under merge order', async () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       input: {
         // Deliberately shadows the framework default. Authors would not
         // normally do this, but the override is not blocked.

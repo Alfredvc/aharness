@@ -1,5 +1,5 @@
-import type { CanonicalEventMeta, HarnessStateMeta } from '../state/exits.js';
-import type { HarnessOps } from '../state/harnessOps.js';
+import type { CanonicalEventMeta, AharnessStateMeta } from '../state/exits.js';
+import type { AharnessOps } from '../state/aharnessOps.js';
 import {
   cloneCanonicalCallbackData,
   payloadWithCanonicalCommit,
@@ -13,7 +13,7 @@ import type { ActorHost } from './actorHost.js';
 export interface CreateEventDispatcherOpts {
   readonly host: ActorHost;
   readonly flushSnapshot: (xstateSnapshot: unknown) => void;
-  readonly ops?: HarnessOps;
+  readonly ops?: AharnessOps;
   readonly onCanonicalEventError?: (info: CanonicalEventErrorInfo) => void;
   readonly isTerminalState?: (stateId: string) => boolean;
   readonly writeFinalArtifacts?: (
@@ -195,7 +195,7 @@ function normalizeError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-function currentStatefulMeta(host: ActorHost): HarnessStateMeta | undefined {
+function currentStatefulMeta(host: ActorHost): AharnessStateMeta | undefined {
   const meta = host.currentMeta();
   if (meta?.kind === 'stateful') return meta;
   return undefined;

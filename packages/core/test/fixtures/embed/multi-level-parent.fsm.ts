@@ -1,11 +1,11 @@
-import { harness, state, exit, final, embed } from '@aharness/core';
+import { aharness, state, exit, final, embed } from '@aharness/core';
 import mid from './mid.fsm.js';
 
 interface ParentPayload {
   readonly start: boolean;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'multiLevelParent',
   initial: 'router',
   states: {

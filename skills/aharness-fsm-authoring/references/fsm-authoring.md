@@ -53,23 +53,23 @@ Normal public API:
 - `fsm.input.string`, `number`, `path`, `custom`, `values`
 - `fsm.skill(name)` and `fsm.skill.path(path)`
 
-Lower-level `harness.machine`, `state`, `exit`, `terminal`, `final`, `passive`, `arg`, `embed`, and `skill` remain compatibility escape hatches. Do not use them for new FSMs unless you intentionally need a lower-level behavior.
+Lower-level `aharness.machine`, `state`, `exit`, `terminal`, `final`, `passive`, `arg`, `embed`, and `skill` remain compatibility escape hatches. Do not use them for new FSMs unless you intentionally need a lower-level behavior.
 
 ## Advanced Escape Hatches
 
 Most FSMs should stay on the canonical `createFsm` surface above. Reach for these exports only for advanced tooling, tests, migration work, or a behavior the canonical API cannot express cleanly.
 
-- Lower-level primitives: `harness.machine`, `state`, `exit`, `terminal`, `final`, `passive`, `arg`, `embed`, `skill`.
+- Lower-level primitives: `aharness.machine`, `state`, `exit`, `terminal`, `final`, `passive`, `arg`, `embed`, `skill`.
 - Artifact/event helpers: `writeArtifact` and `appendEventEntry`. Prefer `fsm.final({ artifacts })` for normal run reports.
 - Run and snapshot helpers: `deriveRunId`, `ensureRunDir`, `fsmHash6`, `loadSnapshot`. Normal runs create fresh run directories automatically.
-- Introspection helpers: `iterStates`, `getHarnessMeta`, `stateKeyPath`. Use these for analyzers or custom tooling, not ordinary workflow logic.
-- Owner-input provider types and mock queues are for tests and harness integration boundaries, not ordinary FSM source.
+- Introspection helpers: `iterStates`, `getAharnessMeta`, `stateKeyPath`. Use these for analyzers or custom tooling, not ordinary workflow logic.
+- Owner-input provider types and mock queues are for tests and aharness integration boundaries, not ordinary FSM source.
 
 ## Choosing States
 
-Use strict stateful states when the harness should keep driving the model until it submits a typed result.
+Use strict stateful states when the aharness should keep driving the model until it submits a typed result.
 
-Use open stateful states when owner-paced discussion is the intended behavior and the harness should not drive repeated turns.
+Use open stateful states when owner-paced discussion is the intended behavior and the aharness should not drive repeated turns.
 
 Use `ask` when the model needs owner text before submitting typed data. The owner reply does not advance the FSM directly; only the following typed submit does.
 
@@ -197,7 +197,7 @@ Reducers receive mutable draft data. They must be synchronous. They may mutate `
 
 Effects receive read-only data and payload plus `ops`. They are for external work that must complete before commit. There is no fire-and-forget effect API.
 
-`HarnessOps` is currently a reserved empty facade. Fresh clear is declarative via `clearOnEntry`, not `ops.clear()`.
+`AharnessOps` is currently a reserved empty facade. Fresh clear is declarative via `clearOnEntry`, not `ops.clear()`.
 
 Use final artifacts for run reports:
 
@@ -205,7 +205,7 @@ Use final artifacts for run reports:
 done: fsm.final({
   outcome: 'success',
   artifacts: {
-    'harness-report.md': (data) => renderReport(data),
+    'aharness-report.md': (data) => renderReport(data),
   },
 });
 ```
@@ -294,11 +294,11 @@ review: fsm.state({
 
 `match` is a hook-source delivery prefilter, not workflow logic. Use branch `if` predicates for workflow decisions.
 
-`harness_submit` and `request_user_input` do not reach `preToolUse` or `postToolUse`; matchers targeting those names are inert.
+`aharness_submit` and `request_user_input` do not reach `preToolUse` or `postToolUse`; matchers targeting those names are inert.
 
 ## Runtime Contract
 
-The runtime starts one Codex `app-server`, registers one dynamic tool named `harness_submit`, and uses per-state orientation messages to tell the model the current state, valid exits, and submit data schema.
+The runtime starts one Codex `app-server`, registers one dynamic tool named `aharness_submit`, and uses per-state orientation messages to tell the model the current state, valid exits, and submit data schema.
 
 Model submit shape:
 

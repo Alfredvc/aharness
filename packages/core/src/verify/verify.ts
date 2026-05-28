@@ -9,7 +9,7 @@
  * Differences from the CC verifier (per Codex migration plan §13 + R3/R4/R5):
  *   - REMOVED: `state-id-length` check. The Codex side does not synthesize
  *     per-state tool names; the sole dynamic tool is the frozen
- *     `harness_submit` tool whose name length is fixed. The 41-char joint cap
+ *     `aharness_submit` tool whose name length is fixed. The 41-char joint cap
  *     no longer applies.
  *   - RENAMED: `submit-schemas-resolved` → `per-state-data-schema-resolvable`
  *     (per R3; the existing CC literal is `submit-schemas-resolved`).
@@ -19,7 +19,7 @@
  *     compile-time-evaded boundaries (e.g. nested-state shadowing producing
  *     identical `stateKeyPath` results).
  *   - RETIRED: `mcp-submit-tool-name-collision`. The live submit surface is
- *     the single `harness_submit` dynamic tool with `{state, exit, data}`;
+ *     the single `aharness_submit` dynamic tool with `{state, exit, data}`;
  *     author identifiers live in JSON payload fields, never in MCP tool
  *     names. The old MCP-route collision check produced false positives on
  *     legitimate FSMs (the conventional exit name `submit` is intuitive
@@ -46,10 +46,10 @@
  *   10. open-states-have-at-least-one-exit      — open: true requires ≥1 exit
  *   11. await-only-strict-state (warning)       — strict state with one await + no submit
  *   12. author-functions-sync                   — re-emit loader `author-fn-async` issues
- *   13. machine-uses-harness-wrapper            — re-emit loader `direct-create-machine` issues
+ *   13. machine-uses-aharness-wrapper            — re-emit loader `direct-create-machine` issues
  *   14. state-exit-tuple-unique                 — distinct stateKeyPaths must not collide on (id, exitName)
  *   15. request-user-input-name-collision       — author-declared tool named "request_user_input" (scaffold)
- *   16. harness-submit-name-collision           — state id equal to the reserved framework tool name
+ *   16. aharness-submit-name-collision           — state id equal to the reserved framework tool name
  *   17. no-submit-in-spawn-agent-reachable-states — submit exits + author-fn referencing `spawn_agent`
  *   18. no-handwritten-submit-await-handlers    — author-written SUBMIT__/AWAIT__ on: keys (reads side-channel)
  *   19. exit-target-in-state-set                — every exit `to:` names a valid sibling state
@@ -57,9 +57,9 @@
  *   21. when-array-min-length-2                 — when[] requires length >= 2
  *   22. await-no-multi-branch                   — await exits cannot use when[]
  *   23. exit-shape-exclusive                    — exit cannot have both `to` and `when`
- *   24. state-config-missing-harness-meta       — state with behavior+meta but no meta.harness
+ *   24. state-config-missing-aharness-meta       — state with behavior+meta but no meta.aharness
  *   25. awaits-owner-text-no-await-exit         — awaitsOwnerText + await exit on same state
- *   26. state-onEntry-must-be-function          — meta.harness.onEntry must be a function
+ *   26. state-onEntry-must-be-function          — meta.aharness.onEntry must be a function
  *   27. onEntry-only-on-stateful-states         — terminal/passive metas may not declare onEntry
  *   28. bare-branch-warning (warning)           — non-last bare when[] branch (no guard, no actions)
  *   29. embedded-state-exclusive                — embed-host states declare embed() and nothing else
@@ -69,10 +69,10 @@
  *
  * Verifier ordering invariant (load-bearing — see design doc §4.5):
  *
- *   Synthesis (in harness.machine → injectFrameworkActions) writes the
+ *   Synthesis (in aharness.machine → injectFrameworkActions) writes the
  *   SUBMIT__*\/AWAIT__* on: keys. BEFORE overwriting them, the synthesizer
  *   snapshots any pre-existing SUBMIT__/AWAIT__ keys onto the side-channel
- *   field `meta.harness.__harness_authoredOnKeys` so the verifier check
+ *   field `meta.aharness.__aharness_authoredOnKeys` so the verifier check
  *   `no-handwritten-submit-await-handlers` can detect author-written keys
  *   on the resolved machine.
  *
@@ -82,16 +82,16 @@
  *   source of truth for "what authored SUBMIT__/AWAIT__ keys did this
  *   FSM declare".
  *
- *   Bypassing harness.machine() in tests (calling raw `setup().createMachine()`
+ *   Bypassing aharness.machine() in tests (calling raw `setup().createMachine()`
  *   directly) breaks this invariant — the side-channel snapshot won't be
  *   populated, the synthesized keys won't exist, and downstream checks
  *   will see incomplete `on:` maps. The test infrastructure must call
- *   harness.machine() (or equivalent) before handing a machine to verify().
+ *   aharness.machine() (or equivalent) before handing a machine to verify().
  */
 import type { AnyStateMachine, StateNode } from 'xstate';
 
-import { getHarnessMeta, iterStates, stateKeyPath } from '../state.js';
-import type { HarnessStateMeta, SchemaSidecar } from '../types.js';
+import { getAharnessMeta, iterStates, stateKeyPath } from '../state.js';
+import type { AharnessStateMeta, SchemaSidecar } from '../types.js';
 import type { SidecarIssue } from '../loader/index.js';
 import { SUBMIT_TOOL_NAME } from '../protocol/submitTool.js';
 import { isSkillRef } from '../state/skills.js';
@@ -118,10 +118,10 @@ export type VerifyIssueCheck =
   | 'open-states-have-at-least-one-exit'
   | 'await-only-strict-state'
   | 'author-functions-sync'
-  | 'machine-uses-harness-wrapper'
+  | 'machine-uses-aharness-wrapper'
   | 'state-exit-tuple-unique'
   | 'request-user-input-name-collision'
-  | 'harness-submit-name-collision'
+  | 'aharness-submit-name-collision'
   | 'no-submit-in-spawn-agent-reachable-states'
   | 'exit-target-in-state-set'
   | 'canonical-event-target-in-state-set'
@@ -131,7 +131,7 @@ export type VerifyIssueCheck =
   | 'exit-shape-exclusive'
   | 'await-no-multi-branch'
   | 'no-handwritten-submit-await-handlers'
-  | 'state-config-missing-harness-meta'
+  | 'state-config-missing-aharness-meta'
   | 'awaits-owner-text-no-await-exit'
   | 'state-onEntry-must-be-function'
   | 'onEntry-only-on-stateful-states'
@@ -163,7 +163,7 @@ export interface VerifyIssue {
   /** Human-readable explanation. */
   readonly message: string;
   /**
-   * `'error'` blocks `/harness` from starting; `'warning'` surfaces but does
+   * `'error'` blocks `/aharness` from starting; `'warning'` surfaces but does
    * not block. Defaults to `'error'` everywhere except `await-only-strict-state`.
    */
   readonly severity: VerifyIssueSeverity;
@@ -222,10 +222,10 @@ export function verify(
   issues.push(...checkOpenStatesHaveExits(machine));
   issues.push(...checkAwaitOnlyStrictState(machine));
   issues.push(...checkAuthorFunctionsSync(sidecarIssues));
-  issues.push(...checkMachineUsesHarnessWrapper(sidecarIssues));
+  issues.push(...checkMachineUsesAharnessWrapper(sidecarIssues));
   issues.push(...checkStateExitTupleUnique(machine));
   issues.push(...checkRequestUserInputNameCollision());
-  issues.push(...checkHarnessSubmitNameCollision(machine));
+  issues.push(...checkAharnessSubmitNameCollision(machine));
   issues.push(...checkNoSubmitInSpawnAgentReachableStates(machine));
   issues.push(...checkNoHandwrittenSubmitAwaitHandlers(machine));
   issues.push(...checkExitTargetInStateSet(machine));
@@ -235,7 +235,7 @@ export function verify(
   issues.push(...checkWhenArrayMinLength2(machine));
   issues.push(...checkAwaitNoMultiBranch(machine));
   issues.push(...checkExitShapeExclusive(machine));
-  issues.push(...checkStateConfigMissingHarnessMeta(machine));
+  issues.push(...checkStateConfigMissingAharnessMeta(machine));
   issues.push(...checkAwaitsOwnerTextNoAwaitExit(machine));
   issues.push(...checkStateOnEntryMustBeFunction(machine));
   issues.push(...checkOnEntryOnlyOnStatefulStates(machine));
@@ -276,9 +276,9 @@ function warn(check: VerifyIssueCheck, stateId: string, message: string): Verify
   return { check, stateId, message, severity: 'warning' };
 }
 
-/** Narrow a `HarnessMeta` to its stateful variant; returns `undefined` otherwise. */
-function asStatefulMeta(node: StateNode): HarnessStateMeta | undefined {
-  const meta = getHarnessMeta(node);
+/** Narrow a `AharnessMeta` to its stateful variant; returns `undefined` otherwise. */
+function asStatefulMeta(node: StateNode): AharnessStateMeta | undefined {
+  const meta = getAharnessMeta(node);
   if (!meta || meta.kind !== 'stateful') return undefined;
   return meta;
 }
@@ -840,13 +840,13 @@ function checkFinalClassification(machine: AnyStateMachine): VerifyIssue[] {
   for (const node of iterStates(machine)) {
     if (node.type !== 'final') continue;
     const sid = stateKeyPath(node);
-    const meta = getHarnessMeta(node);
+    const meta = getAharnessMeta(node);
     if (!meta || meta.kind !== 'terminal') {
       issues.push(
         err(
           'final-classification',
           sid,
-          `final state '${sid}' must declare meta.harness = terminal('...')`,
+          `final state '${sid}' must declare meta.aharness = terminal('...')`,
         ),
       );
       continue;
@@ -895,7 +895,7 @@ function checkSingleAwaitPerState(machine: AnyStateMachine): VerifyIssue[] {
 /**
  * Submit exits must declare a `payload`; await exits must not. The `state()`
  * helper enforces this at construction; the verifier defends against
- * hand-built `meta.harness` objects that bypass the helper.
+ * hand-built `meta.aharness` objects that bypass the helper.
  */
 function checkExitKindWellFormed(machine: AnyStateMachine): VerifyIssue[] {
   const issues: VerifyIssue[] = [];
@@ -906,13 +906,13 @@ function checkExitKindWellFormed(machine: AnyStateMachine): VerifyIssue[] {
     for (const exitName of Object.keys(meta.exits)) {
       const exit = meta.exits[exitName];
       if (!exit) continue;
-      // Submit exits are stamped with `__harnessPayloadMarker: true` by the
+      // Submit exits are stamped with `__aharnessPayloadMarker: true` by the
       // `exit<T>({...})` factory; await exits are plain object literals
       // (no factory wrap). The marker is the runtime tell that the exit
       // came from the typed-payload factory; the loader's AST walker reads
       // the type argument from the wrapping `exit<T>(...)` call.
       const hasMarker =
-        (exit as { __harnessPayloadMarker?: unknown }).__harnessPayloadMarker === true;
+        (exit as { __aharnessPayloadMarker?: unknown }).__aharnessPayloadMarker === true;
       if (exit.kind === 'await') {
         if (hasMarker) {
           issues.push(
@@ -1010,14 +1010,16 @@ function checkAuthorFunctionsSync(sidecarIssues: ReadonlyArray<SidecarIssue>): V
   return issues;
 }
 
-// ─── Check: machine-uses-harness-wrapper ───────────────────────────────────
+// ─── Check: machine-uses-aharness-wrapper ───────────────────────────────────
 
 /** Re-emit loader `direct-create-machine` issues. */
-function checkMachineUsesHarnessWrapper(sidecarIssues: ReadonlyArray<SidecarIssue>): VerifyIssue[] {
+function checkMachineUsesAharnessWrapper(
+  sidecarIssues: ReadonlyArray<SidecarIssue>,
+): VerifyIssue[] {
   const issues: VerifyIssue[] = [];
   for (const si of sidecarIssues) {
     if (si.code !== 'direct-create-machine') continue;
-    issues.push(err('machine-uses-harness-wrapper', si.stateId ?? '', si.message));
+    issues.push(err('machine-uses-aharness-wrapper', si.stateId ?? '', si.message));
   }
   return issues;
 }
@@ -1129,7 +1131,7 @@ function checkNoSubmitInSpawnAgentReachableStates(machine: AnyStateMachine): Ver
 // ─── Check: request-user-input-name-collision ──────────────────────────────
 
 /**
- * The harness runtime receives `tool/requestUserInput` ServerRequests from codex when
+ * The aharness runtime receives `tool/requestUserInput` ServerRequests from codex when
  * the model asks to yield to the user. If an FSM-declared author tool is named
  * `request_user_input`, the names would collide on the model's tool catalog.
  *
@@ -1155,12 +1157,12 @@ function checkRequestUserInputNameCollision(): VerifyIssue[] {
   return issues;
 }
 
-// ─── Check: harness-submit-name-collision ──────────────────────────────────
+// ─── Check: aharness-submit-name-collision ──────────────────────────────────
 
 /**
  * Reject FSMs that declare a state id equal to the reserved framework tool
  * name (`SUBMIT_TOOL_NAME` from `protocol/submitTool.ts`, i.e.
- * `'harness_submit'`). The dynamic-tool dispatcher resolves model tool
+ * `'aharness_submit'`). The dynamic-tool dispatcher resolves model tool
  * calls against that name; allowing a state to shadow it would create
  * ambiguous routing.
  *
@@ -1168,7 +1170,7 @@ function checkRequestUserInputNameCollision(): VerifyIssue[] {
  * FSM property; see the file header for the broader
  * `mcp-submit-tool-name-collision` retirement rationale.
  */
-function checkHarnessSubmitNameCollision(machine: AnyStateMachine): VerifyIssue[] {
+function checkAharnessSubmitNameCollision(machine: AnyStateMachine): VerifyIssue[] {
   const out: VerifyIssue[] = [];
   for (const node of iterStates(machine)) {
     if (node === machine.root) continue;
@@ -1176,7 +1178,7 @@ function checkHarnessSubmitNameCollision(machine: AnyStateMachine): VerifyIssue[
     if (sid === SUBMIT_TOOL_NAME) {
       out.push(
         err(
-          'harness-submit-name-collision',
+          'aharness-submit-name-collision',
           sid,
           `state id '${sid}' collides with the reserved framework tool name '${SUBMIT_TOOL_NAME}' — rename the state`,
         ),
@@ -1189,7 +1191,7 @@ function checkHarnessSubmitNameCollision(machine: AnyStateMachine): VerifyIssue[
 // ─── Check: no-handwritten-submit-await-handlers ──────────────────────────
 
 /**
- * Reads the side-channel field `meta.harness.__harness_authoredOnKeys`
+ * Reads the side-channel field `meta.aharness.__aharness_authoredOnKeys`
  * populated by the synthesizer in `injectFrameworkActions` BEFORE it
  * overwrites `node.on[SUBMIT__/AWAIT__]`. If the snapshot is non-empty,
  * the author hand-wrote keys that are framework-owned.
@@ -1197,14 +1199,14 @@ function checkHarnessSubmitNameCollision(machine: AnyStateMachine): VerifyIssue[
 function checkNoHandwrittenSubmitAwaitHandlers(machine: AnyStateMachine): VerifyIssue[] {
   const out: VerifyIssue[] = [];
   for (const node of iterStates(machine)) {
-    const meta = node.meta as { harness?: { __harness_authoredOnKeys?: string[] } } | undefined;
-    const keys = meta?.harness?.__harness_authoredOnKeys ?? [];
+    const meta = node.meta as { aharness?: { __aharness_authoredOnKeys?: string[] } } | undefined;
+    const keys = meta?.aharness?.__aharness_authoredOnKeys ?? [];
     for (const k of keys) {
       out.push(
         err(
           'no-handwritten-submit-await-handlers',
           stateKeyPath(node),
-          `state has hand-written on['${k}'] handler; SUBMIT__/AWAIT__ event keys are framework-synthesized — declare the transition via meta.harness.exits[*] instead`,
+          `state has hand-written on['${k}'] handler; SUBMIT__/AWAIT__ event keys are framework-synthesized — declare the transition via meta.aharness.exits[*] instead`,
         ),
       );
     }
@@ -1558,7 +1560,7 @@ function checkWhenLastUnguarded(machine: AnyStateMachine): VerifyIssue[] {
 
 function isCanonicalCatchAllBranch(branch: unknown): boolean {
   if (branch === null || typeof branch !== 'object') return false;
-  const canonical = (branch as { __harnessCanonical?: unknown }).__harnessCanonical;
+  const canonical = (branch as { __aharnessCanonical?: unknown }).__aharnessCanonical;
   if (canonical === null || typeof canonical !== 'object') return false;
   return (canonical as { predicate?: unknown }).predicate === undefined;
 }
@@ -1663,18 +1665,18 @@ function checkExitShapeExclusive(machine: AnyStateMachine): VerifyIssue[] {
   return out;
 }
 
-// ─── Check: state-config-missing-harness-meta ────────────────────────────
+// ─── Check: state-config-missing-aharness-meta ────────────────────────────
 
 /**
  * Fires if a state node has XState behavior (`entry`/`exit`/`always`/`on`/
- * `type: 'final'`) AND has `meta:` set BUT lacks `meta.harness`.
+ * `type: 'final'`) AND has `meta:` set BUT lacks `meta.aharness`.
  *
  * The smoking gun is the spread idiom `{...passive(), entry: 'x', meta: {custom: 'oops'}}`
- * — the literal `meta:` REPLACES the spread's `meta`, so `meta.harness` is
+ * — the literal `meta:` REPLACES the spread's `meta`, so `meta.aharness` is
  * gone entirely. The check forces authors to drop the conflicting `meta:`
- * literal or merge it explicitly without overwriting the helper's harness payload.
+ * literal or merge it explicitly without overwriting the helper's aharness payload.
  */
-function checkStateConfigMissingHarnessMeta(machine: AnyStateMachine): VerifyIssue[] {
+function checkStateConfigMissingAharnessMeta(machine: AnyStateMachine): VerifyIssue[] {
   const out: VerifyIssue[] = [];
   for (const node of iterStates(machine)) {
     // Skip the root node (the machine itself).
@@ -1694,16 +1696,16 @@ function checkStateConfigMissingHarnessMeta(machine: AnyStateMachine): VerifyIss
       // No meta at all — this is fine; the author didn't try to use a helper.
       continue;
     }
-    const harness = meta['harness'];
-    if (harness === undefined) {
-      // The smoking gun: state config has behavior + meta but no harness.
+    const aharness = meta['aharness'];
+    if (aharness === undefined) {
+      // The smoking gun: state config has behavior + meta but no aharness.
       // Most likely the author wrote `{...passive(), meta: {custom: 'oops'}}`
-      // and the literal meta overwrote the helper's meta.harness.
+      // and the literal meta overwrote the helper's meta.aharness.
       out.push(
         err(
-          'state-config-missing-harness-meta',
+          'state-config-missing-aharness-meta',
           stateKeyPath(node),
-          `state has 'meta:' but no 'meta.harness' — did you spread passive()/terminal() then write a literal 'meta:' that overwrote it? Use { ...passive(), entry: … } without a separate meta key.`,
+          `state has 'meta:' but no 'meta.aharness' — did you spread passive()/terminal() then write a literal 'meta:' that overwrote it? Use { ...passive(), entry: … } without a separate meta key.`,
         ),
       );
     }
@@ -1743,9 +1745,9 @@ function checkAwaitsOwnerTextNoAwaitExit(machine: AnyStateMachine): VerifyIssue[
 // ─── Check: state-onEntry-must-be-function ────────────────────────────────
 
 /**
- * `meta.harness.onEntry` must be a function (FSM meta-ops design v2 §6).
+ * `meta.aharness.onEntry` must be a function (FSM meta-ops design v2 §6).
  * The runtime check in `state(...)` already throws on non-function
- * values supplied through the helper, but a hand-built `meta.harness`
+ * values supplied through the helper, but a hand-built `meta.aharness`
  * that bypasses the helper would slip through. The verifier defends
  * the boundary so an unverified machine cannot reach the daemon's
  * dispatcher with a non-callable `onEntry`.
@@ -1761,7 +1763,7 @@ function checkStateOnEntryMustBeFunction(machine: AnyStateMachine): VerifyIssue[
         err(
           'state-onEntry-must-be-function',
           stateKeyPath(node),
-          `state declares meta.harness.onEntry but it is ${typeof meta.onEntry} (must be a function)`,
+          `state declares meta.aharness.onEntry but it is ${typeof meta.onEntry} (must be a function)`,
         ),
       );
     }
@@ -1782,7 +1784,7 @@ function checkStateOnEntryMustBeFunction(machine: AnyStateMachine): VerifyIssue[
 function checkOnEntryOnlyOnStatefulStates(machine: AnyStateMachine): VerifyIssue[] {
   const out: VerifyIssue[] = [];
   for (const node of iterStates(machine)) {
-    const meta = getHarnessMeta(node);
+    const meta = getAharnessMeta(node);
     if (!meta) continue;
     if (meta.kind === 'stateful') continue;
     // terminal / passive — `onEntry` is not part of the helper-built
@@ -1794,7 +1796,7 @@ function checkOnEntryOnlyOnStatefulStates(machine: AnyStateMachine): VerifyIssue
         err(
           'onEntry-only-on-stateful-states',
           stateKeyPath(node),
-          `state has kind '${meta.kind}' but declares meta.harness.onEntry — onEntry is only valid on stateful states`,
+          `state has kind '${meta.kind}' but declares meta.aharness.onEntry — onEntry is only valid on stateful states`,
         ),
       );
     }
@@ -1958,7 +1960,7 @@ function checkHookMatcherInvalidRegex(machine: AnyStateMachine): VerifyIssue[] {
 function checkHooksOnlyOnStatefulStates(machine: AnyStateMachine): VerifyIssue[] {
   const out: VerifyIssue[] = [];
   for (const node of iterStates(machine)) {
-    const meta = getHarnessMeta(node);
+    const meta = getAharnessMeta(node);
     if (!meta) continue;
     if (meta.kind === 'stateful') continue;
     const offending = (meta as { hooks?: unknown }).hooks;
@@ -1967,7 +1969,7 @@ function checkHooksOnlyOnStatefulStates(machine: AnyStateMachine): VerifyIssue[]
         err(
           'hooks-only-on-stateful-states',
           stateKeyPath(node),
-          `state has kind '${meta.kind}' but declares meta.harness.hooks — hooks are only valid on stateful states`,
+          `state has kind '${meta.kind}' but declares meta.aharness.hooks — hooks are only valid on stateful states`,
         ),
       );
     }
@@ -2021,8 +2023,8 @@ function checkBareBranchWarning(machine: AnyStateMachine): VerifyIssue[] {
  * The `embed()` combinator already enforces this at construction time —
  * this verifier check exists for parity with the rest of the closed-world
  * set: the post-machine resolved tree is independently re-checked against
- * the `meta.harness.embedded` provenance so an FSM-builder bug that
- * bypasses `embed()` (e.g. a hand-built `meta.harness.embedded`) cannot
+ * the `meta.aharness.embedded` provenance so an FSM-builder bug that
+ * bypasses `embed()` (e.g. a hand-built `meta.aharness.embedded`) cannot
  * smuggle through.
  */
 function checkEmbeddedFinalMustBeWired(machine: AnyStateMachine): VerifyIssue[] {
@@ -2030,9 +2032,9 @@ function checkEmbeddedFinalMustBeWired(machine: AnyStateMachine): VerifyIssue[] 
   for (const node of iterStates(machine)) {
     // `iterStates` yields live `StateNode` instances. XState 5 sets
     // `StateNode.meta = config.meta` at construction; we read off `.meta`
-    // directly so test mutations to `node.meta.harness.embedded.onMap`
+    // directly so test mutations to `node.meta.aharness.embedded.onMap`
     // (the live object — see verify.embed.test.ts) are visible here.
-    const meta = (node.meta as { harness?: { embedded?: unknown } } | undefined)?.harness
+    const meta = (node.meta as { aharness?: { embedded?: unknown } } | undefined)?.aharness
       ?.embedded as
       | { exits: ReadonlyArray<string>; onMap: Readonly<Record<string, unknown>>; source: string }
       | undefined;
@@ -2067,13 +2069,13 @@ function checkEmbeddedFinalMustBeWired(machine: AnyStateMachine): VerifyIssue[] 
 // ─── Check: embedding-acyclic ─────────────────────────────────────────────
 
 /**
- * Walk the `meta.harness.embedded` chain and reject any cycle.
+ * Walk the `meta.aharness.embedded` chain and reject any cycle.
  *
  * `embed()` lifts the child's already-resolved config into `states`, so a
  * transitive cycle (A embeds B embeds A) constructed via `embed()` alone
- * would manifest as an infinite tree at `harness.machine()` time and Node
+ * would manifest as an infinite tree at `aharness.machine()` time and Node
  * would stack-overflow before the verifier ran. The check exists for the
- * remaining attack vector: a hand-built `meta.harness.embedded.childConfig`
+ * remaining attack vector: a hand-built `meta.aharness.embedded.childConfig`
  * that bypasses `embed()` and points back at an ancestor's source. We walk
  * `machine.config` (not `iterStates`) because the cycle lives in raw config
  * pointers, not the resolved StateNode tree.
@@ -2083,7 +2085,7 @@ function checkEmbeddingAcyclic(machine: AnyStateMachine): VerifyIssue[] {
   function walk(
     node:
       | {
-          meta?: { harness?: { embedded?: { source: string; childConfig: unknown } } };
+          meta?: { aharness?: { embedded?: { source: string; childConfig: unknown } } };
           states?: Record<string, unknown>;
         }
       | undefined,
@@ -2091,7 +2093,7 @@ function checkEmbeddingAcyclic(machine: AnyStateMachine): VerifyIssue[] {
     pathLabel: string,
   ): void {
     if (!node) return;
-    const embedded = node.meta?.harness?.embedded;
+    const embedded = node.meta?.aharness?.embedded;
     if (embedded) {
       if (seen.includes(embedded.source)) {
         out.push(
@@ -2122,7 +2124,7 @@ function checkEmbeddingAcyclic(machine: AnyStateMachine): VerifyIssue[] {
 
 /**
  * Walk every embedded compound state. Read the child FSM's
- * `meta.harness.embedded.childConfig.input` declaration. The parent must
+ * `meta.aharness.embedded.childConfig.input` declaration. The parent must
  * satisfy every required (no-default) field via `embed()`'s `input`
  * projection function.
  *
@@ -2145,7 +2147,7 @@ function checkEmbeddedInputMustBeSatisfied(machine: AnyStateMachine): VerifyIssu
   type ChildInputDecl = Record<string, { meta?: { default?: unknown } } | undefined>;
   type EmbeddedNode = {
     meta?: {
-      harness?: {
+      aharness?: {
         embedded?: {
           source: string;
           childConfig: { input?: ChildInputDecl };
@@ -2157,7 +2159,7 @@ function checkEmbeddedInputMustBeSatisfied(machine: AnyStateMachine): VerifyIssu
   };
   function walk(node: EmbeddedNode | undefined, pathLabel: string): void {
     if (!node) return;
-    const embedded = node.meta?.harness?.embedded;
+    const embedded = node.meta?.aharness?.embedded;
     if (embedded) {
       const childInput = embedded.childConfig?.input;
       if (childInput) {
@@ -2222,7 +2224,7 @@ function checkEmbeddedInputMustBeSatisfied(machine: AnyStateMachine): VerifyIssu
  * names safe — there is no co-tenant to collide with.
  *
  * Four rejection paths:
- *   1. `meta.harness.<field>` for the per-state-shape fields (`kind`, `open`,
+ *   1. `meta.aharness.<field>` for the per-state-shape fields (`kind`, `open`,
  *      `exits`, `entryPrompt`, `awaitsOwnerText`, `onEntry`, `stopGuidance`)
  *      — these mark a state as `stateful`/`terminal`/`passive`, mutually
  *      exclusive with `embedded`.
@@ -2230,10 +2232,10 @@ function checkEmbeddedInputMustBeSatisfied(machine: AnyStateMachine): VerifyIssu
  *      — embed-hosts have only the framework-synthesized `on:` plus child-
  *      forwarded `entry`. NB: `entry` is intentionally NOT in this list because
  *      `embed()` forwards `child.entry` to the host compound (embed.ts:175).
- *   3. Author-written node-level harness fields (`entryPrompt`, `exits`,
+ *   3. Author-written node-level aharness fields (`entryPrompt`, `exits`,
  *      `awaitsOwnerText`, `onEntry`, `stopGuidance`, `open`) — authors who
  *      spread-bypass the helpers may bolt these on at the node level rather
- *      than inside `meta.harness`. The fields are harness-aware, never legal
+ *      than inside `meta.aharness`. The fields are aharness-aware, never legal
  *      at node level, and a strong signal of author confusion about where
  *      they belong.
  *   4. Author-written `on:` keys outside the synth on['<finalId>'] set — the
@@ -2249,7 +2251,7 @@ function checkEmbeddedInputMustBeSatisfied(machine: AnyStateMachine): VerifyIssu
  * instance, so reading them off the node directly would false-positive on
  * every node — those are checked via `node.config` only.
  */
-const HOST_RESERVED_HARNESS_FIELDS = [
+const HOST_RESERVED_AHARNESS_FIELDS = [
   'kind',
   'open',
   'exits',
@@ -2264,10 +2266,10 @@ const HOST_RESERVED_HARNESS_FIELDS = [
 // (embed.ts:175) — a legitimate forward, not an author bolt-on.
 const NODE_RESERVED_FIELDS = ['exit', 'always', 'after', 'invoke'] as const;
 
-// Author-aware harness field names that, if found at the node level (rather
-// than inside `meta.harness`), indicate a spread-bypass bolt-on. None of
+// Author-aware aharness field names that, if found at the node level (rather
+// than inside `meta.aharness`), indicate a spread-bypass bolt-on. None of
 // these are legal XState top-level fields either.
-const HOST_FORBIDDEN_NODE_HARNESS_FIELDS = [
+const HOST_FORBIDDEN_NODE_AHARNESS_FIELDS = [
   'entryPrompt',
   'exits',
   'awaitsOwnerText',
@@ -2279,19 +2281,19 @@ const HOST_FORBIDDEN_NODE_HARNESS_FIELDS = [
 function checkEmbeddedStateExclusive(machine: AnyStateMachine): VerifyIssue[] {
   const out: VerifyIssue[] = [];
   for (const node of iterStates(machine)) {
-    const meta = (node.meta as { harness?: Record<string, unknown> } | undefined)?.harness;
+    const meta = (node.meta as { aharness?: Record<string, unknown> } | undefined)?.aharness;
     if (!meta || meta['embedded'] === undefined) continue;
     const stateId = stateKeyPath(node);
     const cfg = node.config as Record<string, unknown>;
 
-    // (1) Reject mutually-exclusive harness fields on the host meta.
-    for (const field of HOST_RESERVED_HARNESS_FIELDS) {
+    // (1) Reject mutually-exclusive aharness fields on the host meta.
+    for (const field of HOST_RESERVED_AHARNESS_FIELDS) {
       if (meta[field] !== undefined) {
         out.push(
           err(
             'embedded-state-exclusive',
             stateId,
-            `embed-host state '${stateId}' must not declare meta.harness.${field} — embed-host states declare embed() and nothing else (spec §4.6)`,
+            `embed-host state '${stateId}' must not declare meta.aharness.${field} — embed-host states declare embed() and nothing else (spec §4.6)`,
           ),
         );
       }
@@ -2320,11 +2322,11 @@ function checkEmbeddedStateExclusive(machine: AnyStateMachine): VerifyIssue[] {
       }
     }
 
-    // (3) Reject author-aware harness field names appearing at the node level
+    // (3) Reject author-aware aharness field names appearing at the node level
     //     (the spread-bypass-bolt-on case). These are never legal XState
     //     top-level fields; their presence at node level signals author
     //     confusion about where the field belongs.
-    for (const field of HOST_FORBIDDEN_NODE_HARNESS_FIELDS) {
+    for (const field of HOST_FORBIDDEN_NODE_AHARNESS_FIELDS) {
       if (cfg[field] !== undefined) {
         out.push(
           err(
@@ -2358,10 +2360,10 @@ function checkEmbeddedStateExclusive(machine: AnyStateMachine): VerifyIssue[] {
 // ─── Check: final-output-must-be-function ─────────────────────────────────
 
 /**
- * `meta.harness.output` on a `terminal` meta must be a function when present
+ * `meta.aharness.output` on a `terminal` meta must be a function when present
  * (final() output callback design). The runtime guard inside `final()`
  * already throws on non-function values supplied through the helper; the
- * verifier defends the boundary against hand-built `meta.harness` literals
+ * verifier defends the boundary against hand-built `meta.aharness` literals
  * that bypass the helper (e.g. authors who construct
  * `{ kind: 'terminal', outcome: 'success', output: 'not-a-fn' }` directly,
  * or third-party tooling that synthesizes config from a non-TypeScript
@@ -2370,10 +2372,10 @@ function checkEmbeddedStateExclusive(machine: AnyStateMachine): VerifyIssue[] {
 function checkFinalOutputMustBeFunction(machine: AnyStateMachine): VerifyIssue[] {
   const out: VerifyIssue[] = [];
   for (const node of iterStates(machine)) {
-    // Read raw meta — getHarnessMeta would have thrown upstream for non-conforming
-    // shapes. Reading node.meta.harness directly preserves the bypass case.
-    const meta = (node.meta as { harness?: { kind?: string; output?: unknown } } | undefined)
-      ?.harness;
+    // Read raw meta — getAharnessMeta would have thrown upstream for non-conforming
+    // shapes. Reading node.meta.aharness directly preserves the bypass case.
+    const meta = (node.meta as { aharness?: { kind?: string; output?: unknown } } | undefined)
+      ?.aharness;
     if (!meta || meta.kind !== 'terminal') continue;
     if (meta.output === undefined) continue; // optional field
     if (typeof meta.output !== 'function') {
@@ -2399,12 +2401,12 @@ function checkFinalOutputMustBeFunction(machine: AnyStateMachine): VerifyIssue[]
  * deadlocks once it enters the host. `embed()`'s constructor-time guard
  * (`embed.ts`) already throws on this shape; this verifier check is the
  * closed-world rule for an FSM-builder bypass that hand-builds the embedded
- * shape directly via `meta.harness.embedded`.
+ * shape directly via `meta.aharness.embedded`.
  */
 function checkEmbeddedChildMustHaveFinals(machine: AnyStateMachine): VerifyIssue[] {
   const out: VerifyIssue[] = [];
   for (const node of iterStates(machine)) {
-    const meta = (node.meta as { harness?: { embedded?: unknown } } | undefined)?.harness
+    const meta = (node.meta as { aharness?: { embedded?: unknown } } | undefined)?.aharness
       ?.embedded as { exits?: ReadonlyArray<string>; source?: string } | undefined;
     if (!meta) continue;
     const exits = meta.exits ?? [];
@@ -2457,9 +2459,9 @@ function checkEmbeddedFinalIdNameShape(machine: AnyStateMachine): VerifyIssue[] 
   for (const node of iterStates(machine)) {
     const embedded = (
       node.meta as
-        | { harness?: { embedded?: { exits?: ReadonlyArray<string>; source?: string } } }
+        | { aharness?: { embedded?: { exits?: ReadonlyArray<string>; source?: string } } }
         | undefined
-    )?.harness?.embedded;
+    )?.aharness?.embedded;
     if (!embedded) continue;
     const stateId = stateKeyPath(node);
     for (const finalId of embedded.exits ?? []) {
@@ -2495,10 +2497,10 @@ function checkEmbeddedFinalIdNameShape(machine: AnyStateMachine): VerifyIssue[] 
 function checkSkillsOnlyOnStatefulStates(machine: AnyStateMachine): VerifyIssue[] {
   const issues: VerifyIssue[] = [];
   for (const node of iterStates(machine)) {
-    const meta = getHarnessMeta(node);
+    const meta = getAharnessMeta(node);
     if (!meta) continue;
     if (meta.kind === 'stateful') continue;
-    const raw = (node.config as { meta?: { harness?: { skills?: unknown } } }).meta?.harness
+    const raw = (node.config as { meta?: { aharness?: { skills?: unknown } } }).meta?.aharness
       ?.skills;
     if (raw !== undefined) {
       const sid = stateKeyPath(node);

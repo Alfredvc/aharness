@@ -1,10 +1,10 @@
 <div align="center">
 
-# Harness
+# aharness
 
 **Make coding-agent workflows executable.**
 
-Harness wraps Codex in a finite-state workflow: plans must be submitted,
+aharness wraps Codex in a finite-state workflow: plans must be submitted,
 approvals must happen, tests must produce evidence, repair loops must run, and
 final reports only happen after the machine says they can.
 
@@ -14,33 +14,33 @@ final reports only happen after the machine says they can.
 
 </div>
 
-Skills tell an agent what to do. Harness makes sure the process actually
+Skills tell an agent what to do. aharness makes sure the process actually
 happens.
 
-Use Harness when a coding task needs more structure than a prompt and less
+Use aharness when a coding task needs more structure than a prompt and less
 infrastructure than a custom agent platform. Codex still does the language,
-tool, and code work; Harness owns the workflow around it: states, transitions,
+tool, and code work; aharness owns the workflow around it: states, transitions,
 typed submissions, approvals, hooks, repair loops, and run artifacts.
 
-## Why Harness
+## Why aharness
 
 Long-horizon coding work fails in boring ways. The model skips a planning gate.
 It starts implementing before approval. It says tests passed without producing
 the evidence you wanted. It exits early because the prompt asked for a final
 summary and the model decided the process was "close enough."
 
-Harness turns those process rules into executable state machines:
+aharness turns those process rules into executable state machines:
 
 - **Gates are real.** If a state does not expose an implementation exit, the
   model cannot move to implementation.
-- **Evidence is typed.** The model submits structured payloads that Harness
+- **Evidence is typed.** The model submits structured payloads that aharness
   validates before reducers, guards, or effects run.
 - **Approvals are controlled.** Owner input and permission requests route
-  through Harness instead of relying on model convention.
+  through aharness instead of relying on model convention.
 - **Repair loops are explicit.** Failed evidence can transition to repair,
   rerun checks, and only then continue.
 - **Runs are inspectable.** Every run writes snapshots, event logs, terminal
-  reports, and declared artifacts under `.harness/runs/<runId>/`.
+  reports, and declared artifacts under `.aharness/runs/<runId>/`.
 
 ## The Middle Layer
 
@@ -48,10 +48,10 @@ Harness turns those process rules into executable state machines:
 | --- | --- | --- |
 | Skills and prompts | Reusable guidance and local conventions | Advisory only; the model can drift, skip gates, or rationalize missing evidence |
 | General agent frameworks | Broad agent graphs and application orchestration | Usually not focused on Codex coding runs, local approvals, and typed coding-task gates |
-| Custom coding harnesses | Deeply owned internal platforms | You own the runtime, UI, verifier, approval routing, logs, packaging, and maintenance |
-| Harness | Enforced coding workflows around Codex | Overkill for one-shot prompts and tiny edits |
+| Custom coding frameworks | Deeply owned internal platforms | You own the runtime, UI, verifier, approval routing, logs, packaging, and maintenance |
+| aharness | Enforced coding workflows around Codex | Overkill for one-shot prompts and tiny edits |
 
-Harness can load skills, but the FSM owns the process. It gives you the
+aharness can load skills, but the FSM owns the process. It gives you the
 control plane you would otherwise build yourself, scoped specifically to
 coding-agent workflows.
 
@@ -85,12 +85,12 @@ npx aharness ./workflow.fsm.ts
 ```
 
 `verify` checks the machine before any model run. `visualize` opens the browser
-graph without starting Codex. Running the FSM starts Codex, opens the Harness
-UI, and writes run artifacts under `.harness/runs/<runId>/`.
+graph without starting Codex. Running the FSM starts Codex, opens the aharness
+UI, and writes run artifacts under `.aharness/runs/<runId>/`.
 
 ## Write A Workflow
 
-Harness workflows are TypeScript files built with `createFsm`:
+aharness workflows are TypeScript files built with `createFsm`:
 
 ```ts
 import { createFsm } from '@aharness/core';
@@ -180,19 +180,19 @@ Machine inputs become kebab-case flags, so `fixtureRoot` becomes
 flowchart LR
     Owner["Owner"]
     Codex["Codex CLI<br/>coding worker"]
-    Harness["Harness CLI<br/>FSM actor + verifier"]
+    aharness["aharness CLI<br/>FSM actor + verifier"]
     Browser["Loopback browser UI<br/>approvals + graph"]
-    Runs[".harness/runs/&lt;runId&gt;<br/>events + snapshots + artifacts"]
+    Runs[".aharness/runs/&lt;runId&gt;<br/>events + snapshots + artifacts"]
 
-    Harness <--> Codex
-    Harness <--> Browser
+    aharness <--> Codex
+    aharness <--> Browser
     Owner <--> Browser
-    Harness --> Runs
+    aharness --> Runs
 ```
 
-At runtime, Harness verifies the FSM, starts one Codex `app-server` child
+At runtime, aharness verifies the FSM, starts one Codex `app-server` child
 process, connects as the sole WebSocket client for that run, and hosts the
-XState actor in-process. Codex performs the work; Harness controls the
+XState actor in-process. Codex performs the work; aharness controls the
 transition surface.
 
 Owner replies, permission requests, hooks, typed submissions, and final
@@ -204,7 +204,7 @@ and handles approvals through a per-run loopback token.
 - [`@aharness/core`](packages/core/README.md) provides the SDK and `aharness`
   CLI binary.
 - [`@aharness/test-support`](packages/test-support/README.md) provides
-  integration-test fixtures for Harness runs.
+  integration-test fixtures for aharness runs.
 - [`@aharness/superpowers`](packages/superpowers/README.md) is an example
   reusable FSM package.
 
@@ -216,7 +216,7 @@ aharness package verify
 aharness package build
 ```
 
-Harness-owned packages under `@aharness/<name>` use the `ah-<name>` binary
+aharness-owned packages under `@aharness/<name>` use the `ah-<name>` binary
 convention. For example, `@aharness/superpowers` exposes `ah-superpowers`.
 
 ## Documentation
@@ -224,7 +224,7 @@ convention. For example, `@aharness/superpowers` exposes `ah-superpowers`.
 - [`docs/authoring.md`](docs/authoring.md) teaches the coding-workflow mental
   model.
 - [`docs/reference.md`](docs/reference.md) documents the public SDK and CLI.
-- [`docs/architecture.md`](docs/architecture.md) explains the Codex/Harness
+- [`docs/architecture.md`](docs/architecture.md) explains the Codex/aharness
   runtime boundary.
 - [`docs/troubleshooting.md`](docs/troubleshooting.md) covers prerequisite and
   runtime failures.

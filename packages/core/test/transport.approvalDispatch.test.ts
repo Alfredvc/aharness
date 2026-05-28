@@ -14,13 +14,13 @@ const change: FileUpdateChange = {
   diff: '@@',
 };
 
-function createHarness() {
+function createAharness() {
   const events: ApprovalDispatchEvent[] = [];
   const dispatcher = createApprovalDispatcher({ publish: (event) => events.push(event) });
   return { dispatcher, events };
 }
 
-function createActiveThreadHarness(initialThreadId = 'thread-1') {
+function createActiveThreadAharness(initialThreadId = 'thread-1') {
   let activeThreadId = initialThreadId;
   const events: ApprovalDispatchEvent[] = [];
   const diagnostics: Array<{ threadId: string; source: string; message: string }> = [];
@@ -160,7 +160,7 @@ describe('createApprovalDispatcher', () => {
   });
 
   it('parks command approvals and resolves legal browser approval replies', async () => {
-    const { dispatcher, events } = createHarness();
+    const { dispatcher, events } = createAharness();
 
     const parked = dispatcher.handleCommandApproval(
       {
@@ -199,7 +199,7 @@ describe('createApprovalDispatcher', () => {
   });
 
   it('returns safe fallback responses for malformed params', async () => {
-    const { dispatcher, events } = createHarness();
+    const { dispatcher, events } = createAharness();
 
     expect(dispatcher.handleCommandApproval({})).toEqual({ decision: 'decline' });
     expect(dispatcher.handleFileApproval({})).toEqual({ decision: 'decline' });
@@ -217,7 +217,7 @@ describe('createApprovalDispatcher', () => {
 
   it('declines inactive-thread approval requests without publishing browser cards', async () => {
     const { dispatcher, events, diagnostics, permissionRequest } =
-      createActiveThreadHarness('thread-1');
+      createActiveThreadAharness('thread-1');
 
     await expect(
       Promise.resolve(
@@ -411,7 +411,7 @@ describe('createApprovalDispatcher', () => {
   });
 
   it('keeps invalid browser replies parked and rejects wrong kinds', async () => {
-    const { dispatcher } = createHarness();
+    const { dispatcher } = createAharness();
     const parked = dispatcher.handleFileApproval({
       threadId: 'thread-1',
       turnId: 'turn-1',
@@ -445,7 +445,7 @@ describe('createApprovalDispatcher', () => {
   });
 
   it('maps permission decisions to Codex permission response shapes', async () => {
-    const { dispatcher } = createHarness();
+    const { dispatcher } = createAharness();
     const parked = dispatcher.handlePermissionApproval({
       threadId: 'thread-1',
       turnId: 'turn-1',
@@ -469,7 +469,7 @@ describe('createApprovalDispatcher', () => {
   });
 
   it('maps elicitation replies to Codex response content', async () => {
-    const { dispatcher, events } = createHarness();
+    const { dispatcher, events } = createAharness();
     const parked = dispatcher.handleElicitation({
       mode: 'form',
       threadId: 'thread-1',
@@ -503,7 +503,7 @@ describe('createApprovalDispatcher', () => {
   });
 
   it('cleans pending requests on serverRequest/resolved without sending a second response', async () => {
-    const { dispatcher, events } = createHarness();
+    const { dispatcher, events } = createAharness();
     const parked = dispatcher.handleFileApproval(
       {
         threadId: 'thread-1',
@@ -531,7 +531,7 @@ describe('createApprovalDispatcher', () => {
   });
 
   it('ignores inactive-thread serverRequest/resolved notifications', async () => {
-    const { dispatcher, events } = createActiveThreadHarness('thread-1');
+    const { dispatcher, events } = createActiveThreadAharness('thread-1');
     const parked = dispatcher.handleFileApproval(
       {
         threadId: 'thread-1',
@@ -556,7 +556,7 @@ describe('createApprovalDispatcher', () => {
 
   it('abandons inactive parked requests with safe synthetic responses', async () => {
     const { dispatcher, events, diagnostics, setActiveThread } =
-      createActiveThreadHarness('thread-1');
+      createActiveThreadAharness('thread-1');
     const command = dispatcher.handleCommandApproval({
       threadId: 'thread-1',
       turnId: 'turn-1',
@@ -617,7 +617,7 @@ describe('createApprovalDispatcher', () => {
   });
 
   it('closes all pending requests with safe synthetic responses', async () => {
-    const { dispatcher } = createHarness();
+    const { dispatcher } = createAharness();
     const command = dispatcher.handleCommandApproval({
       threadId: 'thread-1',
       turnId: 'turn-1',
@@ -654,7 +654,7 @@ describe('createApprovalDispatcher', () => {
   });
 
   it('resolves stale same-id requests with safe synthetic responses', async () => {
-    const { dispatcher } = createHarness();
+    const { dispatcher } = createAharness();
     const first = dispatcher.handleCommandApproval(
       {
         threadId: 'thread-1',
@@ -679,7 +679,7 @@ describe('createApprovalDispatcher', () => {
   });
 
   it('keeps opaque browser ids isolated across approval families', async () => {
-    const { dispatcher, events } = createHarness();
+    const { dispatcher, events } = createAharness();
     const file = dispatcher.handleFileApproval({
       threadId: 'thread-1',
       turnId: 'turn-1',
@@ -721,7 +721,7 @@ describe('createApprovalDispatcher', () => {
   });
 
   it('rejects form elicitation accept replies without values', async () => {
-    const { dispatcher } = createHarness();
+    const { dispatcher } = createAharness();
     const parked = dispatcher.handleElicitation({
       mode: 'form',
       threadId: 'thread-1',

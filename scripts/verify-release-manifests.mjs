@@ -133,7 +133,7 @@ function runReleaseGate() {
   execFileSync('pnpm', ['run', 'build'], { cwd: ROOT, stdio: 'inherit' });
   execFileSync('node', ['scripts/verify-no-stale-dist.mjs'], { cwd: ROOT, stdio: 'inherit' });
 
-  const packDestination = mkdtempSync(join(tmpdir(), 'harness-pack-'));
+  const packDestination = mkdtempSync(join(tmpdir(), 'aharness-pack-'));
   try {
     for (const packageDir of PUBLISHABLE_PACKAGES) {
       verifyPackedManifest(packageDir, packDestination);

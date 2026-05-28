@@ -6,10 +6,10 @@
  * pipeline against a real codex `app-server` + a local mock-model HTTP
  * server: verify → app-server spawn → WS connect → `thread/start` with
  * `dynamic_tools` → first-state `turn/start` kickoff → model issues a
- * single `harness_submit` tool call → dispatcher commits + flushes +
+ * single `aharness_submit` tool call → dispatcher commits + flushes +
  * signals terminal → `runCli` exits 0. The fixture FSM is
  * `hello.fsm.ts`. Skip conditions: requires a `codex` binary on PATH
- * and `HARNESS_E2E_REAL_CODEX=1`.
+ * and `AHARNESS_E2E_REAL_CODEX=1`.
  *
  * The second `describe` block adds Phase 2a cross-state cases that
  * run without real codex by stubbing `connectHeadlessWsImpl` with a
@@ -43,7 +43,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // not skipped.
 import type { MockModelHandle, MockOwnerInputProvider } from '@aharness/test-support';
 
-import { harness, state, exit, terminal, DECLINED_ANSWER_TEXT } from '../src/index.js';
+import { aharness, state, exit, terminal, DECLINED_ANSWER_TEXT } from '../src/index.js';
 import { runCliForTest, type RunCliTestHooks } from '../src/cli/runCli.js';
 import type { OwnerInputProvider } from '../src/cli/ownerInputProvider.js';
 import type { AppServerHandle } from '../src/appServer/index.js';
@@ -68,7 +68,7 @@ function hasCodex(): boolean {
   }
 }
 
-const E2E_ENABLED = hasCodex() && process.env['HARNESS_E2E_REAL_CODEX'] === '1';
+const E2E_ENABLED = hasCodex() && process.env['AHARNESS_E2E_REAL_CODEX'] === '1';
 
 describe.skipIf(!E2E_ENABLED)('runCli — Phase 1 end-to-end', () => {
   let cleanups: Array<() => Promise<void> | void> = [];
@@ -92,7 +92,7 @@ describe.skipIf(!E2E_ENABLED)('runCli — Phase 1 end-to-end', () => {
     cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
 
     // Copy the canonical hello fixture into the synthetic repo root so
-    // `loadFsm` resolves it normally (the .harness/cache/ tree lands
+    // `loadFsm` resolves it normally (the .aharness/cache/ tree lands
     // under repoRoot too).
     const fixtureSource = resolve(__dirname, 'fixtures/hello.fsm.ts');
     const fsmPath = join(repoRoot, 'hello.fsm.ts');
@@ -101,12 +101,12 @@ describe.skipIf(!E2E_ENABLED)('runCli — Phase 1 end-to-end', () => {
     const mock: MockModelHandle = await startMockModel();
     cleanups.push(() => mock.close());
 
-    // Queue the model's only turn: a single `harness_submit` function
+    // Queue the model's only turn: a single `aharness_submit` function
     // call that drives the FSM into its terminal state. The dispatcher
     // recognises the terminal projection and resolves `terminalPromise`.
     mock.queueTurn([
       sseResponseCreated(),
-      sseFunctionCall('harness_submit', {
+      sseFunctionCall('aharness_submit', {
         state: 'greet',
         exit: 'finish',
         data: {},
@@ -174,7 +174,7 @@ describe('runCliForTest — Phase 2d zero-hook regression', () => {
   });
 
   it('does not add hook overrides or open a hook socket for machines with no declared hooks', async () => {
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'zero-hook',
       initial: 'a',
       states: {
@@ -244,7 +244,7 @@ function makeStubAppServer(wsUrl = 'ws+unix:///nonexistent.sock'): AppServerHand
 }
 
 function onlyRunRootForCliRegression(repoRoot: string): string {
-  const runsRoot = join(repoRoot, '.harness', 'runs');
+  const runsRoot = join(repoRoot, '.aharness', 'runs');
   const dirs = readdirSync(runsRoot)
     .map((name) => join(runsRoot, name))
     .filter((path) => statSync(path).isDirectory());
@@ -253,7 +253,7 @@ function onlyRunRootForCliRegression(repoRoot: string): string {
 }
 
 interface SyntheticTransportHandle {
-  /** All outbound JSON-RPC envelopes the harness CLI sent, in order. */
+  /** All outbound JSON-RPC envelopes the aharness CLI sent, in order. */
   readonly outbound: ReadonlyArray<{
     id?: number;
     method?: string;
@@ -347,7 +347,7 @@ function makeSyntheticConnectStub(): {
 
 /**
  * Wait until the most-recent outbound request matches `predicate`. Used
- * to synchronize the test with the harness CLI's async send queue.
+ * to synchronize the test with the aharness CLI's async send queue.
  */
 async function waitForOutbound(
   handle: SyntheticTransportHandle,
@@ -403,7 +403,7 @@ describe('runCliForTest — Phase 2a cross-state (mocked transport)', () => {
     interface DonePayload {
       ok: boolean;
     }
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'cs1',
       initial: 'a',
       context: (): Ctx => ({ n: 0 }),
@@ -487,7 +487,7 @@ describe('runCliForTest — Phase 2a cross-state (mocked transport)', () => {
           threadId,
           turnId: 't-kick',
           callId: 'call-1',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'next', data: { note: 'hi' } }),
         },
       });
@@ -534,7 +534,7 @@ describe('runCliForTest — Phase 2a cross-state (mocked transport)', () => {
           threadId,
           turnId: 't-cross',
           callId: 'call-2',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
         },
       });
@@ -591,12 +591,12 @@ describe('runCliForTest — Phase 2a cross-state (mocked transport)', () => {
     ]);
 
     // The cross-state `turn/start` carries the new state's full
-    // composed nudge — assert the `[harness] Now in state "b"` marker
+    // composed nudge — assert the `[aharness] Now in state "b"` marker
     // is present in its input payload.
     const crossStart = handle.outbound.filter((m) => m.method === METHOD.turnStart)[1] as
       | { params?: { input?: Array<{ text?: string }> } }
       | undefined;
-    expect(crossStart?.params?.input?.[0]?.text).toContain('[harness] Now in state "b"');
+    expect(crossStart?.params?.input?.[0]?.text).toContain('[aharness] Now in state "b"');
   }, 10_000);
 
   it('submittedThisTurnFlag clears on next turn/started so drive-forward issues its default-branch turn/start after a cross-state hop', async () => {
@@ -618,7 +618,7 @@ describe('runCliForTest — Phase 2a cross-state (mocked transport)', () => {
     interface OnlyPayload {
       ok: boolean;
     }
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'cs2',
       initial: 'a',
       context: (): Ctx => ({ n: 0 }),
@@ -683,7 +683,7 @@ describe('runCliForTest — Phase 2a cross-state (mocked transport)', () => {
           threadId,
           turnId: 't-kick',
           callId: 'call-1',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'go', data: { ok: true } }),
         },
       });
@@ -756,7 +756,7 @@ describe('runCliForTest — Phase 2a cross-state (mocked transport)', () => {
           threadId,
           turnId: 't-restart',
           callId: 'call-2',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
         },
       });
@@ -804,11 +804,11 @@ describe('runCliForTest — Phase 2a cross-state (mocked transport)', () => {
     const turnStarts = handle.outbound.filter((m) => m.method === METHOD.turnStart);
     expect(turnStarts.length).toBe(3);
 
-    // Envelope #3's input is state b's composed nudge — same `[harness]
+    // Envelope #3's input is state b's composed nudge — same `[aharness]
     // Now in state "b"` marker as #2. This is what confirms drive-
     // forward (NOT the dance) issued envelope #3 with the active state.
     const third = turnStarts[2] as { params?: { input?: Array<{ text?: string }> } };
-    expect(third?.params?.input?.[0]?.text).toContain('[harness] Now in state "b"');
+    expect(third?.params?.input?.[0]?.text).toContain('[aharness] Now in state "b"');
   }, 10_000);
 });
 
@@ -850,7 +850,7 @@ describe('runCliForTest — Phase 2b owner-yield ServerRequest handler', () => {
    * The kickoff `turn/start` carries the awaitsOwnerText preamble (via
    * `composeStateNudge`'s `nudge.ts:88-97` branch), the test drives a
    * `request_user_input` ServerRequest through the new Task 3 handler,
-   * then drives a terminal `harness_submit` so the run ends cleanly.
+   * then drives a terminal `aharness_submit` so the run ends cleanly.
    *
    * The state declares `awaitsOwnerText` on the INITIAL leaf so the
    * cross-state dispatchSubmit throw at `dispatchSubmit.ts:243-250`
@@ -858,7 +858,7 @@ describe('runCliForTest — Phase 2b owner-yield ServerRequest handler', () => {
    * to a terminal target, not to another awaitsOwnerText leaf.
    */
   function buildYieldingMachineAndSidecar(): {
-    machine: ReturnType<typeof harness.machine>;
+    machine: ReturnType<typeof aharness.machine>;
     sidecar: Record<string, Record<string, unknown>>;
   } {
     interface Ctx {
@@ -867,7 +867,7 @@ describe('runCliForTest — Phase 2b owner-yield ServerRequest handler', () => {
     interface DonePayload {
       ok: boolean;
     }
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'oy1',
       initial: 'a',
       context: (): Ctx => ({ n: 0 }),
@@ -1015,7 +1015,7 @@ describe('runCliForTest — Phase 2b owner-yield ServerRequest handler', () => {
           threadId: replacementThreadId,
           turnId: 't-active',
           callId: 'call-finish',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
         },
       });
@@ -1128,7 +1128,7 @@ describe('runCliForTest — Phase 2b owner-yield ServerRequest handler', () => {
           threadId,
           turnId: 't-kick',
           callId: 'call-1',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
         },
       });
@@ -1272,7 +1272,7 @@ describe('runCliForTest — Phase 2b owner-yield ServerRequest handler', () => {
           threadId,
           turnId: 't-kick',
           callId: 'call-1',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
         },
       });
@@ -1391,7 +1391,7 @@ describe('runCliForTest — Phase 2b owner-yield ServerRequest handler', () => {
           threadId,
           turnId: 't-kick',
           callId: 'call-1',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
         },
       });
@@ -1528,7 +1528,7 @@ describe('runCliForTest — Phase 2b owner-yield ServerRequest handler', () => {
           threadId,
           turnId: 't-mid',
           callId: 'call-1',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
         },
       });
@@ -1619,7 +1619,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
     interface DonePayload {
       ok: boolean;
     }
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'phase3a-events',
       initial: 'a',
       states: {
@@ -1664,9 +1664,9 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
     };
   }
 
-  async function runWithTask4Harness(o: {
+  async function runWithTask4Aharness(o: {
     readonly fsmName: string;
-    readonly machine: ReturnType<typeof harness.machine>;
+    readonly machine: ReturnType<typeof aharness.machine>;
     readonly sidecar: Record<string, Record<string, unknown>>;
     readonly connect: RunCliTestHooks['connectHeadlessWsImpl'];
     readonly stdout: NodeJS.WritableStream;
@@ -1708,7 +1708,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
     interface DonePayload {
       ok: boolean;
     }
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'phase3a-abandoned-boundary',
       initial: 'a',
       states: {
@@ -1765,7 +1765,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
           threadId: startupThreadId,
           turnId: 't-old',
           callId: 'old-submit',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
         },
       });
@@ -1778,7 +1778,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
         contentItems: [
           {
             type: 'inputText',
-            text: 'harness: request belongs to an abandoned thread after clearOnEntry; ignored.',
+            text: 'aharness: request belongs to an abandoned thread after clearOnEntry; ignored.',
           },
         ],
       });
@@ -1826,7 +1826,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
           threadId: replacementThreadId,
           turnId: 't-active',
           callId: 'active-submit',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
         },
       });
@@ -1837,7 +1837,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
       driverErr.value = e as Error;
     });
 
-    const result = await runWithTask4Harness({
+    const result = await runWithTask4Aharness({
       fsmName: 'task4-abandoned-boundary.fsm.ts',
       machine,
       sidecar,
@@ -1887,7 +1887,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
       releaseEntry = undefined;
       entryStartedResolve = resolve;
     });
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'phase3a-queued-old-submit',
       initial: 'a',
       states: {
@@ -1945,7 +1945,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
           threadId: startupThreadId,
           turnId: 'turn-first',
           callId: 'first-submit',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'next', data: { ok: true } }),
         },
       });
@@ -1959,7 +1959,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
           threadId: startupThreadId,
           turnId: 'turn-old-queued',
           callId: 'queued-old-submit',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
         },
       });
@@ -1980,7 +1980,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
         contentItems: [
           {
             type: 'inputText',
-            text: 'harness: request belongs to an abandoned thread after clearOnEntry; ignored.',
+            text: 'aharness: request belongs to an abandoned thread after clearOnEntry; ignored.',
           },
         ],
       });
@@ -2004,7 +2004,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
           threadId: replacementThreadId,
           turnId: 'turn-active',
           callId: 'active-submit',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
         },
       });
@@ -2015,7 +2015,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
       driverErr.value = e as Error;
     });
 
-    const result = await runWithTask4Harness({
+    const result = await runWithTask4Aharness({
       fsmName: 'task4-queued-old-submit.fsm.ts',
       machine,
       sidecar,
@@ -2076,7 +2076,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
           threadId,
           turnId: 't-kick',
           callId: 'call-1',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
         },
       });
@@ -2087,7 +2087,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
       driverErr.value = e as Error;
     });
 
-    const result = await runWithTask4Harness({
+    const result = await runWithTask4Aharness({
       fsmName: 'task4-stream.fsm.ts',
       machine,
       sidecar,
@@ -2122,7 +2122,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
     interface Payload {
       ok: boolean;
     }
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'phase3a-framework-notes',
       initial: 'a',
       states: {
@@ -2177,7 +2177,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
           threadId,
           turnId: 't-kick',
           callId: 'call-1',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'next', data: { ok: true } }),
         },
       });
@@ -2227,7 +2227,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
           threadId,
           turnId: 't-forward',
           callId: 'call-2',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
         },
       });
@@ -2238,7 +2238,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
       driverErr.value = e as Error;
     });
 
-    const result = await runWithTask4Harness({
+    const result = await runWithTask4Aharness({
       fsmName: 'task4-notes.fsm.ts',
       machine,
       sidecar,
@@ -2341,7 +2341,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
           threadId,
           turnId: 't-after-parent-completed',
           callId: 'call-1',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
         },
       });
@@ -2352,7 +2352,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
       driverErr.value = e as Error;
     });
 
-    const result = await runWithTask4Harness({
+    const result = await runWithTask4Aharness({
       fsmName: 'task4-turns.fsm.ts',
       machine,
       sidecar,
@@ -2378,7 +2378,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
     interface DonePayload {
       ok: boolean;
     }
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'phase3a-await-events',
       initial: 'a',
       states: {
@@ -2471,7 +2471,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
           threadId,
           turnId: 't-kick',
           callId: 'call-1',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
         },
       });
@@ -2482,7 +2482,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
       driverErr.value = e as Error;
     });
 
-    const result = await runWithTask4Harness({
+    const result = await runWithTask4Aharness({
       fsmName: 'task4-await.fsm.ts',
       machine,
       sidecar,

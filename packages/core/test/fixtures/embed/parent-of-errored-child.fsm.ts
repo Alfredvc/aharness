@@ -1,7 +1,7 @@
-import { harness, state, exit, final, embed } from '@aharness/core';
+import { aharness, state, exit, final, embed } from '@aharness/core';
 import errored from './child-with-error.fsm.js';
 
-export default harness.machine({
+export default aharness.machine({
   id: 'parentOfErroredChild',
   initial: 'router',
   states: {

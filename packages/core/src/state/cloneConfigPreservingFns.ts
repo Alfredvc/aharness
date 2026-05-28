@@ -1,9 +1,9 @@
 /**
  * Structural deep-clone of a `MachineConfig`-shaped value that preserves
  * function references (callbacks, action factories). Used by:
- *   1. `harness.machine()` to snapshot the input config before the in-place
+ *   1. `aharness.machine()` to snapshot the input config before the in-place
  *      synthesis pass mutates it; the snapshot is stashed on the compiled
- *      machine as a non-enumerable `__harnessRawConfig` property.
+ *      machine as a non-enumerable `__aharnessRawConfig` property.
  *   2. `embed()` to clone the resolved child config before lifting `states`
  *      into a compound — without the per-call clone, a second `embed()` of
  *      the same compiled child would read post-mutation nodes and clobber
@@ -23,7 +23,7 @@
  * `MachineConfig` is our shape — we control it — so any of those is a
  * programmer error worth surfacing loudly rather than silently stripping.
  *
- * NB: the caller (`harness.machine`) shallow-freezes only the top-level
+ * NB: the caller (`aharness.machine`) shallow-freezes only the top-level
  * snapshot via `Object.freeze`. Inner objects (`states.go.on`, etc.) remain
  * writable so `injectFrameworkActions` can mutate them via the `embed()` clone.
  */

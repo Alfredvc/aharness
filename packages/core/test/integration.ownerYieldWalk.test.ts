@@ -7,14 +7,14 @@
  * codex `app-server` + a local mock-model HTTP server. Three-turn
  * model script:
  *
- *   1. Turn 1: `harness_submit({state: "a", exit: "next", data: {note: "go"}})`
+ *   1. Turn 1: `aharness_submit({state: "a", exit: "next", data: {note: "go"}})`
  *      — cross-state dance fires a→b (state b declares `awaitsOwnerText`).
  *   2. Turn 2: `request_user_input({questions: [{id:"owner", header:"",
  *      question:"what is your name?", isOther:false, isSecret:false}]})`
  *      — CLI parks the ServerRequest; `MockOwnerInputProvider` resolves
  *      with `{answers: {owner: {answers: ["alice"]}}}`; codex returns
  *      the answer to the model on its next turn.
- *   3. Turn 3: `harness_submit({state: "b", exit: "done", data:
+ *   3. Turn 3: `aharness_submit({state: "b", exit: "done", data:
  *      {greeting: "hello alice"}})` — terminal transition; run exits 0.
  *
  * Topology under test:
@@ -40,7 +40,7 @@
  *      is ever reintroduced).
  *
  * Skip gate matches `integration.crossStateWalk.test.ts:54` — requires
- * the `codex` binary on PATH plus `HARNESS_E2E_REAL_CODEX=1` so CI
+ * the `codex` binary on PATH plus `AHARNESS_E2E_REAL_CODEX=1` so CI
  * without the binary skips cleanly. A single run is sufficient.
  */
 import { execFileSync } from 'node:child_process';
@@ -61,7 +61,7 @@ function hasCodex(): boolean {
   }
 }
 
-const E2E_ENABLED = hasCodex() && process.env['HARNESS_E2E_REAL_CODEX'] === '1';
+const E2E_ENABLED = hasCodex() && process.env['AHARNESS_E2E_REAL_CODEX'] === '1';
 
 describe.skipIf(!E2E_ENABLED)('runCli — Phase 2b owner-yield walk (end-to-end)', () => {
   let cleanups: Array<() => Promise<void> | void> = [];
@@ -112,7 +112,7 @@ describe.skipIf(!E2E_ENABLED)('runCli — Phase 2b owner-yield walk (end-to-end)
     // model serves them in FIFO order as each `POST /v1/responses`
     // arrives.
     //   Turn 1: cross-state submit a → b.
-    //   Turn 2: request_user_input call (no harness_submit).
+    //   Turn 2: request_user_input call (no aharness_submit).
     //   Turn 3: terminal submit b → c, carrying the user's answer.
     mock.queueTurn(buildCrossStateSubmitTurn('a', 'next', { note: 'go' }));
     mock.queueTurn(
@@ -197,7 +197,7 @@ describe.skipIf(!E2E_ENABLED)('runCli — Phase 2b owner-yield walk (end-to-end)
     // (the name is carried on the preceding `function_call` entry).
     // Fall back to scanning all function_call_output items if the
     // name-matched lookup missed; the same POST can also carry the
-    // preceding harness_submit output.
+    // preceding aharness_submit output.
     const fcoFallbacks = (turn3Body.input ?? []).filter((m) => m.type === 'function_call_output');
     const fcoFallback =
       fco ?? fcoFallbacks.find((m) => typeof m.output === 'string' && m.output.includes('alice'));

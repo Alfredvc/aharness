@@ -5,7 +5,7 @@
  * synthesized bare final-id raise fires, and the parent captures the child
  * final output before transitioning to its own terminal state.
  */
-import { embed, exit, final, harness, state, type HarnessMachine } from '@aharness/core';
+import { embed, exit, final, aharness, state, type AharnessMachine } from '@aharness/core';
 
 interface EmptyPayload {
   readonly _empty?: never;
@@ -15,7 +15,7 @@ interface ParentContext {
   childOutput: unknown;
 }
 
-const child = harness.machine({
+const child = aharness.machine({
   id: 'embed-regression-child',
   initial: 'work',
   states: {
@@ -35,11 +35,11 @@ const child = harness.machine({
   },
 });
 
-export const embedRegressionMachine: HarnessMachine<
+export const embedRegressionMachine: AharnessMachine<
   unknown,
   unknown,
   Record<string, unknown>
-> = harness.machine({
+> = aharness.machine({
   id: 'embed-regression-parent',
   initial: 'child',
   context: (): ParentContext => ({
@@ -60,7 +60,7 @@ export const embedRegressionMachine: HarnessMachine<
   },
 });
 
-export const EMBED_REGRESSION_FSM_SOURCE = `import { embed, exit, final, harness, state } from '@aharness/core';
+export const EMBED_REGRESSION_FSM_SOURCE = `import { embed, exit, final, aharness, state } from '@aharness/core';
 
 interface EmptyPayload {
   _empty?: never;
@@ -70,7 +70,7 @@ interface ParentContext {
   childOutput: unknown;
 }
 
-const child = harness.machine({
+const child = aharness.machine({
   id: 'embed-regression-child',
   initial: 'work',
   states: {
@@ -90,7 +90,7 @@ const child = harness.machine({
   },
 });
 
-export default harness.machine({
+export default aharness.machine({
   id: 'embed-regression-parent',
   initial: 'child',
   context: (): ParentContext => ({

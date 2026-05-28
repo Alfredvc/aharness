@@ -1,6 +1,6 @@
 # Project FSMs
 
-This directory holds project-local Harness FSMs that are not package commands.
+This directory holds project-local aharness FSMs that are not package commands.
 
 ## `superpowers-recipe-runner.fsm.ts`
 

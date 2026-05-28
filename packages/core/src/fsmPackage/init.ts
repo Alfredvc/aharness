@@ -21,7 +21,7 @@ export interface InitFsmPackageOptions {
   readonly binName?: string;
   readonly fsmsDir?: string;
   readonly force: boolean;
-  readonly harnessCoreVersion: string;
+  readonly aharnessCoreVersion: string;
 }
 
 export interface InitFsmPackageValue {
@@ -58,13 +58,13 @@ export async function initFsmPackage(
     });
   }
 
-  const existingHarnessPackage = readExistingHarnessPackage(packageJson);
-  const existingFsmsDir = stringField(existingHarnessPackage ?? {}, 'fsmsDir');
+  const existingAharnessPackage = readExistingAharnessPackage(packageJson);
+  const existingFsmsDir = stringField(existingAharnessPackage ?? {}, 'fsmsDir');
   const fsmsDirInput = opts.fsmsDir ?? existingFsmsDir ?? DEFAULT_FSMS_DIR;
   const fsmsDirResult = validatePackagePath({
     packageRoot,
     relativePath: fsmsDirInput,
-    field: 'harness.package.fsmsDir',
+    field: 'aharness.package.fsmsDir',
   });
   if (!fsmsDirResult.ok) diagnostics.push(...fsmsDirResult.diagnostics);
 
@@ -72,14 +72,14 @@ export async function initFsmPackage(
   if (!binName) {
     diagnostics.push({
       code: 'bin-invalid',
-      field: 'harness.package.bin',
-      message: 'harness.package.bin must be a non-empty string',
+      field: 'aharness.package.bin',
+      message: 'aharness.package.bin must be a non-empty string',
     });
   } else if (!BIN_NAME_RE.test(binName)) {
     diagnostics.push({
       code: 'bin-invalid',
-      field: 'harness.package.bin',
-      message: 'harness.package.bin must be a valid command name',
+      field: 'aharness.package.bin',
+      message: 'aharness.package.bin must be a valid command name',
     });
   }
 
@@ -116,9 +116,9 @@ export async function initFsmPackage(
   const fsmsWriteTarget = await validatePackageWriteTarget({
     packageRoot,
     relativePath: normalizePackageRelativePath(
-      path.posix.join(fsmsDirResult.value.relativePath, '.harness-init-dir-check'),
+      path.posix.join(fsmsDirResult.value.relativePath, '.aharness-init-dir-check'),
     ),
-    field: 'harness.package.fsmsDir',
+    field: 'aharness.package.fsmsDir',
   });
   if (!fsmsWriteTarget.ok) return fsmsWriteTarget;
 
@@ -131,7 +131,7 @@ export async function initFsmPackage(
     binName,
     binRelativePath,
     fsmsDir: fsmsDirResult.value.relativePath,
-    harnessCoreVersion: opts.harnessCoreVersion,
+    aharnessCoreVersion: opts.aharnessCoreVersion,
   });
 
   const written = await writePackageJson(packageRoot, updatedPackageJson);
@@ -151,12 +151,12 @@ function buildUpdatedPackageJson(opts: {
   readonly binName: string;
   readonly binRelativePath: string;
   readonly fsmsDir: string;
-  readonly harnessCoreVersion: string;
+  readonly aharnessCoreVersion: string;
 }): PackageJsonObject {
   const scripts = readRecord(opts.packageJson['scripts']);
   const dependencies = readRecord(opts.packageJson['dependencies']);
-  const harness = readRecord(opts.packageJson['harness']);
-  const harnessPackage = readRecord(harness['package']);
+  const aharness = readRecord(opts.packageJson['aharness']);
+  const aharnessPackage = readRecord(aharness['package']);
 
   return {
     ...opts.packageJson,
@@ -172,12 +172,12 @@ function buildUpdatedPackageJson(opts: {
     },
     dependencies: {
       ...dependencies,
-      [CORE_DEPENDENCY]: opts.harnessCoreVersion,
+      [CORE_DEPENDENCY]: opts.aharnessCoreVersion,
     },
-    harness: {
-      ...harness,
+    aharness: {
+      ...aharness,
       package: {
-        ...harnessPackage,
+        ...aharnessPackage,
         bin: opts.binName,
         fsmsDir: opts.fsmsDir,
       },
@@ -204,20 +204,20 @@ function validateMergeablePackageJson(packageJson: PackageJsonObject): FsmPackag
     });
   }
 
-  if (packageJson['harness'] !== undefined) {
-    if (!isRecord(packageJson['harness'])) {
+  if (packageJson['aharness'] !== undefined) {
+    if (!isRecord(packageJson['aharness'])) {
       diagnostics.push({
         code: 'package-init-conflict',
-        field: 'harness',
-        message: 'package.json harness must be an object to merge harness.package',
+        field: 'aharness',
+        message: 'package.json aharness must be an object to merge aharness.package',
       });
     } else {
-      const harnessPackage = packageJson['harness']['package'];
-      if (harnessPackage !== undefined && !isRecord(harnessPackage)) {
+      const aharnessPackage = packageJson['aharness']['package'];
+      if (aharnessPackage !== undefined && !isRecord(aharnessPackage)) {
         diagnostics.push({
           code: 'package-init-conflict',
-          field: 'harness.package',
-          message: 'package.json harness.package must be an object to merge package metadata',
+          field: 'aharness.package',
+          message: 'package.json aharness.package must be an object to merge package metadata',
         });
       }
     }
@@ -319,9 +319,9 @@ async function ensureFsmsDir(fsmsDirPath: string): Promise<FsmPackageResult<null
         diagnostics: [
           {
             code: 'fsms-dir-symlink-rejected',
-            field: 'harness.package.fsmsDir',
+            field: 'aharness.package.fsmsDir',
             path: fsmsDirPath,
-            message: 'harness.package.fsmsDir must not be a symlink',
+            message: 'aharness.package.fsmsDir must not be a symlink',
           },
         ],
       };
@@ -332,9 +332,9 @@ async function ensureFsmsDir(fsmsDirPath: string): Promise<FsmPackageResult<null
         diagnostics: [
           {
             code: 'fsms-dir-not-directory',
-            field: 'harness.package.fsmsDir',
+            field: 'aharness.package.fsmsDir',
             path: fsmsDirPath,
-            message: 'harness.package.fsmsDir exists but is not a directory',
+            message: 'aharness.package.fsmsDir exists but is not a directory',
           },
         ],
       };
@@ -347,9 +347,9 @@ async function ensureFsmsDir(fsmsDirPath: string): Promise<FsmPackageResult<null
         diagnostics: [
           {
             code: 'fsms-dir-stat-failed',
-            field: 'harness.package.fsmsDir',
+            field: 'aharness.package.fsmsDir',
             path: fsmsDirPath,
-            message: `could not inspect harness.package.fsmsDir: ${errorMessage(err)}`,
+            message: `could not inspect aharness.package.fsmsDir: ${errorMessage(err)}`,
           },
         ],
       };
@@ -364,9 +364,9 @@ async function ensureFsmsDir(fsmsDirPath: string): Promise<FsmPackageResult<null
       diagnostics: [
         {
           code: 'fsms-dir-create-failed',
-          field: 'harness.package.fsmsDir',
+          field: 'aharness.package.fsmsDir',
           path: fsmsDirPath,
-          message: `could not create harness.package.fsmsDir: ${errorMessage(err)}`,
+          message: `could not create aharness.package.fsmsDir: ${errorMessage(err)}`,
         },
       ],
     };
@@ -406,13 +406,13 @@ async function readPackageJsonForInit(
   return { ok: true, value: { exists: true, packageJson: parsed.value } };
 }
 
-function readExistingHarnessPackage(
+function readExistingAharnessPackage(
   packageJson: PackageJsonObject,
 ): Record<string, unknown> | null {
-  const harness = packageJson['harness'];
-  if (!isRecord(harness)) return null;
-  const harnessPackage = harness['package'];
-  return isRecord(harnessPackage) ? harnessPackage : null;
+  const aharness = packageJson['aharness'];
+  if (!isRecord(aharness)) return null;
+  const aharnessPackage = aharness['package'];
+  return isRecord(aharnessPackage) ? aharnessPackage : null;
 }
 
 function readRecord(value: unknown): Record<string, unknown> {

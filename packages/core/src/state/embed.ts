@@ -1,19 +1,19 @@
 /**
- * `embed(fsm, opts)` — author combinator that inlines a child harness machine
- * (compiled via `harness.machine(...)`) or a raw `MachineConfig` as a compound
+ * `embed(fsm, opts)` — author combinator that inlines a child aharness machine
+ * (compiled via `aharness.machine(...)`) or a raw `MachineConfig` as a compound
  * state in another machine.
  *
  * The typical caller pattern:
  *
  *     // child.fsm.ts
- *     export default harness.machine({...});
+ *     export default aharness.machine({...});
  *
  *     // parent.fsm.ts
  *     import child from './child.fsm.js';
  *     const compound = embed(child, { on: {...} });
  *
  * `embed()` reads the pre-synthesis snapshot stashed on the compiled machine as
- * a non-enumerable `__harnessRawConfig` property (see `harness.machine()`'s
+ * a non-enumerable `__aharnessRawConfig` property (see `aharness.machine()`'s
  * snapshot stash in `state/machine.ts`). The snapshot is a function-preserving
  * structural clone taken before `injectFrameworkActions` mutated the input
  * config, so the parent's synthesis pass receives a clean tree to walk under
@@ -21,10 +21,10 @@
  *
  * For advanced cases (inline tests, programmatic config builders) `embed()`
  * also accepts a raw `MachineConfig` object directly. The discriminator is the
- * presence of `__harnessRawConfig`: when present, the snapshot is used; when
+ * presence of `__aharnessRawConfig`: when present, the snapshot is used; when
  * absent, the argument is treated as a raw config.
  *
- * Returns a compound-state config (`{initial, states, meta: {harness: {embedded}}}`)
+ * Returns a compound-state config (`{initial, states, meta: {aharness: {embedded}}}`)
  * suitable for placement under `states:` in the parent. Synthesis of the
  * bare `<finalId>` entry-raise on each child final, and of the parent compound
  * state's `on:` keys for those events, happens in machine.ts (Task 8).
@@ -88,7 +88,7 @@ export interface CanonicalEmbeddedFinalHandler {
 export interface EmbeddedCompoundConfig {
   readonly initial: string;
   readonly states: Record<string, AnyStateNodeConfig>;
-  readonly meta: { readonly harness: { readonly embedded: EmbeddedMeta } };
+  readonly meta: { readonly aharness: { readonly embedded: EmbeddedMeta } };
   readonly entry?: AnyStateNodeConfig['entry'];
 }
 
@@ -106,7 +106,7 @@ export interface MinimalChildConfig {
     string,
     {
       readonly type?: string;
-      readonly meta?: { readonly harness?: { readonly kind?: string } };
+      readonly meta?: { readonly aharness?: { readonly kind?: string } };
       readonly on?: Record<string, unknown>;
     }
   >;
@@ -115,7 +115,7 @@ export interface MinimalChildConfig {
 
 /**
  * Resolve the input to a raw `MachineConfig`. If the input is a compiled
- * `harness.machine()` return value, read its non-enumerable `__harnessRawConfig`
+ * `aharness.machine()` return value, read its non-enumerable `__aharnessRawConfig`
  * snapshot (taken before synthesis mutated the input). If it's a raw config
  * object (no snapshot), use it directly.
  *
@@ -128,7 +128,7 @@ export interface MinimalChildConfig {
  * compound's `SUBMIT__<qualifiedId>__<exit>` keys would clobber the first's.
  */
 function resolveChildConfig(fsm: AnyStateMachine | MinimalChildConfig): MinimalChildConfig {
-  const snap = (fsm as { __harnessRawConfig?: unknown }).__harnessRawConfig;
+  const snap = (fsm as { __aharnessRawConfig?: unknown }).__aharnessRawConfig;
   if (snap !== undefined && typeof snap === 'object' && snap !== null) {
     return snap;
   }
@@ -138,7 +138,7 @@ function resolveChildConfig(fsm: AnyStateMachine | MinimalChildConfig): MinimalC
 function listFinalIds(child: MinimalChildConfig): string[] {
   const out: string[] = [];
   for (const [name, node] of Object.entries(child.states ?? {})) {
-    if (node?.type === 'final' || node?.meta?.harness?.kind === 'terminal') {
+    if (node?.type === 'final' || node?.meta?.aharness?.kind === 'terminal') {
       out.push(name);
     }
   }
@@ -146,9 +146,9 @@ function listFinalIds(child: MinimalChildConfig): string[] {
 }
 
 /**
- * Project a compiled `harness.machine(...)` return down to its `__finalsType`
- * phantom slot — the per-final-id record stamped on `HarnessMachine<…, TFinals>`
- * by `harness.machine`'s `ExtractFinals<TStates>` walk (see
+ * Project a compiled `aharness.machine(...)` return down to its `__finalsType`
+ * phantom slot — the per-final-id record stamped on `AharnessMachine<…, TFinals>`
+ * by `aharness.machine`'s `ExtractFinals<TStates>` walk (see
  * `state/machine.ts`). When the slot is absent (raw `MinimalChildConfig`
  * input, or an opaque `AnyStateMachine` annotation) the helper returns the
  * permissive `Record<string, unknown>` fallback so the mapped `on:` map below
@@ -233,7 +233,7 @@ export interface EmbedOptions<
 }
 
 /**
- * `embed()` accepts either a compiled `harness.machine(...)` result or a raw
+ * `embed()` accepts either a compiled `aharness.machine(...)` result or a raw
  * `MachineConfig`. The first generic captures whichever the author passed in;
  * the second is the parent's machine context (defaults to a permissive shape
  * for authors who do not type their context explicitly).
@@ -246,7 +246,7 @@ export interface EmbedOptions<
  *
  * The `on:` map is statically keyed by the child's `final()` ids via
  * `FinalsOf<TChildFsm>` — the `__finalsType` phantom stamped on the typed
- * `HarnessMachine<…>` return. Each entry's `actions` / `guard` callbacks see
+ * `AharnessMachine<…>` return. Each entry's `actions` / `guard` callbacks see
  * `event.output` typed as the corresponding child final's `output()` return
  * type (Pain 5). Authors who pass a raw `MinimalChildConfig` (no phantom)
  * fall back to the permissive `Record<string, unknown>` shape.
@@ -267,7 +267,7 @@ export function embed<
   // without a fresh clone, a second embed of the same compiled child would
   // read post-mutation nodes and the second compound's keys would clobber the
   // first's. The clone preserves function references (callbacks, action
-  // factories) — the same helper `harness.machine()` uses for the snapshot.
+  // factories) — the same helper `aharness.machine()` uses for the snapshot.
   const child = cloneConfigPreservingFns(childResolved);
   if (typeof child.initial !== 'string' || child.initial.length === 0) {
     throw new TypeError('embed(): child config has no `initial` state');
@@ -305,7 +305,7 @@ export function embed<
   const compound: EmbeddedCompoundConfig = {
     initial: child.initial,
     states: child.states as Record<string, AnyStateNodeConfig>,
-    meta: { harness: { embedded: meta } },
+    meta: { aharness: { embedded: meta } },
     ...(child.entry !== undefined ? { entry: child.entry } : {}),
   };
   return compound;
@@ -315,7 +315,7 @@ export function isEmbeddedNode(node: unknown): node is EmbeddedCompoundConfig {
   return (
     typeof node === 'object' &&
     node !== null &&
-    typeof (node as { meta?: { harness?: { embedded?: unknown } } }).meta?.harness?.embedded ===
+    typeof (node as { meta?: { aharness?: { embedded?: unknown } } }).meta?.aharness?.embedded ===
       'object'
   );
 }

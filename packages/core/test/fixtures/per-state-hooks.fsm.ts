@@ -17,7 +17,7 @@
  * aggregated reply lands on the wire byte-identical to what codex's
  * stdout parser expects.
  */
-import { exit, harness, state, terminal } from '@aharness/core';
+import { exit, aharness, state, terminal } from '@aharness/core';
 
 interface GatherPayload {
   readonly note: string;
@@ -27,10 +27,10 @@ interface ImplementPayload {
   readonly result: string;
 }
 
-export const machine = harness.machine({
+export const machine = aharness.machine({
   id: 'per-state-hooks-e2e',
   initial: 'gather',
-  context: () => ({ __harness_visitCount: {} as Record<string, number> }),
+  context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
   states: {
     gather: state({
       entryPrompt: 'Gather requirements.',

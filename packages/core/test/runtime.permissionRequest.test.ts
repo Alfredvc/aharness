@@ -4,7 +4,7 @@ import { createFsm } from '@aharness/core';
 
 import { ActorHost } from '../src/runtime/actorHost.js';
 import { createPermissionRequestDispatcher } from '../src/runtime/permissionRequest.js';
-import type { HarnessStateMeta } from '../src/state/exits.js';
+import type { AharnessStateMeta } from '../src/state/exits.js';
 import type { PermissionRequestEvent } from '../src/state/hooks.js';
 
 const baseEvent: PermissionRequestEvent = {
@@ -19,7 +19,7 @@ const baseEvent: PermissionRequestEvent = {
   cwd: '/repo',
 };
 
-function hostWithMeta(meta: HarnessStateMeta | undefined, context: Record<string, unknown> = {}) {
+function hostWithMeta(meta: AharnessStateMeta | undefined, context: Record<string, unknown> = {}) {
   return {
     currentMeta: () => meta,
     currentContext: () => context,
@@ -371,8 +371,8 @@ describe('createPermissionRequestDispatcher', () => {
         work: {
           ...canonicalState,
           meta: {
-            harness: {
-              ...canonicalState.meta.harness,
+            aharness: {
+              ...canonicalState.meta.aharness,
               hooks: { permissionRequest: [{ matcher: '^Bash$', handler: legacy }] },
             },
           },
@@ -422,8 +422,8 @@ describe('createPermissionRequestDispatcher', () => {
         work: {
           ...canonicalState,
           meta: {
-            harness: {
-              ...canonicalState.meta.harness,
+            aharness: {
+              ...canonicalState.meta.aharness,
               hooks: { permissionRequest: [{ matcher: '^Bash$', handler: legacy }] },
             },
           },

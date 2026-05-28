@@ -13,22 +13,22 @@
  *     entryPrompt) so the dispatcher's terminal-orientation path is
  *     not duplicated.
  *
- * The XState wrapper (`harness.machine`) is the same one the rest of the
+ * The XState wrapper (`aharness.machine`) is the same one the rest of the
  * @aharness/core daemon tests use; it auto-stamps `meta.kind = 'stateful'` for
  * every `state(...)` annotation, which is the exact predicate
  * `onStateEntry` filters on.
  */
 import { describe, expect, it, vi } from 'vitest';
 
-import { harness, state, terminal, exit } from '@aharness/core';
+import { aharness, state, terminal, exit } from '@aharness/core';
 import type { SchemaSidecar } from '@aharness/core';
 
 import { ActorHost } from '../src/runtime/actorHost.js';
 import { onStateEntry } from '../src/runtime/onStateEntry.js';
-import { createHarnessOps } from '../src/state/harnessOps.js';
+import { createAharnessOps } from '../src/state/aharnessOps.js';
 
 function buildMachine() {
-  return harness.machine({
+  return aharness.machine({
     id: 'm',
     initial: 'a',
     context: () => ({ count: 0 }),
@@ -139,7 +139,7 @@ describe('onStateEntry', () => {
   });
 
   it('surfaces entryPrompt evaluation errors in-band rather than throwing', async () => {
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'broken',
       initial: 'a',
       context: () => ({}),
@@ -173,7 +173,7 @@ describe('onStateEntry', () => {
   // ─── FSM meta-ops: onEntry hook + firedFromResume gate ─────────────────
 
   function buildMachineWithOnEntryOnA(onEntry: () => void) {
-    return harness.machine({
+    return aharness.machine({
       id: 'm-onentry',
       initial: 'a',
       context: () => ({}),
@@ -193,7 +193,7 @@ describe('onStateEntry', () => {
     const machine = buildMachineWithOnEntryOnA(onEntry);
     const host = new ActorHost(machine, undefined);
     host.start();
-    const opsHandle = createHarnessOps();
+    const opsHandle = createAharnessOps();
     await onStateEntry({
       host,
       sidecar: {},
@@ -209,7 +209,7 @@ describe('onStateEntry', () => {
     const machine = buildMachineWithOnEntryOnA(onEntry);
     const host = new ActorHost(machine, undefined);
     host.start();
-    const opsHandle = createHarnessOps();
+    const opsHandle = createAharnessOps();
     await onStateEntry({
       host,
       sidecar: {},
@@ -238,7 +238,7 @@ describe('onStateEntry', () => {
     const inject = vi.fn(async (text: string) => {
       calls.push(text);
     });
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'm-throw',
       initial: 'a',
       context: () => ({}),
@@ -255,7 +255,7 @@ describe('onStateEntry', () => {
     });
     const host = new ActorHost(machine, undefined);
     host.start();
-    const opsHandle = createHarnessOps();
+    const opsHandle = createAharnessOps();
     // Must not throw.
     await onStateEntry({
       host,

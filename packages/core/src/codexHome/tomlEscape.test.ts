@@ -50,7 +50,7 @@ describe('renderHookCliOverride', () => {
   it('renders a matcher-group inline array for a hook command', () => {
     expect(renderHookCliOverride('PreToolUse', '/runs/X/hooks/pre_tool_use.sh')).toEqual([
       'hooks.PreToolUse',
-      '[{ hooks = [{ type = "command", command = "\'/runs/X/hooks/pre_tool_use.sh\'", timeout = 30, statusMessage = "harness PreToolUse" }] }]',
+      '[{ hooks = [{ type = "command", command = "\'/runs/X/hooks/pre_tool_use.sh\'", timeout = 30, statusMessage = "aharness PreToolUse" }] }]',
     ]);
   });
 
@@ -61,6 +61,6 @@ describe('renderHookCliOverride', () => {
     expect(shellQuote(scriptPath)).toBe("'/tmp/run'\\''s/hooks/with space\npre.sh'");
     expect(value).toContain("command = \"'/tmp/run'\\\\''s/hooks/with space\\npre.sh'\"");
     expect(value).not.toContain('matcher');
-    expect(value).toContain('statusMessage = "harness UserPromptSubmit"');
+    expect(value).toContain('statusMessage = "aharness UserPromptSubmit"');
   });
 });

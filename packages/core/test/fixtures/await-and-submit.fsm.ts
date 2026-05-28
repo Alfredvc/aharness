@@ -8,16 +8,16 @@
  *         │
  *         └──wait (await)→ done
  */
-import { harness, state, terminal, exit } from '@aharness/core';
+import { aharness, state, terminal, exit } from '@aharness/core';
 
 interface SubmitPayload {
   result: string;
 }
 
-export const machine = harness.machine({
+export const machine = aharness.machine({
   id: 'await-and-submit',
   initial: 'gated',
-  context: () => ({ __harness_visitCount: {} as Record<string, number> }),
+  context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
   states: {
     gated: state({
       entryPrompt: 'Submit or wait.',

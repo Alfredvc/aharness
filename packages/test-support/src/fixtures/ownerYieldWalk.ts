@@ -10,13 +10,13 @@
  * `request_user_input` tool) AND a SUBMIT exit `done`. Distinct from
  * `awaitExitWalk` (which uses an `await`-kind exit) — here state `b`'s
  * orientation nudge instructs the model to call `request_user_input`
- * BEFORE emitting its `harness_submit({state:'b', exit:'done', ...})`.
+ * BEFORE emitting its `aharness_submit({state:'b', exit:'done', ...})`.
  *
  * Companion integration test
  * `packages/core/test/integration.ownerYieldWalk.test.ts` queues
  * three mock-model turns:
  *
- *   1. `harness_submit({state: "a", exit: "next", data: {note: "go"}})`
+ *   1. `aharness_submit({state: "a", exit: "next", data: {note: "go"}})`
  *      — cross-state dance fires; codex re-POSTs after the dance's
  *      `turn/start({input: <state b nudge>})` lands.
  *   2. `request_user_input({questions: [{id:"owner", header:"",
@@ -24,12 +24,12 @@
  *      — CLI parks the ServerRequest; `MockOwnerInputProvider` resolves
  *      with `{answers: {owner: {answers: ["alice"]}}}`; codex returns
  *      the answer to the model on its next turn.
- *   3. `harness_submit({state: "b", exit: "done", data: {greeting:
+ *   3. `aharness_submit({state: "b", exit: "done", data: {greeting:
  *      "hello alice"}})` — terminal transition; run exits 0.
  *
  * Per `docs/plans/2026-05-13-headless-phase-2b-owner-yield.md` §Task 7.
  */
-import { harness, state, exit, terminal, type HarnessMachine } from '@aharness/core';
+import { aharness, state, exit, terminal, type AharnessMachine } from '@aharness/core';
 import { sseFunctionCall, sseResponseCreated, sseTurnComplete, type SseEvent } from '../sse.js';
 
 interface NextPayload {
@@ -46,11 +46,11 @@ interface DonePayload {
  * The integration test still writes the source string to disk and lets
  * `loadFsm` esbuild + dynamic-import it.
  */
-export const ownerYieldWalkMachine: HarnessMachine<
+export const ownerYieldWalkMachine: AharnessMachine<
   unknown,
   unknown,
   Record<string, unknown>
-> = harness.machine({
+> = aharness.machine({
   id: 'owner-yield-walk',
   initial: 'a',
   states: {
@@ -83,7 +83,7 @@ export const ownerYieldWalkMachine: HarnessMachine<
  * install paths — see `packages/core/src/loader/compile.ts`).
  * Kept in sync with `ownerYieldWalkMachine` above.
  */
-export const OWNER_YIELD_WALK_FSM_SOURCE = `import { harness, state, exit, terminal } from '@aharness/core';
+export const OWNER_YIELD_WALK_FSM_SOURCE = `import { aharness, state, exit, terminal } from '@aharness/core';
 
 interface NextPayload {
   note: string;
@@ -93,7 +93,7 @@ interface DonePayload {
   greeting: string;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'owner-yield-walk',
   initial: 'a',
   states: {

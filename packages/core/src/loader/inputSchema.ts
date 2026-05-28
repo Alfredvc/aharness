@@ -1,5 +1,5 @@
 /**
- * Walk the `input: { field: arg<T>(...) }` literal of a `harness.machine(...)`
+ * Walk the `input: { field: arg<T>(...) }` literal of a `aharness.machine(...)`
  * call and emit a JSON Schema 7 fragment per field plus per-field `ArgFlagMeta`.
  *
  * Empty `input: {}` is distinguishable from absent input: the walker emits
@@ -18,7 +18,7 @@ import { staticPropertyName, extractTypeArgFromTypeCall } from './sidecar.js';
  * Static representation of `arg.meta.completion`. The runtime form
  * `{dynamic: <fn>}` is reduced to `{dynamic: true}` at AST time — the
  * function reference is not JSON-serialisable, and the loader cache only
- * persists static metadata. Phase 4's `harness __complete` re-imports the
+ * persists static metadata. Phase 4's `aharness __complete` re-imports the
  * FSM source to obtain the live callback when the user presses Tab on a
  * dynamic flag value.
  */
@@ -45,9 +45,9 @@ export interface InputExtraction {
  * `directNames` collects identifiers from `import { arg } from '@aharness/core'`
  * (with optional rename via `import { arg as a }`). `namespaceNames` collects
  * names from `import * as ns from '@aharness/core'` and from
- * `import { harness } from '@aharness/core'` — both shapes expose `<ns>.arg`
- * (`harness` is also re-exported as a namespace because authors commonly do
- * `harness.machine(...)` on the same import).
+ * `import { aharness } from '@aharness/core'` — both shapes expose `<ns>.arg`
+ * (`aharness` is also re-exported as a namespace because authors commonly do
+ * `aharness.machine(...)` on the same import).
  */
 interface ArgBindings {
   readonly directNames: ReadonlySet<string>;
@@ -63,7 +63,7 @@ interface ArgBindings {
  *
  * Non-`arg<T>()` initialisers (e.g. raw values or unrelated calls) are
  * silently skipped — the static type system already rejects them via
- * `harness.machine`'s `input?: Record<string, ArgSentinel>` typing.
+ * `aharness.machine`'s `input?: Record<string, ArgSentinel>` typing.
  *
  * Empty `input: {}` returns
  * `{type: 'object', properties: {}, required: [], additionalProperties: false}`
@@ -264,7 +264,7 @@ export function collectArgBindings(
     if (ts.isNamedImports(bindings)) {
       for (const elem of bindings.elements) {
         const importedName = (elem.propertyName ?? elem.name).text;
-        if (importedName === 'harness') namespaces.add(elem.name.text);
+        if (importedName === 'aharness') namespaces.add(elem.name.text);
         if (importedName === 'arg') direct.add(elem.name.text);
       }
     }

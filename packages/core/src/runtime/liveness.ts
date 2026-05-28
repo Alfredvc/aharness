@@ -2,7 +2,7 @@
  * Daemon liveness heartbeat file.
  *
  * The daemon touches a file (`daemon.alive` by convention) on a fixed
- * interval so external supervisors — including the harness CLI's own
+ * interval so external supervisors — including the aharness CLI's own
  * stale-run detector — can decide whether a run directory's daemon is
  * still alive by reading the file's `mtime` and comparing it to the
  * configured tick interval.

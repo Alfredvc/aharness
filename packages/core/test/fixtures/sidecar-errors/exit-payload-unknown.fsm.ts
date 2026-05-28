@@ -1,8 +1,8 @@
 // Fixture: submit exit declares exit<unknown>(...).
 // Expected issue: exit-payload-unknown for stateId='s1', exitName='done'.
-import { harness, state, exit, final } from '@aharness/core';
+import { aharness, state, exit, final } from '@aharness/core';
 
-export default harness.machine({
+export default aharness.machine({
   initial: 's1',
   states: {
     s1: state({

@@ -42,7 +42,7 @@ import {
   type FinalsOf,
   type MinimalChildConfig,
 } from './embed.js';
-import type { HarnessOps } from './harnessOps.js';
+import type { AharnessOps } from './aharnessOps.js';
 import type {
   PermissionRequestDecision,
   PermissionRequestEvent,
@@ -53,7 +53,7 @@ import type {
   UserPromptSubmitDecision,
   UserPromptSubmitEvent,
 } from './hooks.js';
-import { harness, type ExtractFinals, type HarnessMachine } from './machine.js';
+import { aharness, type ExtractFinals, type AharnessMachine } from './machine.js';
 import {
   skill,
   type SkillOptions,
@@ -69,7 +69,7 @@ type CanonicalReducer<Data, Payload> = (draft: Data, payload: Payload) => void |
 type CanonicalEffect<Data, Payload> = (args: {
   readonly data: Readonly<Data>;
   readonly payload: Payload;
-  readonly ops: HarnessOps;
+  readonly ops: AharnessOps;
 }) => void | Promise<void>;
 
 type CanonicalAwaitReducer<Data> = (draft: Data, ownerReply: string) => void | Partial<Data>;
@@ -77,7 +77,7 @@ type CanonicalAwaitReducer<Data> = (draft: Data, ownerReply: string) => void | P
 type CanonicalAwaitEffect<Data> = (args: {
   readonly data: Readonly<Data>;
   readonly ownerReply: string;
-  readonly ops: HarnessOps;
+  readonly ops: AharnessOps;
 }) => void | Promise<void>;
 
 type CanonicalEmbedReducer<Data, Output> = (draft: Data, output: Output) => void | Partial<Data>;
@@ -85,7 +85,7 @@ type CanonicalEmbedReducer<Data, Output> = (draft: Data, output: Output) => void
 type CanonicalEmbedEffect<Data, Output> = (args: {
   readonly data: Readonly<Data>;
   readonly output: Output;
-  readonly ops: HarnessOps;
+  readonly ops: AharnessOps;
 }) => void | Promise<void>;
 
 interface CanonicalSubmitDirect<Data, Payload> {
@@ -352,7 +352,7 @@ interface CanonicalStateOptions<Data, Events extends EventCatalog> {
   readonly prompt: CanonicalText<Data>;
   readonly ask?: CanonicalText<Data>;
   readonly on?: CanonicalOn<Data, Events>;
-  readonly entry?: (data: Readonly<Data>, ops: HarnessOps) => void | Promise<void>;
+  readonly entry?: (data: Readonly<Data>, ops: AharnessOps) => void | Promise<void>;
   readonly clearOnEntry?: boolean;
   readonly guidance?: CanonicalText<Data>;
   readonly skills?: ReadonlyArray<SkillRef>;
@@ -409,7 +409,7 @@ interface CanonicalFinalOptions<Data, TOutput = undefined> {
 
 type CanonicalFinalConfig<TOutput> = FinalConfig<TOutput> & {
   readonly meta: FinalConfig<TOutput>['meta'] & {
-    readonly harness: FinalConfig<TOutput>['meta']['harness'] & {
+    readonly aharness: FinalConfig<TOutput>['meta']['aharness'] & {
       readonly artifacts?: Readonly<Record<string, ArtifactRenderer<unknown>>>;
     };
   };
@@ -421,7 +421,7 @@ interface CreateFsmFactory<Data, Events extends EventCatalog = Record<never, nev
     const TStates extends Record<string, unknown> = Record<string, never>,
   >(
     config: CanonicalMachineConfig<Data, TInput, TStates>,
-  ): HarnessMachine<Data, AnyEventObject, ResolveInput<TInput>, ExtractFinals<TStates>>;
+  ): AharnessMachine<Data, AnyEventObject, ResolveInput<TInput>, ExtractFinals<TStates>>;
   state<const TOptions extends CanonicalStateOptions<Data, Events>>(
     opts: ValidateStateOptions<TOptions, Events>,
   ): StateConfig;
@@ -500,7 +500,7 @@ function lowerEmbed<Data, TChildFsm extends AnyStateMachine | MinimalChildConfig
     on: primitiveOn,
   });
   (
-    compound.meta.harness.embedded as {
+    compound.meta.aharness.embedded as {
       canonicalOnMap?: Record<string, CanonicalEmbedFinalHandler<Data, unknown>>;
     }
   ).canonicalOnMap = opts.on as Record<string, CanonicalEmbedFinalHandler<Data, unknown>>;
@@ -537,12 +537,12 @@ function lowerSubmit<Data, Payload>(transition: CanonicalSubmitTransition<Data, 
         },
         to: branch.to,
         actions: canonicalActions(meta, branch.actions),
-        __harnessCanonical: meta as unknown as CanonicalSubmitBranchMeta<MachineContext, Payload>,
+        __aharnessCanonical: meta as unknown as CanonicalSubmitBranchMeta<MachineContext, Payload>,
       };
     }) as ReadonlyArray<SubmitBranch<MachineContext, Payload>>;
     return exit<Payload>({
       when: branches,
-      __harnessCanonical: {
+      __aharnessCanonical: {
         kind: 'submit',
         branches: route.map((branch) =>
           canonicalSubmitBranchMeta(branch),
@@ -570,7 +570,7 @@ function lowerSubmit<Data, Payload>(transition: CanonicalSubmitTransition<Data, 
         }
       : {}),
     actions: canonicalActions(meta, options.actions),
-    __harnessCanonical: {
+    __aharnessCanonical: {
       kind: 'submit',
       branches: [meta] as unknown as ReadonlyArray<
         CanonicalSubmitBranchMeta<MachineContext, Payload>
@@ -596,13 +596,13 @@ function lowerAwait<Data>(transition: CanonicalAwaitTransition<Data>): AwaitExit
       return applyCanonicalAwaitCommitOrReduce({
         context: context as Record<string, unknown>,
         event,
-        meta: meta as AwaitExitDef['__harnessCanonical'] & {
+        meta: meta as AwaitExitDef['__aharnessCanonical'] & {
           kind: 'await';
         },
         ownerReply: typeof ownerReply === 'string' ? ownerReply : '',
       });
     }) as NonNullable<AwaitExitDef['actions']>,
-    __harnessCanonical: meta as NonNullable<AwaitExitDef['__harnessCanonical']>,
+    __aharnessCanonical: meta as NonNullable<AwaitExitDef['__aharnessCanonical']>,
   };
 }
 
@@ -710,7 +710,7 @@ function lowerStateOptions<Data, Events extends EventCatalog>(
     ...base,
     meta: {
       ...(xstateMeta ?? {}),
-      harness: base.meta.harness,
+      aharness: base.meta.aharness,
     },
     ...(Object.keys(loweredEventOn).length > 0
       ? { on: { ...(xstateOn ?? {}), ...loweredEventOn } }
@@ -1030,7 +1030,7 @@ function resolveText<Data>(text: CanonicalText<Data>, data: Data): string {
 /**
  * Create the typed canonical FSM authoring surface.
  *
- * This factory is additive: lower-level `harness.machine`, `state`, `exit`,
+ * This factory is additive: lower-level `aharness.machine`, `state`, `exit`,
  * `final`, `passive`, `arg`, and `skill` remain supported compatibility
  * primitives. Event, built-in hook authoring, and canonical embed authoring
  * are additive.
@@ -1056,7 +1056,7 @@ function createFsmFactory<Data, Events extends EventCatalog>(
             ? (args: unknown) => (data as (args: unknown) => Data)(args)
             : data,
       };
-      return harness.machine(lowered as Parameters<typeof harness.machine>[0]) as HarnessMachine<
+      return aharness.machine(lowered as Parameters<typeof aharness.machine>[0]) as AharnessMachine<
         Data,
         AnyEventObject,
         never,
@@ -1096,7 +1096,7 @@ function createFsmFactory<Data, Events extends EventCatalog>(
           : {}),
       }) as CanonicalFinalConfig<unknown>;
       if (opts.artifacts !== undefined) {
-        (node.meta.harness as { artifacts?: CanonicalFinalOptions<Data>['artifacts'] }).artifacts =
+        (node.meta.aharness as { artifacts?: CanonicalFinalOptions<Data>['artifacts'] }).artifacts =
           opts.artifacts;
       }
       return node as CanonicalFinalConfig<never>;

@@ -10,17 +10,17 @@
  * prove framed UDS requests route to the active state's per-kind handlers,
  * then return `{}` after the FSM leaves the hook-declaring state.
  */
-import { exit, harness, state, terminal, type HarnessMachine } from '@aharness/core';
+import { exit, aharness, state, terminal, type AharnessMachine } from '@aharness/core';
 
 interface EmptyPayload {
   readonly _empty?: never;
 }
 
-export const hookWalkMachine: HarnessMachine<
+export const hookWalkMachine: AharnessMachine<
   unknown,
   unknown,
   Record<string, unknown>
-> = harness.machine({
+> = aharness.machine({
   id: 'hook-walk',
   initial: 'hooked',
   states: {
@@ -68,13 +68,13 @@ export const hookWalkMachine: HarnessMachine<
   },
 });
 
-export const HOOK_WALK_FSM_SOURCE = `import { exit, harness, state, terminal } from '@aharness/core';
+export const HOOK_WALK_FSM_SOURCE = `import { exit, aharness, state, terminal } from '@aharness/core';
 
 interface EmptyPayload {
   _empty?: never;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'hook-walk',
   initial: 'hooked',
   states: {

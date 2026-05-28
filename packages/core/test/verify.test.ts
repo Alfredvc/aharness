@@ -15,11 +15,11 @@
  * `AWAIT__<stateId>__<exitName>` per §10 of the design spec.
  *
  * Migration note: all state configs use the new helper shape directly.
- * `state({...})` returns `StateConfig` (i.e. `{ meta: { harness: ... } }`),
+ * `state({...})` returns `StateConfig` (i.e. `{ meta: { aharness: ... } }`),
  * so it is placed directly as the state node value — not inside a wrapper
- * `meta: { harness: state({...}) }`. Similarly `terminal()` and `passive()`
+ * `meta: { aharness: state({...}) }`. Similarly `terminal()` and `passive()`
  * are spread or placed directly. Tests that need to bypass `state()` runtime
- * validation to construct malformed shapes still use raw `meta: { harness: {...} }`
+ * validation to construct malformed shapes still use raw `meta: { aharness: {...} }`
  * literals.
  */
 import type { JSONSchema7 } from 'json-schema';
@@ -27,7 +27,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createFsm as createFsmVerify,
-  harness,
+  aharness,
   passive,
   state,
   terminal,
@@ -61,7 +61,7 @@ function sidecarWith(entries: ReadonlyArray<readonly [string, string]>): SchemaS
 
 describe('@aharness/core verify (happy path)', () => {
   it('reports ok=true on a well-formed minimal machine', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'h',
       initial: 'a',
       context: () => ({}),
@@ -81,7 +81,7 @@ describe('@aharness/core verify (happy path)', () => {
 
 describe('@aharness/core verify: clearOnEntry initial-state rule', () => {
   it('rejects a root initial state that declares clearOnEntry', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'clear-root',
       initial: 'a',
       context: () => ({}),
@@ -108,7 +108,7 @@ describe('@aharness/core verify: clearOnEntry initial-state rule', () => {
   });
 
   it('rejects nested and parallel initially active clearOnEntry states', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'clear-nested',
       type: 'parallel',
       context: () => ({}),
@@ -162,7 +162,7 @@ describe('@aharness/core verify: clearOnEntry initial-state rule', () => {
   });
 
   it('rejects a clearOnEntry state reached by initial eventless settling', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'clear-always-start',
       initial: 'a',
       context: () => ({}),
@@ -190,7 +190,7 @@ describe('@aharness/core verify: clearOnEntry initial-state rule', () => {
   });
 
   it('allows a non-initial clearOnEntry state', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'clear-later',
       initial: 'a',
       context: () => ({}),
@@ -250,13 +250,13 @@ describe('@aharness/core verify: canonical events', () => {
   });
 
   it('rejects malformed canonical event metadata constructed by bypassing createFsm()', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'm',
       initial: 'a',
       states: {
         a: {
           meta: {
-            harness: {
+            aharness: {
               kind: 'stateful' as const,
               open: false,
               entryPrompt: 'a',
@@ -281,13 +281,13 @@ describe('@aharness/core verify: canonical events', () => {
   });
 
   it('rejects canonical event metadata with missing lowering and invalid request/match/kind shape', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'm',
       initial: 'a',
       states: {
         a: {
           meta: {
-            harness: {
+            aharness: {
               kind: 'stateful' as const,
               open: false,
               entryPrompt: 'a',
@@ -351,7 +351,7 @@ describe('@aharness/core verify: canonical events', () => {
 
 describe('@aharness/core verify: reachability', () => {
   it('flags an unreachable state', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'r',
       initial: 'a',
       context: () => ({}),
@@ -373,7 +373,7 @@ describe('@aharness/core verify: reachability', () => {
 
 describe('@aharness/core verify: terminal-reachability', () => {
   it('flags every state when machine declares no final', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 't2',
       initial: 'a',
       context: () => ({}),
@@ -391,7 +391,7 @@ describe('@aharness/core verify: terminal-reachability', () => {
 
 describe('@aharness/core verify: no-black-hole-non-terminals', () => {
   it('flags a non-final state with no outgoing trigger', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'b',
       initial: 'stuck',
       context: () => ({}),
@@ -408,7 +408,7 @@ describe('@aharness/core verify: no-black-hole-non-terminals', () => {
 
 describe('@aharness/core verify: entryPrompt-paired', () => {
   it('flags a stateful state with empty entryPrompt', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'p',
       initial: 'gated',
       context: () => ({}),
@@ -416,14 +416,14 @@ describe('@aharness/core verify: entryPrompt-paired', () => {
         gated: {
           meta: {
             // Bypass `state()` runtime validation to construct the malformed case.
-            harness: {
+            aharness: {
               kind: 'stateful' as const,
               open: false,
               entryPrompt: '',
               exits: {
                 ok: {
                   kind: 'submit' as const,
-                  __harnessPayloadMarker: true as const,
+                  __aharnessPayloadMarker: true as const,
                   to: 'final',
                 },
               },
@@ -443,7 +443,7 @@ describe('@aharness/core verify: entryPrompt-paired', () => {
 
 describe('@aharness/core verify: no-unresolved-references', () => {
   it('flags an action reference not declared in setup', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'u',
       initial: 'a',
       context: () => ({}),
@@ -469,7 +469,7 @@ describe('@aharness/core verify: no-unresolved-references', () => {
 
 describe('@aharness/core verify: final-classification', () => {
   it('flags a final state with no terminal classification', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'f',
       initial: 'a',
       context: () => ({}),
@@ -489,7 +489,7 @@ describe('@aharness/core verify: final-classification', () => {
 
 describe('@aharness/core verify: single-await-per-state', () => {
   it('flags multiple await exits on one state', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'm',
       initial: 'a',
       context: () => ({}),
@@ -513,14 +513,14 @@ describe('@aharness/core verify: single-await-per-state', () => {
 
 describe('@aharness/core verify: exit-kind-well-formedness', () => {
   it('flags a submit exit missing the exit<T>(...) wrapper', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'k',
       initial: 'a',
       context: () => ({}),
       states: {
         a: {
           meta: {
-            harness: {
+            aharness: {
               kind: 'stateful' as const,
               open: false,
               entryPrompt: 'x',
@@ -547,14 +547,14 @@ describe('@aharness/core verify: exit-kind-well-formedness', () => {
 
 describe('@aharness/core verify: open-states-have-at-least-one-exit', () => {
   it('flags an open state with no exits', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'o',
       initial: 'discuss',
       context: () => ({}),
       states: {
         discuss: {
           meta: {
-            harness: {
+            aharness: {
               kind: 'stateful' as const,
               open: true,
               entryPrompt: 'chat',
@@ -581,7 +581,7 @@ describe('@aharness/core verify: open-states-have-at-least-one-exit', () => {
 
 describe('@aharness/core verify: await-only-strict-state', () => {
   it('warns (does not block) on a strict state with one await and no submit', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'w',
       initial: 'a',
       context: () => ({}),
@@ -605,7 +605,7 @@ describe('@aharness/core verify: await-only-strict-state', () => {
 
 describe('@aharness/core verify: author-functions-sync', () => {
   it('re-emits loader `author-fn-async` issues', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'af',
       initial: 'a',
       context: () => ({}),
@@ -632,11 +632,11 @@ describe('@aharness/core verify: author-functions-sync', () => {
   });
 });
 
-// ─── Carried over: machine-uses-harness-wrapper ────────────────────────────
+// ─── Carried over: machine-uses-aharness-wrapper ────────────────────────────
 
-describe('@aharness/core verify: machine-uses-harness-wrapper', () => {
+describe('@aharness/core verify: machine-uses-aharness-wrapper', () => {
   it('re-emits loader `direct-create-machine` issues', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'mw',
       initial: 'a',
       context: () => ({}),
@@ -655,12 +655,13 @@ describe('@aharness/core verify: machine-uses-harness-wrapper', () => {
         exitName: null,
         line: 1,
         message:
-          'createMachine() called directly on a config containing stateful states; use harness.machine(...) instead',
+          'createMachine() called directly on a config containing stateful states; use aharness.machine(...) instead',
       },
     ]);
     expect(
       result.issues.some(
-        (i) => i.check === 'machine-uses-harness-wrapper' && i.message.includes('harness.machine'),
+        (i) =>
+          i.check === 'machine-uses-aharness-wrapper' && i.message.includes('aharness.machine'),
       ),
     ).toBe(true);
   });
@@ -673,7 +674,7 @@ describe('@aharness/core verify: state-id-length removed (§13.2)', () => {
     // 35 + 8 = 43, which would have tripped the 41-char joint cap on CC.
     const longState = 'a'.repeat(35);
     const longExit = 'b'.repeat(8);
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'len',
       initial: longState,
       context: () => ({}),
@@ -701,7 +702,7 @@ describe('@aharness/core verify: state-id-length removed (§13.2)', () => {
 
 describe('@aharness/core verify: per-state-data-schema-resolvable (renamed from submit-schemas-resolved)', () => {
   it('flags a stateful state with no sidecar entry for its submit exit using the renamed check id', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 's',
       initial: 'gated',
       context: () => ({}),
@@ -730,7 +731,7 @@ describe('@aharness/core verify: per-state-data-schema-resolvable (renamed from 
   });
 
   it('re-emits per-state loader issues under the renamed check id', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 's2',
       initial: 'gated',
       context: () => ({}),
@@ -764,7 +765,7 @@ describe('@aharness/core verify: per-state-data-schema-resolvable (renamed from 
 
 describe('@aharness/core verify: state-exit-tuple-unique (new in §13.3)', () => {
   it('passes a machine with distinct (stateId, exitName) tuples', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'unique',
       initial: 'a',
       context: () => ({}),
@@ -803,7 +804,7 @@ describe('@aharness/core verify: state-exit-tuple-unique (new in §13.3)', () =>
       entryPrompt: 'do',
       exits: { ok: exit<Record<string, never>>({ to: 'final' }) },
     });
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'siblings',
       initial: 'a',
       context: () => ({}),
@@ -827,7 +828,7 @@ describe('@aharness/core verify: state-exit-tuple-unique (new in §13.3)', () =>
     // `state-exit-tuple-unique` is intended as defence-in-depth for the
     // compile-time-evaded case where two distinct `StateNode`s return the
     // same `stateKeyPath`. XState's public v5 API enforces unique state keys
-    // at each level, so we cannot author this via `harness.machine(...)`.
+    // at each level, so we cannot author this via `aharness.machine(...)`.
     // To exercise the predicate's emit path we build a synthetic machine
     // shape that satisfies the verifier's structural reads only — namely a
     // `root` plus two child nodes that both report `path: ['shared']`. This
@@ -846,7 +847,7 @@ describe('@aharness/core verify: state-exit-tuple-unique (new in §13.3)', () =>
       readonly path: ReadonlyArray<string>;
       readonly parent: unknown;
       readonly states: Record<string, never>;
-      readonly config: { readonly meta: { readonly harness: typeof exitMeta.meta.harness } };
+      readonly config: { readonly meta: { readonly aharness: typeof exitMeta.meta.aharness } };
     } => ({
       id: nodeId,
       type: 'atomic',
@@ -854,7 +855,7 @@ describe('@aharness/core verify: state-exit-tuple-unique (new in §13.3)', () =>
       // `parent: rootRef` is patched in below once `rootRef` exists.
       parent: undefined,
       states: {},
-      config: { meta: { harness: exitMeta.meta.harness } },
+      config: { meta: { aharness: exitMeta.meta.aharness } },
     });
     const nodeA = buildNode('m.dup.a');
     const nodeB = buildNode('m.dup.b');
@@ -878,7 +879,7 @@ describe('@aharness/core verify: state-exit-tuple-unique (new in §13.3)', () =>
       root,
       implementations: { guards: {}, actions: {}, actors: {} },
     } as unknown as Parameters<typeof verify>[0];
-    // checkStateConfigMissingHarnessMeta does `node.machine.root` on every
+    // checkStateConfigMissingAharnessMeta does `node.machine.root` on every
     // iterated node including the root itself — wire `machine` on all nodes.
     (root as unknown as { machine: unknown }).machine = fakeMachine;
     (nodeA as unknown as { machine: unknown }).machine = fakeMachine;
@@ -895,7 +896,7 @@ describe('@aharness/core verify: state-exit-tuple-unique (new in §13.3)', () =>
 
 describe('@aharness/core verify: request-user-input-name-collision (scaffold; activates with future MCP surface)', () => {
   it('passes when the FSM declares no MCP-server tools (the only path today)', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'sc2',
       initial: 'a',
       context: () => ({}),
@@ -921,10 +922,10 @@ describe('@aharness/core verify: request-user-input-name-collision (scaffold; ac
 describe('new verifier checks', () => {
   it('exit-target-in-state-set rejects unknown target', () => {
     // Verifier path: XState throws at createMachine() time when a transition
-    // target is unknown, so we cannot use harness.machine() to construct this
-    // case. Instead, bypass harness.machine() with a synthetic fake-machine
-    // whose meta.harness.exits reference a non-existent sibling. The check
-    // reads exits from meta.harness, not from the resolved transition map.
+    // target is unknown, so we cannot use aharness.machine() to construct this
+    // case. Instead, bypass aharness.machine() with a synthetic fake-machine
+    // whose meta.aharness.exits reference a non-existent sibling. The check
+    // reads exits from meta.aharness, not from the resolved transition map.
     const stateMeta = {
       kind: 'stateful' as const,
       open: false,
@@ -932,7 +933,7 @@ describe('new verifier checks', () => {
       exits: {
         submit: {
           kind: 'submit' as const,
-          __harnessPayloadMarker: true as const,
+          __aharnessPayloadMarker: true as const,
           to: 'noSuchState',
         },
       },
@@ -943,7 +944,7 @@ describe('new verifier checks', () => {
       path: ['a'] as ReadonlyArray<string>,
       parent: undefined as unknown,
       states: {} as Record<string, never>,
-      config: { meta: { harness: stateMeta } },
+      config: { meta: { aharness: stateMeta } },
     };
     const fakeNodeB = {
       id: 'm.b',
@@ -951,7 +952,7 @@ describe('new verifier checks', () => {
       path: ['b'] as ReadonlyArray<string>,
       parent: undefined as unknown,
       states: {} as Record<string, never>,
-      config: { meta: { harness: { kind: 'terminal' as const, outcome: 'success' as const } } },
+      config: { meta: { aharness: { kind: 'terminal' as const, outcome: 'success' as const } } },
     };
     const fakeRoot = {
       id: 'm',
@@ -964,7 +965,7 @@ describe('new verifier checks', () => {
     // Wire parent back-references.
     (fakeNodeA as unknown as { parent: unknown }).parent = fakeRoot;
     (fakeNodeB as unknown as { parent: unknown }).parent = fakeRoot;
-    // Wire machine back-references needed by checkStateConfigMissingHarnessMeta,
+    // Wire machine back-references needed by checkStateConfigMissingAharnessMeta,
     // which does `node.machine.root` on every iterated node including the root.
     const fakeMachine = {
       root: fakeRoot,
@@ -983,7 +984,7 @@ describe('new verifier checks', () => {
   it('when-last-unguarded rejects guarded last entry', () => {
     // Runtime path: state() throws at construction time.
     expect(() =>
-      harness.machine({
+      aharness.machine({
         id: 'm',
         initial: 'a',
         states: {
@@ -1007,7 +1008,7 @@ describe('new verifier checks', () => {
   it('when-array-min-length-2 rejects single-element when[]', () => {
     // Runtime path test: state() throws on length-1 with the "use sugar form" message.
     expect(() =>
-      harness.machine({
+      aharness.machine({
         id: 'm',
         initial: 'a',
         states: {
@@ -1029,7 +1030,7 @@ describe('new verifier checks', () => {
   it('when-array-min-length-2 rejects empty when[]', () => {
     // Runtime path test: state() throws on length-0 with the "is empty" message.
     expect(() =>
-      harness.machine({
+      aharness.machine({
         id: 'm',
         initial: 'a',
         states: {
@@ -1051,7 +1052,7 @@ describe('new verifier checks', () => {
   it('exit-shape-exclusive rejects to+when on the same exit', () => {
     // Runtime path: state() throws at construction time.
     expect(() =>
-      harness.machine({
+      aharness.machine({
         id: 'm',
         initial: 'a',
         states: {
@@ -1074,7 +1075,7 @@ describe('new verifier checks', () => {
   it('await-no-multi-branch rejects await + when[]', () => {
     // Runtime path: state() throws at construction time.
     expect(() =>
-      harness.machine({
+      aharness.machine({
         id: 'm',
         initial: 'a',
         states: {
@@ -1097,10 +1098,10 @@ describe('new verifier checks', () => {
   it('no-handwritten-submit-await-handlers rejects hand-written SUBMIT__ key', () => {
     // Author hand-writes `on: { SUBMIT__a__submit: ... }` alongside the
     // helper-derived state config. The synthesizer in Task 6 snapshots the
-    // pre-existing key onto `meta.harness.__harness_authoredOnKeys` BEFORE
+    // pre-existing key onto `meta.aharness.__aharness_authoredOnKeys` BEFORE
     // overwriting `node.on[SUBMIT__a__submit]`. The verifier reads the
     // side-channel and reports the check. No raw-config access needed.
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'm',
       initial: 'a',
       states: {
@@ -1129,7 +1130,7 @@ describe('new verifier checks', () => {
     // inside `if (isStateful(node))`, so passive/terminal states with hand-
     // written SUBMIT__/AWAIT__ keys were silently missed. After the fix the
     // snapshot runs on every state node, so this must be caught.
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'm',
       initial: 'a',
       states: {
@@ -1149,30 +1150,30 @@ describe('new verifier checks', () => {
     expect(error?.stateId).toBe('a');
   });
 
-  it('state-config-missing-harness-meta fires when literal meta overwrites the helper spread', () => {
+  it('state-config-missing-aharness-meta fires when literal meta overwrites the helper spread', () => {
     // The smoking gun: `{...passive(), entry: 'x', meta: {custom: 'oops'}}`
-    // — the literal `meta:` REPLACES the spread's meta, so meta.harness is GONE.
-    const machine = harness.machine({
+    // — the literal `meta:` REPLACES the spread's meta, so meta.aharness is GONE.
+    const machine = aharness.machine({
       id: 'm',
       initial: 'a',
       states: {
         a: {
           ...passive(),
           entry: 'render',
-          meta: { custom: 'oops' }, // overwrites passive().meta — meta.harness now missing
+          meta: { custom: 'oops' }, // overwrites passive().meta — meta.aharness now missing
           always: { target: 'b' },
         },
         b: terminal('success'),
       },
     });
     const result = verify(machine, {});
-    expect(result.errors.some((e) => e.check === 'state-config-missing-harness-meta')).toBe(true);
+    expect(result.errors.some((e) => e.check === 'state-config-missing-aharness-meta')).toBe(true);
   });
 
   it('awaits-owner-text-no-await-exit rejects mixing both', () => {
     // Runtime path: state() throws at construction time.
     expect(() =>
-      harness.machine({
+      aharness.machine({
         id: 'm',
         initial: 'a',
         states: {
@@ -1190,7 +1191,7 @@ describe('new verifier checks', () => {
   it('no-handwritten-submit-await-handlers fires for a hand-written AWAIT__ key (locks in /^(SUBMIT|AWAIT)__/ predicate)', () => {
     // M-6: existing test only covered SUBMIT__. This locks in the AWAIT__ half
     // of the `/^(SUBMIT|AWAIT)__/` predicate so both are regression-tested.
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'm',
       initial: 'a',
       states: {
@@ -1215,7 +1216,7 @@ describe('new verifier checks', () => {
   it('bare-branch-warning fires for non-last bare branch but exempts last entry', () => {
     // Verifier path: the verifier emits a warning for non-last bare branches.
     // The last entry is the intentional unguarded fallback and is exempt.
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'm',
       initial: 'a',
       states: {
@@ -1240,18 +1241,18 @@ describe('new verifier checks', () => {
 
   it('state-onEntry-must-be-function fires when onEntry is non-callable', () => {
     // Hand-build the meta to bypass the helper's runtime guard.
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'm',
       initial: 'a',
       states: {
         a: {
           meta: {
-            harness: {
+            aharness: {
               kind: 'stateful',
               open: false,
               entryPrompt: 'go',
               exits: {
-                submit: { kind: 'submit', __harnessPayloadMarker: true, to: 'b' },
+                submit: { kind: 'submit', __aharnessPayloadMarker: true, to: 'b' },
               },
               onEntry: 'not-a-function',
             },
@@ -1268,7 +1269,7 @@ describe('new verifier checks', () => {
   });
 
   it('onEntry-only-on-stateful-states fires when terminal meta carries onEntry', () => {
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'm',
       initial: 'a',
       states: {
@@ -1279,7 +1280,7 @@ describe('new verifier checks', () => {
         b: {
           type: 'final',
           meta: {
-            harness: {
+            aharness: {
               kind: 'terminal',
               outcome: 'success',
               // Hand-attached `onEntry` on a terminal kind — silently
@@ -1318,7 +1319,7 @@ describe('new verifier checks', () => {
       exits: { submit: exit<{ x: number }>({ to: 'b' }) },
       onEntry: fn,
     });
-    expect(cfg.meta.harness.onEntry).toBe(fn);
+    expect(cfg.meta.aharness.onEntry).toBe(fn);
   });
 });
 

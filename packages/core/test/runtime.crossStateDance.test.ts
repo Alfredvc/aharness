@@ -11,7 +11,7 @@
  *  - Step ordering: watcher → `turn/interrupt` → `turn/start`.
  *  - `turn/start` wire shape: `input=[{type:'text', text:<orientationText>}]`
  *    with byte-equality on a fixture string carrying the
- *    `[harness] Now in state` marker (asserts the FULL composed nudge
+ *    `[aharness] Now in state` marker (asserts the FULL composed nudge
  *    flows through, not the raw entryPrompt).
  *  - Non-fatal interrupt errors ("no active turn to interrupt",
  *    "expected active turn id") are swallowed; `turn/start` still
@@ -269,7 +269,7 @@ describe('scheduleCrossStateDance (Phase 2a)', () => {
     const { registry, resolveMatch } = makeControlledRegistry();
     const { client, requests } = makeFakeClient();
 
-    const fullNudge = '[harness] Now in state "b"\n\nValid exits:\n  - done({})\n\nstate b active';
+    const fullNudge = '[aharness] Now in state "b"\n\nValid exits:\n  - done({})\n\nstate b active';
 
     scheduleCrossStateDance({
       client,
@@ -293,7 +293,7 @@ describe('scheduleCrossStateDance (Phase 2a)', () => {
       input: [{ type: 'text', text: fullNudge }],
     });
     expect((turnStart!.params as { input: Array<{ text: string }> }).input[0].text).toContain(
-      '[harness] Now in state',
+      '[aharness] Now in state',
     );
   });
 

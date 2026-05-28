@@ -20,7 +20,7 @@ import { buildDynamicToolsRegistration } from '../src/transport/dynamicToolsRegi
 import { SUBMIT_TOOL } from '../src/protocol/submitTool.js';
 
 describe('buildDynamicToolsRegistration', () => {
-  it('returns an array containing exactly the harness_submit tool', () => {
+  it('returns an array containing exactly the aharness_submit tool', () => {
     const tools = buildDynamicToolsRegistration();
     expect(tools).toEqual([SUBMIT_TOOL]);
   });

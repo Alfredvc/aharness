@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { harness } from '../src/state/machine.js';
+import { aharness } from '../src/state/machine.js';
 import { state, exit, terminal } from '../src/state/exits.js';
 
-describe('harness.machine() — __harnessRawConfig snapshot', () => {
+describe('aharness.machine() — __aharnessRawConfig snapshot', () => {
   it('stashes a non-enumerable, top-level-frozen pre-synthesis snapshot of the input config', () => {
     const inputConfig = {
       id: 'test',
@@ -15,8 +15,8 @@ describe('harness.machine() — __harnessRawConfig snapshot', () => {
         done: terminal('success'),
       },
     };
-    const compiled = harness.machine(inputConfig as never);
-    const snapshot = (compiled as { __harnessRawConfig?: unknown }).__harnessRawConfig;
+    const compiled = aharness.machine(inputConfig as never);
+    const snapshot = (compiled as { __aharnessRawConfig?: unknown }).__aharnessRawConfig;
     expect(snapshot).toBeDefined();
     // Top-level is frozen so callers cannot replace `states`.
     expect(Object.isFrozen(snapshot)).toBe(true);
@@ -26,7 +26,7 @@ describe('harness.machine() — __harnessRawConfig snapshot', () => {
     expect(Object.isFrozen(snap.states)).toBe(false);
     expect(Object.isFrozen(snap.states.go)).toBe(false);
     // Snapshot is non-enumerable.
-    const desc = Object.getOwnPropertyDescriptor(compiled, '__harnessRawConfig');
+    const desc = Object.getOwnPropertyDescriptor(compiled, '__aharnessRawConfig');
     expect(desc?.enumerable).toBe(false);
     // Snapshot's `go` state has no SUBMIT__ keys (pre-synthesis).
     const goOn = snap.states.go.on ?? {};
@@ -49,7 +49,7 @@ describe('harness.machine() — __harnessRawConfig snapshot', () => {
     // would also exercise it but is not yet landed; `entryPrompt` as a
     // function is on the same code path through `cloneConfigPreservingFns`.)
     const promptFn = () => 'do the thing';
-    const compiled = harness.machine({
+    const compiled = aharness.machine({
       id: 'test',
       initial: 'go',
       states: {
@@ -62,11 +62,11 @@ describe('harness.machine() — __harnessRawConfig snapshot', () => {
     } as never);
     const snap = (
       compiled as {
-        __harnessRawConfig: {
-          states: { go: { meta: { harness: { entryPrompt: unknown } } } };
+        __aharnessRawConfig: {
+          states: { go: { meta: { aharness: { entryPrompt: unknown } } } };
         };
       }
-    ).__harnessRawConfig;
-    expect(snap.states.go.meta.harness.entryPrompt).toBe(promptFn);
+    ).__aharnessRawConfig;
+    expect(snap.states.go.meta.aharness.entryPrompt).toBe(promptFn);
   });
 });

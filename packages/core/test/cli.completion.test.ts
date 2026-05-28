@@ -163,7 +163,7 @@ describe('enumerateFs — dense-directory regression', () => {
   // cap at 1000, the buggy code would never reach the `zzz-*` entries.
   let tmpDir: string;
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-enumerate-fs-'));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-enumerate-fs-'));
     for (let i = 1; i <= 1100; i++) {
       fs.writeFileSync(path.join(tmpDir, `aaa-${String(i).padStart(4, '0')}.ts`), '');
     }
@@ -197,7 +197,7 @@ describe('runCompletionInstall — integration (real tabtab, redirected HOME via
     // can point at the source directly without a build step. If a future
     // Node downgrade breaks this, fall back to spawning against
     // `dist/cli/completion.js` after `pnpm --filter @aharness/core build`.
-    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-completion-'));
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-completion-'));
     try {
       const completionTs = path.resolve(__dirname, '../src/cli/completion.ts');
       const child = spawnSync(

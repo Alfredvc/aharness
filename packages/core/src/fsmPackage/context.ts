@@ -37,7 +37,7 @@ export async function discoverValidatedPackageCommands(opts: {
       diagnostics: [
         {
           code: 'commands-missing',
-          field: 'harness.package.fsmsDir',
+          field: 'aharness.package.fsmsDir',
           path: opts.config.fsmsDir,
           message: 'FSM packages must contain at least one direct child .fsm.ts command',
         },

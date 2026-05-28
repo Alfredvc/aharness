@@ -125,7 +125,7 @@ function canonicalEmbeddedMeta(machine: ReturnType<typeof buildCanonicalEmbedVer
   if (!specNode) throw new Error('canonical verifier fixture missing `spec` state');
   const embedded = (
     specNode.meta as {
-      harness: {
+      aharness: {
         embedded: {
           exits: string[];
           onMap: Record<string, unknown>;
@@ -133,7 +133,7 @@ function canonicalEmbeddedMeta(machine: ReturnType<typeof buildCanonicalEmbedVer
         };
       };
     }
-  ).harness.embedded;
+  ).aharness.embedded;
   return { specNode, embedded };
 }
 
@@ -143,7 +143,7 @@ function canonicalEmbeddedConfig(machine: ReturnType<typeof buildCanonicalEmbedV
       string,
       {
         meta?: {
-          harness?: {
+          aharness?: {
             embedded?: {
               exits: string[];
               input?: unknown;
@@ -153,7 +153,7 @@ function canonicalEmbeddedConfig(machine: ReturnType<typeof buildCanonicalEmbedV
       }
     >;
   };
-  const embedded = config.states?.['spec']?.meta?.harness?.embedded;
+  const embedded = config.states?.['spec']?.meta?.aharness?.embedded;
   if (!embedded) throw new Error('canonical verifier fixture missing config embedded meta');
   return embedded;
 }
@@ -176,15 +176,15 @@ describe('verifier — embedded-final-must-be-wired', () => {
 
   it('flags a constructed compound that omits a final from on-map', () => {
     // Mutate the live embedded.onMap on the StateNode that iterStates walks.
-    // `parent.root.states.inner.meta.harness.embedded.onMap` is the same
+    // `parent.root.states.inner.meta.aharness.embedded.onMap` is the same
     // object the `embed()` combinator wrote at machine-construction time.
     const innerNode = parent.root.states['inner'];
     if (!innerNode) throw new Error('parent fixture missing `inner` state');
     const embedded = (
       innerNode.meta as {
-        harness: { embedded: { onMap: Record<string, unknown> } };
+        aharness: { embedded: { onMap: Record<string, unknown> } };
       }
-    ).harness.embedded;
+    ).aharness.embedded;
     const savedFailed = embedded.onMap['failed'];
     delete embedded.onMap['failed'];
     restorers.push(() => {
@@ -225,9 +225,9 @@ describe('verifier — canonical createFsm().embed hosts', () => {
     const { specNode } = canonicalEmbeddedMeta(machine);
     (
       specNode.meta as {
-        harness: { entryPrompt?: string };
+        aharness: { entryPrompt?: string };
       }
-    ).harness.entryPrompt = 'not allowed on an embed host';
+    ).aharness.entryPrompt = 'not allowed on an embed host';
 
     const result = verify(machine, canonicalSidecar);
     const issues = result.issues.filter((i) => i.check === 'embedded-state-exclusive');
@@ -271,7 +271,7 @@ describe('verifier — embedding-acyclic', () => {
   it('flags a hand-constructed A→B→A cycle', () => {
     // Hand-construct a cycle by mutating embedded.childConfig pointers.
     // JSON.parse(JSON.stringify(...)) strips functions; that is acceptable here
-    // because `checkEmbeddingAcyclic` reads only `meta.harness.embedded.{source,
+    // because `checkEmbeddingAcyclic` reads only `meta.aharness.embedded.{source,
     // childConfig}` plus `states` keys — none of which are functions. The
     // cyclic fixtures use string-only `entryPrompt` and final() with no
     // `output` callback, so no information is lost. If a future maintainer
@@ -279,16 +279,16 @@ describe('verifier — embedding-acyclic', () => {
     const aCfg = JSON.parse(JSON.stringify(a.config)) as Record<string, unknown>;
     const bCfg = JSON.parse(JSON.stringify(b.config)) as Record<string, unknown>;
     // Make A's `done` state pretend to be embedded(B), and B's `done` embed(A).
-    type N = { meta?: { harness?: { embedded?: unknown } } };
+    type N = { meta?: { aharness?: { embedded?: unknown } } };
     const aDone = (aCfg.states as Record<string, N>).done!;
     const bDone = (bCfg.states as Record<string, N>).done!;
     aDone.meta = {
-      harness: {
+      aharness: {
         embedded: { source: 'cyclicB', exits: ['done'], onMap: {}, childConfig: bCfg },
       },
     };
     bDone.meta = {
-      harness: {
+      aharness: {
         embedded: { source: 'cyclicA', exits: ['done'], onMap: {}, childConfig: aCfg },
       },
     };
@@ -309,18 +309,18 @@ describe('verifier audit — existing checks recurse into embedded states', () =
   });
 
   it('flags missing entryPrompt inside an embedded child via qualified id', () => {
-    // Mutate the live `node.meta.harness.entryPrompt` on the inner.go
+    // Mutate the live `node.meta.aharness.entryPrompt` on the inner.go
     // StateNode so iterStates(machine) sees it.
     const innerNode = parent.root.states['inner'];
     if (!innerNode) throw new Error('parent fixture missing `inner` state');
     const goNode = innerNode.states['go'];
     if (!goNode) throw new Error('parent fixture missing `inner.go` state');
-    const harnessMeta = (goNode.meta as { harness: { entryPrompt: string | (() => string) } })
-      .harness;
-    const saved = harnessMeta.entryPrompt;
-    harnessMeta.entryPrompt = '';
+    const aharnessMeta = (goNode.meta as { aharness: { entryPrompt: string | (() => string) } })
+      .aharness;
+    const saved = aharnessMeta.entryPrompt;
+    aharnessMeta.entryPrompt = '';
     restorers.push(() => {
-      harnessMeta.entryPrompt = saved;
+      aharnessMeta.entryPrompt = saved;
     });
 
     const result = verifyEmbed(parent, sidecar as never);
@@ -425,7 +425,7 @@ describe('verifier — final-output-must-be-function', () => {
 
   it('passes when final() declares no output at all', () => {
     const doneNode = parent.root.states['done'];
-    expect((doneNode!.meta as { harness: { output?: unknown } }).harness.output).toBeUndefined();
+    expect((doneNode!.meta as { aharness: { output?: unknown } }).aharness.output).toBeUndefined();
     const result = verify(parent, sidecar as never);
     const issues = result.issues.filter((i) => i.check === 'final-output-must-be-function');
     expect(issues).toEqual([]);
@@ -435,11 +435,11 @@ describe('verifier — final-output-must-be-function', () => {
     const innerNode = parent.root.states['inner'];
     const shippedNode = innerNode!.states['shipped'];
     if (!shippedNode) throw new Error('parent fixture missing inner.shipped');
-    const harnessMeta = (shippedNode.meta as { harness: { output?: unknown } }).harness;
-    const saved = harnessMeta.output;
-    harnessMeta.output = 'not a function';
+    const aharnessMeta = (shippedNode.meta as { aharness: { output?: unknown } }).aharness;
+    const saved = aharnessMeta.output;
+    aharnessMeta.output = 'not a function';
     restorers.push(() => {
-      harnessMeta.output = saved;
+      aharnessMeta.output = saved;
     });
 
     const result = verify(parent, sidecar as never);
@@ -530,7 +530,7 @@ describe('verifier — embedded-final-id-name-shape', () => {
 
   it("flags a final id starting with 'xstate.'", () => {
     const innerNode = parent.root.states['inner'];
-    const embedded = (innerNode!.meta as { harness: { embedded: { exits: string[] } } }).harness
+    const embedded = (innerNode!.meta as { aharness: { embedded: { exits: string[] } } }).aharness
       .embedded;
     const saved = [...embedded.exits];
     embedded.exits.push('xstate.bogus');
@@ -547,7 +547,7 @@ describe('verifier — embedded-final-id-name-shape', () => {
 
   it("flags a final id containing '.' (qualified-id separator) without 'xstate.' prefix", () => {
     const innerNode = parent.root.states['inner'];
-    const embedded = (innerNode!.meta as { harness: { embedded: { exits: string[] } } }).harness
+    const embedded = (innerNode!.meta as { aharness: { embedded: { exits: string[] } } }).aharness
       .embedded;
     const saved = [...embedded.exits];
     embedded.exits.push('outer.shipped');
@@ -598,7 +598,7 @@ describe('verifier — embedded-input-must-be-satisfied', () => {
     // error for the deeper missing input — not stop after the throw.
     type EmbeddedNode = {
       meta?: {
-        harness?: {
+        aharness?: {
           embedded?: {
             input?: (a: { context: Record<string, unknown> }) => Record<string, unknown>;
             childConfig?: { input?: Record<string, unknown> };
@@ -612,7 +612,7 @@ describe('verifier — embedded-input-must-be-satisfied', () => {
     const cfg = missingInputFsm.config as unknown as LooseConfig;
     const innerNode = cfg.states?.['inner'];
     if (!innerNode) throw new Error('missing-input fixture: no `inner` state');
-    const innerEmbedded = innerNode.meta?.harness?.embedded;
+    const innerEmbedded = innerNode.meta?.aharness?.embedded;
     if (!innerEmbedded) throw new Error('missing-input fixture: `inner` is not an embed-host');
     const savedInnerInput = innerEmbedded.input;
     innerEmbedded.input = () => {
@@ -638,7 +638,7 @@ describe('verifier — embedded-input-must-be-satisfied', () => {
     if (!innerLoose.states) innerLoose.states = {};
     innerLoose.states['deeper'] = {
       meta: {
-        harness: {
+        aharness: {
           embedded: {
             childConfig: { input: childInputDecl },
             // No `input` projection → providedKeys empty → required field

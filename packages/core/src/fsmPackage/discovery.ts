@@ -28,7 +28,7 @@ export async function discoverPackageCommands(
   const pathResult = validatePackagePath({
     packageRoot,
     relativePath: opts.fsmsDir,
-    field: 'harness.package.fsmsDir',
+    field: 'aharness.package.fsmsDir',
   });
   if (!pathResult.ok) return pathResult;
 
@@ -40,24 +40,24 @@ export async function discoverPackageCommands(
     if (stat.isSymbolicLink()) {
       diagnostics.push({
         code: 'fsms-dir-symlink-rejected',
-        field: 'harness.package.fsmsDir',
+        field: 'aharness.package.fsmsDir',
         path: fsmsDirPath,
-        message: 'harness.package.fsmsDir must not be a symlink',
+        message: 'aharness.package.fsmsDir must not be a symlink',
       });
     } else if (!stat.isDirectory()) {
       diagnostics.push({
         code: 'fsms-dir-not-directory',
-        field: 'harness.package.fsmsDir',
+        field: 'aharness.package.fsmsDir',
         path: fsmsDirPath,
-        message: 'harness.package.fsmsDir must be a directory',
+        message: 'aharness.package.fsmsDir must be a directory',
       });
     }
   } catch (err) {
     diagnostics.push({
       code: 'fsms-dir-read-failed',
-      field: 'harness.package.fsmsDir',
+      field: 'aharness.package.fsmsDir',
       path: fsmsDirPath,
-      message: `could not read harness.package.fsmsDir: ${errorMessage(err)}`,
+      message: `could not read aharness.package.fsmsDir: ${errorMessage(err)}`,
     });
   }
 
@@ -67,9 +67,9 @@ export async function discoverPackageCommands(
     if (!isPathInsideOrEqual(realPackageRoot, realFsmsDir)) {
       diagnostics.push({
         code: 'fsms-dir-realpath-escapes',
-        field: 'harness.package.fsmsDir',
+        field: 'aharness.package.fsmsDir',
         path: fsmsDirPath,
-        message: 'harness.package.fsmsDir resolves outside the package root',
+        message: 'aharness.package.fsmsDir resolves outside the package root',
       });
     }
   } catch {
@@ -89,9 +89,9 @@ export async function discoverPackageCommands(
       diagnostics: [
         {
           code: 'fsms-dir-read-failed',
-          field: 'harness.package.fsmsDir',
+          field: 'aharness.package.fsmsDir',
           path: fsmsDirPath,
-          message: `could not read harness.package.fsmsDir: ${errorMessage(err)}`,
+          message: `could not read aharness.package.fsmsDir: ${errorMessage(err)}`,
         },
       ],
     };

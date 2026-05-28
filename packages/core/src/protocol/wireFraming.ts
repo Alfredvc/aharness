@@ -1,5 +1,5 @@
 /**
- * Wire framing for the harness hook UDS — pinned by spec §5.2 of
+ * Wire framing for the aharness hook UDS — pinned by spec §5.2 of
  * `docs/specs/2026-05-04-mcp-submit-route-design.md`.
  *
  * Format: `<TAG> <len>\n<body>` where:

@@ -148,7 +148,7 @@ export async function fetchSnapshot(options: {
   }
   const fetch = options.fetch ?? defaultFetch();
   const response = await fetch('/api/state', {
-    headers: { 'X-Harness-Ui-Token': options.uiToken },
+    headers: { 'X-Aharness-Ui-Token': options.uiToken },
   });
   if (!response.ok) {
     throw new ApiClientError(
@@ -223,7 +223,7 @@ export async function postReply(
   const fetch = options.fetch ?? defaultFetch();
   const response = await fetch('/api/reply', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'X-Harness-Ui-Token': options.uiToken },
+    headers: { 'content-type': 'application/json', 'X-Aharness-Ui-Token': options.uiToken },
     body: JSON.stringify(payload),
   });
   if (!response.ok) {

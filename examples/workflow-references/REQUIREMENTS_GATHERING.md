@@ -1,4 +1,4 @@
-# Requirements Gathering — Step 1 of Autonomous Agent Harness
+# Requirements Gathering — Step 1 of Autonomous Agent Aharness
 
 Dynamic, risk-scaled requirements elicitation for an LLM agent working with a human product owner. Designed for projects where the agent will execute autonomously after this phase closes — meaning gaps here become unrecoverable downstream cost.
 
@@ -29,7 +29,7 @@ Dynamic, risk-scaled requirements elicitation for an LLM agent working with a hu
 | `docs/SMOKE.md` | End-to-end acceptance walkthrough (runnable script or step list) that defines "done" |
 | `docs/OPEN_QUESTIONS.md` | Unresolved items, with the blast radius of each if left unresolved |
 
-All five are prerequisites for Step 2 (design/planning) of the harness.
+All five are prerequisites for Step 2 (design/planning) of the aharness.
 
 ---
 
@@ -73,7 +73,7 @@ Apply Cynefin [Snowden & Boone, HBR 2007; InfoQ interview with Snowden]:
 
 Before the path-specific elicitation begins, ask the owner what budget constraints exist. Project budgets are project-dependent — commercial runs cap dollars and wall time; API-bound runs cap tokens; hobby runs may have no cap at all. Use one `AskUserQuestion` call with the options `dollars`, `tokens`, `hours`, `no cap`, `multiple` (multiSelect acceptable). For each selected unit, follow up with a numeric cap question. Write the results into `SCOPE.md` using the §8.4 schema (`budgets: [...]` list; empty list for "no cap" declarations).
 
-A budget entry must declare its `scope` field: `total` (whole harness), `step1`, `step2`, or `step3`. If the owner only states a total cap, record one entry with `scope: total`; per-phase allocation is Step 2's concern (Step 2 apportions the total across phases during its pre-flight).
+A budget entry must declare its `scope` field: `total` (whole aharness), `step1`, `step2`, or `step3`. If the owner only states a total cap, record one entry with `scope: total`; per-phase allocation is Step 2's concern (Step 2 apportions the total across phases during its pre-flight).
 - **Chaotic** → stop. Escalate to human. Requirements gathering is not the right first move.
 
 ---
@@ -134,7 +134,7 @@ Time-box: if this takes longer than 60 minutes of wall time or ≥3 rounds of cl
 3. **Formal requirements specification** using Volere template [Robertson & Robertson, *Mastering the Requirements Process* 3rd ed., 21 sections]. Functional, non-functional, and constraints separated.
 4. **Hazard / threat analysis.** FMEA-lite for safety; threat model for security. Agile lightweight techniques explicitly do not cover this [Nuseibeh & Easterbrook 2000; Perforce/DA on safety-critical agile].
 5. **Traceability matrix.** Every requirement → design element → test. Required for regulated work; cheap insurance otherwise.
-6. **Fagan-style inspection of the requirements doc** [Fagan 1976; NASA SWE-087]. Empirically 60–90% defect removal on requirements artifacts [IBM/NASA data]. For an agent harness: spawn a dedicated review subagent with "find contradictions, missing NFRs, untestable requirements" as the single instruction.
+6. **Fagan-style inspection of the requirements doc** [Fagan 1976; NASA SWE-087]. Empirically 60–90% defect removal on requirements artifacts [IBM/NASA data]. For an agent aharness: spawn a dedicated review subagent with "find contradictions, missing NFRs, untestable requirements" as the single instruction.
 7. **Two rounds of user confirmation.** First round: requirements + scope. Second round: after `SMOKE.md` is drafted, walk through it with the owner before lock-in.
 
 ---
@@ -244,8 +244,8 @@ budgets:
 Rules:
 - Zero entries (`budgets: []`) → no budget-based abort. Non-budget abort conditions (e.g., walking-skeleton triple-fail in Step 2 §8.6) still fire.
 - Multiple entries allowed. A commercial run might declare a dollar cap for the whole project AND a wall-time cap for Step 3. Any one entry hitting its `abort_at` triggers the abort.
-- `scope: "total"` applies to the full harness lifetime. Phase-scoped entries apply only to that phase's agent time.
-- Units are tracked separately per entry — the harness does not convert between them. If the owner wants a dollar-denominated cap, the orchestrator measures dollars spent; if tokens, tokens consumed.
+- `scope: "total"` applies to the full aharness lifetime. Phase-scoped entries apply only to that phase's agent time.
+- Units are tracked separately per entry — the aharness does not convert between them. If the owner wants a dollar-denominated cap, the orchestrator measures dollars spent; if tokens, tokens consumed.
 
 Elicitation: Step 1 asks the owner "what are your limits?" using `AskUserQuestion` with the unit as the question's decision point, and the cap as the numeric follow-up. If the owner declines all three (no dollar cap, no token cap, no wall-time cap), record an empty list and note the acceptance in `CONTEXT.md`.
 
@@ -281,7 +281,7 @@ Exit criteria (all must hold):
 5. `SCOPE.md` contains a `budgets:` list per §8.4 (zero or more entries); if non-empty, every entry has `unit`, `cap`, `warn_at`, `abort_at`, and `scope` fields filled.
 6. `SMOKE.md` every step carries a `S<k>` identifier per §8.2; failure paths use the `S<k>.errN` form.
 
-If any criterion fails, the step is not done. Do not proceed to Step 2 of the harness.
+If any criterion fails, the step is not done. Do not proceed to Step 2 of the aharness.
 
 ---
 

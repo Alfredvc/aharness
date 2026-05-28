@@ -1,7 +1,7 @@
 {
   "name": "@aharness/core",
   "version": "0.1.0",
-  "description": "Codex (codex-rs) substrate for harness FSMs: headless sole-WS-client runtime with dynamic_tools submit, owner input, rollback, and per-state hooks.",
+  "description": "Codex (codex-rs) substrate for aharness FSMs: headless sole-WS-client runtime with dynamic_tools submit, owner input, rollback, and per-state hooks.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",

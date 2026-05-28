@@ -9,7 +9,7 @@ import { ensureRunDir } from '../src/run.js';
 import { ActorHost } from '../src/runtime/actorHost.js';
 import { createSubmitDispatcher } from '../src/runtime/dispatchSubmit.js';
 import type { DynamicToolCallParams } from '../src/protocol/types.js';
-import { getHarnessMeta, iterStates, stateKeyPath } from '../src/state.js';
+import { getAharnessMeta, iterStates, stateKeyPath } from '../src/state.js';
 import { writeArtifact } from '../src/artifact.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -20,7 +20,7 @@ function call(args: unknown): DynamicToolCallParams {
     threadId: 'thread-1',
     turnId: 'turn-1',
     callId: 'call-1',
-    tool: 'harness_submit',
+    tool: 'aharness_submit',
     arguments: JSON.stringify(args) as DynamicToolCallParams['arguments'],
   };
 }
@@ -99,7 +99,7 @@ describe('adventure example artifact lifecycle', () => {
 
 function terminalMetaById(machine: Parameters<typeof iterStates>[0], stateId: string) {
   for (const node of iterStates(machine)) {
-    if (stateKeyPath(node) === stateId) return getHarnessMeta(node);
+    if (stateKeyPath(node) === stateId) return getAharnessMeta(node);
   }
   return undefined;
 }

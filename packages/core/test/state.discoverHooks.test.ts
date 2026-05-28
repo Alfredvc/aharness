@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
-import { harness } from '../src/state/machine.js';
+import { aharness } from '../src/state/machine.js';
 import { exit, state, terminal } from '../src/state/exits.js';
 import { createFsm } from '../src/state/createFsm.js';
 import { discoverDeclaredHookKinds } from '../src/state/discoverHooks.js';
 
 describe('discoverDeclaredHookKinds', () => {
   it('returns an empty array when no state declares hooks', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'm',
       initial: 's',
       states: {
@@ -22,7 +22,7 @@ describe('discoverDeclaredHookKinds', () => {
   });
 
   it('returns a deduplicated set of declared kinds in codex declaration order', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'm',
       initial: 's',
       states: {
@@ -47,12 +47,12 @@ describe('discoverDeclaredHookKinds', () => {
     });
     // Order matches codex's `HOOK_EVENT_NAMES` declaration in
     // `codex-rs/hooks/src/lib.rs` so a future audit reading the codex source
-    // and the harness output side-by-side does not need to mentally re-sort.
+    // and the aharness output side-by-side does not need to mentally re-sort.
     expect(discoverDeclaredHookKinds(m)).toEqual(['PreToolUse', 'PostToolUse', 'UserPromptSubmit']);
   });
 
   it('ignores empty arrays', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'm',
       initial: 's',
       states: {
@@ -68,7 +68,7 @@ describe('discoverDeclaredHookKinds', () => {
   });
 
   it('ignores permissionRequest because it is not a codex hook-engine kind', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'm',
       initial: 's',
       states: {
@@ -86,7 +86,7 @@ describe('discoverDeclaredHookKinds', () => {
   });
 
   it('does not let permissionRequest affect codex hook-engine ordering', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'm',
       initial: 's',
       states: {

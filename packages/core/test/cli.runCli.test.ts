@@ -31,7 +31,7 @@ import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createActor } from 'xstate';
 
-import { harness, state, exit, terminal } from '../src/index.js';
+import { aharness, state, exit, terminal } from '../src/index.js';
 import { runCliForTest, type RunCliForTestOpts, type RunCliTestHooks } from '../src/cli/runCli.js';
 import type { AppServerHandle, SpawnAppServerOptions } from '../src/appServer/index.js';
 import { JsonRpcClient, type Transport } from '../src/jsonrpc/client.js';
@@ -96,7 +96,7 @@ function makeWritableBuffer(): {
  * the loader's surface is irrelevant to these pre-spawn cases.
  */
 function makeStubLoadFsmResult() {
-  const m = harness.machine({
+  const m = aharness.machine({
     id: 'stub',
     initial: 'greet',
     states: {
@@ -154,7 +154,7 @@ describe('runCliForTest — pre-spawn gates', () => {
   let stderrSink: NodeJS.WritableStream;
 
   beforeEach(() => {
-    repoRoot = mkdtempSync(join(tmpdir(), 'harness-runcli-'));
+    repoRoot = mkdtempSync(join(tmpdir(), 'aharness-runcli-'));
     stderrBuf = [];
     stderrSink = {
       write(chunk: string | Uint8Array): boolean {
@@ -218,7 +218,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     const fsmBase = basename(fsmPath, '.fsm.ts');
     const fsmHash = createHash('sha256').update(fsmBase).digest('hex').slice(0, 6);
     const existingRunId = `${fsmHash}-aaaaaa`;
-    const existingRoot = join(repoRoot, '.harness', 'runs', existingRunId);
+    const existingRoot = join(repoRoot, '.aharness', 'runs', existingRunId);
     mkdirSync(existingRoot, { recursive: true });
 
     const loaded = makeStubLoadFsmResult();
@@ -228,7 +228,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     actor.stop();
     flushHeadlessSnapshotEnvelope(join(existingRoot, 'snapshot.json'), {
       xstate: persisted,
-      harnessSubmitToolName: 'harness_submit',
+      aharnessSubmitToolName: 'aharness_submit',
       threadId: 'thread-prior',
     });
 
@@ -276,7 +276,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     const fsmBase = basename(fsmPath, '.fsm.ts');
     const fsmHash = createHash('sha256').update(fsmBase).digest('hex').slice(0, 6);
     const priorRunId = `${fsmHash}-bbbbbb`;
-    const priorRoot = join(repoRoot, '.harness', 'runs', priorRunId);
+    const priorRoot = join(repoRoot, '.aharness', 'runs', priorRunId);
     mkdirSync(priorRoot, { recursive: true });
     const loaded = makeStubLoadFsmResult();
     const actor = createActor(loaded.machine);
@@ -285,7 +285,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     actor.stop();
     flushHeadlessSnapshotEnvelope(join(priorRoot, 'snapshot.json'), {
       xstate: persisted,
-      harnessSubmitToolName: 'harness_submit',
+      aharnessSubmitToolName: 'aharness_submit',
       threadId: 'thread-prior',
     });
 
@@ -360,7 +360,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     const fsmBase = basename(fsmPath, '.fsm.ts');
     const fsmHash = createHash('sha256').update(fsmBase).digest('hex').slice(0, 6);
     const existingRunId = `${fsmHash}-aaaaaa`;
-    const existingRoot = join(repoRoot, '.harness', 'runs', existingRunId);
+    const existingRoot = join(repoRoot, '.aharness', 'runs', existingRunId);
     mkdirSync(existingRoot, { recursive: true });
 
     let capturedSock: string | undefined;
@@ -467,7 +467,7 @@ describe('runCliForTest — pre-spawn gates', () => {
 
     expect(r.exitCode).toBe(1); // bailed in stub spawn
     expect(stderrBuf.join('')).not.toContain('--resume requested');
-    const runs = join(repoRoot, '.harness', 'runs');
+    const runs = join(repoRoot, '.aharness', 'runs');
     const created = readdirSync(runs);
     expect(created.some((n) => n.startsWith(`${fsmHash}-`))).toBe(true);
   });
@@ -582,7 +582,7 @@ describe('runCliForTest — pre-spawn gates', () => {
 
   it('case 7: FSM declaring hooks materializes wrappers and passes hook overrides', async () => {
     const fsmPath = makeFsmFile(repoRoot, 'hooked.fsm.ts');
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'hooked',
       initial: 'work',
       states: {
@@ -627,9 +627,9 @@ describe('runCliForTest — pre-spawn gates', () => {
       APPROVAL_POLICY_OVERRIDE,
       ['hooks.PreToolUse', expect.stringMatching(/hooks = .*pre_tool_use\.sh.*timeout = 30/)],
     ]);
-    const runs = readdirSync(join(repoRoot, '.harness', 'runs'));
+    const runs = readdirSync(join(repoRoot, '.aharness', 'runs'));
     expect(runs).toHaveLength(1);
-    const hookDir = join(repoRoot, '.harness', 'runs', runs[0]!, 'hooks');
+    const hookDir = join(repoRoot, '.aharness', 'runs', runs[0]!, 'hooks');
     expect(existsSync(join(hookDir, 'pre_tool_use.sh'))).toBe(true);
     expect(existsSync(join(hookDir, 'post_tool_use.sh'))).toBe(false);
     expect(existsSync(join(hookDir, 'user_prompt_submit.sh'))).toBe(false);
@@ -637,7 +637,7 @@ describe('runCliForTest — pre-spawn gates', () => {
 
   it('case 7b: permissionRequest-only FSM emits no codex hook overrides or wrappers', async () => {
     const fsmPath = makeFsmFile(repoRoot, 'permission-only.fsm.ts');
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'permissionOnly',
       initial: 'work',
       states: {
@@ -678,16 +678,16 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(r.exitCode).toBe(1);
     expect(spawnAppServer).toHaveBeenCalledTimes(1);
     expect(capturedOverrides).toEqual([APPROVAL_POLICY_OVERRIDE]);
-    const runs = readdirSync(join(repoRoot, '.harness', 'runs'));
+    const runs = readdirSync(join(repoRoot, '.aharness', 'runs'));
     expect(runs).toHaveLength(1);
-    const runRoot = join(repoRoot, '.harness', 'runs', runs[0]!);
+    const runRoot = join(repoRoot, '.aharness', 'runs', runs[0]!);
     expect(existsSync(join(runRoot, 'hook.sock'))).toBe(false);
     expect(existsSync(join(runRoot, 'hooks', 'permission_request.sh'))).toBe(false);
   });
 
   it('case 7c: mixed permissionRequest plus preToolUse materializes only PreToolUse wiring', async () => {
     const fsmPath = makeFsmFile(repoRoot, 'mixed-hooks.fsm.ts');
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'mixedHooks',
       initial: 'work',
       states: {
@@ -731,9 +731,9 @@ describe('runCliForTest — pre-spawn gates', () => {
       APPROVAL_POLICY_OVERRIDE,
       ['hooks.PreToolUse', expect.stringMatching(/hooks = .*pre_tool_use\.sh.*timeout = 30/)],
     ]);
-    const runs = readdirSync(join(repoRoot, '.harness', 'runs'));
+    const runs = readdirSync(join(repoRoot, '.aharness', 'runs'));
     expect(runs).toHaveLength(1);
-    const hookDir = join(repoRoot, '.harness', 'runs', runs[0]!, 'hooks');
+    const hookDir = join(repoRoot, '.aharness', 'runs', runs[0]!, 'hooks');
     expect(existsSync(join(hookDir, 'pre_tool_use.sh'))).toBe(true);
     expect(existsSync(join(hookDir, 'permission_request.sh'))).toBe(false);
   });
@@ -742,7 +742,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     interface DonePayload {
       ok: boolean;
     }
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'entry-throw',
       initial: 'a',
       states: {
@@ -849,7 +849,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           threadId,
           turnId: 'turn-entry',
           callId: 'call-entry',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
         },
       });
@@ -1103,7 +1103,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     }
 
     const fsmPath = makeFsmFile(repoRoot, 'browser-owner-input.fsm.ts');
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'browser-owner-input',
       initial: 'greet',
       states: {
@@ -1243,7 +1243,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           threadId: 'thread-browser-owner-input',
           turnId: 'turn-browser-owner-input',
           callId: 'call-finish',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'greet', exit: 'finish', data: { ok: true } }),
         },
       });
@@ -1305,7 +1305,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     }
 
     const fsmPath = makeFsmFile(repoRoot, 'open-user-prompt.fsm.ts');
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'open-user-prompt',
       initial: 'chat',
       states: {
@@ -1428,7 +1428,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           threadId,
           turnId: 'turn-open-user-prompt',
           callId: 'call-finish',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'chat', exit: 'finish', data: { ok: true } }),
         },
       });
@@ -1473,7 +1473,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     }
 
     const fsmPath = makeFsmFile(repoRoot, 'active-binding-routing.fsm.ts');
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'active-binding-routing',
       initial: 'chat',
       states: {
@@ -1757,7 +1757,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           threadId: replacementThreadId,
           turnId: 'turn-finish',
           callId: 'call-finish',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'chat', exit: 'finish', data: { ok: true } }),
         },
       });
@@ -1841,10 +1841,10 @@ describe('runCliForTest — pre-spawn gates', () => {
         }),
       ]),
     );
-    const runId = readdirSync(join(repoRoot, '.harness', 'runs'))[0];
+    const runId = readdirSync(join(repoRoot, '.aharness', 'runs'))[0];
     if (!runId) throw new Error('missing run dir');
     const auditEntries = readFileSync(
-      join(repoRoot, '.harness', 'runs', runId, 'events.jsonl'),
+      join(repoRoot, '.aharness', 'runs', runId, 'events.jsonl'),
       'utf8',
     )
       .trim()
@@ -1861,7 +1861,7 @@ describe('runCliForTest — pre-spawn gates', () => {
       ]),
     );
     const snapshot = loadHeadlessSnapshotEnvelope(
-      join(repoRoot, '.harness', 'runs', runId, 'snapshot.json'),
+      join(repoRoot, '.aharness', 'runs', runId, 'snapshot.json'),
     );
     expect(snapshot.kind).toBe('ok');
     if (snapshot.kind !== 'ok') throw new Error('snapshot did not load');
@@ -1880,7 +1880,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     }
 
     const fsmPath = makeFsmFile(repoRoot, 'active-binding-approval-cleanup.fsm.ts');
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'active-binding-approval-cleanup',
       initial: 'chat',
       states: {
@@ -2053,7 +2053,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           threadId: replacementThreadId,
           turnId: 'turn-finish',
           callId: 'call-finish',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'chat', exit: 'finish', data: { ok: true } }),
         },
       });
@@ -2109,7 +2109,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     }
 
     const fsmPath = makeFsmFile(repoRoot, 'fresh-clear-boundary.fsm.ts');
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'fresh-clear-boundary',
       initial: 'a',
       states: {
@@ -2219,7 +2219,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           threadId: startupThreadId,
           turnId: 'turn-old',
           callId: 'call-go',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'a', exit: 'go', data: { ok: true } }),
         },
       });
@@ -2276,7 +2276,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           threadId: replacementThreadId,
           turnId: 'turn-new',
           callId: 'call-done',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
         },
       });
@@ -2320,7 +2320,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     }
 
     const fsmPath = makeFsmFile(repoRoot, 'closed-user-prompt.fsm.ts');
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'closed-user-prompt',
       initial: 'work',
       states: {
@@ -2438,7 +2438,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           threadId,
           turnId: 'turn-closed-user-prompt',
           callId: 'call-finish',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'work', exit: 'finish', data: { ok: true } }),
         },
       });
@@ -2562,7 +2562,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           threadId,
           turnId: 'turn-browser-launch-order',
           callId: 'call-finish',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'greet', exit: 'finish', data: {} }),
         },
       });
@@ -2711,7 +2711,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           threadId,
           turnId: 'turn-browser-launch-failure',
           callId: 'call-finish',
-          tool: 'harness_submit',
+          tool: 'aharness_submit',
           arguments: JSON.stringify({ state: 'greet', exit: 'finish', data: {} }),
         },
       });

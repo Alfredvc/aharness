@@ -7,7 +7,7 @@ import { performFreshClear } from '../src/runtime/freshClear.js';
 
 const dynamicTools: DynamicToolDef[] = [
   {
-    name: 'harness_submit',
+    name: 'aharness_submit',
     description: 'submit',
     inputSchema: { type: 'object' },
     readOnlyHint: true,

@@ -18,5 +18,5 @@
     "resolveJsonModule": true
   },
   "include": ["**/*.ts"],
-  "exclude": ["node_modules", "dist", ".harness"]
+  "exclude": ["node_modules", "dist", ".aharness"]
 }

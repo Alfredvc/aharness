@@ -57,7 +57,7 @@ export function submitFrame(id: string, args: object): Frame {
       kind: 'ItemStarted',
       id,
       type: 'function_call',
-      name: 'harness_submit',
+      name: 'aharness_submit',
       arguments: JSON.stringify(args, null, 2),
     },
   };

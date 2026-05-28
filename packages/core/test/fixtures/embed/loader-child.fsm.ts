@@ -1,10 +1,10 @@
-import { harness, state, exit, final } from '@aharness/core';
+import { aharness, state, exit, final } from '@aharness/core';
 
 interface PayloadOk {
   readonly ok: boolean;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'loaderChild',
   initial: 'go',
   states: {

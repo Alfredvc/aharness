@@ -16,7 +16,7 @@ import { runVerifyCli } from '../src/cli/verifyCli.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = resolve(here, '..', 'templates');
-const retiredVizPackageName = ['harness', 'viz'].join('-');
+const retiredVizPackageName = ['aharness', 'viz'].join('-');
 
 function captureStream(): { stream: NodeJS.WritableStream; text: () => string } {
   const chunks: string[] = [];
@@ -30,7 +30,7 @@ function captureStream(): { stream: NodeJS.WritableStream; text: () => string } 
 }
 
 function tmp(): string {
-  return mkdtempSync(join(tmpdir(), 'harness-init-test-'));
+  return mkdtempSync(join(tmpdir(), 'aharness-init-test-'));
 }
 
 function noopRunCommand(): ReturnType<typeof vi.fn> {
@@ -52,7 +52,7 @@ describe('runInitCli — file scaffold', () => {
       stdout: stdout.stream,
       stderr: stderr.stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand: noopRunCommand(),
       env: {},
     });
@@ -66,7 +66,7 @@ describe('runInitCli — file scaffold', () => {
     expect(existsSync(join(target, 'README.md'))).toBe(true);
   });
 
-  it('substitutes __HARNESS_VERSION__ and __PROJECT_NAME__ in package.json', async () => {
+  it('substitutes __AHARNESS_VERSION__ and __PROJECT_NAME__ in package.json', async () => {
     const root = tmp();
     const target = join(root, 'my-fsm');
     const stdout = captureStream();
@@ -80,7 +80,7 @@ describe('runInitCli — file scaffold', () => {
       stdout: stdout.stream,
       stderr: stderr.stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand: noopRunCommand(),
       env: {},
     });
@@ -116,7 +116,7 @@ describe('runInitCli — file scaffold', () => {
       stdout: stdout.stream,
       stderr: stderr.stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand: noopRunCommand(),
       env: {},
     });
@@ -140,7 +140,7 @@ describe('runInitCli — file scaffold', () => {
       stdout: captureStream().stream,
       stderr: stderr.stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand: noopRunCommand(),
       env: {},
     });
@@ -164,7 +164,7 @@ describe('runInitCli — file scaffold', () => {
       stdout: captureStream().stream,
       stderr: stderr.stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand: noopRunCommand(),
       env: {},
     });
@@ -188,7 +188,7 @@ describe('runInitCli — file scaffold', () => {
       stdout: captureStream().stream,
       stderr: captureStream().stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand: noopRunCommand(),
       env: {},
     });
@@ -209,7 +209,7 @@ describe('runInitCli — file scaffold', () => {
       stdout: captureStream().stream,
       stderr: captureStream().stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand: noopRunCommand(),
       env: {},
     });
@@ -231,7 +231,7 @@ describe('runInitCli — file scaffold', () => {
       stdout: captureStream().stream,
       stderr: captureStream().stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand: noopRunCommand(),
       env: {},
     });
@@ -255,7 +255,7 @@ describe('runInitCli — file scaffold', () => {
       stdout: captureStream().stream,
       stderr: stderr.stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand: noopRunCommand(),
       env: {},
     });
@@ -278,7 +278,7 @@ describe('runInitCli — file scaffold', () => {
       stdout: captureStream().stream,
       stderr: stderr.stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '0.0.0',
+      aharnessCoreVersion: '0.0.0',
       runCommand: noopRunCommand(),
       env: {},
     });
@@ -311,7 +311,7 @@ describe('runInitCli — git step', () => {
       stdout: captureStream().stream,
       stderr: captureStream().stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand,
       env: {},
     });
@@ -344,7 +344,7 @@ describe('runInitCli — git step', () => {
       stdout: stdout.stream,
       stderr: captureStream().stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand,
       env: {},
     });
@@ -368,7 +368,7 @@ describe('runInitCli — git step', () => {
       stdout: captureStream().stream,
       stderr: captureStream().stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand,
       env: {},
     });
@@ -401,7 +401,7 @@ describe('runInitCli — git step', () => {
       stdout: captureStream().stream,
       stderr: stderr.stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand,
       env: {},
     });
@@ -440,7 +440,7 @@ describe('runInitCli — git step', () => {
       stdout: captureStream().stream,
       stderr: stderr.stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand,
       env: {},
     });
@@ -468,7 +468,7 @@ describe('runInitCli — install step', () => {
       stdout: captureStream().stream,
       stderr: captureStream().stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand,
       env: {},
     });
@@ -490,7 +490,7 @@ describe('runInitCli — install step', () => {
       stdout: captureStream().stream,
       stderr: captureStream().stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand,
       env: { npm_config_user_agent: 'yarn/4.0.0 npm/? node/v20.0.0 darwin x64' },
     });
@@ -511,7 +511,7 @@ describe('runInitCli — install step', () => {
       stdout: captureStream().stream,
       stderr: captureStream().stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand,
       env: {},
     });
@@ -534,7 +534,7 @@ describe('runInitCli — install step', () => {
       stdout: stdout.stream,
       stderr: captureStream().stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand,
       env: {},
     });
@@ -562,7 +562,7 @@ describe('runInitCli — install step', () => {
       stdout: captureStream().stream,
       stderr: stderr.stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand,
       env: {},
     });
@@ -584,7 +584,7 @@ describe('runInitCli — scaffolded FSM passes aharness verify', () => {
       stdout: captureStream().stream,
       stderr: captureStream().stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand: noopRunCommand(),
       env: {},
     });
@@ -592,9 +592,9 @@ describe('runInitCli — scaffolded FSM passes aharness verify', () => {
     const source = readFileSync(join(target, 'hello.fsm.ts'), 'utf8');
     expect(source).toContain('createFsm');
     expect(source).not.toMatch(
-      /import\s+\{[^}]*\b(assign|harness|terminal|state|exit|arg|embed|skill|writeArtifact|RunDir|HarnessInput)\b[^}]*\}\s+from\s+['"][^'"]+['"]/s,
+      /import\s+\{[^}]*\b(assign|aharness|terminal|state|exit|arg|embed|skill|writeArtifact|RunDir|AharnessInput)\b[^}]*\}\s+from\s+['"][^'"]+['"]/s,
     );
-    expect(source).not.toMatch(/\b(assign|writeArtifact|RunDir|HarnessInput)\b/);
+    expect(source).not.toMatch(/\b(assign|writeArtifact|RunDir|AharnessInput)\b/);
   });
 
   it('runs runVerifyCli against the scaffolded hello.fsm.ts and exits 0', async () => {
@@ -609,16 +609,16 @@ describe('runInitCli — scaffolded FSM passes aharness verify', () => {
       stdout: captureStream().stream,
       stderr: captureStream().stream,
       templatesDir: TEMPLATES_DIR,
-      harnessCoreVersion: '1.2.3',
+      aharnessCoreVersion: '1.2.3',
       runCommand: noopRunCommand(),
       env: {},
     });
     const r = await runVerifyCli({
       fsmPath: join(target, 'hello.fsm.ts'),
       // CRITICAL: pass `repoRoot: target` (or `root` tmpdir). Default is
-      // `process.cwd()`, which during vitest = the harness repo root —
+      // `process.cwd()`, which during vitest = the aharness repo root —
       // running the verifier with that default writes loader cache entries
-      // into the harness repo's `.harness/cache/`, polluting the workspace
+      // into the aharness repo's `.aharness/cache/`, polluting the workspace
       // and possibly breaking other concurrent tests. The scaffolded dir is
       // self-contained; pinning `repoRoot` to it keeps cache-writes scoped.
       repoRoot: target,

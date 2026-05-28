@@ -6,12 +6,12 @@ import type {
   CanonicalSubmitMeta,
 } from './exits.js';
 import type { CanonicalEmbeddedFinalHandler } from './embed.js';
-import type { HarnessOps } from './harnessOps.js';
+import type { AharnessOps } from './aharnessOps.js';
 
-export const CANONICAL_COMMIT_CONTEXT_KEY = '__harnessCanonicalCommitContext';
-export const CANONICAL_SELECTED_BRANCH_KEY = '__harnessCanonicalSelectedBranch';
+export const CANONICAL_COMMIT_CONTEXT_KEY = '__aharnessCanonicalCommitContext';
+export const CANONICAL_SELECTED_BRANCH_KEY = '__aharnessCanonicalSelectedBranch';
 export const CANONICAL_EMBEDDED_FINAL_COMMIT_CONTEXT_KEY =
-  '__harnessCanonicalEmbeddedFinalCommitContext';
+  '__aharnessCanonicalEmbeddedFinalCommitContext';
 
 let dryRunDepth = 0;
 
@@ -28,9 +28,9 @@ export function isCanonicalDryRun(): boolean {
   return dryRunDepth > 0;
 }
 
-const noopOps: HarnessOps = Object.freeze({});
+const noopOps: AharnessOps = Object.freeze({});
 
-export function defaultCanonicalOps(): HarnessOps {
+export function defaultCanonicalOps(): AharnessOps {
   return noopOps;
 }
 
@@ -148,7 +148,7 @@ export async function prepareCanonicalSubmitCommit(args: {
   readonly branchIndex: number;
   readonly context: Record<string, unknown>;
   readonly payload: unknown;
-  readonly ops?: HarnessOps;
+  readonly ops?: AharnessOps;
 }): Promise<
   | { readonly ok: true; readonly nextContext: Record<string, unknown> }
   | { readonly ok: false; readonly error: string }
@@ -177,7 +177,7 @@ export async function prepareCanonicalAwaitCommit(args: {
   readonly meta: CanonicalAwaitMeta<Record<string, unknown>>;
   readonly context: Record<string, unknown>;
   readonly ownerReply: string;
-  readonly ops?: HarnessOps;
+  readonly ops?: AharnessOps;
 }): Promise<
   | { readonly ok: true; readonly nextContext: Record<string, unknown> }
   | { readonly ok: false; readonly error: string }
@@ -205,7 +205,7 @@ export async function prepareCanonicalEventCommit(args: {
   readonly branchIndex: number;
   readonly context: Record<string, unknown>;
   readonly payload: unknown;
-  readonly ops?: HarnessOps;
+  readonly ops?: AharnessOps;
 }): Promise<
   | { readonly ok: true; readonly nextContext: Record<string, unknown> }
   | { readonly ok: false; readonly error: string }
@@ -234,7 +234,7 @@ export async function prepareCanonicalEmbeddedFinalCommit(args: {
   readonly handler: CanonicalEmbeddedFinalHandler;
   readonly context: Record<string, unknown>;
   readonly output: unknown;
-  readonly ops?: HarnessOps;
+  readonly ops?: AharnessOps;
 }): Promise<
   | { readonly ok: true; readonly nextContext: Record<string, unknown> }
   | { readonly ok: false; readonly error: string }
@@ -244,7 +244,7 @@ export async function prepareCanonicalEmbeddedFinalCommit(args: {
       | ((input: {
           readonly data: Readonly<Record<string, unknown>>;
           readonly output: unknown;
-          readonly ops: HarnessOps;
+          readonly ops: AharnessOps;
         }) => void | Promise<void>)
       | undefined;
     if (effect !== undefined) {

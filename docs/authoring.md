@@ -1,6 +1,6 @@
 # Authoring
 
-Harness FSMs are best understood as executable coding workflows. Start by
+aharness FSMs are best understood as executable coding workflows. Start by
 deciding which parts of the coding process must happen in order, which evidence
 must be submitted before moving on, and where the owner or repository policy
 gets a vote.
@@ -17,9 +17,9 @@ The coding smoke demo follows the recommended shape:
 That is the mental model to use before cataloging primitives. A state is not a
 prompt section; it is a gate in the process.
 
-## When Harness Is Not The Right Tool
+## When aharness Is Not The Right Tool
 
-Do not start by writing an FSM for every coding request. Harness earns its keep
+Do not start by writing an FSM for every coding request. aharness earns its keep
 when the process has durable structure: ordered phases, typed submissions,
 approval gates, repair loops, policy hooks, or evidence that must be inspected
 after the run.
@@ -30,13 +30,13 @@ manually, the manual conversation is the workflow; adding an FSM creates
 ceremony without adding much enforcement.
 
 If the work is arbitrary multi-agent orchestration rather than a coding-agent
-workflow, a general framework may be the better foundation. Harness is narrower:
+workflow, a general framework may be the better foundation. aharness is narrower:
 it focuses on executable process control around coding agents, not every shape
 of agent graph.
 
-A custom harness can also be the right answer for teams with deep platform
+A custom aharness can also be the right answer for teams with deep platform
 requirements and the engineering bandwidth to own the runtime, UI, approval
-model, logging, verifier, and integrations. Harness targets the middle layer:
+model, logging, verifier, and integrations. aharness targets the middle layer:
 more enforceable than a skill, smaller than building that stack yourself.
 
 ## A Small FSM

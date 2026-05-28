@@ -31,33 +31,33 @@ export interface ArgMeta<T = unknown> {
 }
 
 export interface ArgSentinel<T = unknown> {
-  readonly __harnessArgMarker: true;
+  readonly __aharnessArgMarker: true;
   readonly meta: ArgMeta<T>;
   readonly _phantom?: T;
 }
 
 export function arg<T>(meta?: ArgMeta<T>): ArgSentinel<T> {
-  return { __harnessArgMarker: true, meta: meta ?? {} };
+  return { __aharnessArgMarker: true, meta: meta ?? {} };
 }
 
 export function isArgSentinel(v: unknown): v is ArgSentinel {
   return (
     typeof v === 'object' &&
     v !== null &&
-    (v as { __harnessArgMarker?: unknown }).__harnessArgMarker === true
+    (v as { __aharnessArgMarker?: unknown }).__aharnessArgMarker === true
   );
 }
 
 /**
  * Type-level resolution of an `input: { field: arg<T>(...) }` declaration into
- * the resolved object shape `{ field: T }`. Used by `harness.machine`'s public
+ * the resolved object shape `{ field: T }`. Used by `aharness.machine`'s public
  * signature (see `state/machine.ts`) to thread the resolved input shape into
  * the `context:` callback's `input` parameter so authors get a typed `input`
  * without manual annotations, and re-exposed as the third generic of
- * `HarnessMachine<…>` for `InputOf<>` consumers.
+ * `AharnessMachine<…>` for `InputOf<>` consumers.
  *
  * The `-readonly` mapping strips the readonly modifier picked up from the
- * `const TInput` generic on `harness.machine` — `const` preserves the input
+ * `const TInput` generic on `aharness.machine` — `const` preserves the input
  * declaration's literal shape (so `arg<string>(...)` keeps its type
  * argument) but as a side effect marks every property `readonly`. Authors
  * compare the resolved input against plain (non-readonly) object types, so
@@ -68,10 +68,10 @@ export type ResolveInput<TInput extends Record<string, ArgSentinel>> = {
 };
 
 /**
- * Given a compiled harness machine OR its raw config, produce the typed
+ * Given a compiled aharness machine OR its raw config, produce the typed
  * object shape an FSM expects as `input`. Reads two paths:
  *
- *   1. `TFsm['__inputType']` — the phantom slot on `HarnessMachine<…>`
+ *   1. `TFsm['__inputType']` — the phantom slot on `AharnessMachine<…>`
  *      (Task 12a). Surfaces the resolved input shape when the consumer
  *      types `TFsm` as the typed return.
  *   2. `TFsm['config']['input']` — the runtime-preserved declaration on
@@ -80,8 +80,8 @@ export type ResolveInput<TInput extends Record<string, ArgSentinel>> = {
  *      and the phantom slot is missing.
  *
  * Path 1 covers cached / dynamically imported machines where the literal
- * is lost — authors annotate the import as `HarnessMachine<…, TInput>` to
- * surface the input shape. Path 2 works for direct `typeof harness.machine({...})`.
+ * is lost — authors annotate the import as `AharnessMachine<…, TInput>` to
+ * surface the input shape. Path 2 works for direct `typeof aharness.machine({...})`.
  *
  * Required vs optional in the static side: every declared field is treated
  * as required at the type level. The runtime CLI parser (Task 14) applies

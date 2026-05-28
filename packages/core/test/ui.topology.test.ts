@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { createFsm, exit, harness, skill, state } from '../src/index.js';
+import { createFsm, exit, aharness, skill, state } from '../src/index.js';
 import { loadFsm } from '../src/loader/index.js';
 import { extractUiTopology } from '../src/ui/topology.js';
 
@@ -43,7 +43,7 @@ describe('extractUiTopology', () => {
       return `Review this plan: ${ctx.plan ?? 'missing'}`;
     }
 
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'inspectable',
       initial: 'plan',
       states: {
@@ -82,7 +82,7 @@ describe('extractUiTopology', () => {
         done: {
           type: 'final',
           meta: {
-            harness: {
+            aharness: {
               kind: 'terminal',
               outcome: 'success',
               artifacts: {

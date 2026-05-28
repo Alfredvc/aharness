@@ -87,7 +87,7 @@ describe('protocol request/response types', () => {
     expectTypeOf<DynamicToolDef>().not.toMatchTypeOf<{ parameters: unknown }>();
   });
 
-  it('ThreadStartParams accepts narrow harness fields', () => {
+  it('ThreadStartParams accepts narrow aharness fields', () => {
     expectTypeOf<ThreadStartParams>().toMatchTypeOf<{
       baseInstructions?: string;
       dynamicTools?: ReadonlyArray<DynamicToolDef>;

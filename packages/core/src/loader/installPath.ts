@@ -1,8 +1,8 @@
 /**
  * Resolve the on-disk location of `@aharness/core` and `xstate` from
- * the harness install — not from the user's project.
+ * the aharness install — not from the user's project.
  *
- * Background: a harness user installs the CLI globally (`npm i -g
+ * Background: an aharness user installs the CLI globally (`npm i -g
  * @aharness/core`) or via a single-binary distribution. They write
  * `<file>.fsm.ts` somewhere on their disk; their project may not be a
  * Node project at all (could be a Python repo, a docs folder, anywhere).
@@ -10,10 +10,10 @@
  * '@aharness/core'`, `import { setup } from 'xstate'`) cannot be
  * resolved from the user's directory — there's no `node_modules` there.
  *
- * The loader resolves those specifiers from the harness install instead.
+ * The loader resolves those specifiers from the aharness install instead.
  * `import.meta.resolve` (stable in Node 20+) walks node_modules upward
- * from this module's location; since this module ships inside the harness
- * package, the resolution lands on harness's bundled `xstate` and on
+ * from this module's location; since this module ships inside the aharness
+ * package, the resolution lands on aharness's bundled `xstate` and on
  * `@aharness/core` itself (which IS this package, found via its
  * package metadata).
  *
@@ -37,9 +37,9 @@ export interface InstallPaths {
   /** Absolute path to the directory holding xstate's `package.json`. */
   readonly xstatePackageDir: string;
   /** Absolute path to `@aharness/core`'s authoring-barrel entry. */
-  readonly harnessCoreSdkEntry: string;
+  readonly aharnessCoreSdkEntry: string;
   /** Absolute path to the directory holding `@aharness/core`'s `package.json`. */
-  readonly harnessCoreSdkPackageDir: string;
+  readonly aharnessCoreSdkPackageDir: string;
 }
 
 let cached: InstallPaths | null = null;
@@ -50,7 +50,7 @@ let cached: InstallPaths | null = null;
  * process.
  *
  * Throws if either package cannot be resolved. That indicates a broken
- * harness install (a published `@aharness/core` shipped without
+ * aharness install (a published `@aharness/core` shipped without
  * bundling its deps); the runtime can't continue without knowing where to
  * point bundle imports.
  */
@@ -58,18 +58,18 @@ export async function getInstallPaths(): Promise<InstallPaths> {
   if (cached) return cached;
 
   const xstateEntryUrl = import.meta.resolve('xstate');
-  const harnessCoreSdkEntryUrl = await resolveHarnessCoreSdk();
+  const aharnessCoreSdkEntryUrl = await resolveAharnessCoreSdk();
 
   const xstateEntry = fileURLToPath(xstateEntryUrl);
-  const harnessCoreSdkEntry = fileURLToPath(harnessCoreSdkEntryUrl);
+  const aharnessCoreSdkEntry = fileURLToPath(aharnessCoreSdkEntryUrl);
   const xstatePackageDir = await findPackageDir(xstateEntry);
-  const harnessCoreSdkPackageDir = await findPackageDir(harnessCoreSdkEntry);
+  const aharnessCoreSdkPackageDir = await findPackageDir(aharnessCoreSdkEntry);
 
   cached = {
     xstateEntry,
     xstatePackageDir,
-    harnessCoreSdkEntry,
-    harnessCoreSdkPackageDir,
+    aharnessCoreSdkEntry,
+    aharnessCoreSdkPackageDir,
   };
   return cached;
 }
@@ -80,7 +80,7 @@ export async function getInstallPaths(): Promise<InstallPaths> {
  * (pnpm intra-package quirks — Node refuses to import a package from
  * within its own `node_modules` tree in some pnpm layouts).
  */
-async function resolveHarnessCoreSdk(): Promise<string> {
+async function resolveAharnessCoreSdk(): Promise<string> {
   try {
     return import.meta.resolve('@aharness/core');
   } catch {
@@ -120,7 +120,7 @@ async function resolveHarnessCoreSdk(): Promise<string> {
 /** Walk up from a file path until we find the directory containing `package.json`. */
 async function findPackageDir(entryFile: string): Promise<string> {
   let dir = path.dirname(entryFile);
-  // Cap the ancestor walk; see `resolveHarnessCoreSdk` for rationale.
+  // Cap the ancestor walk; see `resolveAharnessCoreSdk` for rationale.
   const MAX_ANCESTOR_DEPTH = 64;
   for (let i = 0; i < MAX_ANCESTOR_DEPTH; i++) {
     try {

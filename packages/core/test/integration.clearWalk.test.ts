@@ -27,7 +27,7 @@ function hasCodex(): boolean {
   }
 }
 
-const E2E_ENABLED = hasCodex() && process.env['HARNESS_E2E_REAL_CODEX'] === '1';
+const E2E_ENABLED = hasCodex() && process.env['AHARNESS_E2E_REAL_CODEX'] === '1';
 
 describe.skipIf(!E2E_ENABLED)('runCli - fresh clear clearWalk (end-to-end)', () => {
   let cleanups: Array<() => Promise<void> | void> = [];
@@ -112,7 +112,7 @@ describe.skipIf(!E2E_ENABLED)('runCli - fresh clear clearWalk (end-to-end)', () 
       threadId: expect.any(String),
     });
 
-    const runRoot = join(repoRoot, '.harness', 'runs');
+    const runRoot = join(repoRoot, '.aharness', 'runs');
     const runPrefix = `${fsmHash6(join(repoRoot, 'clearWalk.fsm.ts'))}-`;
     const runId = readdirSync(runRoot).find((entry) => entry.startsWith(runPrefix));
     expect(runId).toBeDefined();

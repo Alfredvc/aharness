@@ -1,6 +1,6 @@
 /**
- * Type-level tests for `InputOf<TFsm>` and the `HarnessMachine<…>` typed
- * return of `harness.machine({...})` (Task 12a).
+ * Type-level tests for `InputOf<TFsm>` and the `AharnessMachine<…>` typed
+ * return of `aharness.machine({...})` (Task 12a).
  *
  * `expectTypeOf` from vitest is a TS-compile-time assertion: it erases at
  * runtime, so failures only surface under `tsc`. This file ships under
@@ -10,7 +10,7 @@
  */
 import { describe, expectTypeOf, it } from 'vitest';
 import {
-  harness,
+  aharness,
   state,
   exit,
   final,
@@ -18,16 +18,16 @@ import {
   createFsm,
   type ArgSentinel,
   type InputOf,
-  type HarnessMachine,
+  type AharnessMachine,
   type PermissionRequestDecision,
   type PermissionRequestEvent,
   type ResolveInput,
-  type HarnessOps,
+  type AharnessOps,
 } from '../src/index.js';
 
 describe('InputOf<typeof child>', () => {
   it('resolves through the literal config-input path', () => {
-    const child = harness.machine({
+    const child = aharness.machine({
       input: {
         ideafilePath: arg<string>({ description: 'p' }),
         runs: arg<number>({ default: 3 }),
@@ -45,8 +45,8 @@ describe('InputOf<typeof child>', () => {
     expectTypeOf<ChildInput>().toEqualTypeOf<{ ideafilePath: string; runs: number }>();
   });
 
-  it('resolves through the __inputType phantom path on HarnessMachine<…>', () => {
-    type AnnotatedChild = HarnessMachine<unknown, never, { topic: string }>;
+  it('resolves through the __inputType phantom path on AharnessMachine<…>', () => {
+    type AnnotatedChild = AharnessMachine<unknown, never, { topic: string }>;
     type ChildInput = InputOf<AnnotatedChild>;
     expectTypeOf<ChildInput>().toEqualTypeOf<{ topic: string }>();
   });
@@ -57,9 +57,9 @@ describe('InputOf<typeof child>', () => {
   });
 });
 
-describe('harness.machine generic inference', () => {
+describe('aharness.machine generic inference', () => {
   it('infers TInput from input: literal and TContext from context() return', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'pipeline',
       input: { topic: arg<string>({ description: 'Project topic' }) },
       context: ({ input }) => ({ topic: input.topic }),
@@ -188,7 +188,7 @@ describe('createFsm() canonical type contract', () => {
       prompt: 'submit',
       entry: async (data, ops) => {
         expectTypeOf(data).toEqualTypeOf<Readonly<Data>>();
-        expectTypeOf(ops).toEqualTypeOf<HarnessOps>();
+        expectTypeOf(ops).toEqualTypeOf<AharnessOps>();
       },
       on: {
         submit: fsm.submit<{ amount: number }>({
@@ -196,7 +196,7 @@ describe('createFsm() canonical type contract', () => {
           effect: async ({ data, payload, ops }) => {
             expectTypeOf(data).toEqualTypeOf<Readonly<Data>>();
             expectTypeOf(payload).toEqualTypeOf<{ amount: number }>();
-            expectTypeOf(ops).toEqualTypeOf<HarnessOps>();
+            expectTypeOf(ops).toEqualTypeOf<AharnessOps>();
           },
           reduce: (draft, payload) => {
             expectTypeOf(draft).toEqualTypeOf<Data>();
@@ -216,7 +216,7 @@ describe('createFsm() canonical type contract', () => {
           effect: async ({ data, ownerReply, ops }) => {
             expectTypeOf(data).toEqualTypeOf<Readonly<Data>>();
             expectTypeOf(ownerReply).toEqualTypeOf<string>();
-            expectTypeOf(ops).toEqualTypeOf<HarnessOps>();
+            expectTypeOf(ops).toEqualTypeOf<AharnessOps>();
           },
           reduce: (draft, ownerReply) => {
             expectTypeOf(draft).toEqualTypeOf<Data>();

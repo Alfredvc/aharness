@@ -2,14 +2,14 @@
  * Core types — `@aharness/core` §3 (post-state-posture-and-exits spec).
  */
 import type { JSONSchema7 } from 'json-schema';
-import type { HarnessStateMeta } from './state/exits.js';
-export type { HarnessStateMeta } from './state/exits.js';
+import type { AharnessStateMeta } from './state/exits.js';
+export type { AharnessStateMeta } from './state/exits.js';
 
 /**
- * Marker the user FSM attaches to each state via `meta.harness`.
+ * Marker the user FSM attaches to each state via `meta.aharness`.
  * Constructed via `state()`, `terminal()`, or `passive()`.
  */
-export type HarnessMeta = HarnessStateMeta | TerminalMeta | PassiveMeta;
+export type AharnessMeta = AharnessStateMeta | TerminalMeta | PassiveMeta;
 
 export interface TerminalMeta {
   readonly kind: 'terminal';
@@ -40,8 +40,8 @@ export interface PassiveMeta {
  * fails to compile rather than corrupting visit counts mid-run.
  */
 export interface RunCtx {
-  readonly __harness_lastOwnerReply: string | undefined;
-  readonly __harness_visitCount: Readonly<Record<string, number>>;
+  readonly __aharness_lastOwnerReply: string | undefined;
+  readonly __aharness_visitCount: Readonly<Record<string, number>>;
   readonly [k: string]: unknown;
 }
 
@@ -53,7 +53,7 @@ export interface RunDir {
   readonly artifactsDir: string;
 }
 
-export interface HarnessInput {
+export interface AharnessInput {
   readonly runDir: RunDir;
   readonly runId: string;
 }

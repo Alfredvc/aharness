@@ -8,7 +8,7 @@
  *      today), the gate returns `ok: true` plus a warning `message`; the
  *      doctor surfaces that warning but still exits 0 — the gate already
  *      decided that a git-pin is non-blocking.
- *   2. Active runs — enumerates `<repoRoot>/.harness/runs/<runId>` and per
+ *   2. Active runs — enumerates `<repoRoot>/.aharness/runs/<runId>` and per
  *      run reports:
  *        - `daemon.alive` age (mtime delta). Missing → `unknown`. If the
  *          age exceeds `STALE_DAEMON_THRESHOLD_MS` (15 s) AND no
@@ -137,7 +137,7 @@ async function defaultCheckVersion(): Promise<VersionGateResult> {
 }
 
 function defaultListRuns(): Promise<ReadonlyArray<DoctorRun>> {
-  const root = join(process.cwd(), '.harness', 'runs');
+  const root = join(process.cwd(), '.aharness', 'runs');
   let entries: string[];
   try {
     entries = readdirSync(root);

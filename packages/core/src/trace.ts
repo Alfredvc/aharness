@@ -18,10 +18,10 @@
  * find the right emitter without threading it through XState input.
  *
  * Privacy posture mirrors `events.jsonl` (§4.9 of `SPEC_SDK.md`):
- *   - hook payloads digested by default; full only with HARNESS_TRACE_FULL=1
- *   - submit payloads NEVER written, even with HARNESS_TRACE_FULL=1
+ *   - hook payloads digested by default; full only with AHARNESS_TRACE_FULL=1
+ *   - submit payloads NEVER written, even with AHARNESS_TRACE_FULL=1
  *   - artifact contents NEVER written
- *   - subagent prompts/results digested by default; full with HARNESS_TRACE_FULL=1
+ *   - subagent prompts/results digested by default; full with AHARNESS_TRACE_FULL=1
  */
 // Default import so vitest `vi.spyOn(fs, 'writeSync')` intercepts our calls.
 // The ESM namespace object is non-configurable and cannot be spied on; the
@@ -119,7 +119,7 @@ const DEFAULT_FLUSH_INTERVAL_MS = 1000;
  *
  * Module-level mutable state — this is intentional.
  *
- * Each daemon process runs a single Harness run, so a process-global
+ * Each daemon process runs a single Aharness run, so a process-global
  * map is the right scope. The runDir-keyed lookup lets `writeArtifact`
  * (called from inside user FSM actions) find its emitter without
  * threading it through XState input. There is no second consumer in
@@ -172,12 +172,12 @@ export function getEventCount(runDir: RunDir): number {
 }
 
 export function openTrace(runDir: RunDir, opts: TraceOptions = {}): TraceEmitter {
-  if (process.env['HARNESS_TRACE'] === '0') {
+  if (process.env['AHARNESS_TRACE'] === '0') {
     const noop = makeNoopEmitter();
     REGISTRY.set(runDir.root, { emitter: noop, currentStateEnterTs: null, eventCount: 0 });
     return noop;
   }
-  const fullPayloads = opts.fullPayloads ?? process.env['HARNESS_TRACE_FULL'] === '1';
+  const fullPayloads = opts.fullPayloads ?? process.env['AHARNESS_TRACE_FULL'] === '1';
   const flushEvery = opts.flushEvery ?? DEFAULT_FLUSH_EVERY;
   const flushIntervalMs = opts.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
   const launchTs = opts.launchTs ?? Date.now();
@@ -285,7 +285,7 @@ function makeEmitter(opts: MakeEmitterOpts): TraceEmitter {
       pid: state.pid,
       tid: 0,
       name: 'process_name',
-      args: { name: `harness/${opts.runDir.runId}` },
+      args: { name: `aharness/${opts.runDir.runId}` },
     },
     {
       ph: 'M',

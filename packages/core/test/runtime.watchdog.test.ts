@@ -46,7 +46,7 @@ describe('watchdogConfig (R28: no env-var override)', () => {
     expect(RUI_RACE_BUDGET_MS).toBe(watchdogConfig.RUI_RACE_BUDGET_MS);
   });
 
-  it('does not read from any HARNESS_*_BUDGET_MS env var (per R28)', () => {
+  it('does not read from any AHARNESS_*_BUDGET_MS env var (per R28)', () => {
     // The constants are compile-time literals; mutating env after import
     // must not change the exported values. This is a structural assertion
     // rather than behavioral, since reading process.env at module-load time
@@ -56,14 +56,14 @@ describe('watchdogConfig (R28: no env-var override)', () => {
       submit: watchdogConfig.SUBMIT_BUDGET_MS,
       rui: watchdogConfig.RUI_RACE_BUDGET_MS,
     };
-    process.env.HARNESS_SUBMIT_BUDGET_MS = '999';
-    process.env.HARNESS_RUI_BUDGET_MS = '888';
+    process.env.AHARNESS_SUBMIT_BUDGET_MS = '999';
+    process.env.AHARNESS_RUI_BUDGET_MS = '888';
     try {
       expect(watchdogConfig.SUBMIT_BUDGET_MS).toBe(before.submit);
       expect(watchdogConfig.RUI_RACE_BUDGET_MS).toBe(before.rui);
     } finally {
-      delete process.env.HARNESS_SUBMIT_BUDGET_MS;
-      delete process.env.HARNESS_RUI_BUDGET_MS;
+      delete process.env.AHARNESS_SUBMIT_BUDGET_MS;
+      delete process.env.AHARNESS_RUI_BUDGET_MS;
     }
   });
 });

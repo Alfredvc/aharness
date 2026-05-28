@@ -18,7 +18,7 @@
 //   mkdir -p /tmp/mcp-probe && cd /tmp/mcp-probe
 //   npm init -y >/dev/null
 //   npm install @modelcontextprotocol/sdk@^1.29.0 zod
-//   cp /path/to/harness/packages/core/scripts/mcp-sdk-probe.mjs ./probe.mjs
+//   cp /path/to/aharness/packages/core/scripts/mcp-sdk-probe.mjs ./probe.mjs
 //   node probe.mjs
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
@@ -35,7 +35,7 @@ import { z } from 'zod';
 
 // === Path A: lower-level Server + setRequestHandler ===
 const lowServer = new Server(
-  { name: 'harness_fsm', version: '0.0.0' },
+  { name: 'aharness_fsm', version: '0.0.0' },
   { capabilities: { tools: {}, resources: {}, prompts: {} } },
 );
 lowServer.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -69,7 +69,7 @@ lowServer.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
 });
 
 // === Path B: McpServer.registerTool ===
-const high = new McpServer({ name: 'harness_fsm', version: '0.0.0' });
+const high = new McpServer({ name: 'aharness_fsm', version: '0.0.0' });
 let highSeenMeta;
 let highRegisterErrored = null;
 try {

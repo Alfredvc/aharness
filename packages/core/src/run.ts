@@ -3,13 +3,13 @@
  *
  * Two helpers:
  *   - `deriveRunId(filePath)` — pure name builder for each foreground run.
- *   - `ensureRunDir(runId, repoRoot)` — creates `<repoRoot>/.harness/runs/<runId>/`
+ *   - `ensureRunDir(runId, repoRoot)` — creates `<repoRoot>/.aharness/runs/<runId>/`
  *      and its `artifacts/` subdir, returns a populated `RunDir`.
  *
  * runId shape: `<fsmHash6>-<rand6>` (13 chars). The fsm prefix is a
  * 6-hex sha256 of the FSM-file basename rather than the basename itself,
  * so run directories stay compact regardless of FSM filename length.
- * Submit routing uses a single `harness_submit` dynamic tool whose payload
+ * Submit routing uses a single `aharness_submit` dynamic tool whose payload
  * carries `{state, exit, data}`; the runId is filesystem identity only. The
  * rand6 suffix is `crypto.randomBytes(3).toString('hex')`: 24 bits, ~16M
  * values; birthday collisions are negligible at expected concurrency.
@@ -21,7 +21,7 @@ import { basename, join, resolve } from 'node:path';
 import type { RunDir } from './types.js';
 
 const FSM_SUFFIX = '.fsm.ts';
-const RUNS_SUBDIR = '.harness/runs';
+const RUNS_SUBDIR = '.aharness/runs';
 const FSM_HASH_LEN = 6;
 const RAND_SUFFIX_BYTES = 3;
 
@@ -56,7 +56,7 @@ export function deriveRunId(fsmFilePath: string): string {
 }
 
 /**
- * Create `<repoRoot>/.harness/runs/<runId>/{,artifacts/}` and return a
+ * Create `<repoRoot>/.aharness/runs/<runId>/{,artifacts/}` and return a
  * populated `RunDir`. Idempotent — re-creating an existing run dir
  * returns the same shape without erroring.
  */

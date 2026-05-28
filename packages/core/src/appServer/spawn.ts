@@ -9,7 +9,7 @@
  *     `--listen` arg) and codex-rs/app-server/src/main.rs:23-28 (the
  *     `AppServerArgs` `--listen` arg). We pass either
  *     `ws://127.0.0.1:<port>` (TCP path) or `unix://<sockPath>` (Unix
- *     path, spec §4.2). The harness connects over the same WebSocket
+ *     path, spec §4.2). The aharness connects over the same WebSocket
  *     transport `wsTransport.ts` already speaks; the Unix path uses
  *     ws library's `socketPath` option (see transport/wsClient.ts).
  *

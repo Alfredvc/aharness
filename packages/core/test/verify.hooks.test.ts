@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { harness } from '../src/state/machine.js';
+import { aharness } from '../src/state/machine.js';
 import { exit, state, terminal } from '../src/state/exits.js';
 import { verify } from '../src/verify/verify.js';
 
@@ -14,17 +14,17 @@ const stubSidecar = (stateId: string, exitName: string) => ({
 });
 
 /**
- * Build a machine whose state `s` carries an arbitrary `meta.harness` literal.
- * Goes through `harness.machine` so the verifier invariant holds; bypasses
+ * Build a machine whose state `s` carries an arbitrary `meta.aharness` literal.
+ * Goes through `aharness.machine` so the verifier invariant holds; bypasses
  * `state()` runtime guards.
  */
-function machineWithRawHarnessMeta(rawMeta: Record<string, unknown>) {
-  return harness.machine({
+function machineWithRawAharnessMeta(rawMeta: Record<string, unknown>) {
+  return aharness.machine({
     id: 'm',
     initial: 's',
     states: {
       s: {
-        meta: { harness: rawMeta },
+        meta: { aharness: rawMeta },
       },
       done: terminal('success'),
     },
@@ -33,11 +33,11 @@ function machineWithRawHarnessMeta(rawMeta: Record<string, unknown>) {
 
 describe('verifier — state-hooks-must-be-functions', () => {
   it('rejects a non-function handler attached via direct meta construction', () => {
-    const m = machineWithRawHarnessMeta({
+    const m = machineWithRawAharnessMeta({
       kind: 'stateful',
       open: false,
       entryPrompt: 'p',
-      exits: { go: { kind: 'submit', payload: { __harnessPayloadMarker: true }, to: 'done' } },
+      exits: { go: { kind: 'submit', payload: { __aharnessPayloadMarker: true }, to: 'done' } },
       hooks: {
         preToolUse: [{ matcher: '^Bash$', handler: 'not a function' }],
       },
@@ -47,11 +47,11 @@ describe('verifier — state-hooks-must-be-functions', () => {
   });
 
   it('rejects a non-array hooks.preToolUse value', () => {
-    const m = machineWithRawHarnessMeta({
+    const m = machineWithRawAharnessMeta({
       kind: 'stateful',
       open: false,
       entryPrompt: 'p',
-      exits: { go: { kind: 'submit', payload: { __harnessPayloadMarker: true }, to: 'done' } },
+      exits: { go: { kind: 'submit', payload: { __aharnessPayloadMarker: true }, to: 'done' } },
       hooks: { preToolUse: 'not an array' },
     });
     const issues = verify(m, stubSidecar('s', 'go')).errors;
@@ -65,11 +65,11 @@ describe('verifier — state-hooks-must-be-functions', () => {
   });
 
   it('rejects a non-function permissionRequest handler attached via direct meta construction', () => {
-    const m = machineWithRawHarnessMeta({
+    const m = machineWithRawAharnessMeta({
       kind: 'stateful',
       open: false,
       entryPrompt: 'p',
-      exits: { go: { kind: 'submit', payload: { __harnessPayloadMarker: true }, to: 'done' } },
+      exits: { go: { kind: 'submit', payload: { __aharnessPayloadMarker: true }, to: 'done' } },
       hooks: {
         permissionRequest: [{ matcher: '^Bash$', handler: 'not a function' }],
       },
@@ -79,11 +79,11 @@ describe('verifier — state-hooks-must-be-functions', () => {
   });
 
   it('rejects a non-array hooks.permissionRequest value', () => {
-    const m = machineWithRawHarnessMeta({
+    const m = machineWithRawAharnessMeta({
       kind: 'stateful',
       open: false,
       entryPrompt: 'p',
-      exits: { go: { kind: 'submit', payload: { __harnessPayloadMarker: true }, to: 'done' } },
+      exits: { go: { kind: 'submit', payload: { __aharnessPayloadMarker: true }, to: 'done' } },
       hooks: { permissionRequest: 'not an array' },
     });
     const issues = verify(m, stubSidecar('s', 'go')).errors;
@@ -99,7 +99,7 @@ describe('verifier — state-hooks-must-be-functions', () => {
 
 describe('verifier — hook-kind-not-yet-supported', () => {
   it('accepts hooks.permissionRequest and keeps future reserved kinds closed', () => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'm',
       initial: 's',
       states: {
@@ -118,11 +118,11 @@ describe('verifier — hook-kind-not-yet-supported', () => {
   });
 
   it('rejects a state declaring hooks.sessionStart (programmatic bypass of state())', () => {
-    const m = machineWithRawHarnessMeta({
+    const m = machineWithRawAharnessMeta({
       kind: 'stateful',
       open: false,
       entryPrompt: 'p',
-      exits: { go: { kind: 'submit', payload: { __harnessPayloadMarker: true }, to: 'done' } },
+      exits: { go: { kind: 'submit', payload: { __aharnessPayloadMarker: true }, to: 'done' } },
       hooks: { sessionStart: [{ matcher: '.*', handler: () => undefined }] },
     });
     const issues = verify(m, stubSidecar('s', 'go')).errors;
@@ -132,11 +132,11 @@ describe('verifier — hook-kind-not-yet-supported', () => {
 
 describe('verifier — hook-matcher-not-supported-on-kind', () => {
   it('rejects a userPromptSubmit entry with a non-empty matcher', () => {
-    const m = machineWithRawHarnessMeta({
+    const m = machineWithRawAharnessMeta({
       kind: 'stateful',
       open: false,
       entryPrompt: 'p',
-      exits: { go: { kind: 'submit', payload: { __harnessPayloadMarker: true }, to: 'done' } },
+      exits: { go: { kind: 'submit', payload: { __aharnessPayloadMarker: true }, to: 'done' } },
       hooks: {
         userPromptSubmit: [{ matcher: 'foo', handler: () => undefined }],
       },
@@ -148,11 +148,11 @@ describe('verifier — hook-matcher-not-supported-on-kind', () => {
 
 describe('verifier — hook-matcher-invalid-regex', () => {
   it('rejects a malformed regex matcher via direct meta construction', () => {
-    const m = machineWithRawHarnessMeta({
+    const m = machineWithRawAharnessMeta({
       kind: 'stateful',
       open: false,
       entryPrompt: 'p',
-      exits: { go: { kind: 'submit', payload: { __harnessPayloadMarker: true }, to: 'done' } },
+      exits: { go: { kind: 'submit', payload: { __aharnessPayloadMarker: true }, to: 'done' } },
       hooks: {
         preToolUse: [{ matcher: '(?P<name>invalid)', handler: () => undefined }],
       },
@@ -165,11 +165,11 @@ describe('verifier — hook-matcher-invalid-regex', () => {
   });
 
   it('rejects a malformed permissionRequest matcher via direct meta construction', () => {
-    const m = machineWithRawHarnessMeta({
+    const m = machineWithRawAharnessMeta({
       kind: 'stateful',
       open: false,
       entryPrompt: 'p',
-      exits: { go: { kind: 'submit', payload: { __harnessPayloadMarker: true }, to: 'done' } },
+      exits: { go: { kind: 'submit', payload: { __aharnessPayloadMarker: true }, to: 'done' } },
       hooks: {
         permissionRequest: [{ matcher: '(?P<name>invalid)', handler: () => undefined }],
       },
@@ -217,13 +217,13 @@ describe('state() — permissionRequest runtime guards', () => {
 
 describe('verifier — retired reserved hook-tool check', () => {
   it.each([
-    ['legacy MCP-looking matcher', 'mcp__harness_fsm__.*'],
+    ['legacy MCP-looking matcher', 'mcp__aharness_fsm__.*'],
     ['wildcard matcher', '.*'],
     ['submit suffix matcher', 'submit$'],
     ['bare submit matcher', 'submit'],
     ['ordinary tool matcher', '^Bash$'],
   ])('accepts a valid %s', (_label, matcher) => {
-    const m = harness.machine({
+    const m = aharness.machine({
       id: 'm',
       initial: 's',
       states: {
@@ -247,7 +247,7 @@ describe('verifier — retired reserved hook-tool check', () => {
 
 describe('verifier — hooks-only-on-stateful-states', () => {
   it('rejects hooks on a passive meta', () => {
-    const m = machineWithRawHarnessMeta({
+    const m = machineWithRawAharnessMeta({
       kind: 'passive',
       hooks: { preToolUse: [{ matcher: '^Bash$', handler: () => undefined }] },
     });
@@ -258,15 +258,15 @@ describe('verifier — hooks-only-on-stateful-states', () => {
   it('rejects hooks on a terminal meta', () => {
     // Construct a one-state machine where the state is terminal but carries
     // hooks. Authors writing through `terminal('...')` cannot do this — the
-    // helper does not accept a hooks field — so we go raw via `harness.machine`.
-    const m = harness.machine({
+    // helper does not accept a hooks field — so we go raw via `aharness.machine`.
+    const m = aharness.machine({
       id: 'm',
       initial: 'done',
       states: {
         done: {
           type: 'final',
           meta: {
-            harness: {
+            aharness: {
               kind: 'terminal',
               outcome: 'success',
               hooks: { preToolUse: [{ matcher: '^Bash$', handler: () => undefined }] },

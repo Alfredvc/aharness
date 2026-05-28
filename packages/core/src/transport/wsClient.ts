@@ -1,5 +1,5 @@
 /**
- * `connectHeadlessWs` — WS-over-Unix JSON-RPC client used by the harness
+ * `connectHeadlessWs` — WS-over-Unix JSON-RPC client used by the aharness
  * CLI to dial its `codex app-server` child.
  *
  * Spec §3 boot sequence step 6, §4.1, §5.1. The CLI is the SOLE WS

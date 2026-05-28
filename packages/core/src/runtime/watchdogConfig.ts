@@ -1,7 +1,7 @@
 /**
  * Code-level watchdog budgets.
  *
- * Deliberately NOT runtime-tunable via env vars: a `HARNESS_*_BUDGET_MS`
+ * Deliberately NOT runtime-tunable via env vars: a `AHARNESS_*_BUDGET_MS`
  * surface would be a workflow opinion (see CLAUDE.md hard rule 1) and is
  * out of scope for the MVP. Tune by editing this file and shipping a new
  * release.

@@ -3,8 +3,8 @@
  *
  * Migrated to the exits-codegen shape:
  *   - `state<Ctx>({ entryPrompt, exits })` returns a full XState state
- *     config directly (no `meta: { harness: state(...) }` wrapper). The `on:`
- *     block is synthesised from `exits` by `harness.machine`; authors never
+ *     config directly (no `meta: { aharness: state(...) }` wrapper). The `on:`
+ *     block is synthesised from `exits` by `aharness.machine`; authors never
  *     write `SUBMIT__<stateId>__<exitName>` event keys.
  *   - Single-branch submit exits: `exit<T>({ to, actions })`.
  *   - Multi-branch submit exits: `exit<T>({ when: [...] })` where the
@@ -17,21 +17,21 @@
  *     `request_user_input` before submitting; the reply is returned to the
  *     model directly as the tool-call result. No `await` exit is needed —
  *     the state advances on the typed submit, not on the owner reply itself.
- *   - `setup({...}).createMachine(...)` -> `harness.machine(...)` so the
+ *   - `setup({...}).createMachine(...)` -> `aharness.machine(...)` so the
  *     wrapper can inject framework-managed visit-count and owner-reply
  *     context fields. Guards and actions are declared inline on
- *     transitions / state entries because `harness.machine` runs its
+ *     transitions / state entries because `aharness.machine` runs its
  *     own `setup()` to register the framework actions.
  */
 import { assign } from 'xstate';
 import {
-  harness,
+  aharness,
   passive,
   state,
   terminal,
   exit,
   writeArtifact,
-  type HarnessInput,
+  type AharnessInput,
   type RunDir,
 } from '@aharness/core';
 
@@ -97,7 +97,7 @@ interface ReviewPayload {
 // ─── Context ────────────────────────────────────────────────────────────────
 
 interface Ctx {
-  harness: { runDir: RunDir; runId: string };
+  aharness: { runDir: RunDir; runId: string };
   goal: string | null;
   records: RequirementEntry[];
   findings: ResearchResult[];
@@ -134,14 +134,14 @@ function fireRender(ctx: Ctx): void {
   // Errors surface through the run's event log + stderr; the FSM does not
   // gate on artifact durability for v1 (per SPEC §5.6 wording).
   void writeArtifact(
-    ctx.harness.runDir,
+    ctx.aharness.runDir,
     'requirements.md',
     renderRequirementsMd(ctx.records),
   ).catch((err: unknown) => {
     console.error('[requirement-spec] writeArtifact requirements.md failed:', err);
   });
   void writeArtifact(
-    ctx.harness.runDir,
+    ctx.aharness.runDir,
     'requirements.csv',
     renderRequirementsCsv(ctx.records),
   ).catch((err: unknown) => {
@@ -151,7 +151,7 @@ function fireRender(ctx: Ctx): void {
 
 // ─── Inline guards / actions (typed via state<Ctx> + exit<P>) ──────────────
 //
-// `harness.machine` runs its own `setup()` to register framework actions,
+// `aharness.machine` runs its own `setup()` to register framework actions,
 // so user-defined actions/guards declared via setup() would be discarded.
 // Inline functions on transitions get their types via contextual typing:
 // `TContext` from `state<Ctx>(...)` and `event.payload: P` from each
@@ -166,7 +166,7 @@ const renderArtifacts = ({ context }: { context: Ctx }) => {
 
 // ─── Machine ────────────────────────────────────────────────────────────────
 
-export const machine = harness.machine({
+export const machine = aharness.machine({
   id: 'requirement-spec',
   initial: 'askGoal',
   // `TContext` is inferred from this factory's return type; the FSM
@@ -174,9 +174,9 @@ export const machine = harness.machine({
   // an empty object — the framework-supplied `runDir`/`runId` ride
   // outside the typed surface and are read through a one-time cast.
   context: ({ input }): Ctx => {
-    const hi = input as unknown as HarnessInput;
+    const hi = input as unknown as AharnessInput;
     return {
-      harness: { runDir: hi.runDir, runId: hi.runId },
+      aharness: { runDir: hi.runDir, runId: hi.runId },
       goal: null,
       records: [],
       findings: [],

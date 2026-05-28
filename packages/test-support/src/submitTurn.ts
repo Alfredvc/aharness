@@ -3,8 +3,8 @@
  * resolve once the corresponding `turn/completed` notification arrives
  * for the parent thread.
  *
- * Phase 1 wire shape: under the sole-WS-client topology, the harness
- * CLI is the only WS subscriber and the model issues a `harness_submit`
+ * Phase 1 wire shape: under the sole-WS-client topology, the aharness
+ * CLI is the only WS subscriber and the model issues a `aharness_submit`
  * `dynamic_tools` call on its own turn (not a client-side `submit` RPC).
  * `submitTurn` is therefore just a `turn/start` + `turn/completed` wait
  * helper — there is no second client to mock.

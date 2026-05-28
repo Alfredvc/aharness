@@ -10,8 +10,8 @@
  */
 import type { AnyStateMachine, StateNode } from 'xstate';
 import { BuildExitToolsError } from './state/buildExitToolsError.js';
-import { validateHarnessMeta } from './state/validateHarnessMeta.js';
-import type { AwaitToolDef, HarnessMeta, SchemaSidecar, SubmitToolDef } from './types.js';
+import { validateAharnessMeta } from './state/validateAharnessMeta.js';
+import type { AwaitToolDef, AharnessMeta, SchemaSidecar, SubmitToolDef } from './types.js';
 
 /**
  * Walk every `StateNode` in the machine — root, child, deep-nested,
@@ -37,16 +37,16 @@ export function* iterStates(machine: AnyStateMachine): Iterable<StateNode> {
 }
 
 /**
- * Read the `meta.harness` marker off a `StateNode`. Returns `undefined`
+ * Read the `meta.aharness` marker off a `StateNode`. Returns `undefined`
  * when the user did not annotate the state. The verifier and the
  * tool-builder both go through this helper so future shape changes have
  * exactly one update site.
  */
-export function getHarnessMeta(node: StateNode): HarnessMeta | undefined {
+export function getAharnessMeta(node: StateNode): AharnessMeta | undefined {
   const raw: unknown = node.config.meta;
   if (raw === undefined || raw === null || typeof raw !== 'object') return undefined;
-  const harnessField = (raw as { harness?: unknown }).harness;
-  return validateHarnessMeta(harnessField);
+  const aharnessField = (raw as { aharness?: unknown }).aharness;
+  return validateAharnessMeta(aharnessField);
 }
 
 /**
@@ -88,7 +88,7 @@ export interface ExitToolSet {
  * Build legacy exit-tool defs for every exit declared by `machine`.
  *
  * - Walks every state via `iterStates`.
- * - Filters to those declaring `meta.harness.kind === 'stateful'`.
+ * - Filters to those declaring `meta.aharness.kind === 'stateful'`.
  * - For each submit exit, looks up the JSON Schema in
  *   `sidecar[stateId][exitName]` and emits a `SubmitToolDef`.
  * - Emits at most one `AwaitToolDef` (`await_user_message`) when any
@@ -107,7 +107,7 @@ export function buildExitTools(machine: AnyStateMachine, sidecar: SchemaSidecar)
   const submitTools: SubmitToolDef[] = [];
   let anyAwait = false;
   for (const node of iterStates(machine)) {
-    const meta = getHarnessMeta(node);
+    const meta = getAharnessMeta(node);
     if (!meta || meta.kind !== 'stateful') continue;
     const stateId = stateKeyPath(node);
     for (const exitName of Object.keys(meta.exits)) {

@@ -1,5 +1,5 @@
 /**
- * Frozen `SUBMIT_TOOL` constant — the single dynamic tool the harness
+ * Frozen `SUBMIT_TOOL` constant — the single dynamic tool the aharness
  * declares at `thread/start.dynamicTools` (per design §10's prompt-cache
  * invariant). Multiple call sites need this exact bytes-for-bytes
  * declaration; centralising it here keeps every emitter in lockstep so
@@ -20,7 +20,7 @@
 import type { DynamicToolDef } from './types.js';
 
 export const SUBMIT_TOOL: DynamicToolDef = Object.freeze({
-  name: 'harness_submit',
+  name: 'aharness_submit',
   description:
     "Submit data for the current FSM state. Look at the most recent orientation message in your context for the current state's name, valid exits, and required data shape.",
   readOnlyHint: true,
@@ -48,4 +48,4 @@ export const SUBMIT_TOOL: DynamicToolDef = Object.freeze({
 });
 
 /** Wire literal — kept as a named export so verifier and dispatcher stay byte-identical with the registration. */
-export const SUBMIT_TOOL_NAME = SUBMIT_TOOL.name; // 'harness_submit'
+export const SUBMIT_TOOL_NAME = SUBMIT_TOOL.name; // 'aharness_submit'

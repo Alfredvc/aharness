@@ -1,11 +1,11 @@
-import { harness, state, exit, final, embed } from '@aharness/core';
+import { aharness, state, exit, final, embed } from '@aharness/core';
 import child from './loader-child.fsm.js';
 
 interface RoutePayload {
   readonly choice: 'embed' | 'skip';
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'loaderParent',
   initial: 'router',
   states: {

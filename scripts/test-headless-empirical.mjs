@@ -13,7 +13,7 @@
  *   to call request_user_input. Confirm ServerRequest reaches sole client.
  *
  * Run from repo root:
- *   HARNESS_HEADLESS_TEST_MODEL=gpt-5-mini node scripts/test-headless-empirical.mjs
+ *   AHARNESS_HEADLESS_TEST_MODEL=gpt-5-mini node scripts/test-headless-empirical.mjs
  */
 
 import { mkdirSync, writeFileSync, existsSync, readFileSync, chmodSync, rmSync } from 'node:fs';
@@ -111,8 +111,8 @@ async function runTurn(client, threadId, prompt, log) {
     threadId,
     input: [{ type: 'text', text: prompt }],
   };
-  if (process.env.HARNESS_HEADLESS_TEST_MODEL)
-    params.model = process.env.HARNESS_HEADLESS_TEST_MODEL;
+  if (process.env.AHARNESS_HEADLESS_TEST_MODEL)
+    params.model = process.env.AHARNESS_HEADLESS_TEST_MODEL;
   const r = await client.request('turn/start', params);
   log('rpc', `turn/start → ${JSON.stringify(r).slice(0, 200)}`);
   return r;

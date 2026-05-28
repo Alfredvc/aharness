@@ -78,7 +78,7 @@ function resolveSuccessfulFixtureReply(state: UiState, payload: ReplyPayload): U
   return { ...state, replyError: null };
 }
 
-export function useFixtureHarnessSession(): UiState & UiActions {
+export function useFixtureAharnessSession(): UiState & UiActions {
   const fixtureRef = useRef<Fixture | null>(null);
   if (fixtureRef.current === null) {
     fixtureRef.current = resolveFixture(readFixtureIdFromLocation());

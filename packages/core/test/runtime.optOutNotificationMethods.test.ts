@@ -4,7 +4,7 @@
  *
  * Pinned Codex commit `127434cd8b96` declares approval lifecycle
  * notifications in `codex-rs/app-server-protocol/src/protocol/common.rs`.
- * The harness must not opt out of the notifications required to render and
+ * The aharness must not opt out of the notifications required to render and
  * clear browser approval cards.
  */
 import { describe, expect, it } from 'vitest';

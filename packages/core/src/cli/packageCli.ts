@@ -12,7 +12,7 @@ export interface PackageCliOptions {
   readonly cwd: string;
   readonly stdout: NodeJS.WritableStream;
   readonly stderr: NodeJS.WritableStream;
-  readonly harnessCoreVersion?: string;
+  readonly aharnessCoreVersion?: string;
 }
 
 interface PackageInitArgs {
@@ -30,17 +30,17 @@ export async function runPackageCli(opts: PackageCliOptions): Promise<{ exitCode
       return { exitCode: packageUsage(opts.stderr) };
     }
 
-    const harnessCoreVersion = resolveHarnessCoreVersion(opts);
+    const aharnessCoreVersion = resolveAharnessCoreVersion(opts);
     const result = await initFsmPackage({
       packageRoot: opts.cwd,
       force: parsed.force,
-      harnessCoreVersion: harnessCoreVersion.version,
+      aharnessCoreVersion: aharnessCoreVersion.version,
       ...(parsed.packageName ? { packageName: parsed.packageName } : {}),
       ...(parsed.binName ? { binName: parsed.binName } : {}),
       ...(parsed.fsmsDir ? { fsmsDir: parsed.fsmsDir } : {}),
     });
 
-    if (harnessCoreVersion.warned) {
+    if (aharnessCoreVersion.warned) {
       opts.stderr.write(
         `aharness package init: warning - running an unpublished @aharness/core (version 0.0.0). ` +
           `package.json pins "@aharness/core": "latest"; edit package.json to pin a real version before publishing.\n`,
@@ -144,8 +144,8 @@ function parsePackageInitArgs(args: ReadonlyArray<string>): PackageInitArgs | nu
   };
 }
 
-function resolveHarnessCoreVersion(opts: PackageCliOptions): { version: string; warned: boolean } {
-  const ownVersion = opts.harnessCoreVersion ?? readOwnVersion();
+function resolveAharnessCoreVersion(opts: PackageCliOptions): { version: string; warned: boolean } {
+  const ownVersion = opts.aharnessCoreVersion ?? readOwnVersion();
   if (ownVersion === '0.0.0') {
     return { version: 'latest', warned: true };
   }

@@ -13,18 +13,18 @@
  * exit names) live in JSON payload fields under MCP routing and never
  * surface as tool names, so no collision exists.
  */
-import { harness, state, terminal, exit } from '@aharness/core';
+import { aharness, state, terminal, exit } from '@aharness/core';
 
 interface AskGoalPayload {
   goal: string;
 }
 
-export const machine = harness.machine({
+export const machine = aharness.machine({
   id: 'single-state',
   initial: 'askGoal',
   // Seed framework-managed context so `getRunCtx` does not crash if the
   // bundle is ever instantiated.
-  context: () => ({ __harness_visitCount: {} as Record<string, number> }),
+  context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
   states: {
     askGoal: state({
       entryPrompt: 'Ask the goal.',

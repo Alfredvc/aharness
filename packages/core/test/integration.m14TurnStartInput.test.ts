@@ -21,9 +21,9 @@
  *     `response_item.message.role === "user"` entries with
  *     `content[0].type === "input_text"` and matching `text`:
  *       (1) The fresh-boot first-state nudge from `runCli.ts:474-487`
- *           (header `[harness] Now in state "a".`).
+ *           (header `[aharness] Now in state "a".`).
  *       (2) The cross-state second-state nudge from `scheduleCrossStateDance`
- *           (header `[harness] Now in state "b".`).
+ *           (header `[aharness] Now in state "b".`).
  *   - Both texts are captured from the outbound `turn/start.input.text`
  *     payload (via the `connectHeadlessWsImpl` spy) and the test asserts
  *     byte-for-byte equality with the rollout user-message text — that
@@ -31,7 +31,7 @@
  *     verbatim, NOT a textual heuristic over the rendered nudge.
  *
  * Skip gate matches `cli.runCli.phase1.test.ts:54` — requires the
- * `codex` binary on PATH plus `HARNESS_E2E_REAL_CODEX=1` so CI without
+ * `codex` binary on PATH plus `AHARNESS_E2E_REAL_CODEX=1` so CI without
  * the binary skips cleanly.
  */
 import { execFileSync } from 'node:child_process';
@@ -55,7 +55,7 @@ function hasCodex(): boolean {
   }
 }
 
-const E2E_ENABLED = hasCodex() && process.env['HARNESS_E2E_REAL_CODEX'] === '1';
+const E2E_ENABLED = hasCodex() && process.env['AHARNESS_E2E_REAL_CODEX'] === '1';
 
 /**
  * Find the rollout JSONL file matching `threadId` written after
@@ -259,8 +259,8 @@ describe.skipIf(!E2E_ENABLED)(
       // We expect at least two `turn/start` requests with text input —
       // the first-state kickoff for `a` and the cross-state dance's
       // re-orientation to `b`.
-      const stateANudge = turnStartTexts.find((t) => t.includes('[harness] Now in state "a"'));
-      const stateBNudge = turnStartTexts.find((t) => t.includes('[harness] Now in state "b"'));
+      const stateANudge = turnStartTexts.find((t) => t.includes('[aharness] Now in state "a"'));
+      const stateBNudge = turnStartTexts.find((t) => t.includes('[aharness] Now in state "b"'));
       expect(
         stateANudge,
         `expected a turn/start.input.text containing the state-a kickoff nudge; saw: ${JSON.stringify(turnStartTexts)}`,

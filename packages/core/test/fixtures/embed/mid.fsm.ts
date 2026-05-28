@@ -1,11 +1,11 @@
-import { harness, state, exit, final, embed } from '@aharness/core';
+import { aharness, state, exit, final, embed } from '@aharness/core';
 import grandchild from './grandchild.fsm.js';
 
 interface MidPayload {
   readonly choice: 'go' | 'stop';
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'mid',
   initial: 'router',
   states: {

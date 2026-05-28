@@ -4,7 +4,7 @@
  * Spec §3 (boot sequence), §4.1, §4.2, §4.3.1, §4.3.2, §5.1, §5.6, §5.7.
  *
  * Single-process boot: no daemon child, no MCP server child, no `codex
- * --remote` TUI. The harness CLI is the sole WS subscriber to its codex
+ * --remote` TUI. The aharness CLI is the sole WS subscriber to its codex
  * `app-server`. The actor, the submit dispatcher, the drive-forward
  * listener, and the browser UI all run inside this process.
  *
@@ -112,8 +112,8 @@ import {
   payloadWithCanonicalCommit,
   prepareCanonicalAwaitCommit,
 } from '../state/canonicalTransition.js';
-import { createHarnessOps, type HarnessOps } from '../state/harnessOps.js';
-import { getHarnessMeta, iterStates, stateKeyPath } from '../state.js';
+import { createAharnessOps, type AharnessOps } from '../state/aharnessOps.js';
+import { getAharnessMeta, iterStates, stateKeyPath } from '../state.js';
 import type { HookKind } from '../state/hooks.js';
 import type { RunCtx, SchemaSidecar } from '../types.js';
 import type { AppEvent, FsmState, Posture, ReplayableAppEvent, RunMeta } from '../ui/events.js';
@@ -136,7 +136,7 @@ const SIGINT_EXIT_CODE = 130;
 export interface RunCliOpts {
   /** Path to the user's `<file>.fsm.ts`, absolute or relative to `cwd`. */
   readonly fsmPath: string;
-  /** Project root used to resolve `fsmPath` and to host `.harness/runs/…`. */
+  /** Project root used to resolve `fsmPath` and to host `.aharness/runs/…`. */
   readonly cwd: string;
   /** Sink for diagnostic lines (verifier output, fatal messages). */
   readonly stderr: NodeJS.WritableStream;
@@ -209,7 +209,7 @@ export interface RunCliTestHooks {
   /**
    * Test-only: when set, codex's model traffic is routed through a mock
    * `responses` provider whose base URL is this string. Mirrors the
-   * `HARNESS_MOCK_MODEL_BASE_URL` env var; the env var takes priority
+   * `AHARNESS_MOCK_MODEL_BASE_URL` env var; the env var takes priority
    * over the option when both are present.
    */
   readonly _testMockModelBaseUrl?: string;
@@ -360,7 +360,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   const host = new ActorHost(machine, undefined, actorInput);
   host.start();
 
-  const opsHandle = createHarnessOps();
+  const opsHandle = createAharnessOps();
   const runMeta: RunMeta = {
     runId: finalRunDir.runId,
     threadId: '',
@@ -458,7 +458,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   const flushSnapshotFn = (xstate: unknown): void => {
     flushHeadlessSnapshotEnvelope(finalRunDir.snapshotPath, {
       xstate,
-      harnessSubmitToolName: 'harness_submit',
+      aharnessSubmitToolName: 'aharness_submit',
       threadId: activeThreadBinding.require(),
     });
     // Test seam: pin the post-AWAIT__ + post-submit state sequence
@@ -818,7 +818,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
 
   // 10. Spawn codex app-server (Unix listen).
   const sockPath = join(finalRunDir.root, 'app-server.sock');
-  const mockModelBaseUrl = process.env['HARNESS_MOCK_MODEL_BASE_URL'] ?? o._testMockModelBaseUrl;
+  const mockModelBaseUrl = process.env['AHARNESS_MOCK_MODEL_BASE_URL'] ?? o._testMockModelBaseUrl;
   const cliOverrides: Array<readonly [string, string]> = [['approval_policy', '"on-request"']];
   if (mockModelBaseUrl) {
     cliOverrides.push(
@@ -862,7 +862,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       const currentMeta = host.currentMeta();
       const awaitMeta =
         currentMeta?.kind === 'stateful'
-          ? currentMeta.exits[exitName]?.__harnessCanonical
+          ? currentMeta.exits[exitName]?.__aharnessCanonical
           : undefined;
       if (awaitMeta?.kind === 'await') {
         const targetStateId =
@@ -1021,7 +1021,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         // we ignore). `dispatchRawResponseItem` filters to the two
         // variants the resolver cares about; `noteFunctionCall` further
         // filters by `name === 'request_user_input'` so non-yielding
-        // calls (e.g. every `harness_submit`) are dropped at near-zero
+        // calls (e.g. every `aharness_submit`) are dropped at near-zero
         // cost.
         //
         // `JsonRpcClient.onNotification` does NOT await the handler
@@ -1217,7 +1217,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   //
   //     `startSignalHandlers` (signals.ts:26-27) wires SIGINT and SIGTERM
   //     through the same `onSigint` callback. Both paths exit 130 —
-  //     existing harness behaviour pre-Phase-1; a SIGTERM-specific 143
+  //     existing aharness behaviour pre-Phase-1; a SIGTERM-specific 143
   //     exit code would require widening the signals helper.
   const signals = startSignalHandlers({
     onSigint: async () => {
@@ -1311,7 +1311,7 @@ function createHookDispatchers(i: {
   readonly host: ActorHost;
   readonly activeThreadBinding: ActiveThreadBinding;
   readonly flushSnapshot: (xstateSnapshot: unknown) => void;
-  readonly ops: HarnessOps;
+  readonly ops: AharnessOps;
   readonly serializeDispatch: <T>(fn: () => Promise<T>) => Promise<T>;
   readonly writeFinalArtifacts?: (
     terminalStateId: string,
@@ -1432,7 +1432,7 @@ function serializeHookDispatcher(
 // ---------------------------------------------------------------------------
 
 /**
- * Route only `harness_submit` server-requests to the submit dispatcher.
+ * Route only `aharness_submit` server-requests to the submit dispatcher.
  * Anything else returns a `success: false` reply so codex surfaces a
  * clear error to the model rather than wedging the turn.
  */
@@ -1452,7 +1452,7 @@ async function dispatchIfSubmit(
     contentItems: [
       {
         type: 'inputText',
-        text: `harness: unknown dynamic tool '${params.tool}'; this runtime only registers '${SUBMIT_TOOL_NAME}'.`,
+        text: `aharness: unknown dynamic tool '${params.tool}'; this runtime only registers '${SUBMIT_TOOL_NAME}'.`,
       },
     ],
   };
@@ -1724,7 +1724,7 @@ export function extractCallIdForLog(params: unknown): string | undefined {
  * `await-no-multi-branch` guarantees a state has at most one await
  * exit, so first-match is correct.
  *
- * Narrows `HarnessMeta` to its `stateful` variant before reading
+ * Narrows `AharnessMeta` to its `stateful` variant before reading
  * `exits` — terminal / passive variants have no `exits` field, and
  * unguarded access would TS-error under strict mode (and runtime-error
  * if a future variant ships with a stricter shape).
@@ -1770,7 +1770,7 @@ function composeActiveStateNudge(host: ActorHost, sidecar: SchemaSidecar): strin
       const schema = sidecar[stateId]?.[name]?.jsonSchema ?? { type: 'object' };
       exits.push({ kind: 'submit', name, schema });
     } else if (def.kind === 'await') {
-      const ask = resolveAwaitAsk(def.__harnessCanonical, host.currentContext() as RunCtx);
+      const ask = resolveAwaitAsk(def.__aharnessCanonical, host.currentContext() as RunCtx);
       exits.push({ kind: 'await', name, ...(ask !== undefined ? { ask } : {}) });
     }
   }
@@ -1779,7 +1779,7 @@ function composeActiveStateNudge(host: ActorHost, sidecar: SchemaSidecar): strin
   try {
     entryPromptText = resolveEntryPrompt(stateMeta.entryPrompt, host.currentContext() as RunCtx);
   } catch (e) {
-    entryPromptText = `(harness: error computing entryPrompt: ${(e as Error).message})`;
+    entryPromptText = `(aharness: error computing entryPrompt: ${(e as Error).message})`;
   }
 
   let awaitsOwnerText: { messageToUser: string } | undefined;
@@ -1792,7 +1792,7 @@ function composeActiveStateNudge(host: ActorHost, sidecar: SchemaSidecar): strin
       try {
         resolved = m(host.currentContext() as RunCtx);
       } catch (e) {
-        resolved = `(harness: error computing awaitsOwnerText.messageToUser: ${(e as Error).message})`;
+        resolved = `(aharness: error computing awaitsOwnerText.messageToUser: ${(e as Error).message})`;
       }
     }
     awaitsOwnerText = { messageToUser: resolved };
@@ -1807,7 +1807,7 @@ function composeActiveStateNudge(host: ActorHost, sidecar: SchemaSidecar): strin
 }
 
 function resolveAwaitAsk(
-  meta: import('../state/exits.js').AwaitExitDef['__harnessCanonical'],
+  meta: import('../state/exits.js').AwaitExitDef['__aharnessCanonical'],
   ctx: RunCtx,
 ): string | undefined {
   if (meta?.kind !== 'await') return undefined;
@@ -1815,14 +1815,14 @@ function resolveAwaitAsk(
   try {
     return meta.ask(ctx);
   } catch (e) {
-    return `(harness: error computing await ask: ${(e as Error).message})`;
+    return `(aharness: error computing await ask: ${(e as Error).message})`;
   }
 }
 
 function terminalMetaById(machine: import('xstate').AnyStateMachine, stateId: string) {
   for (const node of iterStates(machine)) {
     if (stateKeyPath(node) !== stateId) continue;
-    return getHarnessMeta(node);
+    return getAharnessMeta(node);
   }
   return undefined;
 }
@@ -1831,7 +1831,7 @@ function deriveUiFsmState(host: ActorHost): FsmState {
   const path = host.currentStateId();
   const meta = host.currentMeta();
   const context = host.currentContext() as RunCtx;
-  const visits = context.__harness_visitCount;
+  const visits = context.__aharness_visitCount;
   const visitCount = visits !== undefined && typeof visits[path] === 'number' ? visits[path] : 0;
   const publicContext = stripInternalCtx(context);
 
@@ -1862,7 +1862,7 @@ function deriveUiFsmState(host: ActorHost): FsmState {
         awaitsOwnerText = { messageToUser: message(context) };
       } catch (e) {
         awaitsOwnerText = {
-          messageToUser: `(harness: error computing awaitsOwnerText.messageToUser: ${
+          messageToUser: `(aharness: error computing awaitsOwnerText.messageToUser: ${
             (e as Error).message
           })`,
         };
@@ -1874,7 +1874,7 @@ function deriveUiFsmState(host: ActorHost): FsmState {
   try {
     entryPrompt = resolveEntryPrompt(meta.entryPrompt, context);
   } catch (e) {
-    entryPrompt = `(harness: error computing entryPrompt: ${(e as Error).message})`;
+    entryPrompt = `(aharness: error computing entryPrompt: ${(e as Error).message})`;
   }
 
   return {
@@ -1892,8 +1892,8 @@ function deriveUiFsmState(host: ActorHost): FsmState {
 function stripInternalCtx(ctx: RunCtx): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(ctx)) {
-    if (k.startsWith('__harness_')) continue;
-    if (k === 'harness') continue;
+    if (k.startsWith('__aharness_')) continue;
+    if (k === 'aharness') continue;
     out[k] = v;
   }
   return out;

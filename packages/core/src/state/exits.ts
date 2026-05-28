@@ -2,12 +2,12 @@
  * State primitive for stateful states — `docs/specs/2026-04-29-state-posture-and-exits-design.md` §3.
  *
  * Authors call `state({ exits, open?, entryPrompt, stopGuidance? })`. The function
- * returns a full XState state config (`{ meta: { harness: ... } }`) that can be placed
- * directly as the state node value in a `harness.machine(...)` config — no additional
- * `meta.harness` wrapper is needed. Submit exits are wrapped in an `exit<TPayload>({...})`
+ * returns a full XState state config (`{ meta: { aharness: ... } }`) that can be placed
+ * directly as the state node value in a `aharness.machine(...)` config — no additional
+ * `meta.aharness` wrapper is needed. Submit exits are wrapped in an `exit<TPayload>({...})`
  * factory call; the `<TPayload>` type argument is read by the loader via the TypeScript
  * compiler API to emit a JSON Schema 7 fragment per submit exit. At runtime the factory
- * returns the body verbatim plus an opaque `__harnessPayloadMarker: true` sentinel.
+ * returns the body verbatim plus an opaque `__aharnessPayloadMarker: true` sentinel.
  */
 import type {
   Action as XStateAction,
@@ -18,7 +18,7 @@ import type {
   ProvidedActor,
 } from 'xstate';
 import type { RunCtx } from '../types.js';
-import type { HarnessOps } from './harnessOps.js';
+import type { AharnessOps } from './aharnessOps.js';
 import type { StateHooks } from './hooks.js';
 import { isSkillRef, type SkillRef } from './skills.js';
 
@@ -26,7 +26,7 @@ import { isSkillRef, type SkillRef } from './skills.js';
  * Submit-event shape seen by inline `actions` / `guard` callbacks declared
  * inside an exit. The `type` field is the synthesized
  * `SUBMIT__<stateId>__<exitName>` key (authors do not write these); the
- * payload is the data the model submits via `harness_submit`.
+ * payload is the data the model submits via `aharness_submit`.
  */
 export interface SubmitEventLike<TPayload = unknown> {
   readonly type: string;
@@ -46,7 +46,7 @@ export interface SubmitEventLike<TPayload = unknown> {
  * own `Action` / `GuardPredicate` types so no fresh structural mismatch
  * arises with `assign(...)` outputs. The `params` channel is xstate v5's
  * orthogonal "params" slot (used by framework actions like
- * `__harnessIncrementVisit({stateId})`) — distinct from `event.payload`;
+ * `__aharnessIncrementVisit({stateId})`) — distinct from `event.payload`;
  * do not thread `TPayload` into the params slot.
  */
 export type Action<
@@ -88,7 +88,7 @@ export interface SubmitBranch<
   readonly guard?: Guard<TContext, TPayload>;
   readonly to: string;
   readonly actions?: Action<TContext, TPayload> | ReadonlyArray<Action<TContext, TPayload>>;
-  readonly __harnessCanonical?: CanonicalSubmitBranchMeta<TContext, TPayload>;
+  readonly __aharnessCanonical?: CanonicalSubmitBranchMeta<TContext, TPayload>;
 }
 
 /**
@@ -98,7 +98,7 @@ export interface SubmitBranch<
  * `when:` (check `exit-shape-exclusive`).
  *
  * Authors construct submit exits via the `exit<TPayload>({...})` factory,
- * which stamps `__harnessPayloadMarker: true` on the returned object. The
+ * which stamps `__aharnessPayloadMarker: true` on the returned object. The
  * loader anchors on the `exit<T>(...)` call expression to extract `T` for
  * JSON Schema emission; the sentinel flag is the runtime check used by
  * `state(...)`'s belt-and-suspenders validator.
@@ -108,12 +108,12 @@ export interface SubmitExitSugar<
   TPayload = unknown,
 > {
   readonly kind?: 'submit';
-  readonly __harnessPayloadMarker: true;
+  readonly __aharnessPayloadMarker: true;
   readonly to: string;
   readonly guard?: Guard<TContext, TPayload>;
   readonly actions?: Action<TContext, TPayload> | ReadonlyArray<Action<TContext, TPayload>>;
   readonly description?: string;
-  readonly __harnessCanonical?: CanonicalSubmitMeta<TContext, TPayload>;
+  readonly __aharnessCanonical?: CanonicalSubmitMeta<TContext, TPayload>;
 }
 
 /**
@@ -126,10 +126,10 @@ export interface SubmitExitMulti<
   TPayload = unknown,
 > {
   readonly kind?: 'submit';
-  readonly __harnessPayloadMarker: true;
+  readonly __aharnessPayloadMarker: true;
   readonly when: ReadonlyArray<SubmitBranch<TContext, TPayload>>;
   readonly description?: string;
-  readonly __harnessCanonical?: CanonicalSubmitMeta<TContext, TPayload>;
+  readonly __aharnessCanonical?: CanonicalSubmitMeta<TContext, TPayload>;
 }
 
 /**
@@ -150,7 +150,7 @@ export interface AwaitExitDef<TContext extends MachineContext = MachineContext> 
     | Action<TContext, { readonly ownerReply: string }>
     | ReadonlyArray<Action<TContext, { readonly ownerReply: string }>>;
   readonly description?: string;
-  readonly __harnessCanonical?: CanonicalAwaitMeta<TContext>;
+  readonly __aharnessCanonical?: CanonicalAwaitMeta<TContext>;
 }
 
 export type ExitDef<TContext extends MachineContext = MachineContext, TPayload = unknown> =
@@ -161,7 +161,7 @@ export type ExitDef<TContext extends MachineContext = MachineContext, TPayload =
 export type CanonicalSubmitEffect<TContext = unknown, TPayload = unknown> = (args: {
   readonly data: Readonly<TContext>;
   readonly payload: TPayload;
-  readonly ops: HarnessOps;
+  readonly ops: AharnessOps;
 }) => void | Promise<void>;
 
 export type CanonicalSubmitReducer<TContext = unknown, TPayload = unknown> = (
@@ -172,7 +172,7 @@ export type CanonicalSubmitReducer<TContext = unknown, TPayload = unknown> = (
 export type CanonicalAwaitEffect<TContext = unknown> = (args: {
   readonly data: Readonly<TContext>;
   readonly ownerReply: string;
-  readonly ops: HarnessOps;
+  readonly ops: AharnessOps;
 }) => void | Promise<void>;
 
 export type CanonicalAwaitReducer<TContext = unknown> = (
@@ -210,7 +210,7 @@ export type CanonicalEventKind =
 export type CanonicalEventEffect<TContext = unknown, TPayload = unknown> = (args: {
   readonly data: Readonly<TContext>;
   readonly payload: TPayload;
-  readonly ops: HarnessOps;
+  readonly ops: AharnessOps;
 }) => void | Promise<void>;
 
 export type CanonicalEventReducer<TContext = unknown, TPayload = unknown> = (
@@ -286,7 +286,7 @@ export type ExitCatalog = ReadonlyArray<ExitCatalogItem>;
  * `request_user_input` tool-call result; the model uses it when
  * constructing the subsequent `submit` payload. The reply does NOT fire
  * an FSM transition — only the typed `submit` call does (hard rule #3).
- * The harness daemon is not in the reply path; no UDS framing, no
+ * The aharness daemon is not in the reply path; no UDS framing, no
  * `userMessage` observer, no separate MCP tool.
  *
  * Orthogonal to `exits` — a state with `awaitsOwnerText` still declares
@@ -303,7 +303,7 @@ export interface AwaitsOwnerTextDecl<TContext extends MachineContext = MachineCo
 /**
  * Author-supplied entry hook invoked after the FSM advances to a state.
  * Receives the post-transition context and the typed reserved
- * `HarnessOps` facade. Clear is declarative state metadata
+ * `AharnessOps` facade. Clear is declarative state metadata
  * (`clearOnEntry`), not an imperative operation.
  *
  * Fires from two paths: submit-driven transitions (`dispatchSubmit`,
@@ -313,10 +313,10 @@ export interface AwaitsOwnerTextDecl<TContext extends MachineContext = MachineCo
  */
 export type OnEntryFn<TContext = unknown> = (
   ctx: Readonly<TContext>,
-  ops: HarnessOps,
+  ops: AharnessOps,
 ) => Promise<void> | void;
 
-export interface HarnessStateMeta {
+export interface AharnessStateMeta {
   readonly kind: 'stateful';
   readonly open: boolean;
   readonly entryPrompt: string | ((ctx: RunCtx) => string);
@@ -376,7 +376,7 @@ export interface StateOptions<TContext extends MachineContext = MachineContext> 
 }
 
 export interface StateConfig {
-  readonly meta: { readonly harness: HarnessStateMeta };
+  readonly meta: { readonly aharness: AharnessStateMeta };
 }
 
 export function state<TContext extends MachineContext = MachineContext>(
@@ -393,14 +393,14 @@ export function state<TContext extends MachineContext = MachineContext>(
       defaultedExits[name] = { ...(exit as object), kind: 'submit' } as ExitDef;
     } else {
       // Widen to default-parameterised `ExitDef` for storage on the
-      // non-generic `HarnessStateMeta`; the author-facing generics only
+      // non-generic `AharnessStateMeta`; the author-facing generics only
       // type author-supplied inline `actions` / `guard` callbacks.
       defaultedExits[name] = exit as ExitDef;
     }
   }
 
   // Belt-and-suspenders runtime checks duplicate verifier checks. The
-  // verifier only runs inside `aharness <file>`; `harness.machine(config)`
+  // verifier only runs inside `aharness <file>`; `aharness.machine(config)`
   // is also callable from unit tests / scripts / examples without going
   // through the verifier. Throwing here gives an early failure with a
   // clear stack trace at machine-construction time, before any FSM event
@@ -457,7 +457,7 @@ export function state<TContext extends MachineContext = MachineContext>(
     validateSkills(opts.skills);
   }
   // Coerce the typed-at-author-surface callback shapes (TContext & RunCtx)
-  // back to the storage shape (RunCtx) on `HarnessStateMeta`. The runtime
+  // back to the storage shape (RunCtx) on `AharnessStateMeta`. The runtime
   // is RunCtx-only — the daemon never knows author TContext — so the stash
   // is intentionally widened. Pattern matches the existing `onEntry` cast.
   // Build the meta in two steps so `exactOptionalPropertyTypes: true` doesn't
@@ -465,13 +465,13 @@ export function state<TContext extends MachineContext = MachineContext>(
   const meta = {
     kind: 'stateful' as const,
     open: opts.open === true,
-    entryPrompt: opts.entryPrompt as HarnessStateMeta['entryPrompt'],
+    entryPrompt: opts.entryPrompt as AharnessStateMeta['entryPrompt'],
     exits: defaultedExits,
     ...(opts.main === true ? { main: true as const } : {}),
     ...(opts.stopGuidance !== undefined
       ? {
           stopGuidance: opts.stopGuidance as unknown as NonNullable<
-            HarnessStateMeta['stopGuidance']
+            AharnessStateMeta['stopGuidance']
           >,
         }
       : {}),
@@ -485,8 +485,8 @@ export function state<TContext extends MachineContext = MachineContext>(
       ? { canonicalEvents: opts.canonicalEvents as Readonly<Record<string, CanonicalEventMeta>> }
       : {}),
     ...(opts.skills !== undefined ? { skills: opts.skills } : {}),
-  } satisfies HarnessStateMeta;
-  return { meta: { harness: meta } };
+  } satisfies AharnessStateMeta;
+  return { meta: { aharness: meta } };
 }
 
 /**
@@ -520,7 +520,7 @@ export interface ExitOptionsSugar<
   readonly guard?: Guard<TContext, TPayload>;
   readonly actions?: Action<TContext, TPayload> | ReadonlyArray<Action<TContext, TPayload>>;
   readonly description?: string;
-  readonly __harnessCanonical?: CanonicalSubmitMeta<TContext, TPayload>;
+  readonly __aharnessCanonical?: CanonicalSubmitMeta<TContext, TPayload>;
 }
 
 export interface ExitOptionsMulti<
@@ -529,7 +529,7 @@ export interface ExitOptionsMulti<
 > {
   readonly when: ReadonlyArray<SubmitBranch<TContext, TPayload>>;
   readonly description?: string;
-  readonly __harnessCanonical?: CanonicalSubmitMeta<TContext, TPayload>;
+  readonly __aharnessCanonical?: CanonicalSubmitMeta<TContext, TPayload>;
 }
 
 export type ExitOptions<TContext extends MachineContext = MachineContext, TPayload = unknown> =
@@ -541,13 +541,13 @@ export function exit<TPayload, TContext extends MachineContext = MachineContext>
 ): ExitDef<TContext, TPayload> {
   return {
     ...(opts as object),
-    __harnessPayloadMarker: true,
+    __aharnessPayloadMarker: true,
   } as ExitDef<TContext, TPayload>;
 }
 
 function validateExit(name: string, exit: ExitDef): void {
   if (exit.kind === 'await') {
-    if ((exit as { __harnessPayloadMarker?: unknown }).__harnessPayloadMarker === true) {
+    if ((exit as { __aharnessPayloadMarker?: unknown }).__aharnessPayloadMarker === true) {
       throw new TypeError(
         `state(): exit '${name}' is await but is wrapped in exit<T>() (await exits use a plain object literal — no payload, no factory wrap)`,
       );
@@ -563,7 +563,7 @@ function validateExit(name: string, exit: ExitDef): void {
     return;
   }
   // submit (sugar OR when[])
-  if ((exit as { __harnessPayloadMarker?: unknown }).__harnessPayloadMarker !== true) {
+  if ((exit as { __aharnessPayloadMarker?: unknown }).__aharnessPayloadMarker !== true) {
     throw new TypeError(
       `state(): submit exit '${name}' must be wrapped in exit<T>({...}) (the wrapper stamps the runtime payload marker the loader's AST walker anchors on)`,
     );
@@ -616,7 +616,8 @@ function validateExit(name: string, exit: ExitDef): void {
     if (
       i === when.length - 1 &&
       branch.guard !== undefined &&
-      (branch.__harnessCanonical === undefined || branch.__harnessCanonical.predicate !== undefined)
+      (branch.__aharnessCanonical === undefined ||
+        branch.__aharnessCanonical.predicate !== undefined)
     ) {
       // Verifier check `when-last-unguarded` — runtime parity.
       throw new TypeError(
@@ -626,7 +627,7 @@ function validateExit(name: string, exit: ExitDef): void {
   }
 }
 
-export function exitCatalogFromMeta(meta: HarnessStateMeta): ExitCatalog {
+export function exitCatalogFromMeta(meta: AharnessStateMeta): ExitCatalog {
   const out: ExitCatalogItem[] = [];
   for (const name of Object.keys(meta.exits)) {
     const exit = meta.exits[name];
@@ -730,23 +731,23 @@ function validateMatchedHookArray(raw: unknown, kind: string, requireMatcher: bo
  * author. Returns a spreadable state config: authors write
  * `presentDraft: { ...passive(), entry: renderArtifacts, always: { target: 'next' } }`.
  *
- * Spread idiom warning: a non-harness `meta:` literal AFTER the spread
- * silently overwrites `meta.harness`. The verifier check
- * `state-config-missing-harness-meta` (verify.ts) catches this case
+ * Spread idiom warning: a non-aharness `meta:` literal AFTER the spread
+ * silently overwrites `meta.aharness`. The verifier check
+ * `state-config-missing-aharness-meta` (verify.ts) catches this case
  * by detecting the resulting symptom — a state with XState behavior
- * but no `meta.harness`.
+ * but no `meta.aharness`.
  */
 export interface PassiveOptions {
   readonly main?: boolean;
 }
 
 export function passive(opts: PassiveOptions = {}): {
-  meta: { harness: { kind: 'passive'; main?: true } };
+  meta: { aharness: { kind: 'passive'; main?: true } };
 } {
   if (opts.main !== undefined && typeof opts.main !== 'boolean') {
     throw new TypeError('passive(): main must be a boolean when provided');
   }
-  return { meta: { harness: { kind: 'passive', ...(opts.main === true ? { main: true } : {}) } } };
+  return { meta: { aharness: { kind: 'passive', ...(opts.main === true ? { main: true } : {}) } } };
 }
 
 /**
@@ -768,7 +769,7 @@ export function terminal(
 ): {
   readonly type: 'final';
   readonly meta: {
-    readonly harness: {
+    readonly aharness: {
       readonly kind: 'terminal';
       readonly outcome: 'success' | 'failure';
       readonly main?: true;
@@ -780,14 +781,16 @@ export function terminal(
   }
   return {
     type: 'final',
-    meta: { harness: { kind: 'terminal', outcome, ...(opts.main === true ? { main: true } : {}) } },
+    meta: {
+      aharness: { kind: 'terminal', outcome, ...(opts.main === true ? { main: true } : {}) },
+    },
   };
 }
 
 /**
  * `final({outcome, output?})` — canonical embed-friendly terminal state.
  *
- * Identical XState shape to `terminal()` (`{type: 'final', meta: {harness: ...}}`)
+ * Identical XState shape to `terminal()` (`{type: 'final', meta: {aharness: ...}}`)
  * with two additions:
  *   - `outcome` is taken as a named field (not a positional arg) for parity with
  *     `state()`'s options-object style and to make room for `output`.
@@ -845,7 +848,7 @@ export interface FinalConfig<TOutput = undefined> {
   /** Phantom only — never set at runtime. */
   readonly __outputType?: TOutput;
   readonly meta: {
-    readonly harness: {
+    readonly aharness: {
       readonly kind: 'terminal';
       readonly outcome: 'success' | 'failure';
       readonly main?: true;
@@ -870,7 +873,7 @@ export function final<TOutput = undefined>(opts: FinalOptions<TOutput>): FinalCo
   return {
     type: 'final',
     meta: {
-      harness: {
+      aharness: {
         kind: 'terminal',
         outcome: opts.outcome,
         ...(opts.main === true ? { main: true } : {}),

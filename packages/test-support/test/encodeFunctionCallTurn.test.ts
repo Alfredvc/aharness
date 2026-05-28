@@ -16,11 +16,11 @@ describe('encodeFunctionCallTurn', () => {
 
   it('embeds the caller-supplied arguments on the function_call item', () => {
     const bytes = encodeFunctionCallTurn({
-      name: 'harness_submit',
+      name: 'aharness_submit',
       arguments: JSON.stringify({ state: 'greet', exit: 'finish', data: {} }),
     });
     const text = Buffer.from(bytes).toString('utf8');
-    expect(text).toContain('"name":"harness_submit"');
+    expect(text).toContain('"name":"aharness_submit"');
     expect(text).toContain('"type":"function_call"');
     // `arguments` is wire-encoded as a JSON-stringified string field, so the
     // inner JSON's quotes are escaped on the outer SSE `data:` line.

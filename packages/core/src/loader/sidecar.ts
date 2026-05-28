@@ -5,7 +5,7 @@
  * call bound to `@aharness/core`. For each submit exit (the default kind, or
  * an explicit `kind: 'submit'`), resolve the type argument of the wrapping
  * `exit<T>(...)` factory call against a custom TypeScript program whose
- * `paths` mapping points at the harness install (the user's project has no
+ * `paths` mapping points at the aharness install (the user's project has no
  * local `node_modules` — they installed the CLI globally), emit a JSON
  * Schema, compile it with ajv, and return a `SchemaSidecar` keyed by
  * `[stateId][exitName]`.
@@ -28,7 +28,7 @@
  * Implementation notes:
  *   - We build the `ts.Program` ourselves (not via `ts-json-schema-generator`'s
  *     `createProgram`) so we can inject the `paths` mapping that points at
- *     the harness install. The lib re-exports its own `typescript` so we use
+ *     the aharness install. The lib re-exports its own `typescript` so we use
  *     that to avoid the dual-version-typings conflict between this package's
  *     `typescript@6.x` and the lib's pinned `typescript@5.x`.
  *   - The walked AST nodes (`SourceFile.statements`, type arguments) come
@@ -68,7 +68,7 @@ type AjvInstance = InstanceType<typeof Ajv>;
 
 // Accepted import source for the SDK author surface. `@aharness/core`
 // is the codex-substrate authoring barrel; FSMs targeting the codex
-// substrate import their primitives (`state`, `harness`, ...) from there.
+// substrate import their primitives (`state`, `aharness`, ...) from there.
 const SDK_MODULE_SPECIFIERS: ReadonlySet<string> = new Set(['@aharness/core']);
 const XSTATE_MODULE_SPECIFIER = 'xstate';
 
@@ -89,7 +89,7 @@ export interface SidecarExtractionResult {
   readonly issues: readonly SidecarIssue[];
   /**
    * Top-level JSON Schema for the FSM's `input` declaration. Present iff the
-   * file's default export resolves to a `harness.machine({input: {...}, ...})`
+   * file's default export resolves to a `aharness.machine({input: {...}, ...})`
    * call. Empty `input: {}` produces a non-null but empty schema (zero
    * required fields, zero properties) — distinguishable from "no input
    * declaration", where this property is `undefined`.
@@ -117,7 +117,7 @@ export interface SidecarExtractionResult {
  *     run inline on the runtime hot path and must be sync.
  *   - `direct-create-machine` — `xstate.createMachine(...)` is called on a
  *     config containing a stateful state. Stateful states require the
- *     framework actions injected by `harness.machine(...)` (visit counts,
+ *     framework actions injected by `aharness.machine(...)` (visit counts,
  *     owner-reply assignment); bypassing the wrapper silently breaks them.
  *
  * `stateId` is null for `state-call-misplaced` and `direct-create-machine`;
@@ -154,7 +154,7 @@ export async function extractSchemaSidecar(
   opts: SidecarExtractionOptions,
 ): Promise<SidecarExtractionResult> {
   const installPaths = await getInstallPaths();
-  const program = buildProgram(opts.filePath, installPaths.harnessCoreSdkPackageDir);
+  const program = buildProgram(opts.filePath, installPaths.aharnessCoreSdkPackageDir);
   const sourceFile = program.getSourceFile(opts.filePath);
   if (!sourceFile) {
     throw new Error(
@@ -474,11 +474,11 @@ export async function extractSchemaSidecar(
 
   checkDirectCreateMachine(sf, xstateBindings, stateBindings, issues);
 
-  // Input-schema extraction: locate the file's default-export `harness.machine(...)`
+  // Input-schema extraction: locate the file's default-export `aharness.machine(...)`
   // call, find its `input: {...}` literal, and walk each `arg<T>(...)` field
   // through the same `ts-json-schema-generator` path used for submit payloads.
   // The walker's multi-machine guard skips files whose default export does not
-  // resolve to a single `harness.machine` call.
+  // resolve to a single `aharness.machine` call.
   const machineBindings = collectMachineBindings(sourceFile, createFsmFactoryNames);
   const argBindings = collectArgBindings(sourceFile, createFsmFactoryNames);
   let inputSchema: JSONSchema7 | undefined;
@@ -582,7 +582,7 @@ async function resolveAndExtractChildSidecars(
 /**
  * Map default import names → resolved child `.ts` source paths for every
  * `import <name> from './<rel>.fsm.js'` declaration in the file. Only the
- * `.fsm.js` suffix is recognised — the harness convention. The `.js` suffix
+ * `.fsm.js` suffix is recognised — the aharness convention. The `.js` suffix
  * is rewritten to `.ts` for source resolution; under NodeNext the user's
  * source is `.ts` and the import specifier is `.js`.
  */
@@ -721,14 +721,14 @@ interface MachineBindings {
   readonly directNames: ReadonlySet<string>;
   /**
    * Identifier names exposing `<ns>.machine` — `import * as ns` and the
-   * common `import { harness }` form (the `harness` re-export is a
+   * common `import { aharness }` form (the `aharness` re-export is a
    * namespace-shaped object whose `.machine(...)` member is the constructor).
    */
   readonly namespaceNames: ReadonlySet<string>;
 }
 
 /**
- * Collect identifier names that resolve to `harness.machine` (or a bare
+ * Collect identifier names that resolve to `aharness.machine` (or a bare
  * `machine` import) on the SDK author surface.
  *
  * Mirrors `collectStateBindings` for the machine-constructor side. The
@@ -757,7 +757,7 @@ function collectMachineBindings(
     if (ts.isNamedImports(bindings)) {
       for (const elem of bindings.elements) {
         const importedName = (elem.propertyName ?? elem.name).text;
-        if (importedName === 'harness') namespaces.add(elem.name.text);
+        if (importedName === 'aharness') namespaces.add(elem.name.text);
         if (importedName === 'machine') direct.add(elem.name.text);
       }
     }
@@ -886,19 +886,19 @@ function isCanonicalFactoryMemberCall(
 }
 
 /**
- * Locate the file's default-export `harness.machine(...)` call.
+ * Locate the file's default-export `aharness.machine(...)` call.
  *
  * Two source shapes are recognised:
- *   1. `export default harness.machine({...});` — direct
- *   2. `const m = harness.machine({...}); export default m;` — via identifier
+ *   1. `export default aharness.machine({...});` — direct
+ *   2. `const m = aharness.machine({...}); export default m;` — via identifier
  *
  * Returns null when:
  *   - The file has no default export.
- *   - The default export does not resolve to a `harness.machine` call.
- *   - Multiple `harness.machine` calls exist and the default export is
+ *   - The default export does not resolve to a `aharness.machine` call.
+ *   - Multiple `aharness.machine` calls exist and the default export is
  *     ambiguous (e.g. `export default condition ? a : b`).
  *
- * The multi-machine guard prevents picking up `helper = harness.machine({...})`
+ * The multi-machine guard prevents picking up `helper = aharness.machine({...})`
  * declarations elsewhere in the file when those are never the default export —
  * input extraction simply skips the file in that case.
  */
@@ -906,7 +906,7 @@ function findDefaultExportMachineCall(
   sourceFile: ts.SourceFile,
   bindings: MachineBindings,
 ): ts.CallExpression | null {
-  // Pass A: collect identifier→callExpression for `const X = harness.machine(...)`.
+  // Pass A: collect identifier→callExpression for `const X = aharness.machine(...)`.
   const machineByIdent = new Map<string, ts.CallExpression>();
   for (const stmt of sourceFile.statements) {
     if (!ts.isVariableStatement(stmt)) continue;
@@ -1067,14 +1067,14 @@ function isXstateCreateMachineCall(
 /**
  * Walk the source file looking for `xstate.createMachine(...)` calls. If the
  * argument is an object literal whose `states: { … }` chain contains any
- * `meta: { harness: state({...}) }` entry, emit `direct-create-machine`. The
- * fix is to call `harness.machine(...)` instead — the wrapper injects the
- * framework actions (`__harnessIncrementVisit`, owner-reply assigners) that
+ * `meta: { aharness: state({...}) }` entry, emit `direct-create-machine`. The
+ * fix is to call `aharness.machine(...)` instead — the wrapper injects the
+ * framework actions (`__aharnessIncrementVisit`, owner-reply assigners) that
  * stateful states rely on.
  *
  * The check fires once per offending `createMachine` call. The detection of
  * a stateful state inside the config is purely syntactic: we look for a
- * `meta.harness = state(...)` shape, where `state` resolves to the SDK
+ * `meta.aharness = state(...)` shape, where `state` resolves to the SDK
  * binding the sidecar walker already tracks. This avoids false positives on
  * machines that happen to use other `meta` payloads.
  */
@@ -1098,7 +1098,7 @@ function checkDirectCreateMachine(
           exitName: null,
           line,
           message:
-            'createMachine() called directly on a config containing stateful states; use harness.machine(...) instead',
+            'createMachine() called directly on a config containing stateful states; use aharness.machine(...) instead',
         });
       }
     }
@@ -1109,7 +1109,7 @@ function checkDirectCreateMachine(
 
 /**
  * Recursively check whether `node` (typically the first argument of a
- * `createMachine(...)` call) contains a `meta: { harness: state(...) }`
+ * `createMachine(...)` call) contains a `meta: { aharness: state(...) }`
  * property anywhere in its `states` tree. The check is intentionally
  * structural — it does not require type-checker resolution.
  */
@@ -1117,7 +1117,7 @@ function containsStatefulState(node: ts.Node, stateBindings: StateBindings): boo
   let found = false;
   const visit = (n: ts.Node): void => {
     if (found) return;
-    if (ts.isPropertyAssignment(n) && staticPropertyName(n) === 'harness') {
+    if (ts.isPropertyAssignment(n) && staticPropertyName(n) === 'aharness') {
       const init = n.initializer;
       if (ts.isCallExpression(init) && isStateCall(init, stateBindings)) {
         found = true;
@@ -1226,15 +1226,15 @@ export function extractTypeArgFromTypeCall(expr: ts.Expression): ts.TypeNode | n
 
 /**
  * Build a `ts.Program` whose module resolution finds `@aharness/core`
- * and `xstate` inside the harness install, regardless of the user's
+ * and `xstate` inside the aharness install, regardless of the user's
  * directory.
  *
- * The `paths` mapping is anchored on `baseUrl: harnessNodeModules`. Two
+ * The `paths` mapping is anchored on `baseUrl: aharnessNodeModules`. Two
  * mappings cover both bare and sub-path specifiers (`@aharness/core`
  * and `@aharness/core/runtime`).
  */
-function buildProgram(filePath: string, harnessCoreSdkPackageDir: string): ts.Program {
-  const harnessNodeModules = path.dirname(path.dirname(harnessCoreSdkPackageDir));
+function buildProgram(filePath: string, aharnessCoreSdkPackageDir: string): ts.Program {
+  const aharnessNodeModules = path.dirname(path.dirname(aharnessCoreSdkPackageDir));
   const compilerOptions: ts.CompilerOptions = {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.NodeNext,
@@ -1245,7 +1245,7 @@ function buildProgram(filePath: string, harnessCoreSdkPackageDir: string): ts.Pr
     skipDefaultLibCheck: true,
     strict: false,
     noEmit: true,
-    baseUrl: harnessNodeModules,
+    baseUrl: aharnessNodeModules,
     paths: {
       '@aharness/core': ['@aharness/core'],
       '@aharness/core/*': ['@aharness/core/*'],

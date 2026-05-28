@@ -31,7 +31,7 @@ export type FsmState = {
   visitCount: number;
   // Resolved per-state prompt (entryPrompt). Stateful states only.
   entryPrompt?: string;
-  // XState context, with harness-internal keys removed. Surfaced for the
+  // XState context, with aharness-internal keys removed. Surfaced for the
   // dev-mode context inspector.
   context?: Record<string, unknown>;
 };

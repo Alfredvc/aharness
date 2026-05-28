@@ -67,7 +67,7 @@ trust the checkout's mutable worktree `HEAD`.
 
 Current check families:
 
-- Harness `METHOD` literals versus Codex's pinned app-server request and
+- Aharness `METHOD` literals versus Codex's pinned app-server request and
   notification macro table.
 - `request_user_input` source shape, including the
   `default_mode_request_user_input` feature gate and handler path.
@@ -76,26 +76,26 @@ Current check families:
   `sandbox_permissions: "require_escalated"`.
 - `codex app-server` listen and schema/type generation surfaces, plus
   the absence of an app-server-specific `--approval-policy` flag.
-- The harness `DAEMON_PROBE_CLIENT_NAME` constant
+- The aharness `DAEMON_PROBE_CLIENT_NAME` constant
   `codex_app_server_daemon`.
 
 Root `pnpm run verify` and `pnpm run verify:release` run this package-local
 check. It requires a local Codex checkout containing the pinned commit, either
 at `/Users/alfredvc/src/codex` or at `CODEX_CHECKOUT=/path/to/codex`.
 
-## Harness hook override shape
+## Aharness hook override shape
 
 Declared `PreToolUse`, `PostToolUse`, and `UserPromptSubmit` hooks are injected
 with Codex `-c hooks.<Kind>=...` overrides using Codex's matcher-group array
-shape. The harness wrapper omits `matcher`, so Codex matches every input for the
+shape. The aharness wrapper omits `matcher`, so Codex matches every input for the
 declared kind and still aggregates user hook config from the normal Codex layers.
 
 ```toml
-[{ hooks = [{ type = "command", command = "'/abs/run/hooks/pre_tool_use.sh'", timeout = 30, statusMessage = "harness PreToolUse" }] }]
+[{ hooks = [{ type = "command", command = "'/abs/run/hooks/pre_tool_use.sh'", timeout = 30, statusMessage = "aharness PreToolUse" }] }]
 ```
 
 `PermissionRequest` is not a Codex hook-engine kind and is not emitted as a
-`hooks.PermissionRequest` override; it is handled inside the harness approval
+`hooks.PermissionRequest` override; it is handled inside the aharness approval
 dispatcher.
 
 ---
@@ -150,8 +150,8 @@ design doc.
 During the early headless cutover, Phase 1 (this historical commit
 range) shipped:
 
-- `harness_submit` declared via `dynamic_tools` (no MCP child).
-- Sole-WS-client topology; the harness CLI is the only subscriber.
+- `aharness_submit` declared via `dynamic_tools` (no MCP child).
+- Sole-WS-client topology; the aharness CLI is the only subscriber.
 - Self-loop + terminal submit transitions only. Cross-state submits,
   `awaitsOwnerText`, `await` exits, `ops.clear()`, per-state hook
   dispatch, and approvals are NOT wired and will throw at runtime.
@@ -225,10 +225,10 @@ must land verbatim.
 
 ## Phase 4c approval policy and notifications
 
-The headless harness forces Codex app-server runs to use the explicit
+The headless aharness forces Codex app-server runs to use the explicit
 config override `approval_policy = "on-request"` by passing
 `-c approval_policy="on-request"` on every spawn. This is an internal
-runtime default, not a public harness CLI flag.
+runtime default, not a public aharness CLI flag.
 
 Source verification at pinned Codex commit `127434cd8b96`:
 
@@ -246,7 +246,7 @@ Source verification at pinned Codex commit `127434cd8b96`:
   `AskForApproval::OnRequest` serializes as `"on-request"`.
 - `cli/src/main.rs:411-438` confirms the `app-server` subcommand exposes
   listen, analytics, and websocket auth flags, but no
-  app-server-specific `--approval-policy` flag. The harness does not
+  app-server-specific `--approval-policy` flag. The aharness does not
   mirror root interactive/resume approval-policy aliases, does not
   reserve `approval-policy`, and does not document a public
   `aharness --approval-policy` surface in v1.
@@ -267,7 +267,7 @@ Approval notification audit:
   ServerRequests.
 - `item/autoApprovalReview/started` and
   `item/autoApprovalReview/completed` must also stay subscribed as
-  approval lifecycle notifications, even though the v1 harness does not
+  approval lifecycle notifications, even though the v1 aharness does not
   render them.
 - `item/commandExecution/outputDelta` and
   `item/commandExecution/terminalInteraction` are not required for

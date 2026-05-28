@@ -9,7 +9,7 @@
  *     `invoke.onDone` trigger, so the actor would be stuck on entry.
  *     Trips `no-black-hole-non-terminals` (and `terminal-reachability`).
  *
- * A fresh tmpdir is used as `repoRoot` for each test so `.harness/cache/`
+ * A fresh tmpdir is used as `repoRoot` for each test so `.aharness/cache/`
  * does not bleed across cases (loadFsm writes the bundled `.mjs` there).
  */
 import { promises as fs } from 'node:fs';
@@ -82,12 +82,12 @@ describe('runVerifyCli', () => {
     const tmpFsmPath = join(tmpFsmDir, 'skills.fsm.ts');
     // We need a fixture that only declares a path-form skill (the
     // name-form would still miss). Inline a minimal one.
-    const minimal = `import { harness, state, terminal, exit, skill } from '@aharness/core';
+    const minimal = `import { aharness, state, terminal, exit, skill } from '@aharness/core';
 interface P { q: string }
-export const machine = harness.machine({
+export const machine = aharness.machine({
   id: 'pass',
   initial: 'a',
-  context: () => ({ __harness_visitCount: {} as Record<string, number> }),
+  context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
   states: {
     a: state({ entryPrompt: 'x', skills: [skill({ path: './skills/local.md' })], exits: { ok: exit<P>({ to: 'done' }) } }),
     done: terminal('success'),
@@ -107,12 +107,12 @@ export default machine;
   it('downgrades optional skill misses to warning (does not block run)', async () => {
     const tmpFsmDir = await fs.mkdtemp(join(tmpdir(), 'codex-verify-cli-skill-opt-'));
     const tmpFsmPath = join(tmpFsmDir, 'skills.fsm.ts');
-    const minimal = `import { harness, state, terminal, exit, skill } from '@aharness/core';
+    const minimal = `import { aharness, state, terminal, exit, skill } from '@aharness/core';
 interface P { q: string }
-export const machine = harness.machine({
+export const machine = aharness.machine({
   id: 'opt',
   initial: 'a',
-  context: () => ({ __harness_visitCount: {} as Record<string, number> }),
+  context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
   states: {
     a: state({ entryPrompt: 'x', skills: [skill('missing-but-optional', { optional: true })], exits: { ok: exit<P>({ to: 'done' }) } }),
     done: terminal('success'),

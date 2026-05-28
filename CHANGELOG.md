@@ -1,8 +1,8 @@
 # Changelog
 
-All notable user-facing changes for Harness are recorded here.
+All notable user-facing changes for aharness are recorded here.
 
-Harness does not use changesets or generated release notes yet. Until release
+aharness does not use changesets or generated release notes yet. Until release
 automation exists, this file is the source of truth for v0.1 release notes.
 
 ## 0.1.0 - Initial OSS release

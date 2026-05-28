@@ -9,10 +9,10 @@
  * `snake_case`. The TypeScript types below mirror the **wire** field
  * names verbatim.
  *
- * Scope rule: this module declares only the subset of fields the harness
+ * Scope rule: this module declares only the subset of fields the aharness
  * runtime reads or writes. Each interface is annotated with the upstream
  * Rust struct path (file:line at the pinned commit) so future bumps can
- * re-verify shape stability. Adding a field that the harness does not
+ * re-verify shape stability. Adding a field that the aharness does not
  * actually use is forbidden — keep this module narrow.
  */
 
@@ -35,7 +35,7 @@ export interface InitializeParams {
   readonly capabilities?: {
     readonly experimentalApi?: boolean;
     readonly requestAttestation?: boolean;
-    /** Notification methods the harness opts out of receiving. Codex's `OutgoingMessageSender` honours this for both parent and auto-attached sub-thread notifications (CF-17). Spec §5.7. */
+    /** Notification methods the aharness opts out of receiving. Codex's `OutgoingMessageSender` honours this for both parent and auto-attached sub-thread notifications (CF-17). Spec §5.7. */
     readonly optOutNotificationMethods?: ReadonlyArray<string>;
     readonly [k: string]: unknown;
   };
@@ -45,7 +45,7 @@ export interface InitializeResult {
   readonly serverInfo: { readonly name: string; readonly version: string };
 }
 
-/** CF-19: clients sending this `clientInfo.name` skip codex's process-global originator + user-agent mutation. The harness CLI MUST use this value. */
+/** CF-19: clients sending this `clientInfo.name` skip codex's process-global originator + user-agent mutation. The aharness CLI MUST use this value. */
 export const DAEMON_PROBE_CLIENT_NAME = 'codex_app_server_daemon';
 
 /**
@@ -63,14 +63,14 @@ export interface DynamicToolDef {
   /** JSON Schema describing the tool's argument shape. */
   inputSchema: Record<string, unknown>;
   deferLoading?: boolean;
-  /** When `true`, codex skips its synchronous `requires_mcp_tool_approval` prompt. The harness always sets this on `harness_submit`. Spec §4.3.1. */
+  /** When `true`, codex skips its synchronous `requires_mcp_tool_approval` prompt. The aharness always sets this on `aharness_submit`. Spec §4.3.1. */
   readOnlyHint?: boolean;
 }
 
 /**
  * `thread/start` request params. Matches
  * `app-server-protocol/src/protocol/v2.rs:3548-3618`. The full upstream
- * struct carries ~20 optional fields; only the fields the harness sets
+ * struct carries ~20 optional fields; only the fields the aharness sets
  * are typed here. Add additional fields as new call sites emerge.
  */
 export interface ThreadStartParams {
@@ -89,7 +89,7 @@ export type ThreadStartSource = 'startup' | 'clear';
 /**
  * Narrowed `Thread` payload returned by `thread/start` and present on
  * several notifications. Matches the subset of
- * `app-server-protocol/src/protocol/v2.rs:5083-5122` the harness reads.
+ * `app-server-protocol/src/protocol/v2.rs:5083-5122` the aharness reads.
  */
 export interface ThreadSnapshot {
   id: string;
@@ -99,7 +99,7 @@ export interface ThreadSnapshot {
 /**
  * `thread/start` response. Matches
  * `app-server-protocol/src/protocol/v2.rs:3641-3669`. Upstream returns
- * many policy fields alongside the thread; the harness only reads the
+ * many policy fields alongside the thread; the aharness only reads the
  * thread itself, but the wire envelope nests it under `thread`.
  */
 export interface ThreadStartResponse {
@@ -127,7 +127,7 @@ export interface ThreadResumeParams {
 /**
  * `thread/resume` response. Returns the same envelope shape as
  * `thread/start` (verified at `v2.rs` ResumeResponse declaration); the
- * harness reads only the thread snapshot.
+ * aharness reads only the thread snapshot.
  */
 export interface ThreadResumeResponse {
   thread: ThreadSnapshot;
@@ -149,7 +149,7 @@ export type ThreadRollbackResponse = Record<string, never>;
  * `thread/started` notification params. Emitted immediately after a
  * successful `thread/start` request. Matches
  * `app-server-protocol/src/protocol/v2.rs:6606` (`ThreadStartedNotification
- * { thread: Thread }`, camelCase wire-side). The headless harness CLI is
+ * { thread: Thread }`, camelCase wire-side). The headless aharness CLI is
  * the sole WebSocket client for the run.
  */
 export interface ThreadStartedNotification {
@@ -182,9 +182,9 @@ export interface ThreadUnsubscribeResponse {
 /**
  * Codex Responses-API item shape used as the wire payload for
  * `thread/inject_items.items` (which is declared upstream as raw
- * `JsonValue`, with the harness conforming to the Responses API
+ * `JsonValue`, with the aharness conforming to the Responses API
  * envelope). This is a narrow union covering only the variants the
- * harness emits/consumes.
+ * aharness emits/consumes.
  */
 export type ResponseItem =
   | {
@@ -200,7 +200,7 @@ export type ResponseItem =
  * `thread/inject_items` request params. Matches
  * `app-server-protocol/src/protocol/v2.rs:5664-5668`. Upstream types the
  * `items` field as `Vec<JsonValue>` because it accepts raw Responses-API
- * payloads; the harness emits the narrower `ResponseItem` shape above.
+ * payloads; the aharness emits the narrower `ResponseItem` shape above.
  */
 export interface ThreadInjectItemsParams {
   threadId: string;
@@ -211,8 +211,8 @@ export interface ThreadInjectItemsParams {
 export type ThreadInjectItemsResponse = Record<string, never>;
 
 /**
- * `UserInput` variant the harness emits in `turn/start.input`. Matches
- * `app-server-protocol/src/protocol/v2.rs:5785-5806`. The harness only
+ * `UserInput` variant the aharness emits in `turn/start.input`. Matches
+ * `app-server-protocol/src/protocol/v2.rs:5785-5806`. The aharness only
  * sends `Text` inputs; other variants (Image, LocalImage, Skill,
  * Mention) are not modelled here.
  */
@@ -235,7 +235,7 @@ export interface TurnStartParams {
 /**
  * `turn/start` response. Matches
  * `app-server-protocol/src/protocol/v2.rs:5657-5659`. Carries a `Turn`
- * snapshot; the harness reads `id` only.
+ * snapshot; the aharness reads `id` only.
  */
 export interface TurnStartResponse {
   turn: { id: string };
@@ -275,7 +275,7 @@ export type TurnInterruptResponse = Record<string, never>;
  * (`DynamicToolCallParams`). Note: `tool` is the tool name and
  * `arguments` is a JSON value (NOT a JSON string — codex deserialises it
  * as `JsonValue`). `turnId` and `namespace` are present on the wire even
- * though earlier drafts of the harness design omitted them.
+ * though earlier drafts of the aharness design omitted them.
  */
 export interface DynamicToolCallParams {
   threadId: string;
@@ -502,12 +502,12 @@ export interface McpServerElicitationRequestResponse {
 /**
  * Per-server MCP status entry. Subset of `McpServerStatus` at
  * `app-server-protocol/src/protocol/v2.rs:2708`. Codex emits the full
- * struct (transport spec, environment, OAuth fields…); the harness
+ * struct (transport spec, environment, OAuth fields…); the aharness
  * reads only the three fields below.
  *
  * `tools` is keyed by the **unqualified** tool name (server-local) — the
  * `mcp__<server>__<tool>` qualification happens later in codex's
- * `qualify_tools` (`codex-mcp/src/tools.rs:138-228`). The live harness
+ * `qualify_tools` (`codex-mcp/src/tools.rs:138-228`). The live aharness
  * submit path does not use this surface.
  *
  * `error` is set when the MCP child failed to start; in that case
@@ -525,7 +525,7 @@ export interface McpServerStatus {
  * `mcpServerStatus/list` response. Subset of
  * `ListMcpServerStatusResponse` at
  * `app-server-protocol/src/protocol/v2.rs:2719`. Pagination via
- * `nextCursor` is exposed. The live harness submit path uses
+ * `nextCursor` is exposed. The live aharness submit path uses
  * `dynamic_tools`; this type remains available for diagnostics and any
  * future author-declared MCP/tool surfaces.
  */

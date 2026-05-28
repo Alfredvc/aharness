@@ -41,7 +41,7 @@ export interface NudgeInput {
    * preamble so the model knows to yield to the user before submitting.
    *
    * Implementation note: `awaitsOwnerText` is implemented on top of
-   * codex's built-in `request_user_input` tool, NOT a harness MCP tool.
+   * codex's built-in `request_user_input` tool, NOT an aharness MCP tool.
    * The earlier MCP-based `request_owner_text` design deadlocked: the
    * daemon needed to observe the user's reply mid-tool-call, but codex
    * only emits the `userMessage` thread item after the turn loop iterates
@@ -62,15 +62,15 @@ export interface NudgeInput {
 /**
  * Compose the orientation string for a state entry. The format is:
  *
- *   [harness] Now in state "<id>".
+ *   [aharness] Now in state "<id>".
  *   Valid exits:
- *     - "<exit>" → call harness_submit({state: "<id>", exit: "<exit>", data: <compact-schema>})
+ *     - "<exit>" → call aharness_submit({state: "<id>", exit: "<exit>", data: <compact-schema>})
  *     - "<exit>" → call request_user_input (await exit, no submit data)
  *
  *   <entryPromptText>     // omitted entirely if empty
  *
  * The submit-form orientation is shown verbatim because it matches the
- * `harness_submit` tool the CLI registers via codex's `dynamic_tools`
+ * `aharness_submit` tool the CLI registers via codex's `dynamic_tools`
  * channel (per spec §4.3.1) — its parameter shape (state, exit, data) is
  * declared by `SUBMIT_TOOL` (see §10's prompt-cache invariant — the
  * tool itself is frozen; per-state guidance lives here). The tool name
@@ -81,7 +81,7 @@ export interface NudgeInput {
  * single line via `compactSchemaForOrientation` — `$schema` and empty
  * `definitions` are stripped (they carry no shape information for the
  * model), and the remainder is `JSON.stringify`'d without indent. This
- * is load-bearing context: the static `inputSchema` for `harness_submit`
+ * is load-bearing context: the static `inputSchema` for `aharness_submit`
  * (`protocol/submitTool.ts`) declares `data` as an open object
  * (`type: object`, `additionalProperties: true`) — enough to keep the
  * model from JSON-stringifying the value, but no per-state shape — so
@@ -89,7 +89,7 @@ export interface NudgeInput {
  */
 export function composeStateNudge(i: NudgeInput): string {
   const lines: string[] = [];
-  lines.push(`[harness] Now in state "${i.stateId}".`);
+  lines.push(`[aharness] Now in state "${i.stateId}".`);
   if (i.awaitsOwnerText) {
     // Preamble for free-text owner-yield: model must call codex's
     // built-in `request_user_input` BEFORE emitting any submit, with a

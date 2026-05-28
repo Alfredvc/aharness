@@ -1,13 +1,13 @@
 # @aharness/core
 
-SDK and `aharness` CLI binary for Harness FSMs.
+SDK and `aharness` CLI binary for aharness FSMs.
 
 ```sh
 npm install --save-dev @aharness/core
 ```
 
-Harness is the middle layer between advisory skills/prompts and a custom coding
-harness: Codex performs the language and coding work, while Harness enforces
+aharness is the middle layer between advisory skills/prompts and a custom coding
+aharness: Codex performs the language and coding work, while aharness enforces
 the executable FSM process around that work.
 
 Start here:
@@ -17,7 +17,7 @@ Start here:
   model.
 - [Reference](../../docs/reference.md) for `createFsm`, CLI commands, and
   package authoring.
-- [Architecture](../../docs/architecture.md) for the Codex/Harness runtime
+- [Architecture](../../docs/architecture.md) for the Codex/aharness runtime
   boundary.
 - [Supported Codex versions](SUPPORTED_CODEX.md) for the runtime version gate.
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { readBootToken, useHarnessSession } from './state/store';
+import { readBootToken, useAharnessSession } from './state/store';
 import { Graph } from './components/Graph';
 import { ActivePanel } from './components/ActivePanel';
 import { BootSkeleton } from './components/BootSkeleton';
@@ -7,17 +7,17 @@ import { TurnRibbon } from './components/TurnRibbon';
 import './components/components.css';
 
 export function App() {
-  const session = useHarnessSession(readBootToken());
+  const session = useAharnessSession(readBootToken());
 
-  return <HarnessShell session={session} />;
+  return <AharnessShell session={session} />;
 }
 
-export function HarnessShell({ session }: { session: ReturnType<typeof useHarnessSession> }) {
+export function AharnessShell({ session }: { session: ReturnType<typeof useAharnessSession> }) {
   const [helpOpen, setHelpOpen] = useState(false);
   const showBoot = !session.state;
 
   useEffect(() => {
-    document.title = session.mode === 'inspect' ? 'harness · inspect' : 'harness · run';
+    document.title = session.mode === 'inspect' ? 'aharness · inspect' : 'aharness · run';
   }, [session.mode]);
 
   // Global keybinds: A/D for top approval, J/K nav, ? for help, V dev mode.
@@ -89,7 +89,7 @@ function TopHeader({
   session,
   onHelp,
 }: {
-  session: ReturnType<typeof useHarnessSession>;
+  session: ReturnType<typeof useAharnessSession>;
   onHelp: () => void;
 }) {
   const { run, posture, turns, devMode, toggleDevMode } = session;
@@ -108,7 +108,7 @@ function TopHeader({
   return (
     <header className="top">
       <div className="brand">
-        <span className="brand-name">harness</span>
+        <span className="brand-name">aharness</span>
         <span className="brand-dot" data-tone={posturePill.tone} aria-hidden />
         <span className="brand-it">·&nbsp;{session.mode === 'inspect' ? 'inspect' : 'run'}</span>
       </div>
@@ -137,7 +137,7 @@ function TopHeader({
         <button
           className={`top-btn ${devMode ? 'on' : ''}`}
           onClick={toggleDevMode}
-          title="Show internal events (harness_submit, framework notes, synthetic orientation)."
+          title="Show internal events (aharness_submit, framework notes, synthetic orientation)."
         >
           dev <kbd>V</kbd>
         </button>

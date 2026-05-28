@@ -947,7 +947,7 @@ function AwaitingCodexPlaceholder() {
       </div>
       <h3 className="ac-title">Waiting for the first frame from codex</h3>
       <p className="ac-sub">
-        The FSM is verified and the harness is connected. Codex is starting in the background — the
+        The FSM is verified and the aharness is connected. Codex is starting in the background — the
         model will begin streaming into this panel as soon as it's online.
       </p>
       <ol className="ac-stages">

@@ -1,12 +1,12 @@
 /**
  * Line-delimited Unix-domain-socket {@link Transport} for the JSON-RPC client.
  *
- * Intended use: harness-internal UDS traffic only (e.g. between harness
+ * Intended use: aharness-internal UDS traffic only (e.g. between aharness
  * components such as the gateway and daemon). Each JSON message is a single
  * `\n`-terminated line on the byte stream; framing is handled by
  * {@link LineFramer}.
  *
- * NOT for harness↔codex traffic. Codex's UDS transport is WebSocket-on-UDS
+ * NOT for aharness↔codex traffic. Codex's UDS transport is WebSocket-on-UDS
  * (see codex `app-server-transport/src/transport/unix_socket.rs:78`,
  * `accept_async(stream)`); to speak to codex's app-server over UDS, wrap a
  * UDS connection in WebSocket framing — use {@link connectWs} with a

@@ -1,4 +1,4 @@
-import { harness, state, exit, final, embed } from '../../../src/index.js';
+import { aharness, state, exit, final, embed } from '../../../src/index.js';
 import child from './child.fsm.js';
 
 // Bypass attempt: spread embed(child, ...) and bolt extras on. This is what
@@ -10,7 +10,7 @@ const compound = embed(child, {
   },
 });
 
-export default harness.machine({
+export default aharness.machine({
   id: 'nonExclusive',
   initial: 'router',
   states: {

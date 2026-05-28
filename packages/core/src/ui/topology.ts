@@ -1,7 +1,7 @@
 import type { AnyStateMachine, StateNode } from 'xstate';
-import { getHarnessMeta, iterStates, stateKeyPath } from '../state.js';
+import { getAharnessMeta, iterStates, stateKeyPath } from '../state.js';
 import type { EmbeddedMeta } from '../state/embed.js';
-import type { DefaultedExitDef, HarnessStateMeta } from '../state/exits.js';
+import type { DefaultedExitDef, AharnessStateMeta } from '../state/exits.js';
 import type { SkillRef } from '../state/skills.js';
 import type { SchemaSidecar } from '../types.js';
 import type {
@@ -29,9 +29,9 @@ interface EmbedHostInfo {
 function readEmbeddedMeta(node: StateNode): EmbeddedMeta | undefined {
   const raw: unknown = node.config.meta;
   if (!raw || typeof raw !== 'object') return undefined;
-  const harness = (raw as { harness?: unknown }).harness;
-  if (!harness || typeof harness !== 'object') return undefined;
-  const embedded = (harness as { embedded?: unknown }).embedded;
+  const aharness = (raw as { aharness?: unknown }).aharness;
+  if (!aharness || typeof aharness !== 'object') return undefined;
+  const embedded = (aharness as { embedded?: unknown }).embedded;
   if (!embedded || typeof embedded !== 'object') return undefined;
   return embedded as EmbeddedMeta;
 }
@@ -179,7 +179,7 @@ export function extractUiTopology(
   for (const node of iterStates(machine)) {
     const path = stateKeyPath(node);
     if (path === '' || embedHosts.has(path)) continue;
-    const meta = getHarnessMeta(node);
+    const meta = getAharnessMeta(node);
     if (!meta) continue;
     const parent = enclosingHost(path);
     const parentField = parent !== undefined ? { parent } : {};
@@ -305,7 +305,7 @@ function inspectableText(value: unknown, fallback: string): string {
 }
 
 function describeStatefulNode(
-  meta: HarnessStateMeta,
+  meta: AharnessStateMeta,
   path: string,
   resolveTarget: (rawTo: string, sourcePath: string) => string,
   sidecar: SchemaSidecar | undefined,
@@ -365,7 +365,7 @@ function describeExit(
   };
 }
 
-function describeHooks(meta: HarnessStateMeta): HookDetail[] {
+function describeHooks(meta: AharnessStateMeta): HookDetail[] {
   const hooks = meta.hooks;
   if (hooks === undefined) return [];
   const out: HookDetail[] = [];

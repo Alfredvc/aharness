@@ -89,6 +89,6 @@ function warningBlock(
 ): string {
   const reason = detail ?? `not found in any of:\n  - ${searched.join('\n  - ')}`;
   return `<skill name=${JSON.stringify(displayName)} status="missing">
-(harness: skill ${JSON.stringify(displayName)} ${reason})
+(aharness: skill ${JSON.stringify(displayName)} ${reason})
 </skill>`;
 }

@@ -82,7 +82,7 @@ function submitBrainstorming(
 
 function successOutput(context: unknown): unknown {
   const readyState = writingPlansMachine.root.states['readyForExecution'];
-  const output = readyState?.meta?.harness?.output as
+  const output = readyState?.meta?.aharness?.output as
     | ((args: { context: unknown }) => unknown)
     | undefined;
   return output?.({ context });
@@ -90,7 +90,7 @@ function successOutput(context: unknown): unknown {
 
 function brainstormingSuccessOutput(context: unknown): unknown {
   const approvedState = brainstormingMachine.root.states['approved'];
-  const output = approvedState?.meta?.harness?.output as
+  const output = approvedState?.meta?.aharness?.output as
     | ((args: { context: unknown }) => unknown)
     | undefined;
   return output?.({ context });
@@ -139,7 +139,7 @@ describe('@aharness/superpowers package', () => {
       noCache: true,
     });
     const designConversation = brainstorming.machine.root.states['designConversation'];
-    const brainstormingSkills = designConversation?.meta?.harness?.skills ?? [];
+    const brainstormingSkills = designConversation?.meta?.aharness?.skills ?? [];
 
     expect(brainstormingSkills).toContainEqual(
       expect.objectContaining({
@@ -153,7 +153,7 @@ describe('@aharness/superpowers package', () => {
       noCache: true,
     });
     const planAuthoring = writingPlans.machine.root.states['planAuthoring'];
-    const skills = planAuthoring?.meta?.harness?.skills ?? [];
+    const skills = planAuthoring?.meta?.aharness?.skills ?? [];
 
     expect(skills).toContainEqual(
       expect.objectContaining({

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { assign } from 'xstate';
 
-import { createFsm, harness, state, terminal } from '@aharness/core';
+import { createFsm, aharness, state, terminal } from '@aharness/core';
 
 import { ActorHost } from '../src/runtime/actorHost.js';
 import { createEventDispatcher } from '../src/runtime/dispatchEvent.js';
@@ -26,7 +26,7 @@ function buildHost(args: {
   readonly eventTransition?: unknown;
   readonly initialContext?: Ctx;
 }) {
-  const machine = harness.machine({
+  const machine = aharness.machine({
     id: 'm',
     initial: 'a',
     context: (): Ctx => args.initialContext ?? { count: 0, nested: { marks: [] } },
@@ -487,8 +487,8 @@ describe('createEventDispatcher', () => {
       eventTransition: {
         target: 'b',
         actions: assign(({ event }) => {
-          const next = (event as { payload?: { __harnessCanonicalCommitContext?: Ctx } }).payload
-            ?.__harnessCanonicalCommitContext;
+          const next = (event as { payload?: { __aharnessCanonicalCommitContext?: Ctx } }).payload
+            ?.__aharnessCanonicalCommitContext;
           events.push(`commit:${next?.count}`);
           return next ?? {};
         }),
@@ -529,8 +529,8 @@ describe('createEventDispatcher', () => {
       }),
       eventTransition: {
         actions: assign(({ event }) => {
-          const next = (event as { payload?: { __harnessCanonicalCommitContext?: Ctx } }).payload
-            ?.__harnessCanonicalCommitContext;
+          const next = (event as { payload?: { __aharnessCanonicalCommitContext?: Ctx } }).payload
+            ?.__aharnessCanonicalCommitContext;
           events.push(`commit:${next?.count}`);
           return next ?? {};
         }),
@@ -619,8 +619,8 @@ describe('createEventDispatcher', () => {
     expect(effectHost.currentContext()).toEqual({
       count: 0,
       nested: { marks: [] },
-      __harness_lastOwnerReply: undefined,
-      __harness_visitCount: { a: 1 },
+      __aharness_lastOwnerReply: undefined,
+      __aharness_visitCount: { a: 1 },
     });
     expect(effectFlushSnapshot).not.toHaveBeenCalled();
 
@@ -654,8 +654,8 @@ describe('createEventDispatcher', () => {
     expect(reducerHost.currentContext()).toEqual({
       count: 0,
       nested: { marks: [] },
-      __harness_lastOwnerReply: undefined,
-      __harness_visitCount: { a: 1 },
+      __aharness_lastOwnerReply: undefined,
+      __aharness_visitCount: { a: 1 },
     });
     expect(reducerFlushSnapshot).not.toHaveBeenCalled();
   });
@@ -717,8 +717,8 @@ describe('createEventDispatcher', () => {
       }),
       eventTransition: {
         actions: assign(({ event }) => {
-          const next = (event as { payload?: { __harnessCanonicalCommitContext?: Ctx } }).payload
-            ?.__harnessCanonicalCommitContext;
+          const next = (event as { payload?: { __aharnessCanonicalCommitContext?: Ctx } }).payload
+            ?.__aharnessCanonicalCommitContext;
           return next ?? {};
         }),
       },
@@ -765,8 +765,8 @@ describe('createEventDispatcher', () => {
       }),
       eventTransition: {
         actions: assign(({ event }) => {
-          const next = (event as { payload?: { __harnessCanonicalCommitContext?: Ctx } }).payload
-            ?.__harnessCanonicalCommitContext;
+          const next = (event as { payload?: { __aharnessCanonicalCommitContext?: Ctx } }).payload
+            ?.__aharnessCanonicalCommitContext;
           return next ?? {};
         }),
       },

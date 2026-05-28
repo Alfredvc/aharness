@@ -1,6 +1,6 @@
 /**
  * Resolver for `entryPrompt` — accepts the string-or-function form
- * declared by `HarnessStateMeta.entryPrompt` (verified single
+ * declared by `AharnessStateMeta.entryPrompt` (verified single
  * `(ctx: RunCtx) => string` signature in `packages/sdk/src/state/exits.ts`)
  * and returns the orientation text the daemon will inject after a
  * successful submit / await transition.
@@ -16,7 +16,7 @@
 import type { RunCtx } from '../types.js';
 
 /**
- * Mirror of `HarnessStateMeta.entryPrompt`'s declared type.
+ * Mirror of `AharnessStateMeta.entryPrompt`'s declared type.
  * Re-declared locally so callers depending only on this module don't
  * need to import the full state-meta surface.
  */

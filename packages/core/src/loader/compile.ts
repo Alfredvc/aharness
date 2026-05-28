@@ -1,16 +1,16 @@
 /**
  * Compile a `<file>.fsm.ts` to an ESM bundle and dynamic-import it.
  *
- * The harness user does not install `@aharness/core` or `xstate` into
- * a local `node_modules` — they install the harness CLI globally and write
+ * The aharness user does not install `@aharness/core` or `xstate` into
+ * a local `node_modules` — they install the aharness CLI globally and write
  * `<file>.fsm.ts` in any directory. The bundled `.mjs` therefore cannot
  * leave bare specifier imports (`import 'xstate'`) — node would walk up
- * from `<userCwd>/.harness/cache/<hash>/` and find nothing.
+ * from `<userCwd>/.aharness/cache/<hash>/` and find nothing.
  *
  * The compile step rewrites bare specifiers to absolute paths (resolved
- * inside the harness install via `getInstallPaths`) and marks them
+ * inside the aharness install via `getInstallPaths`) and marks them
  * external. The bundle's emitted imports look like
- *   import { setup } from "/abs/path/harness/node_modules/xstate/dist/xstate.cjs.mjs";
+ *   import { setup } from "/abs/path/aharness/node_modules/xstate/dist/xstate.cjs.mjs";
  * which Node ESM accepts directly — no further resolution required at
  * load time. The user's local files (`./types`, `./render`) bundle in
  * the normal way.
@@ -25,7 +25,7 @@
  * spec line was written assuming a single-file FSM in a node project;
  * the example FSM splits across four `.ts` files, and the user's
  * project may not be a node project at all. Bundling local imports while
- * externalising harness/xstate is the only consistent shape.
+ * externalising aharness/xstate is the only consistent shape.
  */
 
 import { build, type Plugin } from 'esbuild';
@@ -44,7 +44,7 @@ export interface CompileResult {
 /**
  * Bundle `entryFile` into `outPath`. Externalises `xstate` and
  * `@aharness/core` (including subpaths) by rewriting them to absolute
- * file paths in the harness install. Injects `serializedSidecar` as a
+ * file paths in the aharness install. Injects `serializedSidecar` as a
  * top-of-file `export const __sidecar = …;` literal so warm-cache reads
  * pick it up directly off the imported module. Throws on esbuild errors.
  *
@@ -81,7 +81,7 @@ export async function compileFsm(
 
 function externalisePlugin(installPaths: InstallPaths): Plugin {
   return {
-    name: 'harness-externalise-runtime',
+    name: 'aharness-externalise-runtime',
     setup(build) {
       build.onResolve({ filter: BARE_SPECIFIER_RE }, (args) => {
         const match = BARE_SPECIFIER_RE.exec(args.path);
@@ -116,7 +116,7 @@ function externalisePlugin(installPaths: InstallPaths): Plugin {
         // Bare package specifier — use the entry resolved via
         // `import.meta.resolve` (honours `exports`/`main`).
         const entry =
-          pkg === 'xstate' ? installPaths.xstateEntry : installPaths.harnessCoreSdkEntry;
+          pkg === 'xstate' ? installPaths.xstateEntry : installPaths.aharnessCoreSdkEntry;
         return { path: entry, external: true };
       });
     },

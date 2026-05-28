@@ -199,7 +199,7 @@ describe('runDoctorCli (filesystem-backed)', () => {
     const cwd = process.cwd();
     process.chdir(repoRoot);
     try {
-      const runsRoot = join(repoRoot, '.harness', 'runs');
+      const runsRoot = join(repoRoot, '.aharness', 'runs');
 
       // Run A: events.jsonl with two cache.metrics + a non-metric trailing
       // line; doctor should report values from the last cache.metrics line.

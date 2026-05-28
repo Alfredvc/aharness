@@ -108,9 +108,9 @@ describe('startUiServer', () => {
 
       expect(response.status).toBe(200);
       expect(response.headers.get('content-type')).toContain('text/html');
-      expect(body).toContain('<title>harness · run</title>');
+      expect(body).toContain('<title>aharness · run</title>');
       expect(body).toContain('<div id="root">');
-      expect(body).toContain('id="harness-preboot"');
+      expect(body).toContain('id="aharness-preboot"');
       expect(body).toMatch(/(?:src|href)="\.\/assets\/index-[^"]+\.(?:js|css)"/);
     }
   });
@@ -560,7 +560,7 @@ describe('startUiServer', () => {
 
     const response = await fetch(`${handle.url}/api/reply`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'X-Harness-Ui-Token': TEST_UI_TOKEN },
+      headers: { 'content-type': 'application/json', 'X-Aharness-Ui-Token': TEST_UI_TOKEN },
       body: JSON.stringify({
         kind: 'owner-input',
         requestId: 'item-1',
@@ -588,7 +588,7 @@ describe('startUiServer', () => {
 
     const response = await fetch(`${handle.url}/api/reply`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'X-Harness-Ui-Token': TEST_UI_TOKEN },
+      headers: { 'content-type': 'application/json', 'X-Aharness-Ui-Token': TEST_UI_TOKEN },
       body: '{"kind":"user-prompt",',
     });
     const body = await response.json();
@@ -611,7 +611,7 @@ describe('startUiServer', () => {
 
     const response = await fetch(`${handle.url}/api/reply`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'X-Harness-Ui-Token': TEST_UI_TOKEN },
+      headers: { 'content-type': 'application/json', 'X-Aharness-Ui-Token': TEST_UI_TOKEN },
       body: JSON.stringify(payload),
     });
     const body = await response.json();
@@ -635,7 +635,7 @@ describe('startUiServer', () => {
 
     const response = await fetch(`${handle.url}/api/reply`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'X-Harness-Ui-Token': TEST_UI_TOKEN },
+      headers: { 'content-type': 'application/json', 'X-Aharness-Ui-Token': TEST_UI_TOKEN },
       body: JSON.stringify(payload),
     });
     const body = await response.json();
@@ -655,7 +655,7 @@ describe('startUiServer', () => {
 
     const response = await fetch(`${handle.url}/api/reply`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'X-Harness-Ui-Token': TEST_UI_TOKEN },
+      headers: { 'content-type': 'application/json', 'X-Aharness-Ui-Token': TEST_UI_TOKEN },
       body: JSON.stringify({ kind: 'user-prompt', text: 'x'.repeat(65_536) }),
     });
     const body = await response.json();

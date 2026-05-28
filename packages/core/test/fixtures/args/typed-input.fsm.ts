@@ -1,10 +1,10 @@
-import { harness, state, exit, final, arg } from '@aharness/core';
+import { aharness, state, exit, final, arg } from '@aharness/core';
 
 interface Choice {
   readonly value: 'a' | 'b' | 'c';
 }
 
-export default harness.machine({
+export default aharness.machine({
   input: {
     ideafilePath: arg<string>({ description: 'Path to ideafile', completion: 'file' }),
     topic: arg<string>({ description: 'Project slug' }),

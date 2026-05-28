@@ -29,7 +29,7 @@
  *     test at
  *     `app-server/tests/suite/v2/thread_inject_items.rs:55-69`).
  *
- * `role: 'developer'` is the orientation channel: the harness writes
+ * `role: 'developer'` is the orientation channel: the aharness writes
  * framework-authored guidance, never user content. The codex thread has
  * no schema-level allowlist for role strings (`role: String` in the Rust
  * struct); we use `developer` to match codex's own conventions for

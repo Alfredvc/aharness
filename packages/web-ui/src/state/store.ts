@@ -1,5 +1,5 @@
 // Reducer + custom hook consuming production AppEvents. Produces UI state with
-// filter rules that hide internal harness noise (reserved tools, framework
+// filter rules that hide internal aharness noise (reserved tools, framework
 // orientation) by default.
 
 import { useCallback, useEffect, useReducer, useRef } from 'react';
@@ -26,11 +26,11 @@ import type {
 } from '../types/events.js';
 import type { Topology } from '../types/topology.js';
 
-// Tools the UI hides from the default transcript view: harness_submit is the
+// Tools the UI hides from the default transcript view: aharness_submit is the
 // model-visible name of the dynamic_tools submit channel (headless spec §4.3.1);
 // request_user_input is codex's built-in owner-yield tool whose ServerRequest
 // is rendered separately. Dev mode reveals both.
-export const RESERVED_TOOLS = new Set<string>(['harness_submit', 'request_user_input']);
+export const RESERVED_TOOLS = new Set<string>(['aharness_submit', 'request_user_input']);
 const DIAGNOSTIC_LIMIT = 100;
 
 export type TranscriptItem =
@@ -588,7 +588,7 @@ export function readBootToken(
   return token && token.length > 0 ? token : null;
 }
 
-export function useHarnessSession(uiToken: string | null): UiState & UiActions {
+export function useAharnessSession(uiToken: string | null): UiState & UiActions {
   const [s, dispatch] = useReducer(reducer, undefined, createConnectingUiState);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const latestSnapshotEventIdRef = useRef<string | null>(null);

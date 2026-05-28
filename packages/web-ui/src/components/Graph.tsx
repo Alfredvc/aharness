@@ -1287,13 +1287,13 @@ function EmbedToggleControl({
 function GraphLegend({ items }: { items: LegendItem[] }) {
   const [open, setOpen] = useState<boolean>(() => {
     if (typeof localStorage === 'undefined') return false;
-    return localStorage.getItem('harness-ui.legend.open') === 'true';
+    return localStorage.getItem('aharness-ui.legend.open') === 'true';
   });
   function toggle() {
     setOpen((v) => {
       const next = !v;
       try {
-        localStorage.setItem('harness-ui.legend.open', String(next));
+        localStorage.setItem('aharness-ui.legend.open', String(next));
       } catch {
         /* localStorage unavailable — collapse state stays in-memory only. */
       }

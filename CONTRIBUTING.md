@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to Harness. This repository is a TypeScript monorepo for
+Thanks for contributing to aharness. This repository is a TypeScript monorepo for
 `@aharness/core`, `@aharness/test-support`, examples, and user-facing docs.
 
 ## Setup
@@ -82,7 +82,7 @@ or command is unknown, resolve it before finalizing the change.
 
 ## Mechanisms vs. Opinions
 
-Harness should provide executable workflow mechanisms for coding agents without
+aharness should provide executable workflow mechanisms for coding agents without
 hard-coding one team's process opinions into the core runtime.
 
 Prefer core changes that make process control explicit and reusable:

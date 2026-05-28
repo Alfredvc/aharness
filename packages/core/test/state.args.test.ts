@@ -6,7 +6,7 @@ describe('arg()', () => {
   it('returns an opaque sentinel with the marker brand', () => {
     const a = arg<string>();
     expect(isArgSentinel(a)).toBe(true);
-    expect((a as { __harnessArgMarker?: boolean }).__harnessArgMarker).toBe(true);
+    expect((a as { __aharnessArgMarker?: boolean }).__aharnessArgMarker).toBe(true);
   });
 
   it('carries meta on the sentinel when supplied', () => {
@@ -27,7 +27,7 @@ describe('arg()', () => {
   it('isArgSentinel returns false for non-sentinels', () => {
     expect(isArgSentinel(undefined)).toBe(false);
     expect(isArgSentinel({})).toBe(false);
-    expect(isArgSentinel({ __harnessArgMarker: false })).toBe(false);
+    expect(isArgSentinel({ __aharnessArgMarker: false })).toBe(false);
   });
 });
 

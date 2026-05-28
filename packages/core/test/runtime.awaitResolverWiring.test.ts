@@ -25,7 +25,7 @@
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { harness, state, terminal, exit } from '@aharness/core';
+import { aharness, state, terminal, exit } from '@aharness/core';
 
 import { ActorHost } from '../src/runtime/actorHost.js';
 import { createAwaitResolver, type AwaitResolver } from '../src/runtime/awaitResolver.js';
@@ -293,7 +293,7 @@ describe('extractCallIdForLog', () => {
 
 describe('currentAwaitExitName', () => {
   function buildHostInState(initial: 'wait' | 'submitOnly' | 'fin'): ActorHost {
-    const machine = harness.machine({
+    const machine = aharness.machine({
       id: 'm',
       initial,
       context: () => ({}),

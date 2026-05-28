@@ -4,16 +4,16 @@
  * (no `.agents/skills/` tree) and a path-form skill pointing at a
  * sibling file that DOES exist (the test creates it).
  */
-import { harness, state, terminal, exit, skill } from '@aharness/core';
+import { aharness, state, terminal, exit, skill } from '@aharness/core';
 
 interface AskPayload {
   q: string;
 }
 
-export const machine = harness.machine({
+export const machine = aharness.machine({
   id: 'skills-fixture',
   initial: 'ask',
-  context: () => ({ __harness_visitCount: {} as Record<string, number> }),
+  context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
   states: {
     ask: state({
       entryPrompt: 'Ask.',

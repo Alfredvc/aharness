@@ -99,7 +99,7 @@ describe('builders', () => {
       }
     ).item;
     expect(item.name).toBe('submit');
-    expect(item.namespace).toBe('mcp__harness_fsm__');
+    expect(item.namespace).toBe('mcp__aharness_fsm__');
     expect(JSON.parse(item.arguments)).toEqual({
       state: 'reviewerPass',
       exit: 'submit',

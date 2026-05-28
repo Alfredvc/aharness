@@ -7,9 +7,9 @@
  *   - `broken`: callback throws unconditionally (asserts the bridge's
  *     per-callback try/catch swallows errors and emits nothing).
  */
-import { harness, state, exit, final, arg } from '@aharness/core';
+import { aharness, state, exit, final, arg } from '@aharness/core';
 
-export default harness.machine({
+export default aharness.machine({
   input: {
     project: arg<string>({
       description: 'Project name',

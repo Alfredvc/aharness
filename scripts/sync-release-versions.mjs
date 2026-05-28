@@ -46,7 +46,7 @@ for (const packageDir of PUBLISHABLE_PACKAGES) {
 for (const relativePath of SCAFFOLD_VERSION_FILES) {
   const path = join(ROOT, relativePath);
   const body = readFileSync(path, 'utf8')
-    .replace(/"__HARNESS_VERSION__"/g, `"^${version}"`)
+    .replace(/"__AHARNESS_VERSION__"/g, `"^${version}"`)
     .replace(/("(?:@aharness\/core)"\s*:\s*)"[^"]+"/g, `$1"^${version}"`);
   writeFileSync(path, body);
 }

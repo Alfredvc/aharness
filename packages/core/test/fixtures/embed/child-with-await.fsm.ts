@@ -12,13 +12,13 @@
  * the leaf's `awaitsOwnerText`, `entryPrompt`, and `exits` verbatim
  * once the leaf is the active leaf inside an embed-host parent.
  */
-import { harness, state, exit, final } from '../../../src/index.js';
+import { aharness, state, exit, final } from '../../../src/index.js';
 
 interface ReplyPayload {
   readonly reply: string;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'childWithAwait',
   initial: 'ask',
   states: {

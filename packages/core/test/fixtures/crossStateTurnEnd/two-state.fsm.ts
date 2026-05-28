@@ -10,7 +10,7 @@
  * in the recorded `turn/start.input` payload to confirm the daemon
  * issued the post-transition orientation for the correct state.
  */
-import { harness, state, terminal, exit } from '@aharness/core';
+import { aharness, state, terminal, exit } from '@aharness/core';
 import { assign } from 'xstate';
 
 interface Ctx {
@@ -21,7 +21,7 @@ interface GoPayload {
   inc: number;
 }
 
-export default harness.machine({
+export default aharness.machine({
   id: 'cross-state-turn-end',
   initial: 'a',
   context: (): Ctx => ({ count: 0 }),

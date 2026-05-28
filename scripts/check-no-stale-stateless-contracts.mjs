@@ -13,8 +13,8 @@ import { fileURLToPath } from 'node:url';
 const FILE_TARGETS = [
   'README.md',
   'CLAUDE.md',
-  'docs/HARNESS_IDEA.md',
-  'docs/SPEC_SDK.md',
+  'docs/architecture.md',
+  'docs/reference.md',
   'examples/DEMOS.md',
   'packages/core/README.md',
   'packages/core/scripts/browserGoldenServer.mjs',
@@ -22,7 +22,7 @@ const FILE_TARGETS = [
   'packages/core/src/index.ts',
   'packages/core/src/snapshot.ts',
   'packages/core/src/cli/runCli.ts',
-  'packages/core/src/state/harnessOps.ts',
+  'packages/core/src/state/aharnessOps.ts',
   'packages/core/src/runtime/freshClear.ts',
 ];
 
@@ -36,7 +36,7 @@ const RULES = [
   {
     id: 'framework-resume-guidance',
     pattern:
-      /\bharness\s+<[^>\n]+>\s+--resume\b|\bresume with:?\s+harness\b|\bsnapshot\/resume\b|\bthread\/resume\b|\bwarm-resume\b|\bcrash recovery\b/i,
+      /\baharness\s+<[^>\n]+>\s+--resume\b|\bresume with:?\s+aharness\b|\bsnapshot\/resume\b|\bthread\/resume\b|\bwarm-resume\b|\bcrash recovery\b/i,
   },
   {
     id: 'framework-recovery-promise',

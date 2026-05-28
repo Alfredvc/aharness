@@ -1,12 +1,12 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { HarnessShell } from './App';
-import { useFixtureHarnessSession } from './state/fixtureStore';
+import { AharnessShell } from './App';
+import { useFixtureAharnessSession } from './state/fixtureStore';
 import './styles/global.css';
 
 function FixtureApp() {
-  const session = useFixtureHarnessSession();
-  return <HarnessShell session={session} />;
+  const session = useFixtureAharnessSession();
+  return <AharnessShell session={session} />;
 }
 
 const root = document.getElementById('root');
