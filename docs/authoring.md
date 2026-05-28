@@ -113,6 +113,13 @@ Use skills as guidance loaded into states, not as the source of process truth.
 Skills can tell Codex how to behave inside a state; the FSM controls whether
 the workflow may leave that state.
 
+When converting an existing skill into an FSM, keep the top-level `SKILL.md` as
+a short map for users who know the old workflow. Move process control into FSM
+states, transitions, reducers, and final artifacts. Move phase-specific
+operating guidance into state prompts or small guide files referenced by the
+state. Do not make every state a standalone skill unless that guidance is
+independently reusable.
+
 ## Inputs And Skills
 
 Declare CLI inputs on the machine with `fsm.input.*` helpers:

@@ -56,6 +56,10 @@ The FSM enforces plan authoring, broad-spec owner decision, plan quality review,
 
 ## Bundled Skills
 
-Skill assets are copied under `skills/superpowers/` and referenced from package FSMs by path. Direct command FSMs under `fsms/` use paths like `../skills/superpowers/writing-plans/SKILL.md`.
+Skill assets are copied under `skills/superpowers/` and referenced from package FSMs by path.
 
-Copied vendored skill content should stay unmodified in place. Package-specific adaptation belongs in FSM prompts, shared helpers, or this README.
+The top-level `SKILL.md` files are short compatibility maps for users who know the original Superpowers skills. They explain which Harness command to run and how familiar skill phases map to FSM states.
+
+State-specific guidance lives under each skill's `guides/` directory. Direct command FSMs under `fsms/` reference those guides by path, for example `../skills/superpowers/writing-plans/guides/plan-authoring.md`.
+
+This package intentionally keeps workflow control in the FSM: states, typed exits, owner gates, retries, outputs, and failure paths are not delegated to skill prose. Guides describe how to work inside a state.

@@ -1,6 +1,6 @@
 import { createFsm } from '@aharness/core';
 import {
-  directCommandSkillPath,
+  directCommandGuidePath,
   renderBrainstormingFinalArtifact,
   type ReviewSummary,
 } from './helpers/shared.js';
@@ -77,7 +77,7 @@ export const machine = fsm.machine({
         ]
           .filter(Boolean)
           .join('\n\n'),
-      skills: [fsm.skill.path(directCommandSkillPath('brainstorming'))],
+      skills: [fsm.skill.path(directCommandGuidePath('brainstorming', 'design-conversation'))],
       on: {
         designReview: fsm.submit<{
           approved: boolean;
@@ -126,7 +126,7 @@ export const machine = fsm.machine({
         ]
           .filter(Boolean)
           .join('\n\n'),
-      skills: [fsm.skill.path(directCommandSkillPath('brainstorming'))],
+      skills: [fsm.skill.path(directCommandGuidePath('brainstorming', 'write-and-review-spec'))],
       on: {
         specReview: fsm.submit<{
           approved: boolean;

@@ -1,6 +1,6 @@
 import { createFsm } from '@aharness/core';
 import {
-  directCommandSkillPath,
+  directCommandGuidePath,
   isExecutionMode,
   renderWritingPlansFinalArtifact,
   type ExecutionMode,
@@ -86,7 +86,7 @@ export const machine = fsm.machine({
         ]
           .filter(Boolean)
           .join('\n\n'),
-      skills: [fsm.skill.path(directCommandSkillPath('writing-plans'))],
+      skills: [fsm.skill.path(directCommandGuidePath('writing-plans', 'plan-authoring'))],
       on: {
         planReady: fsm.submit<{
           planPath: string;
@@ -173,7 +173,7 @@ export const machine = fsm.machine({
           'Check boundary, current-reality references, buildability, test design, verification gates, and absence of placeholders.',
           'Submit review with approved=false if the plan needs changes.',
         ].join('\n\n'),
-      skills: [fsm.skill.path(directCommandSkillPath('writing-plans'))],
+      skills: [fsm.skill.path(directCommandGuidePath('writing-plans', 'plan-quality-review'))],
       on: {
         review: fsm.submit<{
           approved: boolean;

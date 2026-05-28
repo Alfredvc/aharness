@@ -47,8 +47,8 @@ export function isExecutionMode(value: string): value is ExecutionMode {
   return (EXECUTION_MODES as readonly string[]).includes(value);
 }
 
-export function directCommandSkillPath(skillName: string): string {
-  return `../skills/superpowers/${skillName}/SKILL.md`;
+export function directCommandGuidePath(skillName: string, guideName: string): string {
+  return `../skills/superpowers/${skillName}/guides/${guideName}.md`;
 }
 
 export function renderReviewSummaries(summaries: readonly ReviewSummary[]): string {

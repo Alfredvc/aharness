@@ -96,6 +96,14 @@ function brainstormingSuccessOutput(context: unknown): unknown {
   return output?.({ context });
 }
 
+function stateSkillRefs(machine: unknown, stateId: string): readonly unknown[] {
+  const config = (machine as { config?: { states?: Record<string, unknown> } }).config;
+  const state = config?.states?.[stateId] as
+    | { meta?: { aharness?: { skills?: readonly unknown[] } } }
+    | undefined;
+  return state?.meta?.aharness?.skills ?? [];
+}
+
 describe('@aharness/superpowers package', () => {
   it('verifies the package with visible FSM commands', async () => {
     const result = await verifyFsmPackage({ packageRoot });
@@ -132,18 +140,23 @@ describe('@aharness/superpowers package', () => {
     expect(help.stdout).toContain('--spec-path <string>');
   });
 
-  it('resolves bundled direct-command skills by package-relative path', async () => {
+  it('resolves bundled state guides by package-relative path', async () => {
     const brainstorming = await loadFsm({
       filePath: path.join(packageRoot, 'fsms', 'brainstorming.fsm.ts'),
       repoRoot: packageRoot,
       noCache: true,
     });
-    const designConversation = brainstorming.machine.root.states['designConversation'];
-    const brainstormingSkills = designConversation?.meta?.aharness?.skills ?? [];
+    const designConversationGuides = stateSkillRefs(brainstorming.machine, 'designConversation');
+    const writeAndReviewSpecGuides = stateSkillRefs(brainstorming.machine, 'writeAndReviewSpec');
 
-    expect(brainstormingSkills).toContainEqual(
+    expect(designConversationGuides).toContainEqual(
       expect.objectContaining({
-        path: '../skills/superpowers/brainstorming/SKILL.md',
+        path: '../skills/superpowers/brainstorming/guides/design-conversation.md',
+      }),
+    );
+    expect(writeAndReviewSpecGuides).toContainEqual(
+      expect.objectContaining({
+        path: '../skills/superpowers/brainstorming/guides/write-and-review-spec.md',
       }),
     );
 
@@ -152,12 +165,17 @@ describe('@aharness/superpowers package', () => {
       repoRoot: packageRoot,
       noCache: true,
     });
-    const planAuthoring = writingPlans.machine.root.states['planAuthoring'];
-    const skills = planAuthoring?.meta?.aharness?.skills ?? [];
+    const planAuthoringGuides = stateSkillRefs(writingPlans.machine, 'planAuthoring');
+    const planQualityGateGuides = stateSkillRefs(writingPlans.machine, 'planQualityGate');
 
-    expect(skills).toContainEqual(
+    expect(planAuthoringGuides).toContainEqual(
       expect.objectContaining({
-        path: '../skills/superpowers/writing-plans/SKILL.md',
+        path: '../skills/superpowers/writing-plans/guides/plan-authoring.md',
+      }),
+    );
+    expect(planQualityGateGuides).toContainEqual(
+      expect.objectContaining({
+        path: '../skills/superpowers/writing-plans/guides/plan-quality-review.md',
       }),
     );
   });
