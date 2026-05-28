@@ -53,6 +53,9 @@ importers:
       esbuild:
         specifier: ^0.28.0
         version: 0.28.0
+      semver:
+        specifier: ^7.8.1
+        version: 7.8.1
       shell-quote:
         specifier: ^1.8.3
         version: 1.8.3
@@ -72,9 +75,34 @@ importers:
       '@types/json-schema':
         specifier: ^7.0.0
         version: 7.0.15
+      '@types/semver':
+        specifier: ^7.7.1
+        version: 7.7.1
       '@types/shell-quote':
         specifier: ^1.7.5
         version: 1.7.5
+      '@types/ws':
+        specifier: ^8.5.13
+        version: 8.18.1
+
+  packages/superpowers:
+    dependencies:
+      '@aharness/core':
+        specifier: workspace:*
+        version: link:../core
+
+  packages/test-support:
+    dependencies:
+      '@aharness/core':
+        specifier: workspace:*
+        version: link:../core
+      node-pty:
+        specifier: ^1.0.0
+        version: 1.1.0
+      ws:
+        specifier: ^8.18.0
+        version: 8.20.0
+    devDependencies:
       '@types/ws':
         specifier: ^8.5.13
         version: 8.18.1
@@ -121,28 +149,6 @@ importers:
       vite:
         specifier: ^5.4.11
         version: 5.4.21(@types/node@25.6.0)(lightningcss@1.32.0)
-
-  packages/superpowers:
-    dependencies:
-      '@aharness/core':
-        specifier: workspace:*
-        version: link:../core
-
-  packages/test-support:
-    dependencies:
-      '@aharness/core':
-        specifier: workspace:*
-        version: link:../core
-      node-pty:
-        specifier: ^1.0.0
-        version: 1.1.0
-      ws:
-        specifier: ^8.18.0
-        version: 8.20.0
-    devDependencies:
-      '@types/ws':
-        specifier: ^8.5.13
-        version: 8.18.1
 
 packages:
 
@@ -1285,6 +1291,9 @@ packages:
   '@types/react@18.3.28':
     resolution: {integrity: sha512-z9VXpC7MWrhfWipitjNdgCauoMLRdIILQsAEV+ZesIzBq/oUlxk0m3ApZuMFCXdnS4U7KrI+l3WRUEGQ8K1QKw==}
 
+  '@types/semver@7.7.1':
+    resolution: {integrity: sha512-FmgJfu+MOcQ370SD0ev7EI8TlCAfKYU+B4m5T3yXc1CiRN94g/SZPtsCkk506aUDtlMnFZvasDwHHUcZUEaYuA==}
+
   '@types/shell-quote@1.7.5':
     resolution: {integrity: sha512-+UE8GAGRPbJVQDdxi16dgadcBfQ+KG2vgZhV1+3A1XmHbmwcdwhCUwIdy+d3pAGrbvgRoVSjeI9vOWyq376Yzw==}
 
@@ -2069,6 +2078,11 @@ packages:
 
   semver@6.3.1:
     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
+    hasBin: true
+
+  semver@7.8.1:
+    resolution: {integrity: sha512-rkVq3IXh+4FDGch+KwzX3aV9W3kO54GyEgpvBzSyctDA6Xtd7RJQV1xmXbeQp5v7+VzLOfVqiutSE6GICgPFvg==}
+    engines: {node: '>=10'}
     hasBin: true
 
   send@1.2.1:
@@ -3168,6 +3182,8 @@ snapshots:
       '@types/prop-types': 15.7.15
       csstype: 3.2.3
 
+  '@types/semver@7.7.1': {}
+
   '@types/shell-quote@1.7.5': {}
 
   '@types/ws@8.18.1':
@@ -4036,6 +4052,8 @@ snapshots:
       loose-envify: 1.4.0
 
   semver@6.3.1: {}
+
+  semver@7.8.1: {}
 
   send@1.2.1:
     dependencies:
