@@ -1,0 +1,24 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@aharness/core": ["./packages/core/src/index.ts"],
+      "@aharness/core/runtime": ["./packages/core/src/runtime.ts"],
+      "@aharness/test-support": ["./packages/test-support/src/index.ts"],
+      "xstate": ["./packages/core/node_modules/xstate/dist/xstate.cjs.d.ts"]
+    }
+  },
+  "include": [
+    "packages/core/src/**/*.ts",
+    "packages/test-support/src/**/*.ts",
+    "packages/*/scripts/**/*.ts",
+    "packages/*/test/**/*.types.test.ts",
+    "fsms/**/*.ts",
+    "examples/*.fsm.ts",
+    "*.config.ts",
+    "*.config.js"
+  ],
+  "exclude": ["packages/*/templates/**"]
+}

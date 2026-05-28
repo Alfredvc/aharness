@@ -1,0 +1,29 @@
+{
+  "name": "__PROJECT_NAME__",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "aharness ./hello.fsm.ts",
+    "verify": "aharness verify ./hello.fsm.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --max-warnings 0",
+    "lint:fix": "oxlint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@aharness/core": "^0.1.0",
+    "xstate": "^5.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "oxlint": "^1.64.0",
+    "oxlint-tsgolint": "^0.22.1",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.3"
+  }
+}

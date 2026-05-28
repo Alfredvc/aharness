@@ -1,0 +1,36 @@
+{
+  "name": "@aharness/superpowers",
+  "version": "0.1.0",
+  "description": "Harness FSM package for the Superpowers workflow.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "ah-superpowers": "./bin/ah-superpowers.mjs"
+  },
+  "files": [
+    "bin",
+    "fsms",
+    "skills"
+  ],
+  "scripts": {
+    "prepack": "aharness package build",
+    "package:verify": "aharness package verify"
+  },
+  "dependencies": {
+    "@aharness/core": "workspace:*"
+  },
+  "harness": {
+    "package": {
+      "bin": "ah-superpowers",
+      "fsmsDir": "fsms",
+      "commands": {
+        "brainstorming": {
+          "description": "Explore an idea into an approved design spec."
+        },
+        "writing-plans": {
+          "description": "Write and review an implementation plan before execution."
+        }
+      }
+    }
+  }
+}

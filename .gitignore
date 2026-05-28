@@ -1,0 +1,41 @@
+.env
+.secrets
+.ccairgap
+.harness
+.DS_Store
+
+# Plans
+docs/plans
+docs/specs
+docs/ideas
+docs/strategies
+docs/followups
+
+# Per-developer local Claude settings
+.claude/commands
+.claude/hooks
+.claude/settings.local.json
+.mcp.json
+
+# Node / pnpm
+node_modules/
+**/node_modules/
+
+# TypeScript build outputs
+dist/
+**/dist/
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Test / coverage
+.vitest/
+coverage/
+**/coverage/
+
+# pnpm local store (when pnpm chooses the workspace as store-dir)
+.pnpm-store/
+.harness/runs/
+.harness/cache/
+
+# Local vendored checkouts
+vendored/superpowers/

@@ -1,0 +1,38 @@
+{
+  "name": "@aharness/test-support",
+  "version": "0.1.0",
+  "description": "Test fixtures for @aharness/core: app-server lifecycle, model SSE replay, second-client multicast-race driver.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Alfredvc/aharness.git",
+    "directory": "packages/test-support"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "rimraf dist && tsc --build --force",
+    "clean": "tsc --build --clean"
+  },
+  "dependencies": {
+    "@aharness/core": "workspace:*",
+    "node-pty": "^1.0.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.13"
+  }
+}

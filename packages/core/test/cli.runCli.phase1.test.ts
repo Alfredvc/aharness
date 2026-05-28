@@ -1,0 +1,2507 @@
+/**
+ * Phase 1 end-to-end CLI smoke test (Task 17) + Phase 2a cross-state
+ * mocked-transport cases (Task 4).
+ *
+ * The first `describe` block boots the full Phase 1 single-process
+ * pipeline against a real codex `app-server` + a local mock-model HTTP
+ * server: verify → app-server spawn → WS connect → `thread/start` with
+ * `dynamic_tools` → first-state `turn/start` kickoff → model issues a
+ * single `harness_submit` tool call → dispatcher commits + flushes +
+ * signals terminal → `runCli` exits 0. The fixture FSM is
+ * `hello.fsm.ts`. Skip conditions: requires a `codex` binary on PATH
+ * and `HARNESS_E2E_REAL_CODEX=1`.
+ *
+ * The second `describe` block adds Phase 2a cross-state cases that
+ * run without real codex by stubbing `connectHeadlessWsImpl` with a
+ * synthetic transport (same pattern as `cli.runCli.test.ts` case 8).
+ * Those cases assert: (1) cross-state submit drives the dance —
+ * `thread/start` → kickoff `turn/start` → `turn/interrupt` → cross-
+ * state `turn/start` — in order; (2) two consecutive cross-state
+ * submits both fire `turn/interrupt`, proving the
+ * `submittedThisTurnFlag` clears on the intermediate `turn/started`.
+ */
+import { execFileSync } from 'node:child_process';
+import {
+  copyFileSync,
+  existsSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+// Type-only import so test-file evaluation does not load the barrel's
+// `pty.ts` module (node-pty's native binary is unavailable on some
+// runners; the import would fail at file-load time despite
+// `describe.skipIf`). The runtime imports are deferred to a dynamic
+// `import()` inside the `it` body, which only runs when the test is
+// not skipped.
+import type { MockModelHandle, MockOwnerInputProvider } from '@aharness/test-support';
+
+import { harness, state, exit, terminal, DECLINED_ANSWER_TEXT } from '../src/index.js';
+import { runCliForTest, type RunCliTestHooks } from '../src/cli/runCli.js';
+import type { OwnerInputProvider } from '../src/cli/ownerInputProvider.js';
+import type { AppServerHandle } from '../src/appServer/index.js';
+import { JsonRpcClient, type Transport } from '../src/jsonrpc/client.js';
+import { METHOD } from '../src/protocol/methodNames.js';
+import type { ActiveThreadBinding } from '../src/runtime/activeThreadBinding.js';
+import type { ReplayableAppEvent } from '../src/ui/events.js';
+import type {
+  ToolRequestUserInputParams,
+  ToolRequestUserInputResponse,
+} from '../src/protocol/types.js';
+import type { ConnectHeadlessWsOptions } from '../src/transport/wsClient.js';
+
+const APPROVAL_POLICY_OVERRIDE = ['approval_policy', '"on-request"'] as const;
+
+function hasCodex(): boolean {
+  try {
+    execFileSync('codex', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const E2E_ENABLED = hasCodex() && process.env['HARNESS_E2E_REAL_CODEX'] === '1';
+
+describe.skipIf(!E2E_ENABLED)('runCli — Phase 1 end-to-end', () => {
+  let cleanups: Array<() => Promise<void> | void> = [];
+  afterEach(async () => {
+    for (const fn of cleanups.reverse()) {
+      try {
+        await fn();
+      } catch {
+        /* best-effort */
+      }
+    }
+    cleanups = [];
+  });
+
+  it('runs hello.fsm.ts to terminal and exits 0', async () => {
+    // Deferred imports — see file-header note on the type-only import.
+    const { sseFunctionCall, sseResponseCreated, sseTurnComplete, startMockModel } =
+      await import('@aharness/test-support');
+
+    const repoRoot = mkdtempSync(join(tmpdir(), 'h-cli-phase1-'));
+    cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
+
+    // Copy the canonical hello fixture into the synthetic repo root so
+    // `loadFsm` resolves it normally (the .harness/cache/ tree lands
+    // under repoRoot too).
+    const fixtureSource = resolve(__dirname, 'fixtures/hello.fsm.ts');
+    const fsmPath = join(repoRoot, 'hello.fsm.ts');
+    copyFileSync(fixtureSource, fsmPath);
+
+    const mock: MockModelHandle = await startMockModel();
+    cleanups.push(() => mock.close());
+
+    // Queue the model's only turn: a single `harness_submit` function
+    // call that drives the FSM into its terminal state. The dispatcher
+    // recognises the terminal projection and resolves `terminalPromise`.
+    mock.queueTurn([
+      sseResponseCreated(),
+      sseFunctionCall('harness_submit', {
+        state: 'greet',
+        exit: 'finish',
+        data: {},
+      }),
+      sseTurnComplete(),
+    ]);
+
+    const stdoutChunks: string[] = [];
+    const stderrChunks: string[] = [];
+    const stdout = {
+      write(c: string | Uint8Array): boolean {
+        stdoutChunks.push(typeof c === 'string' ? c : Buffer.from(c).toString('utf8'));
+        return true;
+      },
+    } as unknown as NodeJS.WritableStream;
+    const stderr = {
+      write(c: string | Uint8Array): boolean {
+        stderrChunks.push(typeof c === 'string' ? c : Buffer.from(c).toString('utf8'));
+        return true;
+      },
+    } as unknown as NodeJS.WritableStream;
+
+    const result = await runCliForTest({
+      fsmPath: 'hello.fsm.ts',
+      cwd: repoRoot,
+      stderr,
+      stdout,
+      // Stub the verifier — the real path would re-load the fixture and
+      // run all checks, which is exercised in `verify.test.ts`. This
+      // test focuses on the boot sequence, not verification.
+      verify: async () => ({ exitCode: 0 }),
+      // Real codex on PATH; the version gate is exercised by
+      // `appServer.version.test.ts`.
+      versionGate: async () => ({ ok: true, found: '99.99.99', required: '0.0.0' }),
+      // The synthetic repo root has no `~/.codex/auth.json`; the real
+      // user's home dir does. Real codex with `--enable
+      // default_mode_request_user_input` and the mock provider does not
+      // hit the auth path. Stub the precheck so we don't bail.
+      authJsonExists: () => true,
+      _testMockModelBaseUrl: mock.baseUrl,
+    });
+
+    expect(result.exitCode, `stderr: ${stderrChunks.join('')}`).toBe(0);
+  }, 30_000);
+});
+
+describe('runCliForTest — Phase 2d zero-hook regression', () => {
+  let repoRoot: string;
+  let stderrBuf: string[];
+  let stderrSink: NodeJS.WritableStream;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(join(tmpdir(), 'h-cli-zero-hook-'));
+    stderrBuf = [];
+    stderrSink = {
+      write(chunk: string | Uint8Array): boolean {
+        stderrBuf.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+        return true;
+      },
+    } as unknown as NodeJS.WritableStream;
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('does not add hook overrides or open a hook socket for machines with no declared hooks', async () => {
+    const machine = harness.machine({
+      id: 'zero-hook',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'no hooks here',
+          exits: {
+            done: exit<{ _empty?: never }>({ to: 'done' }),
+          },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const sidecar = {
+      a: {
+        done: {
+          jsonSchema: { type: 'object' as const, properties: {} },
+          validate: (input: unknown) => ({ ok: true as const, data: input }),
+        },
+      },
+    };
+    writeFileSync(join(repoRoot, 'zero.fsm.ts'), '// stub fsm\n');
+
+    let capturedOverrides: ReadonlyArray<readonly [string, string]> | undefined;
+    const result = await runCliForTest({
+      fsmPath: 'zero.fsm.ts',
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout: process.stdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      authJsonExists: () => true,
+      loadFsmImpl: (async () => ({
+        machine,
+        sidecar,
+        modulePath: '/tmp/zero.mjs',
+        issues: [],
+        cacheHit: false,
+        hash: 'zero',
+      })) as unknown as RunCliTestHooks['loadFsmImpl'],
+      spawnAppServer: (async (opts) => {
+        capturedOverrides = opts.cliOverrides;
+        throw new Error('stop after spawn options are observable');
+      }) as RunCliTestHooks['spawnAppServer'],
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(stderrBuf.join('')).toContain('app-server failed');
+    expect(capturedOverrides ?? []).toEqual([APPROVAL_POLICY_OVERRIDE]);
+    expect((capturedOverrides ?? []).filter(([key]) => key.startsWith('hooks.'))).toEqual([]);
+    expect(existsSync(join(onlyRunRootForCliRegression(repoRoot), 'hook.sock'))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2a cross-state cases — mocked transport, no real codex.
+// ---------------------------------------------------------------------------
+
+function makeStubAppServer(wsUrl = 'ws+unix:///nonexistent.sock'): AppServerHandle {
+  return {
+    wsUrl,
+    port: null,
+    sockPath: '/nonexistent.sock',
+    async close(): Promise<void> {
+      /* no-op */
+    },
+  } as unknown as AppServerHandle;
+}
+
+function onlyRunRootForCliRegression(repoRoot: string): string {
+  const runsRoot = join(repoRoot, '.harness', 'runs');
+  const dirs = readdirSync(runsRoot)
+    .map((name) => join(runsRoot, name))
+    .filter((path) => statSync(path).isDirectory());
+  expect(dirs).toHaveLength(1);
+  return dirs[0]!;
+}
+
+interface SyntheticTransportHandle {
+  /** All outbound JSON-RPC envelopes the harness CLI sent, in order. */
+  readonly outbound: ReadonlyArray<{
+    id?: number;
+    method?: string;
+    params?: unknown;
+    result?: unknown;
+  }>;
+  /** Inject an incoming JSON-RPC envelope from the synthetic peer. */
+  push(envelope: unknown): void;
+  /** Reply to the most-recent outbound request matching `method`. */
+  replyTo(method: string, result: unknown): void;
+}
+
+/**
+ * Build a synthetic JSON-RPC transport that records outbound traffic
+ * and lets the test push inbound envelopes (server-request, notification,
+ * or response). Returns a `connectHeadlessWsImpl` stub matching the
+ * production signature.
+ */
+function makeSyntheticConnectStub(): {
+  readonly handle: SyntheticTransportHandle;
+  readonly connect: typeof import('../src/transport/wsClient.js').connectHeadlessWs;
+} {
+  const outbound: Array<{ id?: number; method?: string; params?: unknown; result?: unknown }> = [];
+  let transport!: Transport;
+
+  const push = (envelope: unknown): void => {
+    transport.onMessage?.(envelope);
+  };
+
+  const replyTo = (method: string, result: unknown): void => {
+    // Find the most-recent outbound request matching `method` that
+    // hasn't been replied to yet. (`outbound` contains every send;
+    // replies are tracked implicitly via the pending-set inside
+    // JsonRpcClient.)
+    for (let i = outbound.length - 1; i >= 0; i--) {
+      const m = outbound[i];
+      if (m?.method === method && typeof m.id === 'number') {
+        push({ jsonrpc: '2.0', id: m.id, result });
+        return;
+      }
+    }
+    throw new Error(`replyTo: no pending request for method=${method}`);
+  };
+
+  const handle: SyntheticTransportHandle = {
+    get outbound() {
+      return outbound;
+    },
+    push,
+    replyTo,
+  };
+
+  const connect = (async (opts: ConnectHeadlessWsOptions) => {
+    transport = {
+      send(msg: unknown) {
+        outbound.push(msg as { id?: number; method?: string });
+        const m = msg as { id?: number; method?: string };
+        // Auto-respond to `initialize` so the handshake inside
+        // `connectHeadlessWs` resolves; the test controls every other
+        // wire exchange via explicit `replyTo`/`push`.
+        if (m.method === METHOD.initialize) {
+          queueMicrotask(() =>
+            push({
+              jsonrpc: '2.0',
+              id: m.id,
+              result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+            }),
+          );
+        }
+      },
+      async close() {
+        /* no-op */
+      },
+    };
+    const client = new JsonRpcClient(transport);
+    opts.registerHandlers?.(client);
+    await client.request(METHOD.initialize, {
+      clientInfo: opts.clientInfo,
+      capabilities: { experimentalApi: true, requestAttestation: false },
+    });
+    return {
+      client,
+      close: async () => {
+        await client.close();
+      },
+    };
+  }) as typeof import('../src/transport/wsClient.js').connectHeadlessWs;
+
+  return { handle, connect };
+}
+
+/**
+ * Wait until the most-recent outbound request matches `predicate`. Used
+ * to synchronize the test with the harness CLI's async send queue.
+ */
+async function waitForOutbound(
+  handle: SyntheticTransportHandle,
+  predicate: (envelope: {
+    id?: number;
+    method?: string;
+    params?: unknown;
+    result?: unknown;
+  }) => boolean,
+  timeoutMs = 2_000,
+): Promise<{ id?: number; method?: string; params?: unknown; result?: unknown }> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    for (let i = handle.outbound.length - 1; i >= 0; i--) {
+      const m = handle.outbound[i];
+      if (m && predicate(m)) return m;
+    }
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  throw new Error(
+    `waitForOutbound: timeout after ${timeoutMs}ms; outbound methods: ` +
+      handle.outbound.map((m) => m.method ?? '(reply)').join(', '),
+  );
+}
+
+describe('runCliForTest — Phase 2a cross-state (mocked transport)', () => {
+  let repoRoot: string;
+  let stderrBuf: string[];
+  let stderrSink: NodeJS.WritableStream;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(join(tmpdir(), 'h-cli-phase2a-'));
+    stderrBuf = [];
+    stderrSink = {
+      write(chunk: string | Uint8Array): boolean {
+        stderrBuf.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+        return true;
+      },
+    } as unknown as NodeJS.WritableStream;
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  it('cross-state submit fires watcher dispatch and turn/interrupt + turn/start in order', async () => {
+    interface Ctx {
+      n: number;
+    }
+    interface NextPayload {
+      note: string;
+    }
+    interface DonePayload {
+      ok: boolean;
+    }
+    const machine = harness.machine({
+      id: 'cs1',
+      initial: 'a',
+      context: (): Ctx => ({ n: 0 }),
+      states: {
+        a: state({
+          entryPrompt: 'state a active',
+          exits: { next: exit<NextPayload>({ to: 'b' }) },
+        }),
+        b: state({
+          entryPrompt: 'state b active',
+          exits: { done: exit<DonePayload>({ to: 'c' }) },
+        }),
+        c: terminal('success'),
+      },
+    });
+    const sidecar = {
+      a: {
+        next: {
+          jsonSchema: {
+            type: 'object',
+            required: ['note'],
+            properties: { note: { type: 'string' } },
+          } as const,
+          validate: (input: unknown) => {
+            const v = input as { note?: unknown } | null;
+            if (v && typeof v === 'object' && typeof v.note === 'string') {
+              return { ok: true as const, data: input };
+            }
+            return { ok: false as const, errors: [{ path: '/note', message: 'must be string' }] };
+          },
+        },
+      },
+      b: {
+        done: {
+          jsonSchema: {
+            type: 'object',
+            required: ['ok'],
+            properties: { ok: { type: 'boolean' } },
+          } as const,
+          validate: (input: unknown) => {
+            const v = input as { ok?: unknown } | null;
+            if (v && typeof v === 'object' && typeof v.ok === 'boolean') {
+              return { ok: true as const, data: input };
+            }
+            return { ok: false as const, errors: [{ path: '/ok', message: 'must be boolean' }] };
+          },
+        },
+      },
+    };
+
+    const fsmPath = join(repoRoot, 'cs1.fsm.ts');
+    writeFileSync(fsmPath, '// stub fsm\n');
+
+    const { handle, connect } = makeSyntheticConnectStub();
+    const threadId = 'thread-cs1';
+
+    const driver = async (): Promise<void> => {
+      // 1. Reply to `thread/start` so the boot path resumes.
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: threadId, ephemeral: false } });
+
+      // 2. Wait for the kickoff `turn/start`, reply, then synthesize a
+      //    `turn/started` notification (kickoff turn id `t-kick`).
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-kick' } },
+      });
+
+      // 3. Deliver a cross-state `item/tool/call` ServerRequest. The
+      //    dispatcher commits + flushes + composes + schedules the dance.
+      //    Watcher registration completes synchronously inside the dance
+      //    BEFORE the dispatcher returns its `'ok'` reply.
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9001, // server-issued request id (distinct from client ids)
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          callId: 'call-1',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'next', data: { note: 'hi' } }),
+        },
+      });
+
+      // 4. Deliver the matching `item/completed` so the watcher resolves
+      //    and the dance proceeds to `turn/interrupt`. (Order — `item/
+      //    completed` then `turn/completed` — mirrors codex's wire shape.)
+      //    We need to wait for the dispatcher to have replied to the
+      //    server-request first; do that by waiting for an outbound
+      //    response with id=9001.
+      await waitForOutbound(handle, (m) => m.id === 9001 && m.result !== undefined);
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: {
+          threadId,
+          item: { type: 'dynamicToolCall', id: 'call-1' },
+        },
+      });
+
+      // 5. Reply to `turn/interrupt`.
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnInterrupt);
+      handle.replyTo(METHOD.turnInterrupt, {});
+
+      // 6. Reply to the cross-state `turn/start`. (Same method name as
+      //    the kickoff — `replyTo` targets the most-recent pending.)
+      await waitForOutbound(
+        handle,
+        (m) => m.method === METHOD.turnStart && handle.outbound.indexOf(m) > 0,
+      );
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-cross' } },
+      });
+
+      // 7. Drive the terminal submit from state `b` so the run ends.
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9002,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 't-cross',
+          callId: 'call-2',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runCliForTest({
+      fsmPath: 'cs1.fsm.ts',
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout: process.stdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      authJsonExists: () => true,
+      loadFsmImpl: (async () => ({
+        machine,
+        sidecar,
+        modulePath: '/tmp/cs1.mjs',
+        issues: [],
+        cacheHit: false,
+        hash: 'cs1',
+      })) as unknown as RunCliTestHooks['loadFsmImpl'],
+      spawnAppServer: (async () =>
+        makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+      connectHeadlessWsImpl: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+
+    // Assert call order: thread/start → turn/start (kickoff) →
+    // turn/interrupt → turn/start (cross-state).
+    const orderedMethods = handle.outbound
+      .filter(
+        (m) =>
+          typeof m.method === 'string' &&
+          typeof m.id === 'number' &&
+          // Drop the initialize handshake; the boot-sequence call order
+          // begins with `thread/start`.
+          m.method !== METHOD.initialize,
+      )
+      .map((m) => m.method as string);
+    expect(orderedMethods.slice(0, 4)).toEqual([
+      METHOD.threadStart,
+      METHOD.turnStart,
+      METHOD.turnInterrupt,
+      METHOD.turnStart,
+    ]);
+
+    // The cross-state `turn/start` carries the new state's full
+    // composed nudge — assert the `[harness] Now in state "b"` marker
+    // is present in its input payload.
+    const crossStart = handle.outbound.filter((m) => m.method === METHOD.turnStart)[1] as
+      | { params?: { input?: Array<{ text?: string }> } }
+      | undefined;
+    expect(crossStart?.params?.input?.[0]?.text).toContain('[harness] Now in state "b"');
+  }, 10_000);
+
+  it('submittedThisTurnFlag clears on next turn/started so drive-forward issues its default-branch turn/start after a cross-state hop', async () => {
+    // Direct check: a cross-state submit a→b sets the flag and the dance
+    // owns the next `turn/start`. Then a `turn/completed` arrives for
+    // the cross-state-aborted turn while the flag is still true — drive-
+    // forward must short-circuit (NOT emit its own `turn/start`).
+    // Once a fresh `turn/started` for the dance's new turn lands, the
+    // flag clears. A subsequent `turn/completed` (no submit) lets
+    // drive-forward fall through to the default branch, which issues a
+    // third `turn/start` carrying state b's composed nudge.
+    //
+    // If the flag did NOT clear on `turn/started`, that third
+    // `turn/start` would never be sent — drive-forward would short-
+    // circuit forever. The test asserts that third envelope is emitted.
+    interface Ctx {
+      n: number;
+    }
+    interface OnlyPayload {
+      ok: boolean;
+    }
+    const machine = harness.machine({
+      id: 'cs2',
+      initial: 'a',
+      context: (): Ctx => ({ n: 0 }),
+      states: {
+        a: state({
+          entryPrompt: 'state a active',
+          exits: { go: exit<OnlyPayload>({ to: 'b' }) },
+        }),
+        b: state({
+          entryPrompt: 'state b active',
+          exits: { done: exit<OnlyPayload>({ to: 'c' }) },
+        }),
+        c: terminal('success'),
+      },
+    });
+    const mkValidator = () => ({
+      jsonSchema: {
+        type: 'object',
+        required: ['ok'],
+        properties: { ok: { type: 'boolean' } },
+      } as const,
+      validate: (input: unknown) => {
+        const v = input as { ok?: unknown } | null;
+        if (v && typeof v === 'object' && typeof v.ok === 'boolean') {
+          return { ok: true as const, data: input };
+        }
+        return { ok: false as const, errors: [{ path: '/ok', message: 'must be boolean' }] };
+      },
+    });
+    const sidecar = {
+      a: { go: mkValidator() },
+      b: { done: mkValidator() },
+    };
+
+    const fsmPath = join(repoRoot, 'cs2.fsm.ts');
+    writeFileSync(fsmPath, '// stub fsm\n');
+
+    const { handle, connect } = makeSyntheticConnectStub();
+    const threadId = 'thread-cs2';
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: threadId, ephemeral: false } });
+
+      // Kickoff turn: outbound `turn/start` #1; emit `turn/started` for
+      // turn `t-kick`.
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-kick' } },
+      });
+
+      // Cross-state submit a → b. Dance sets flag and schedules
+      // `turn/interrupt` + `turn/start` (#2, cross-state).
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9001,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          callId: 'call-1',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'go', data: { ok: true } }),
+        },
+      });
+      await waitForOutbound(handle, (m) => m.id === 9001 && m.result !== undefined);
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: { threadId, item: { type: 'dynamicToolCall', id: 'call-1' } },
+      });
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnInterrupt);
+      handle.replyTo(METHOD.turnInterrupt, {});
+
+      // Cross-state `turn/start` (#2) lands. BEFORE replying, push a
+      // `turn/completed` for the aborted kickoff turn — this is the
+      // load-bearing flag check: drive-forward fires while the flag is
+      // still true, and MUST short-circuit (no third `turn/start`).
+      await waitForOutbound(
+        handle,
+        (m) => m.method === METHOD.turnStart && handle.outbound.indexOf(m) > 0,
+      );
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnCompleted,
+        params: { threadId, turn: { id: 't-kick' } },
+      });
+      // Yield to the event loop so the router's `onTurnCompleted`
+      // (which would erroneously emit a `turn/start` if the flag check
+      // failed) has a chance to run before we proceed.
+      await new Promise((r) => setTimeout(r, 20));
+      handle.replyTo(METHOD.turnStart, {});
+      // Fresh `turn/started` for the cross-state turn — this clears
+      // `submittedThisTurnFlag`.
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-cross' } },
+      });
+
+      // Now emit a `turn/completed` for the cross-state turn with NO
+      // submit. Drive-forward should fall through to the default branch
+      // (flag is false) and issue `turn/start` #3 with state b's nudge.
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnCompleted,
+        params: { threadId, turn: { id: 't-cross' } },
+      });
+
+      // Wait for `turn/start` #3 (the drive-forward default branch).
+      await waitForOutbound(
+        handle,
+        (m) =>
+          m.method === METHOD.turnStart &&
+          handle.outbound
+            .slice(0, handle.outbound.indexOf(m) + 1)
+            .filter((x) => x.method === METHOD.turnStart).length >= 3,
+      );
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-restart' } },
+      });
+
+      // Drive terminal submit b → c to end the run.
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9002,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 't-restart',
+          callId: 'call-2',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runCliForTest({
+      fsmPath: 'cs2.fsm.ts',
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout: process.stdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      authJsonExists: () => true,
+      loadFsmImpl: (async () => ({
+        machine,
+        sidecar,
+        modulePath: '/tmp/cs2.mjs',
+        issues: [],
+        cacheHit: false,
+        hash: 'cs2',
+      })) as unknown as RunCliTestHooks['loadFsmImpl'],
+      spawnAppServer: (async () =>
+        makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+      connectHeadlessWsImpl: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+
+    // Three `turn/start` envelopes total:
+    //   #1: kickoff (active state = a)
+    //   #2: cross-state dance (active state = b)
+    //   #3: drive-forward default branch AFTER the flag cleared (active
+    //       state = b — same as #2 since we didn't change state)
+    // If the flag had NOT cleared on `t-cross`'s `turn/started`,
+    // envelope #3 would never have been emitted (drive-forward would
+    // have short-circuited on the second `turn/completed`).
+    const turnStarts = handle.outbound.filter((m) => m.method === METHOD.turnStart);
+    expect(turnStarts.length).toBe(3);
+
+    // Envelope #3's input is state b's composed nudge — same `[harness]
+    // Now in state "b"` marker as #2. This is what confirms drive-
+    // forward (NOT the dance) issued envelope #3 with the active state.
+    const third = turnStarts[2] as { params?: { input?: Array<{ text?: string }> } };
+    expect(third?.params?.input?.[0]?.text).toContain('[harness] Now in state "b"');
+  }, 10_000);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 2b owner-yield cases — mocked transport, no real codex.
+//
+// Cover Task 3 of `docs/plans/2026-05-13-headless-phase-2b-owner-yield.md`:
+// the `item/tool/requestUserInput` ServerRequest handler that parks each
+// inbound request, forwards to the `OwnerInputProvider`, replies with
+// the double-nested `{answers: {...}}` shape, and bumps a
+// `pendingOwnerYieldCount` cell observable through the `isAwaiting`
+// predicate via the `_testObserveIsAwaiting` test seam.
+// ---------------------------------------------------------------------------
+
+describe('runCliForTest — Phase 2b owner-yield ServerRequest handler', () => {
+  let repoRoot: string;
+  let stderrBuf: string[];
+  let stderrSink: NodeJS.WritableStream;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(join(tmpdir(), 'h-cli-phase2b-'));
+    stderrBuf = [];
+    stderrSink = {
+      write(chunk: string | Uint8Array): boolean {
+        stderrBuf.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+        return true;
+      },
+    } as unknown as NodeJS.WritableStream;
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  /**
+   * Build a single-state FSM where the initial state declares
+   * `awaitsOwnerText` and a `submit` exit straight into a terminal.
+   *
+   * The kickoff `turn/start` carries the awaitsOwnerText preamble (via
+   * `composeStateNudge`'s `nudge.ts:88-97` branch), the test drives a
+   * `request_user_input` ServerRequest through the new Task 3 handler,
+   * then drives a terminal `harness_submit` so the run ends cleanly.
+   *
+   * The state declares `awaitsOwnerText` on the INITIAL leaf so the
+   * cross-state dispatchSubmit throw at `dispatchSubmit.ts:243-250`
+   * (still in place pre-Task-6) is never reached — the only submit goes
+   * to a terminal target, not to another awaitsOwnerText leaf.
+   */
+  function buildYieldingMachineAndSidecar(): {
+    machine: ReturnType<typeof harness.machine>;
+    sidecar: Record<string, Record<string, unknown>>;
+  } {
+    interface Ctx {
+      n: number;
+    }
+    interface DonePayload {
+      ok: boolean;
+    }
+    const machine = harness.machine({
+      id: 'oy1',
+      initial: 'a',
+      context: (): Ctx => ({ n: 0 }),
+      states: {
+        a: state({
+          entryPrompt: 'state a active — waiting for owner text',
+          awaitsOwnerText: { messageToUser: 'what is your name?' },
+          exits: { done: exit<DonePayload>({ to: 'b' }) },
+        }),
+        b: terminal('success'),
+      },
+    });
+    const sidecar = {
+      a: {
+        done: {
+          jsonSchema: {
+            type: 'object',
+            required: ['ok'],
+            properties: { ok: { type: 'boolean' } },
+          } as const,
+          validate: (input: unknown) => {
+            const v = input as { ok?: unknown } | null;
+            if (v && typeof v === 'object' && typeof v.ok === 'boolean') {
+              return { ok: true as const, data: input };
+            }
+            return { ok: false as const, errors: [{ path: '/ok', message: 'must be boolean' }] };
+          },
+        },
+      },
+    };
+    return { machine, sidecar };
+  }
+
+  /**
+   * Wait until an outbound response envelope (no `method` field, has
+   * `id` and `result`) for the given server-request id is recorded.
+   * Used to gate on "the ServerRequest handler has replied" so the test
+   * can inspect the reply body and the count state after release.
+   */
+  async function waitForServerReply(
+    handle: SyntheticTransportHandle,
+    serverRequestId: number,
+    timeoutMs = 2_000,
+  ): Promise<{ id?: number; method?: string; result?: unknown }> {
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      for (let i = handle.outbound.length - 1; i >= 0; i--) {
+        const m = handle.outbound[i];
+        if (m && m.id === serverRequestId && m.method === undefined && 'result' in m) {
+          return m;
+        }
+      }
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error(`waitForServerReply: timeout waiting for reply id=${serverRequestId}`);
+  }
+
+  it('abandoned item/tool/requestUserInput returns declined answers without parking or calling the provider', async () => {
+    const { machine, sidecar } = buildYieldingMachineAndSidecar();
+    const fsmPath = join(repoRoot, 'oy-abandoned.fsm.ts');
+    writeFileSync(fsmPath, '// stub fsm\n');
+
+    const { handle, connect } = makeSyntheticConnectStub();
+    const startupThreadId = 'thread-oy-abandoned-startup';
+    const replacementThreadId = 'thread-oy-abandoned-replacement';
+    let activeBinding: ActiveThreadBinding | undefined;
+    let readCount: (() => number) | null = null;
+    const events: ReplayableAppEvent[] = [];
+    let providerCallCount = 0;
+    const provider: OwnerInputProvider = {
+      provideAnswers: async () => {
+        providerCallCount += 1;
+        throw new Error('provider should not be called for abandoned owner input');
+      },
+    };
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: startupThreadId, ephemeral: false } });
+
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+      if (activeBinding === undefined) throw new Error('active binding was not captured');
+      activeBinding.set(replacementThreadId);
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9101,
+        method: METHOD.toolRequestUserInput,
+        params: {
+          threadId: startupThreadId,
+          turnId: 't-old',
+          itemId: 'item-old-rui',
+          questions: [
+            {
+              id: 'owner',
+              header: '',
+              question: 'old question?',
+              isOther: false,
+              isSecret: false,
+            },
+          ],
+        } satisfies ToolRequestUserInputParams,
+      });
+      const oldReply = await waitForServerReply(handle, 9101);
+      expect(oldReply.result).toEqual({
+        answers: { owner: { answers: [DECLINED_ANSWER_TEXT] } },
+      });
+      expect(readCount?.()).toBe(0);
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9102,
+        method: METHOD.toolRequestUserInput,
+        params: {
+          threadId: startupThreadId,
+          turnId: 't-old',
+          itemId: 'item-old-rui-malformed',
+        },
+      });
+      const malformedReply = await waitForServerReply(handle, 9102);
+      expect(malformedReply.result).toEqual({ answers: {} });
+      expect(readCount?.()).toBe(0);
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9104,
+        method: METHOD.toolRequestUserInput,
+        params: {
+          threadId: startupThreadId,
+          turnId: 't-old',
+          itemId: 'item-old-rui-malformed-question',
+          questions: [{}],
+        },
+      });
+      const malformedQuestionReply = await waitForServerReply(handle, 9104);
+      expect(malformedQuestionReply.result).toEqual({ answers: {} });
+      expect(readCount?.()).toBe(0);
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9103,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId: replacementThreadId,
+          turnId: 't-active',
+          callId: 'call-finish',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runCliForTest({
+      fsmPath: 'oy-abandoned.fsm.ts',
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout: process.stdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      authJsonExists: () => true,
+      loadFsmImpl: (async () => ({
+        machine,
+        sidecar,
+        modulePath: '/tmp/oy-abandoned.mjs',
+        issues: [],
+        cacheHit: false,
+        hash: 'oy-abandoned',
+      })) as unknown as RunCliTestHooks['loadFsmImpl'],
+      spawnAppServer: (async () =>
+        makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+      connectHeadlessWsImpl: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      ownerInputProvider: provider,
+      _testOnActiveThreadBinding: (binding) => {
+        activeBinding = binding;
+      },
+      _testReadPendingOwnerYieldCount: (read) => {
+        readCount = read;
+      },
+      _testOnUiEvent: (event) => events.push(event),
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+    expect(providerCallCount).toBe(0);
+    expect(events.map((entry) => entry.event)).toContainEqual(
+      expect.objectContaining({
+        kind: 'AbandonedThreadDiagnostic',
+        threadId: startupThreadId,
+        source: 'ownerInput',
+      }),
+    );
+  }, 10_000);
+
+  it('awaitsOwnerText state replies to item/tool/requestUserInput with the queued mock answer', async () => {
+    // Deferred import — see file-header note on the type-only import for
+    // `MockModelHandle`. Pulling `createMockOwnerInputProvider` from the
+    // barrel statically would load `pty.ts` (node-pty native binary) at
+    // file-eval time and break runners without that binary.
+    const { createMockOwnerInputProvider } = await import('@aharness/test-support');
+
+    const { machine, sidecar } = buildYieldingMachineAndSidecar();
+    const fsmPath = join(repoRoot, 'oy1.fsm.ts');
+    writeFileSync(fsmPath, '// stub fsm\n');
+
+    const { handle, connect } = makeSyntheticConnectStub();
+    const threadId = 'thread-oy1';
+    const mockOwnerInput: MockOwnerInputProvider = createMockOwnerInputProvider();
+    mockOwnerInput.queueAnswers({ owner: ['alice'] });
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: threadId, ephemeral: false } });
+
+      // Kickoff turn/start (carries the awaitsOwnerText preamble).
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-kick' } },
+      });
+
+      // Deliver the request_user_input ServerRequest.
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9001,
+        method: METHOD.toolRequestUserInput,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          itemId: 'item-rui-1',
+          questions: [
+            {
+              id: 'owner',
+              header: '',
+              question: 'what is your name?',
+              isOther: false,
+              isSecret: false,
+            },
+          ],
+        } satisfies ToolRequestUserInputParams,
+      });
+      await waitForServerReply(handle, 9001);
+
+      // Drive the terminal submit so the run ends.
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9002,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          callId: 'call-1',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runCliForTest({
+      fsmPath: 'oy1.fsm.ts',
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout: process.stdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      authJsonExists: () => true,
+      loadFsmImpl: (async () => ({
+        machine,
+        sidecar,
+        modulePath: '/tmp/oy1.mjs',
+        issues: [],
+        cacheHit: false,
+        hash: 'oy1',
+      })) as unknown as RunCliTestHooks['loadFsmImpl'],
+      spawnAppServer: (async () =>
+        makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+      connectHeadlessWsImpl: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      ownerInputProvider: mockOwnerInput,
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+
+    // Reply body matches the double-nested wire shape verbatim. The
+    // mock dequeues `{owner: ['alice']}` → `{answers: {owner: {answers: ['alice']}}}`.
+    const reply = handle.outbound.find(
+      (m) => m.id === 9001 && m.method === undefined && 'result' in m,
+    ) as { id: number; result: ToolRequestUserInputResponse };
+    expect(reply.result).toEqual({ answers: { owner: { answers: ['alice'] } } });
+
+    // The provider observed the request exactly once.
+    expect(mockOwnerInput.getReceivedRequests().length).toBe(1);
+    expect(mockOwnerInput.getReceivedRequests()[0]?.questions[0]?.question).toBe(
+      'what is your name?',
+    );
+  }, 10_000);
+
+  it('pendingOwnerYieldCount increments before provideAnswers awaits and decrements after the reply lands', async () => {
+    const { machine, sidecar } = buildYieldingMachineAndSidecar();
+    const fsmPath = join(repoRoot, 'oy2.fsm.ts');
+    writeFileSync(fsmPath, '// stub fsm\n');
+
+    const { handle, connect } = makeSyntheticConnectStub();
+    const threadId = 'thread-oy2';
+
+    // Test-controlled trigger: the provider stalls until the test
+    // explicitly resolves, so the test can read the count value DURING
+    // the park window. The count seam (`readCount`) is captured below
+    // and polled at three pin points: pre-park, mid-park, post-release.
+    let releaseProvider!: () => void;
+    const providerGate = new Promise<void>((res) => {
+      releaseProvider = res;
+    });
+    let observedCountInsideProvider: number | null = null;
+
+    let readCount: (() => number) | null = null;
+
+    const stallingProvider: OwnerInputProvider = {
+      async provideAnswers(
+        _params: ToolRequestUserInputParams,
+      ): Promise<ToolRequestUserInputResponse> {
+        // The first synchronous tick inside `provideAnswers` runs AFTER
+        // the handler's `onParked()` callback (which increments the
+        // count) and BEFORE any await would yield. Read the count here
+        // to confirm the increment-before-await ordering.
+        if (readCount) {
+          observedCountInsideProvider = readCount();
+        }
+        await providerGate;
+        return { answers: { owner: { answers: ['queued'] } } };
+      },
+    };
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: threadId, ephemeral: false } });
+
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-kick' } },
+      });
+
+      // Push the parkable request; provider is still gated.
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9001,
+        method: METHOD.toolRequestUserInput,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          itemId: 'item-rui-2',
+          questions: [
+            {
+              id: 'owner',
+              header: '',
+              question: 'gated?',
+              isOther: false,
+              isSecret: false,
+            },
+          ],
+        } satisfies ToolRequestUserInputParams,
+      });
+
+      // Yield microtasks so the ServerRequest handler runs through park
+      // → invoke provider. The provider's synchronous prologue captures
+      // the count, then awaits the gate (suspends).
+      for (let i = 0; i < 5; i++) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      // Release the gated provider so the reply lands; the handler's
+      // `finally` arm decrements the count.
+      releaseProvider();
+      await waitForServerReply(handle, 9001);
+      // Brief tick so the `finally` decrement and any handler cleanup
+      // run before the post-release count read.
+      await new Promise((r) => setTimeout(r, 10));
+
+      // Drive terminal so the run ends.
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9002,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          callId: 'call-1',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runCliForTest({
+      fsmPath: 'oy2.fsm.ts',
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout: process.stdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      authJsonExists: () => true,
+      loadFsmImpl: (async () => ({
+        machine,
+        sidecar,
+        modulePath: '/tmp/oy2.mjs',
+        issues: [],
+        cacheHit: false,
+        hash: 'oy2',
+      })) as unknown as RunCliTestHooks['loadFsmImpl'],
+      spawnAppServer: (async () =>
+        makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+      connectHeadlessWsImpl: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      ownerInputProvider: stallingProvider,
+      _testReadPendingOwnerYieldCount: (read) => {
+        readCount = read;
+      },
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+
+    // Count-ordering contract:
+    //   - Inside provideAnswers (BEFORE the await suspends) the count is 1.
+    //     This proves `onParked()` ran synchronously BEFORE the provider
+    //     was awaited.
+    //   - After the reply lands and the handler's `finally` arm runs, the
+    //     count is back to 0. This proves `onReleased()` ran in `finally`
+    //     so every exit path (including a resolve) restores the count.
+    expect(observedCountInsideProvider).toBe(1);
+    expect(readCount).not.toBeNull();
+    expect(readCount?.()).toBe(0);
+  }, 10_000);
+
+  it('provider throws → CLI replies with per-qid (declined) marker and writes a stderr line', async () => {
+    const { machine, sidecar } = buildYieldingMachineAndSidecar();
+    const fsmPath = join(repoRoot, 'oy3.fsm.ts');
+    writeFileSync(fsmPath, '// stub fsm\n');
+
+    const { handle, connect } = makeSyntheticConnectStub();
+    const threadId = 'thread-oy3';
+
+    const throwingProvider: OwnerInputProvider = {
+      async provideAnswers(
+        _params: ToolRequestUserInputParams,
+      ): Promise<ToolRequestUserInputResponse> {
+        throw new Error('forced provider failure');
+      },
+    };
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: threadId, ephemeral: false } });
+
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-kick' } },
+      });
+
+      // Two questions so we can confirm the decline reply maps EVERY qid.
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9001,
+        method: METHOD.toolRequestUserInput,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          itemId: 'item-rui-3',
+          questions: [
+            {
+              id: 'q1',
+              header: '',
+              question: 'first?',
+              isOther: false,
+              isSecret: false,
+            },
+            {
+              id: 'q2',
+              header: '',
+              question: 'second?',
+              isOther: false,
+              isSecret: false,
+            },
+          ],
+        } satisfies ToolRequestUserInputParams,
+      });
+      await waitForServerReply(handle, 9001);
+
+      // Drive terminal so the run exits 0.
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9002,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          callId: 'call-1',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runCliForTest({
+      fsmPath: 'oy3.fsm.ts',
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout: process.stdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      authJsonExists: () => true,
+      loadFsmImpl: (async () => ({
+        machine,
+        sidecar,
+        modulePath: '/tmp/oy3.mjs',
+        issues: [],
+        cacheHit: false,
+        hash: 'oy3',
+      })) as unknown as RunCliTestHooks['loadFsmImpl'],
+      spawnAppServer: (async () =>
+        makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+      connectHeadlessWsImpl: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      ownerInputProvider: throwingProvider,
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+
+    // Reply maps EVERY qid to the pinned DECLINED_ANSWER_TEXT.
+    const reply = handle.outbound.find(
+      (m) => m.id === 9001 && m.method === undefined && 'result' in m,
+    ) as { id: number; result: ToolRequestUserInputResponse };
+    expect(reply.result).toEqual({
+      answers: {
+        q1: { answers: [DECLINED_ANSWER_TEXT] },
+        q2: { answers: [DECLINED_ANSWER_TEXT] },
+      },
+    });
+
+    // Stderr captures both the error and the synthetic-decline trail.
+    const stderrText = stderrBuf.join('');
+    expect(stderrText).toContain('ownerInputProvider error');
+    expect(stderrText).toContain('synthetic decline');
+    expect(stderrText).toContain('forced provider failure');
+  }, 10_000);
+
+  it('malformed params (no .questions) → CLI replies {answers: {}}, stderr logs the malformed-request line, count stays 0', async () => {
+    const { machine, sidecar } = buildYieldingMachineAndSidecar();
+    const fsmPath = join(repoRoot, 'oy4.fsm.ts');
+    writeFileSync(fsmPath, '// stub fsm\n');
+
+    const { handle, connect } = makeSyntheticConnectStub();
+    const threadId = 'thread-oy4';
+
+    // Track every `provideAnswers` call: malformed params must short-
+    // circuit BEFORE the provider is invoked.
+    let providerCallCount = 0;
+    const observingProvider: OwnerInputProvider = {
+      async provideAnswers(
+        _params: ToolRequestUserInputParams,
+      ): Promise<ToolRequestUserInputResponse> {
+        providerCallCount += 1;
+        return { answers: {} };
+      },
+    };
+
+    // Track `isAwaiting` reads. The narrow-first branch MUST NOT park,
+    // so the count never increments and every observed value is false.
+    const observed: boolean[] = [];
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: threadId, ephemeral: false } });
+
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-kick' } },
+      });
+
+      // Malformed: no `questions` field at all.
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9001,
+        method: METHOD.toolRequestUserInput,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          itemId: 'item-rui-4',
+        } as unknown as ToolRequestUserInputParams,
+      });
+      await waitForServerReply(handle, 9001);
+
+      // Drive a `turn/completed` so the isAwaiting predicate is read
+      // post-malformed-request. The narrow-first branch never parked,
+      // so the read MUST observe `false`.
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnCompleted,
+        params: { threadId, turn: { id: 't-kick' } },
+      });
+      await new Promise((r) => setTimeout(r, 20));
+
+      // Drive-forward's default branch will issue a fresh `turn/start`
+      // because no submit happened. Accept it.
+      await waitForOutbound(
+        handle,
+        (m) => m.method === METHOD.turnStart && handle.outbound.indexOf(m) > 0,
+      );
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-mid' } },
+      });
+
+      // Drive terminal so the run ends.
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9002,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 't-mid',
+          callId: 'call-1',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runCliForTest({
+      fsmPath: 'oy4.fsm.ts',
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout: process.stdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      authJsonExists: () => true,
+      loadFsmImpl: (async () => ({
+        machine,
+        sidecar,
+        modulePath: '/tmp/oy4.mjs',
+        issues: [],
+        cacheHit: false,
+        hash: 'oy4',
+      })) as unknown as RunCliTestHooks['loadFsmImpl'],
+      spawnAppServer: (async () =>
+        makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+      connectHeadlessWsImpl: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      ownerInputProvider: observingProvider,
+      _testObserveIsAwaiting: (v) => observed.push(v),
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+
+    // Reply body is `{answers: {}}` — the narrow-short-circuit response.
+    const reply = handle.outbound.find(
+      (m) => m.id === 9001 && m.method === undefined && 'result' in m,
+    ) as { id: number; result: ToolRequestUserInputResponse };
+    expect(reply.result).toEqual({ answers: {} });
+
+    // Provider was never invoked.
+    expect(providerCallCount).toBe(0);
+
+    // Stderr captures the malformed-params diagnostic.
+    expect(stderrBuf.join('')).toContain('malformed request params');
+
+    // The count never incremented — every observed `isAwaiting` read
+    // is `false`.
+    expect(observed.length).toBeGreaterThan(0);
+    expect(observed.every((v) => v === false)).toBe(true);
+  }, 10_000);
+});
+
+// ---------------------------------------------------------------------------
+// Phase 3a Task 4 — browser UI stream publication from existing runtime hooks.
+//
+// Agent A owns the skeleton + failing behavioral tests only. These tests pin
+// the Task 4 publication contract while asserting the existing stdout fallback
+// remains intact. Agent B should make these pass by publishing UI events at the
+// same runtime call sites that already write stdout or send orientation turns.
+// ---------------------------------------------------------------------------
+
+describe('runCliForTest — Phase 3a runtime event publication', () => {
+  let repoRoot: string;
+  let stderrBuf: string[];
+  let stderrSink: NodeJS.WritableStream;
+
+  beforeEach(() => {
+    repoRoot = mkdtempSync(join(tmpdir(), 'h-cli-phase3a-task4-'));
+    stderrBuf = [];
+    stderrSink = {
+      write(chunk: string | Uint8Array): boolean {
+        stderrBuf.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+        return true;
+      },
+    } as unknown as NodeJS.WritableStream;
+  });
+
+  afterEach(() => {
+    rmSync(repoRoot, { recursive: true, force: true });
+  });
+
+  function buildTwoStateMachineAndSidecar() {
+    interface DonePayload {
+      ok: boolean;
+    }
+    const machine = harness.machine({
+      id: 'phase3a-events',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'state a active',
+          exits: { done: exit<DonePayload>({ to: 'b' }) },
+        }),
+        b: terminal('success'),
+      },
+    });
+    const sidecar = {
+      a: {
+        done: {
+          jsonSchema: {
+            type: 'object',
+            required: ['ok'],
+            properties: { ok: { type: 'boolean' } },
+          } as const,
+          validate: (input: unknown) => {
+            const v = input as { ok?: unknown } | null;
+            if (v && typeof v === 'object' && typeof v.ok === 'boolean') {
+              return { ok: true as const, data: input };
+            }
+            return { ok: false as const, errors: [{ path: '/ok', message: 'must be boolean' }] };
+          },
+        },
+      },
+    };
+    return { machine, sidecar };
+  }
+
+  function makeStdoutCapture(): { stdout: NodeJS.WritableStream; chunks: string[] } {
+    const chunks: string[] = [];
+    return {
+      chunks,
+      stdout: {
+        write(chunk: string | Uint8Array): boolean {
+          chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+          return true;
+        },
+      } as unknown as NodeJS.WritableStream,
+    };
+  }
+
+  async function runWithTask4Harness(o: {
+    readonly fsmName: string;
+    readonly machine: ReturnType<typeof harness.machine>;
+    readonly sidecar: Record<string, Record<string, unknown>>;
+    readonly connect: RunCliTestHooks['connectHeadlessWsImpl'];
+    readonly stdout: NodeJS.WritableStream;
+    readonly events: ReplayableAppEvent[];
+    readonly onActiveThreadBinding?: (binding: ActiveThreadBinding) => void;
+  }) {
+    writeFileSync(join(repoRoot, o.fsmName), '// stub fsm\n');
+    return runCliForTest({
+      fsmPath: o.fsmName,
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout: o.stdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      authJsonExists: () => true,
+      loadFsmImpl: (async () => ({
+        machine: o.machine,
+        sidecar: o.sidecar,
+        modulePath: `/tmp/${o.fsmName}.mjs`,
+        issues: [],
+        cacheHit: false,
+        hash: o.fsmName,
+      })) as unknown as RunCliTestHooks['loadFsmImpl'],
+      spawnAppServer: (async () =>
+        makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+      connectHeadlessWsImpl: o.connect,
+      startUiServerImpl: async () => ({
+        url: 'http://127.0.0.1:0',
+        close: async () => {
+          /* no-op */
+        },
+      }),
+      _testOnUiEvent: (event) => o.events.push(event),
+      ...(o.onActiveThreadBinding ? { _testOnActiveThreadBinding: o.onActiveThreadBinding } : {}),
+    });
+  }
+
+  it('ignores abandoned raw response items and returns abandoned dynamic-tool responses', async () => {
+    interface DonePayload {
+      ok: boolean;
+    }
+    const machine = harness.machine({
+      id: 'phase3a-abandoned-boundary',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'state a active',
+          exits: {
+            ownerReply: { kind: 'await', to: 'b' },
+            done: exit<DonePayload>({ to: 'c' }),
+          },
+        }),
+        b: state({
+          entryPrompt: 'state b after await',
+          exits: { done: exit<DonePayload>({ to: 'c' }) },
+        }),
+        c: terminal('success'),
+      },
+    });
+    const validator = {
+      jsonSchema: {
+        type: 'object',
+        required: ['ok'],
+        properties: { ok: { type: 'boolean' } },
+      } as const,
+      validate: (input: unknown) => {
+        const v = input as { ok?: unknown } | null;
+        if (v && typeof v === 'object' && typeof v.ok === 'boolean') {
+          return { ok: true as const, data: input };
+        }
+        return { ok: false as const, errors: [{ path: '/ok', message: 'must be boolean' }] };
+      },
+    };
+    const sidecar = { a: { done: validator }, b: { done: validator } };
+    const { handle, connect } = makeSyntheticConnectStub();
+    const { stdout } = makeStdoutCapture();
+    const events: ReplayableAppEvent[] = [];
+    const startupThreadId = 'thread-abandoned-boundary-startup';
+    const replacementThreadId = 'thread-abandoned-boundary-replacement';
+    let activeBinding: ActiveThreadBinding | undefined;
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: startupThreadId, ephemeral: false } });
+
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+      if (activeBinding === undefined) throw new Error('active binding was not captured');
+      activeBinding.set(replacementThreadId);
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9201,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId: startupThreadId,
+          turnId: 't-old',
+          callId: 'old-submit',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
+        },
+      });
+      const oldDynamicReply = await waitForOutbound(
+        handle,
+        (m) => m.id === 9201 && m.result !== undefined,
+      );
+      expect(oldDynamicReply.result).toEqual({
+        success: false,
+        contentItems: [
+          {
+            type: 'inputText',
+            text: 'harness: request belongs to an abandoned thread after clearOnEntry; ignored.',
+          },
+        ],
+      });
+
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.rawResponseItemCompleted,
+        params: {
+          threadId: startupThreadId,
+          item: {
+            type: 'function_call',
+            call_id: 'old-await',
+            name: 'request_user_input',
+            arguments: JSON.stringify({ questions: [{ id: 'owner' }] }),
+          },
+        },
+      });
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.rawResponseItemCompleted,
+        params: {
+          threadId: startupThreadId,
+          item: {
+            type: 'function_call_output',
+            call_id: 'old-await',
+            output: JSON.stringify({ answers: { owner: { answers: ['old text'] } } }),
+          },
+        },
+      });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(
+        events.some(
+          (event) =>
+            event.event.kind === 'StateChange' &&
+            event.event.cause === 'await' &&
+            event.event.from === 'a',
+        ),
+      ).toBe(false);
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9202,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId: replacementThreadId,
+          turnId: 't-active',
+          callId: 'active-submit',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runWithTask4Harness({
+      fsmName: 'task4-abandoned-boundary.fsm.ts',
+      machine,
+      sidecar,
+      connect: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      stdout,
+      events,
+      onActiveThreadBinding: (binding) => {
+        activeBinding = binding;
+      },
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+    expect(events.map((e) => e.event)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'AbandonedThreadDiagnostic',
+          threadId: startupThreadId,
+          source: 'dynamicToolCall',
+        }),
+        expect.objectContaining({
+          kind: 'AbandonedThreadDiagnostic',
+          threadId: startupThreadId,
+          source: 'rawResponseItemCompleted',
+        }),
+      ]),
+    );
+    expect(events.map((e) => e.event)).toContainEqual(
+      expect.objectContaining({
+        kind: 'StateChange',
+        from: 'a',
+        to: 'c',
+        cause: 'submit',
+      }),
+    );
+  }, 10_000);
+
+  it('re-checks queued old-thread dynamic-tool calls before mutating the FSM', async () => {
+    interface DonePayload {
+      ok: boolean;
+    }
+    let releaseEntry: (() => void) | undefined;
+    let entryStartedResolve!: () => void;
+    const entryStarted = new Promise<void>((resolve) => {
+      releaseEntry = undefined;
+      entryStartedResolve = resolve;
+    });
+    const machine = harness.machine({
+      id: 'phase3a-queued-old-submit',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'state a active',
+          exits: { next: exit<DonePayload>({ to: 'b' }) },
+        }),
+        b: state({
+          entryPrompt: 'state b after clear',
+          clearOnEntry: true,
+          onEntry: async () => {
+            entryStartedResolve();
+            await new Promise<void>((entryResolve) => {
+              releaseEntry = entryResolve;
+            });
+          },
+          exits: { done: exit<DonePayload>({ to: 'c' }) },
+        }),
+        c: terminal('success'),
+      },
+    });
+    const validator = {
+      jsonSchema: {
+        type: 'object',
+        required: ['ok'],
+        properties: { ok: { type: 'boolean' } },
+      } as const,
+      validate: (input: unknown) => {
+        const v = input as { ok?: unknown } | null;
+        if (v && typeof v === 'object' && typeof v.ok === 'boolean') {
+          return { ok: true as const, data: input };
+        }
+        return { ok: false as const, errors: [{ path: '/ok', message: 'must be boolean' }] };
+      },
+    };
+    const sidecar = { a: { next: validator }, b: { done: validator } };
+    const { handle, connect } = makeSyntheticConnectStub();
+    const { stdout } = makeStdoutCapture();
+    const events: ReplayableAppEvent[] = [];
+    const startupThreadId = 'thread-queued-old-startup';
+    const replacementThreadId = 'thread-queued-old-replacement';
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: startupThreadId, ephemeral: false } });
+
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9301,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-first',
+          callId: 'first-submit',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'next', data: { ok: true } }),
+        },
+      });
+      await entryStarted;
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9302,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old-queued',
+          callId: 'queued-old-submit',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
+        },
+      });
+
+      releaseEntry?.();
+      const firstReply = await waitForOutbound(
+        handle,
+        (m) => m.id === 9301 && m.result !== undefined,
+      );
+      expect(firstReply.result).toMatchObject({ success: true });
+
+      const oldReply = await waitForOutbound(
+        handle,
+        (m) => m.id === 9302 && m.result !== undefined,
+      );
+      expect(oldReply.result).toEqual({
+        success: false,
+        contentItems: [
+          {
+            type: 'inputText',
+            text: 'harness: request belongs to an abandoned thread after clearOnEntry; ignored.',
+          },
+        ],
+      });
+
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnInterrupt);
+      handle.replyTo(METHOD.turnInterrupt, {});
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadUnsubscribe);
+      handle.replyTo(METHOD.threadUnsubscribe, {});
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, {
+        thread: { id: replacementThreadId, ephemeral: false },
+      });
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9303,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId: replacementThreadId,
+          turnId: 'turn-active',
+          callId: 'active-submit',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runWithTask4Harness({
+      fsmName: 'task4-queued-old-submit.fsm.ts',
+      machine,
+      sidecar,
+      connect: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      stdout,
+      events,
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+    expect(
+      events.filter(
+        (event) =>
+          event.event.kind === 'StateChange' && event.event.from === 'b' && event.event.to === 'c',
+      ),
+    ).toHaveLength(1);
+    expect(events.map((e) => e.event)).toContainEqual(
+      expect.objectContaining({
+        kind: 'AbandonedThreadDiagnostic',
+        threadId: startupThreadId,
+        source: 'dynamicToolCall',
+      }),
+    );
+  }, 10_000);
+
+  it('publishes StateChange and AgentMessageDelta while preserving stdout fallback', async () => {
+    const { machine, sidecar } = buildTwoStateMachineAndSidecar();
+    const { handle, connect } = makeSyntheticConnectStub();
+    const { stdout, chunks: stdoutChunks } = makeStdoutCapture();
+    const events: ReplayableAppEvent[] = [];
+    const threadId = 'thread-ui-stream-1';
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: threadId, ephemeral: false } });
+
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-kick' } },
+      });
+
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.agentMessageDelta,
+        params: { threadId, turnId: 't-kick', itemId: 'msg-1', delta: 'hello browser' },
+      });
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9001,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          callId: 'call-1',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runWithTask4Harness({
+      fsmName: 'task4-stream.fsm.ts',
+      machine,
+      sidecar,
+      connect: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      stdout,
+      events,
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+    expect(stdoutChunks.join('')).toContain('hello browser');
+    expect(stdoutChunks.join('')).toContain('[transition] a --done--> b');
+
+    expect(events.map((e) => e.event)).toContainEqual({
+      kind: 'AgentMessageDelta',
+      id: 'msg-1',
+      delta: 'hello browser',
+    });
+    expect(events.map((e) => e.event)).toContainEqual(
+      expect.objectContaining({
+        kind: 'StateChange',
+        from: 'a',
+        to: 'b',
+        cause: 'submit',
+      }),
+    );
+  }, 10_000);
+
+  it('publishes FrameworkNote for kickoff, cross-state, and drive-forward orientation turns', async () => {
+    interface Payload {
+      ok: boolean;
+    }
+    const machine = harness.machine({
+      id: 'phase3a-framework-notes',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'state a active',
+          exits: { next: exit<Payload>({ to: 'b' }) },
+        }),
+        b: state({
+          entryPrompt: 'state b active',
+          exits: { done: exit<Payload>({ to: 'c' }) },
+        }),
+        c: terminal('success'),
+      },
+    });
+    const validator = {
+      jsonSchema: {
+        type: 'object',
+        required: ['ok'],
+        properties: { ok: { type: 'boolean' } },
+      } as const,
+      validate: (input: unknown) => {
+        const v = input as { ok?: unknown } | null;
+        if (v && typeof v === 'object' && typeof v.ok === 'boolean') {
+          return { ok: true as const, data: input };
+        }
+        return { ok: false as const, errors: [{ path: '/ok', message: 'must be boolean' }] };
+      },
+    };
+    const sidecar = { a: { next: validator }, b: { done: validator } };
+    const { handle, connect } = makeSyntheticConnectStub();
+    const { stdout } = makeStdoutCapture();
+    const events: ReplayableAppEvent[] = [];
+    const threadId = 'thread-ui-notes';
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: threadId, ephemeral: false } });
+
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-kick' } },
+      });
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9001,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          callId: 'call-1',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'next', data: { ok: true } }),
+        },
+      });
+      await waitForOutbound(handle, (m) => m.id === 9001 && m.result !== undefined);
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: { threadId, item: { type: 'dynamicToolCall', id: 'call-1' } },
+      });
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnInterrupt);
+      handle.replyTo(METHOD.turnInterrupt, {});
+
+      await waitForOutbound(
+        handle,
+        (m) => m.method === METHOD.turnStart && handle.outbound.indexOf(m) > 0,
+      );
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-cross' } },
+      });
+
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnCompleted,
+        params: { threadId, turn: { id: 't-cross' } },
+      });
+      await waitForOutbound(
+        handle,
+        (m) =>
+          m.method === METHOD.turnStart &&
+          handle.outbound.filter((x) => x.method === METHOD.turnStart).length >= 3,
+      );
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-forward' } },
+      });
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9002,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 't-forward',
+          callId: 'call-2',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runWithTask4Harness({
+      fsmName: 'task4-notes.fsm.ts',
+      machine,
+      sidecar,
+      connect: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      stdout,
+      events,
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+    const turnStartTexts = handle.outbound
+      .filter((m) => m.method === METHOD.turnStart)
+      .map(
+        (m) => (m as { params?: { input?: Array<{ text?: string }> } }).params?.input?.[0]?.text,
+      );
+    expect(turnStartTexts).toEqual([
+      expect.stringContaining('state a active'),
+      expect.stringContaining('state b active'),
+      expect.stringContaining('state b active'),
+    ]);
+
+    const frameworkNotes = events
+      .map((e) => e.event)
+      .filter((event) => event.kind === 'FrameworkNote');
+    expect(frameworkNotes).toEqual([
+      expect.objectContaining({
+        kind: 'FrameworkNote',
+        variant: 'orientation',
+        text: expect.stringContaining('state a active'),
+      }),
+      expect.objectContaining({
+        kind: 'FrameworkNote',
+        variant: 'orientation',
+        text: expect.stringContaining('state b active'),
+      }),
+      expect.objectContaining({
+        kind: 'FrameworkNote',
+        variant: 'orientation',
+        text: expect.stringContaining('state b active'),
+      }),
+    ]);
+  }, 10_000);
+
+  it('publishes TurnCompleted for the parent thread and keeps sub-thread notifications filtered', async () => {
+    const { machine, sidecar } = buildTwoStateMachineAndSidecar();
+    const { handle, connect } = makeSyntheticConnectStub();
+    const { stdout } = makeStdoutCapture();
+    const events: ReplayableAppEvent[] = [];
+    const threadId = 'thread-ui-turns';
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: threadId, ephemeral: false } });
+
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-parent' } },
+      });
+
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.itemStarted,
+        params: {
+          threadId,
+          item: { type: 'spawnAgentToolCall', id: 'spawn-1', receiverThreadIds: ['thread-sub'] },
+        },
+      });
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnCompleted,
+        params: { threadId: 'thread-sub', turn: { id: 't-sub' } },
+      });
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnCompleted,
+        params: { threadId, turn: { id: 't-parent' } },
+      });
+
+      await waitForOutbound(
+        handle,
+        (m) => m.method === METHOD.turnStart && handle.outbound.indexOf(m) > 0,
+      );
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-after-parent-completed' } },
+      });
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9001,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 't-after-parent-completed',
+          callId: 'call-1',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runWithTask4Harness({
+      fsmName: 'task4-turns.fsm.ts',
+      machine,
+      sidecar,
+      connect: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      stdout,
+      events,
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+    expect(events.map((e) => e.event).filter((event) => event.kind === 'TurnCompleted')).toEqual([
+      {
+        kind: 'TurnCompleted',
+        turnId: 't-parent',
+        finishReason: 'stop',
+      },
+    ]);
+  }, 10_000);
+
+  it('publishes StateChange events for awaitResolver commits', async () => {
+    interface DonePayload {
+      ok: boolean;
+    }
+    const machine = harness.machine({
+      id: 'phase3a-await-events',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'state a awaiting owner',
+          exits: { ownerReply: { kind: 'await', to: 'b' } },
+        }),
+        b: state({
+          entryPrompt: 'state b after await',
+          exits: { done: exit<DonePayload>({ to: 'c' }) },
+        }),
+        c: terminal('success'),
+      },
+    });
+    const sidecar = {
+      b: {
+        done: {
+          jsonSchema: {
+            type: 'object',
+            required: ['ok'],
+            properties: { ok: { type: 'boolean' } },
+          } as const,
+          validate: (input: unknown) => {
+            const v = input as { ok?: unknown } | null;
+            if (v && typeof v === 'object' && typeof v.ok === 'boolean') {
+              return { ok: true as const, data: input };
+            }
+            return { ok: false as const, errors: [{ path: '/ok', message: 'must be boolean' }] };
+          },
+        },
+      },
+    };
+    const { handle, connect } = makeSyntheticConnectStub();
+    const { stdout } = makeStdoutCapture();
+    const events: ReplayableAppEvent[] = [];
+    const threadId = 'thread-ui-await';
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: threadId, ephemeral: false } });
+
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.turnStarted,
+        params: { threadId, turn: { id: 't-kick' } },
+      });
+
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.rawResponseItemCompleted,
+        params: {
+          item: {
+            type: 'function_call',
+            call_id: 'call-await',
+            name: 'request_user_input',
+            arguments: JSON.stringify({
+              questions: [
+                {
+                  id: 'owner',
+                  header: '',
+                  question: 'answer?',
+                  isOther: false,
+                  isSecret: false,
+                },
+              ],
+            }),
+          },
+        },
+      });
+      handle.push({
+        jsonrpc: '2.0',
+        method: METHOD.rawResponseItemCompleted,
+        params: {
+          item: {
+            type: 'function_call_output',
+            call_id: 'call-await',
+            output: JSON.stringify({ answers: { owner: { answers: ['owner text'] } } }),
+          },
+        },
+      });
+
+      await new Promise((r) => setTimeout(r, 20));
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9001,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          callId: 'call-1',
+          tool: 'harness_submit',
+          arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runWithTask4Harness({
+      fsmName: 'task4-await.fsm.ts',
+      machine,
+      sidecar,
+      connect: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      stdout,
+      events,
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+    expect(events.map((e) => e.event)).toContainEqual(
+      expect.objectContaining({
+        kind: 'StateChange',
+        from: 'a',
+        to: 'b',
+        cause: 'await',
+      }),
+    );
+  }, 10_000);
+});

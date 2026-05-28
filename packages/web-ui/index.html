@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>harness · run</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300..800;1,300..800&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Pre-React boot screen. Visible from first paint until the JS
+         bundle parses, the React tree mounts, and the snapshot fetch
+         lands the first FSM state. Replaced by BootSkeleton (which
+         mirrors this styling) and then by the live shell. */
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        background: #07080b;
+        color: #ece9df;
+        font-family:
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+      }
+      #root {
+        height: 100%;
+      }
+      #harness-preboot {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background:
+          radial-gradient(640px 480px at 50% 30%, rgba(138, 152, 255, 0.18) 0%, transparent 60%),
+          #0b0d12;
+      }
+      .pb-card {
+        position: relative;
+        width: min(520px, 92%);
+        padding: 40px 36px 32px;
+        border: 1px solid #1c2030;
+        border-radius: 10px;
+        background: linear-gradient(180deg, rgba(138, 152, 255, 0.06), transparent 200px), #0f1218;
+        text-align: center;
+        animation: pb-float 6s ease-in-out infinite;
+      }
+      @keyframes pb-float {
+        0%,
+        100% {
+          transform: translateY(0);
+        }
+        50% {
+          transform: translateY(-3px);
+        }
+      }
+      .pb-orbit {
+        position: relative;
+        width: 96px;
+        height: 96px;
+        margin: 0 auto 24px;
+      }
+      .pb-orbit-core {
+        position: absolute;
+        inset: 38px;
+        border-radius: 999px;
+        background: #8a98ff;
+        box-shadow: 0 0 24px rgba(138, 152, 255, 0.55);
+        animation: pb-pulse 1.8s ease-in-out infinite;
+      }
+      @keyframes pb-pulse {
+        0%,
+        100% {
+          opacity: 0.55;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1.25);
+        }
+      }
+      .pb-ring {
+        position: absolute;
+        inset: 0;
+        border-radius: 999px;
+        border: 1px solid;
+        opacity: 0.35;
+      }
+      .pb-ring-1 {
+        inset: 24px;
+        border-color: #8a98ff;
+        animation: pb-ring 2.4s ease-out infinite;
+      }
+      .pb-ring-2 {
+        inset: 12px;
+        border-color: #ff5d8f;
+        opacity: 0.4;
+        animation: pb-ring 2.4s ease-out infinite 0.6s;
+      }
+      .pb-ring-3 {
+        inset: 0;
+        border-color: #5cf3c1;
+        opacity: 0.3;
+        animation: pb-ring 2.4s ease-out infinite 1.2s;
+      }
+      @keyframes pb-ring {
+        0% {
+          transform: scale(0.6);
+          opacity: 0.6;
+        }
+        100% {
+          transform: scale(1.2);
+          opacity: 0;
+        }
+      }
+      .pb-eyebrow {
+        font-size: 10.5px;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: #8a98ff;
+        margin-bottom: 8px;
+      }
+      .pb-title {
+        font-size: 26px;
+        font-weight: 600;
+        letter-spacing: -0.015em;
+        color: #ece9df;
+        margin: 0 0 8px;
+      }
+      .pb-sub {
+        font-size: 13.5px;
+        color: #9c9789;
+        line-height: 1.55;
+        margin: 0 auto 24px;
+        max-width: 420px;
+      }
+      .pb-stages {
+        list-style: none;
+        margin: 0 auto 18px;
+        padding: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        text-align: left;
+        max-width: 380px;
+      }
+      .pb-stage {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 12px;
+        border: 1px dashed #1c2030;
+        border-radius: 4px;
+        background: #07080b;
+        font-family:
+          'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+        font-size: 11.5px;
+        color: #6a6e7c;
+      }
+      .pb-stage.is-active {
+        color: #8a98ff;
+        border-color: #8a98ff;
+        border-style: solid;
+        background: rgba(138, 152, 255, 0.12);
+      }
+      .pb-bullet {
+        width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        border: 1px solid currentColor;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+      }
+      .pb-ellipsis {
+        margin-left: auto;
+        display: inline-flex;
+        gap: 3px;
+      }
+      .pb-ellipsis i {
+        width: 4px;
+        height: 4px;
+        border-radius: 999px;
+        background: currentColor;
+        animation: pb-blink 1.2s ease-in-out infinite;
+      }
+      .pb-ellipsis i:nth-child(2) {
+        animation-delay: 0.18s;
+      }
+      .pb-ellipsis i:nth-child(3) {
+        animation-delay: 0.36s;
+      }
+      @keyframes pb-blink {
+        0%,
+        60%,
+        100% {
+          opacity: 0.2;
+        }
+        30% {
+          opacity: 1;
+        }
+      }
+      .pb-hint {
+        font-family:
+          'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+        font-size: 10.5px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #6a6e7c;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div id="harness-preboot" aria-busy="true" role="status" aria-label="harness is starting">
+        <div class="pb-card">
+          <div class="pb-orbit" aria-hidden="true">
+            <span class="pb-orbit-core"></span>
+            <span class="pb-ring pb-ring-1"></span>
+            <span class="pb-ring pb-ring-2"></span>
+            <span class="pb-ring pb-ring-3"></span>
+          </div>
+          <div class="pb-eyebrow">harness · headless</div>
+          <h1 class="pb-title">spinning up the run</h1>
+          <p class="pb-sub">
+            Loading the dashboard. Codex is starting in the background. State and topology will
+            appear as soon as the first frame lands.
+          </p>
+          <ol class="pb-stages">
+            <li class="pb-stage is-active">
+              <span class="pb-bullet" aria-hidden="true"></span>
+              <span>loading dashboard</span>
+              <span class="pb-ellipsis" aria-hidden="true"><i></i><i></i><i></i></span>
+            </li>
+            <li class="pb-stage">
+              <span class="pb-bullet" aria-hidden="true"></span>
+              <span>connecting to harness</span>
+            </li>
+            <li class="pb-stage">
+              <span class="pb-bullet" aria-hidden="true"></span>
+              <span>awaiting first state</span>
+            </li>
+          </ol>
+          <div class="pb-hint">if this hangs, check the terminal that launched harness</div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

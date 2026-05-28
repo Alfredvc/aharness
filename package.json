@@ -1,0 +1,49 @@
+{
+  "name": "aharness-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "description": "Monorepo root for @aharness/core (Codex-substrate FSM harness) and @aharness/test-support.",
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc --build && pnpm --dir packages/web-ui build && pnpm --dir packages/core exec node scripts/postBuild.mjs",
+    "clean": "tsc --build --clean && rimraf packages/core/dist packages/test-support/dist packages/web-ui/dist packages/core/*.tsbuildinfo packages/test-support/*.tsbuildinfo",
+    "typecheck": "tsc --noEmit --project tsconfig.lint.json",
+    "lint": "oxlint --max-warnings 0",
+    "lint:fix": "oxlint --fix --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:no-workflow-terms": "node scripts/check-no-workflow-terms.mjs",
+    "check:no-stale-stateless-contracts": "node scripts/check-no-stale-stateless-contracts.mjs",
+    "verify": "pnpm run format:check && pnpm run lint && pnpm run check:no-workflow-terms && pnpm run check:no-stale-stateless-contracts && pnpm run typecheck && pnpm --dir packages/web-ui run typecheck && pnpm --dir packages/core run verify:codex-bump && pnpm run build && pnpm run test",
+    "verify:release": "node scripts/verify-release-workflows.mjs && node scripts/verify-release-manifests.mjs --release-gate",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,cjs,jsx}": [
+      "prettier --write",
+      "oxlint --fix --max-warnings 0"
+    ],
+    "*.{json,md,yml,yaml,css,html}": [
+      "prettier --write"
+    ]
+  },
+  "devDependencies": {
+    "@oxlint/migrate": "^1.64.0",
+    "@types/node": "^25.6.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.4.0",
+    "oxlint": "^1.64.0",
+    "oxlint-tsgolint": "^0.22.1",
+    "prettier": "^3.8.3",
+    "rimraf": "^6.0.1",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.5"
+  }
+}

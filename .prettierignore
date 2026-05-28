@@ -1,0 +1,38 @@
+# Sandbox-immune paths — never edit
+.claude/
+.vscode/
+.idea/
+
+node_modules/
+**/node_modules/
+**/dist/
+**/*.tsbuildinfo
+coverage/
+.vitest/
+.pnpm-store/
+pnpm-lock.yaml
+
+# Out-of-scope for the TS build
+plugin/
+experiments/
+docs/
+examples/workflow-references/
+session_tokens.py
+
+# Pre-existing top-level files Claude is not allowed to touch
+assignment.md
+description.md
+information.md
+openclaw.md
+PROCESS_EVALUATION.md
+README.md
+CLAUDE.md
+skills-lock.json
+
+# Scaffolded into user projects by `aharness init`; not part of this repo's source.
+packages/*/templates/**
+packages/core/src/ui/static/assets/**
+
+# Vendored Superpowers skill assets are copied verbatim into package assets.
+vendored/superpowers/**
+packages/superpowers/skills/superpowers/**

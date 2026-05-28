@@ -1,0 +1,7 @@
+# Design-reference screenshots captured while iterating on the headless UI.
+# Keep them out of git so the working dir can hold local snapshots without
+# accumulating noise in history.
+*.png
+
+# Playwright-CLI scratch dir — per-run snapshots + console logs.
+.playwright-cli/

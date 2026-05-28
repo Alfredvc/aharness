@@ -1,0 +1,74 @@
+:root {
+  /* Typography — developer-tool native: system sans + JetBrains Mono. */
+  --font-sans:
+    system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  /* Display kept as alias so existing rules still resolve. */
+  --font-display: var(--font-sans);
+  --font-mono:
+    'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono',
+    monospace;
+
+  /* Editorial type scale. */
+  --t-micro: 10.5px;
+  --t-tiny: 11.5px;
+  --t-small: 13px;
+  --t-body: 14.5px;
+  --t-h4: 17px;
+  --t-h3: 22px;
+  --t-h2: 30px;
+  --t-h1: 44px;
+  --t-display: 64px;
+
+  /* Surface — warm bone on cold ink. */
+  --bg: #07080b;
+  --bg-2: #0b0d12;
+  --panel: #0f1218;
+  --panel-2: #141822;
+  --panel-3: #1a1e2a;
+  --line: #1c2030;
+  --line-soft: #161927;
+  --line-strong: #2a3045;
+
+  /* Ink — warm parchment against cold base. The editorial contrast. */
+  --ink: #ece9df;
+  --ink-soft: #c9c5b7;
+  --ink-quiet: #9c9789;
+  --muted: #6a6e7c;
+  --muted-deep: #4b4f5d;
+
+  /* Accents shared by the in-process browser UI. */
+  --indigo: #8a98ff;
+  --indigo-deep: #5663d4;
+  --indigo-soft: rgba(138, 152, 255, 0.12);
+  --indigo-glow: rgba(138, 152, 255, 0.32);
+
+  --mint: #5cf3c1;
+  --mint-soft: rgba(92, 243, 193, 0.12);
+
+  --amber: #f4b942;
+  --amber-soft: rgba(244, 185, 66, 0.14);
+
+  --rose: #f06070;
+  --rose-soft: rgba(240, 96, 112, 0.14);
+
+  --plasma: #ff5d8f;
+  --plasma-soft: rgba(255, 93, 143, 0.16);
+  --plasma-glow: rgba(255, 93, 143, 0.38);
+
+  /* Geometry. */
+  --r-xs: 2px;
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+  --hair: 1px;
+
+  /* Motion. */
+  --ease: cubic-bezier(0.2, 0.7, 0.1, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* Shadows. */
+  --shadow-soft: 0 1px 0 rgba(255, 255, 255, 0.02) inset, 0 18px 60px rgba(0, 0, 0, 0.45);
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 28px rgba(0, 0, 0, 0.38);
+}
