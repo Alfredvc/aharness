@@ -198,6 +198,331 @@ describe('createApprovalDispatcher', () => {
     });
   });
 
+  it('records raw canonical request payloads before publishing browser approval cards', async () => {
+    const events: ApprovalDispatchEvent[] = [];
+    const records: unknown[] = [];
+    const dispatcher = createApprovalDispatcher({
+      publish: (event) => events.push(event),
+      record: (input) => records.push(input),
+    });
+
+    const parked = dispatcher.handleCommandApproval(
+      {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'cmd-1',
+        approvalId: 'approval-1',
+        command: 'npm test',
+        cwd: '/repo',
+        commandActions: [{ label: 'allow once' }],
+        proposedNetworkPolicyAmendments: [{ host: 'example.test' }],
+      },
+      { requestId: 10 },
+    );
+
+    expect(records[0]).toEqual(
+      expect.objectContaining({
+        type: 'request.created',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'cmd-1',
+        requestId: 'command:1',
+        data: expect.objectContaining({
+          kind: 'command-approval',
+          status: 'pending',
+          hasCommand: true,
+        }),
+        raw: {
+          params: expect.objectContaining({
+            command: 'npm test',
+            cwd: '/repo',
+            commandActions: [{ label: 'allow once' }],
+            proposedNetworkPolicyAmendments: [{ host: 'example.test' }],
+          }),
+        },
+      }),
+    );
+    expect(events[0]).toMatchObject({ kind: 'ServerRequest', requestId: 'command:1' });
+
+    await dispatcher.handleBrowserReply({
+      kind: 'approval',
+      requestId: 'command:1',
+      decision: 'accept',
+    });
+    await expect(parked).resolves.toEqual({ decision: 'accept' });
+    expect(records.at(-1)).toEqual(
+      expect.objectContaining({ type: 'request.resolved', requestId: 'command:1' }),
+    );
+  });
+
+  it('records raw canonical permission approval request payloads', async () => {
+    const events: ApprovalDispatchEvent[] = [];
+    const records: unknown[] = [];
+    const dispatcher = createApprovalDispatcher({
+      publish: (event) => events.push(event),
+      record: (input) => records.push(input),
+    });
+
+    const parked = dispatcher.handlePermissionApproval(
+      {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'perm-1',
+        cwd: '/repo',
+        reason: 'network access',
+        permissions: { network: { enabled: true }, fileSystem: null },
+      },
+      { requestId: 11 },
+    );
+
+    expect(records[0]).toEqual(
+      expect.objectContaining({
+        type: 'request.created',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'perm-1',
+        requestId: 'permission:1',
+        data: expect.objectContaining({
+          kind: 'permission-approval',
+          status: 'pending',
+        }),
+        raw: {
+          params: expect.objectContaining({
+            cwd: '/repo',
+            reason: 'network access',
+            permissions: { network: { enabled: true }, fileSystem: null },
+          }),
+        },
+      }),
+    );
+    expect(events[0]).toMatchObject({ kind: 'ServerRequest', requestId: 'permission:1' });
+
+    await dispatcher.handleBrowserReply({
+      kind: 'permission',
+      requestId: 'permission:1',
+      decision: 'acceptForSession',
+    });
+    await expect(parked).resolves.toEqual({
+      permissions: { network: { enabled: true } },
+      scope: 'session',
+    });
+  });
+
+  it('records raw canonical elicitation request payloads for form and url modes', async () => {
+    const events: ApprovalDispatchEvent[] = [];
+    const records: unknown[] = [];
+    const dispatcher = createApprovalDispatcher({
+      publish: (event) => events.push(event),
+      record: (input) => records.push(input),
+    });
+    const requestedSchema = { type: 'object', properties: { choice: { type: 'string' } } };
+
+    const formParked = dispatcher.handleElicitation(
+      {
+        mode: 'form',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        serverName: 'srv',
+        _meta: { trace: 'form' },
+        message: 'choose',
+        requestedSchema,
+      },
+      { requestId: 12 },
+    );
+
+    expect(records[0]).toEqual(
+      expect.objectContaining({
+        type: 'request.created',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        requestId: 'elicitation:1',
+        data: expect.objectContaining({
+          kind: 'elicitation',
+          mode: 'form',
+          hasSchema: true,
+        }),
+        raw: {
+          params: expect.objectContaining({
+            mode: 'form',
+            message: 'choose',
+            requestedSchema,
+            _meta: { trace: 'form' },
+          }),
+        },
+      }),
+    );
+    await dispatcher.handleBrowserReply({
+      kind: 'elicitation',
+      requestId: 'elicitation:1',
+      action: 'decline',
+    });
+    await expect(formParked).resolves.toEqual({
+      action: 'decline',
+      content: null,
+      _meta: null,
+    });
+
+    const urlParked = dispatcher.handleElicitation(
+      {
+        mode: 'url',
+        threadId: 'thread-1',
+        turnId: null,
+        serverName: 'srv',
+        _meta: { trace: 'url' },
+        message: 'open this',
+        url: 'https://example.test',
+        elicitationId: 'url-1',
+      },
+      { requestId: 13 },
+    );
+
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        type: 'request.created',
+        threadId: 'thread-1',
+        requestId: 'elicitation:2',
+        data: expect.objectContaining({
+          kind: 'elicitation',
+          mode: 'url',
+          hasUrl: true,
+        }),
+        raw: {
+          params: expect.objectContaining({
+            mode: 'url',
+            message: 'open this',
+            url: 'https://example.test',
+            elicitationId: 'url-1',
+            _meta: { trace: 'url' },
+          }),
+        },
+      }),
+    );
+    await dispatcher.handleBrowserReply({
+      kind: 'elicitation',
+      requestId: 'elicitation:2',
+      action: 'cancel',
+    });
+    await expect(urlParked).resolves.toEqual({
+      action: 'cancel',
+      content: null,
+      _meta: null,
+    });
+  });
+
+  it('records raw canonical file-change update payloads for pending approvals', async () => {
+    const events: ApprovalDispatchEvent[] = [];
+    const records: unknown[] = [];
+    const dispatcher = createApprovalDispatcher({
+      publish: (event) => events.push(event),
+      record: (input) => records.push(input),
+    });
+
+    const parked = dispatcher.handleFileApproval(
+      {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'patch-1',
+        reason: 'needs write access',
+        grantRoot: '/repo',
+      },
+      { requestId: 'rpc-file' },
+    );
+    dispatcher.fileChangeTracker.notePatchUpdated({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'patch-1',
+      changes: [change],
+    });
+
+    expect(records).toContainEqual(
+      expect.objectContaining({
+        type: 'request.updated',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'patch-1',
+        requestId: 'file:1',
+        data: expect.objectContaining({
+          kind: 'file-approval',
+          status: 'pending',
+          changeCount: 1,
+        }),
+        raw: {
+          params: {
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            itemId: 'patch-1',
+            changes: [change],
+          },
+        },
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({ kind: 'FileApprovalUpdated', requestId: 'file:1' }),
+    );
+
+    await dispatcher.handleBrowserReply({
+      kind: 'approval',
+      requestId: 'file:1',
+      decision: 'decline',
+    });
+    await expect(parked).resolves.toEqual({ decision: 'decline' });
+  });
+
+  it('records raw canonical request payloads for permissionRequest auto-decisions', async () => {
+    const events: ApprovalDispatchEvent[] = [];
+    const records: unknown[] = [];
+    const permissionRequest = vi.fn(() => 'accept' as const);
+    const dispatcher = createApprovalDispatcher({
+      publish: (event) => events.push(event),
+      record: (input) => records.push(input),
+      permissionRequest,
+    });
+
+    const result = dispatcher.handleCommandApproval(
+      {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'cmd-1',
+        approvalId: 'approval-1',
+        command: 'npm test',
+        cwd: '/repo',
+      },
+      { requestId: 10 },
+    );
+
+    expect(result).toEqual({ decision: 'accept' });
+    expect(records).toEqual([
+      expect.objectContaining({
+        type: 'request.created',
+        requestId: 'policy:command:10',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        itemId: 'cmd-1',
+        data: expect.objectContaining({
+          kind: 'command-approval',
+          status: 'pending',
+        }),
+        raw: {
+          params: expect.objectContaining({
+            command: 'npm test',
+            cwd: '/repo',
+          }),
+        },
+      }),
+      expect.objectContaining({
+        type: 'request.resolved',
+        requestId: 'policy:command:10',
+        raw: { params: { response: { decision: 'accept' } } },
+      }),
+    ]);
+    expect(events).toEqual([
+      expect.objectContaining({
+        kind: 'FrameworkNote',
+        text: expect.stringContaining('resolved with accept'),
+      }),
+    ]);
+  });
+
   it('returns safe fallback responses for malformed params', async () => {
     const { dispatcher, events } = createAharness();
 
@@ -213,6 +538,49 @@ describe('createApprovalDispatcher', () => {
       _meta: null,
     });
     expect(events).toEqual([]);
+  });
+
+  it('does not record malformed or inactive approval fallbacks as accepted requests', () => {
+    const events: ApprovalDispatchEvent[] = [];
+    const records: unknown[] = [];
+    const dispatcher = createApprovalDispatcher({
+      publish: (event) => events.push(event),
+      record: (input) => records.push(input),
+      isActiveThread: (threadId) => threadId === 'thread-live',
+    });
+
+    expect(dispatcher.handleCommandApproval({})).toEqual({ decision: 'decline' });
+    expect(
+      dispatcher.handleFileApproval({
+        threadId: 'thread-old',
+        turnId: 'turn-1',
+        itemId: 'patch-1',
+      }),
+    ).toEqual({ decision: 'decline' });
+    expect(
+      dispatcher.handlePermissionApproval({
+        threadId: 'thread-old',
+        turnId: 'turn-1',
+        itemId: 'perm-1',
+        cwd: '/repo',
+        permissions: { network: null, fileSystem: null },
+      }),
+    ).toEqual({ permissions: {}, scope: 'turn' });
+    expect(
+      dispatcher.handleElicitation({
+        mode: 'url',
+        threadId: 'thread-old',
+        turnId: null,
+        serverName: 'srv',
+        _meta: null,
+        message: 'open',
+        url: 'https://example.test',
+        elicitationId: 'url-1',
+      }),
+    ).toEqual({ action: 'cancel', content: null, _meta: null });
+
+    expect(events).toEqual([]);
+    expect(records).toEqual([]);
   });
 
   it('declines inactive-thread approval requests without publishing browser cards', async () => {

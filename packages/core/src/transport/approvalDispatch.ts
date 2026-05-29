@@ -15,6 +15,10 @@ import type {
   PermissionsRequestApprovalResponse,
   RequestPermissionProfile,
 } from '../protocol/index.js';
+import {
+  appEventToEnrichedRunEventAppendInput,
+  type RunEventAppendInput,
+} from '../runEvents/index.js';
 import type { BrowserReplyResult } from '../ui/reply.js';
 import {
   buildAbandonedCommandExecutionApprovalResponse,
@@ -118,6 +122,7 @@ export interface ApprovalPolicyDiagnosticEvent {
 
 export interface ApprovalDispatcherOptions {
   readonly publish: (event: ApprovalDispatchEvent) => void;
+  readonly record?: (input: RunEventAppendInput) => void;
   readonly fileChangeTracker?: FileChangeTracker;
   readonly isActiveThread?: (threadId: string) => boolean;
   readonly onAbandonedThreadDiagnostic?: (diagnostic: {
@@ -345,7 +350,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
       onAbandonedThreadDiagnostic: (diagnostic) =>
         options.onAbandonedThreadDiagnostic?.(diagnostic),
       onPendingFileApprovalChanges(update) {
-        options.publish({
+        const event: FileApprovalUpdatedEvent = {
           kind: 'FileApprovalUpdated',
           id: update.requestId,
           requestId: update.requestId,
@@ -353,9 +358,20 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
           turnId: update.turnId,
           itemId: update.itemId,
           changes: update.changes,
-        });
+        };
+        recordApprovalEvent(event, update.rawParams ?? { changes: update.changes });
+        options.publish(event);
       },
     });
+
+  function recordApprovalEvent(event: ApprovalDispatchEvent, rawParams?: unknown): void {
+    if (event.kind === 'FrameworkNote') return;
+    const input = appEventToEnrichedRunEventAppendInput(event, {
+      meta: { source: 'approvalDispatch' },
+      ...(rawParams !== undefined ? { raw: { params: rawParams } } : {}),
+    });
+    if (input !== null) options.record?.(input);
+  }
 
   function removePending(entry: PendingEntry): void {
     pendingByRequestId.delete(entry.requestId);
@@ -364,15 +380,82 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
   }
 
   function publishResolved(entry: PendingEntry): void {
-    options.publish({
+    const event: ApprovalRequestResolvedEvent = {
       kind: 'ApprovalRequestResolved',
       id: entry.requestId,
       requestId: entry.requestId,
-    });
+    };
+    recordApprovalEvent(event);
+    options.publish(event);
+  }
+
+  function publishRecordedResolved(requestId: string, response: unknown): void {
+    recordApprovalEvent(
+      {
+        kind: 'ApprovalRequestResolved',
+        id: requestId,
+        requestId,
+      },
+      { response },
+    );
   }
 
   function browserRequestId(kind: PendingKind): string {
     return `${kind}:${nextBrowserRequestId++}`;
+  }
+
+  function policyRequestId(event: PermissionRequestEvent): string {
+    return `policy:${event.kind}:${
+      event.requestId ?? `${event.threadId}:${event.turnId}:${event.itemId}`
+    }`;
+  }
+
+  function commandApprovalEvent(
+    narrowed: CommandExecutionRequestApprovalParams,
+    requestId: string,
+  ): CommandApprovalRequestEvent {
+    const approvalId = optionalString(narrowed.approvalId);
+    const reason = optionalString(narrowed.reason);
+    const command = optionalString(narrowed.command);
+    const cwd = optionalString(narrowed.cwd);
+    return {
+      kind: 'ServerRequest',
+      id: requestId,
+      requestId,
+      method: 'item/commandExecution/requestApproval',
+      threadId: narrowed.threadId,
+      turnId: narrowed.turnId,
+      itemId: narrowed.itemId,
+      ...(approvalId ? { approvalId } : {}),
+      ...(reason ? { reason } : {}),
+      ...(command ? { command } : {}),
+      ...(cwd ? { cwd } : {}),
+      ...(narrowed.commandActions ? { commandActions: narrowed.commandActions } : {}),
+      ...(narrowed.networkApprovalContext
+        ? { networkApprovalContext: narrowed.networkApprovalContext }
+        : {}),
+    };
+  }
+
+  function fileApprovalEvent(
+    narrowed: FileChangeRequestApprovalParams,
+    requestId: string,
+    changes: ReadonlyArray<FileUpdateChange>,
+  ): FileApprovalRequestEvent {
+    const reason = optionalString(narrowed.reason);
+    const grantRoot = optionalString(narrowed.grantRoot);
+    return {
+      kind: 'ServerRequest',
+      id: requestId,
+      requestId,
+      method: 'item/fileChange/requestApproval',
+      threadId: narrowed.threadId,
+      turnId: narrowed.turnId,
+      itemId: narrowed.itemId,
+      ...(reason ? { reason } : {}),
+      ...(grantRoot ? { grantRoot } : {}),
+      changes,
+    };
   }
 
   function park<TResponse>(p: ParkOptions): Promise<TResponse> {
@@ -396,6 +479,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
       pendingByRequestId.set(p.requestId, entry);
       pendingByCodexRequestKey.set(codexRequestKey, entry);
       p.onResolve?.();
+      recordApprovalEvent(p.event, p.params);
       options.publish(p.event);
     });
   }
@@ -411,33 +495,13 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
     meta: ServerRequestMeta | undefined,
   ): Promise<CommandExecutionRequestApprovalResponse> {
     const requestId = browserRequestId('command');
-    const approvalId = optionalString(narrowed.approvalId);
-    const reason = optionalString(narrowed.reason);
-    const command = optionalString(narrowed.command);
-    const cwd = optionalString(narrowed.cwd);
     return park<CommandExecutionRequestApprovalResponse>({
       kind: 'command',
       requestId,
       codexRequestId: metaRequestId(meta, requestId),
       threadId: narrowed.threadId,
       params: narrowed,
-      event: {
-        kind: 'ServerRequest',
-        id: requestId,
-        requestId,
-        method: 'item/commandExecution/requestApproval',
-        threadId: narrowed.threadId,
-        turnId: narrowed.turnId,
-        itemId: narrowed.itemId,
-        ...(approvalId ? { approvalId } : {}),
-        ...(reason ? { reason } : {}),
-        ...(command ? { command } : {}),
-        ...(cwd ? { cwd } : {}),
-        ...(narrowed.commandActions ? { commandActions: narrowed.commandActions } : {}),
-        ...(narrowed.networkApprovalContext
-          ? { networkApprovalContext: narrowed.networkApprovalContext }
-          : {}),
-      },
+      event: commandApprovalEvent(narrowed, requestId),
     });
   }
 
@@ -446,8 +510,6 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
     meta: ServerRequestMeta | undefined,
   ): Promise<FileChangeRequestApprovalResponse> {
     const requestId = browserRequestId('file');
-    const reason = optionalString(narrowed.reason);
-    const grantRoot = optionalString(narrowed.grantRoot);
     const changes = tracker.noteFileApprovalPending({
       requestId,
       threadId: narrowed.threadId,
@@ -460,18 +522,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
       codexRequestId: metaRequestId(meta, requestId),
       threadId: narrowed.threadId,
       params: narrowed,
-      event: {
-        kind: 'ServerRequest',
-        id: requestId,
-        requestId,
-        method: 'item/fileChange/requestApproval',
-        threadId: narrowed.threadId,
-        turnId: narrowed.turnId,
-        itemId: narrowed.itemId,
-        ...(reason ? { reason } : {}),
-        ...(grantRoot ? { grantRoot } : {}),
-        changes,
-      },
+      event: fileApprovalEvent(narrowed, requestId, changes),
     });
   }
 
@@ -538,6 +589,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
     event: PermissionRequestEvent,
     meta: ServerRequestMeta | undefined,
     browserPath: () => Promise<T>,
+    onPolicyResponse: (response: T) => void,
   ): T | Promise<T> {
     if (!options.permissionRequest) {
       if (!isActiveThread(event.threadId)) {
@@ -565,8 +617,10 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
             }
             const decision = normalizePermissionPolicyDecision(resolved);
             if (decision !== null && decision !== 'delegate') {
+              const response = { decision } as T;
+              onPolicyResponse(response);
               publishPolicyDecision(event, decision);
-              return { decision } as T;
+              return response;
             }
             return browserPath();
           })
@@ -579,7 +633,9 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
               );
               return abandonedPermissionPolicyResponse<T>(event);
             }
-            return { decision: 'cancel' } as T;
+            const response = { decision: 'cancel' } as T;
+            onPolicyResponse(response);
+            return response;
           });
       }
       if (!isActiveThread(event.threadId)) {
@@ -592,8 +648,10 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
       }
       const decision = normalizePermissionPolicyDecision(result);
       if (decision !== null && decision !== 'delegate') {
+        const response = { decision } as T;
+        onPolicyResponse(response);
         publishPolicyDecision(event, decision);
-        return { decision } as T;
+        return response;
       }
       return browserPath();
     } catch {
@@ -605,7 +663,9 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
         );
         return abandonedPermissionPolicyResponse<T>(event);
       }
-      return { decision: 'cancel' } as T;
+      const response = { decision: 'cancel' } as T;
+      onPolicyResponse(response);
+      return response;
     }
   }
 
@@ -622,8 +682,16 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
         );
         return buildAbandonedCommandExecutionApprovalResponse();
       }
-      return applyPermissionPolicy(commandPermissionEvent(narrowed, meta), meta, () =>
-        commandBrowserPath(narrowed, meta),
+      const permissionEvent = commandPermissionEvent(narrowed, meta);
+      return applyPermissionPolicy(
+        permissionEvent,
+        meta,
+        () => commandBrowserPath(narrowed, meta),
+        (response) => {
+          const requestId = policyRequestId(permissionEvent);
+          recordApprovalEvent(commandApprovalEvent(narrowed, requestId), narrowed);
+          publishRecordedResolved(requestId, response);
+        },
       );
     },
     handleFileApproval(params, meta) {
@@ -637,8 +705,23 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
         );
         return buildAbandonedFileChangeApprovalResponse();
       }
-      return applyPermissionPolicy(filePermissionEvent(narrowed, meta), meta, () =>
-        fileBrowserPath(narrowed, meta),
+      const permissionEvent = filePermissionEvent(narrowed, meta);
+      return applyPermissionPolicy(
+        permissionEvent,
+        meta,
+        () => fileBrowserPath(narrowed, meta),
+        (response) => {
+          const requestId = policyRequestId(permissionEvent);
+          recordApprovalEvent(
+            fileApprovalEvent(
+              narrowed,
+              requestId,
+              tracker.lookup(narrowed.threadId, narrowed.turnId, narrowed.itemId),
+            ),
+            narrowed,
+          );
+          publishRecordedResolved(requestId, response);
+        },
       );
     },
     handlePermissionApproval(params, meta) {

@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import type { EventLogEntryInput } from '../src/events.js';
 import {
   RUN_EVENT_SCHEMA,
+  appEventToEnrichedRunEventAppendInput,
   appEventToRunEventAppendInput,
   createLiveRunEventPublisher,
   legacyEventInputToRunEventAppendInput,
@@ -329,6 +330,54 @@ describe('run event adapter', () => {
     ).toBeNull();
   });
 
+  it('can enrich sanitized AppEvent mappings with raw and meta payloads', () => {
+    const input = appEventToEnrichedRunEventAppendInput(
+      {
+        kind: 'ServerRequest',
+        id: 'owner-1',
+        method: 'item/tool/requestUserInput',
+        questions: [
+          {
+            id: 'q1',
+            header: 'Header',
+            question: 'question text must stay out',
+            isOther: false,
+            isSecret: true,
+          },
+        ],
+      },
+      {
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        requestId: 'owner-1',
+        raw: {
+          params: {
+            itemId: 'owner-1',
+            questions: [{ id: 'q1', question: 'question text is raw', isSecret: true }],
+          },
+        },
+        meta: { source: 'item/tool/requestUserInput' },
+      },
+    );
+
+    expect(input).toEqual(
+      expect.objectContaining({
+        type: 'request.created',
+        threadId: 'thread-1',
+        turnId: 'turn-1',
+        requestId: 'owner-1',
+        meta: { source: 'item/tool/requestUserInput' },
+        raw: {
+          params: {
+            itemId: 'owner-1',
+            questions: [{ id: 'q1', question: 'question text is raw', isSecret: true }],
+          },
+        },
+      }),
+    );
+    expect(JSON.stringify(input?.data)).not.toContain('question text is raw');
+  });
+
   it('caps abandoned diagnostic fields in every persisted copy', () => {
     const long = 'x'.repeat(2_000);
 
@@ -459,6 +508,40 @@ describe('live run event publisher', () => {
     ]);
     expect(envelopes.every((entry) => !('kind' in entry) && !('ts' in entry))).toBe(true);
     expectNoSensitivePayload(envelopes);
+  });
+
+  it('records enriched canonical inputs without publishing browser events', () => {
+    const runDir = tempRunDir('run-direct-record');
+    const uiEventLog = createUiEventLog({ run: { ...runMeta, runId: runDir.runId } });
+    const observed: unknown[] = [];
+    const publisher = createLiveRunEventPublisher({
+      runDir,
+      runMeta: { ...runMeta, runId: runDir.runId },
+      uiEventLog,
+      onUiEvent: (event) => observed.push(event),
+      stderr: { write: () => true } as unknown as NodeJS.WritableStream,
+    });
+
+    publisher.record({
+      type: 'reply.submitted',
+      requestId: 'request-1',
+      data: { kind: 'owner-input', status: 'submitted' },
+      raw: { payload: { kind: 'owner-input', answers: { secret: 'stored raw' } } },
+    });
+
+    expect(observed).toEqual([]);
+    expect(uiEventLog.snapshot().latestEventId).toBeNull();
+    const [envelope] = readFileSync(runDir.eventsPath, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(envelope).toEqual(
+      expect.objectContaining({
+        schema: RUN_EVENT_SCHEMA,
+        type: 'reply.submitted',
+        raw: { payload: { kind: 'owner-input', answers: { secret: 'stored raw' } } },
+      }),
+    );
   });
 
   it('warns without blocking UI publication when canonical append fails', () => {

@@ -223,6 +223,64 @@ describe('canonical run event index', () => {
     expect(resolvedIndex.getPendingRequests()).toEqual([]);
   });
 
+  it('keeps pending requests after failed reply resolution attempts', () => {
+    const index = buildRunEventIndex({
+      events: withOffsets([
+        event(1, 'request.created', {
+          requestId: 'request-1',
+          data: { kind: 'owner-input', summary: 'Approve the plan?' },
+        }),
+        event(2, 'reply.submitted', {
+          requestId: 'request-1',
+          data: { kind: 'owner-input', status: 'submitted' },
+        }),
+        event(3, 'reply.resolved', {
+          requestId: 'request-1',
+          data: {
+            kind: 'owner-input',
+            status: 'failed',
+            ok: false,
+            httpStatus: 400,
+            error: 'missing-owner-input-answer',
+          },
+        }),
+      ]),
+    });
+
+    expect(index.getPendingRequests()).toEqual([
+      expect.objectContaining({
+        requestId: 'request-1',
+        status: 'pending',
+        kind: 'owner-input',
+        summary: 'Approve the plan?',
+        lastEventId: 'run-index:3',
+      }),
+    ]);
+  });
+
+  it('does not create pending requests from failed replies for unknown request ids', () => {
+    const index = buildRunEventIndex({
+      events: withOffsets([
+        event(1, 'reply.submitted', {
+          requestId: 'stale-request',
+          data: { kind: 'owner-input', status: 'submitted' },
+        }),
+        event(2, 'reply.resolved', {
+          requestId: 'stale-request',
+          data: {
+            kind: 'owner-input',
+            status: 'failed',
+            ok: false,
+            httpStatus: 409,
+            error: 'no-pending-owner-input',
+          },
+        }),
+      ]),
+    });
+
+    expect(index.getPendingRequests()).toEqual([]);
+  });
+
   it('folds aggregate run and token stats while omitting absent optional fields', () => {
     const index = buildRunEventIndex({ events: fixtureEvents() });
 
@@ -250,6 +308,95 @@ describe('canonical run event index', () => {
       startedAt: '2026-05-29T00:00:01.000Z',
       turnCount: 1,
       activeTurnId: 'turn-1',
+    });
+  });
+
+  it('folds token totals from normalized data without reading raw token payloads', () => {
+    const index = buildRunEventIndex({
+      events: withOffsets([
+        event(1, 'token.updated', {
+          data: {
+            total: {
+              totalTokens: 25,
+              inputTokens: 20,
+              cachedInputTokens: 5,
+              outputTokens: 4,
+              reasoningOutputTokens: 1,
+            },
+            modelContextWindow: 200000,
+          },
+          raw: {
+            params: {
+              tokenUsage: {
+                total: {
+                  totalTokens: 999,
+                  inputTokens: 999,
+                },
+              },
+            },
+          },
+        }),
+      ]),
+    });
+
+    expect(index.aggregateStats).toEqual({
+      turnCount: 0,
+      totalTokens: 25,
+      inputTokens: 20,
+      cachedInputTokens: 5,
+      outputTokens: 4,
+      reasoningOutputTokens: 1,
+      modelContextWindow: 200000,
+    });
+  });
+
+  it('does not count sub-thread turn events as parent aggregate turns', () => {
+    const index = buildRunEventIndex({
+      events: withOffsets([
+        event(1, 'turn.started', { turnId: 'parent-turn' }),
+        event(2, 'subthread.turn.started', {
+          threadId: 'child-thread',
+          turnId: 'child-turn',
+          data: { parentThreadId: 'parent-thread', correlationKnown: true },
+          raw: { params: { threadId: 'child-thread', turn: { id: 'child-turn' } } },
+        }),
+      ]),
+    });
+
+    expect(index.aggregateStats.turnCount).toBe(1);
+    expect(index.getTurnRange('child-turn')).toEqual({
+      firstSeq: 2,
+      lastSeq: 2,
+      eventIds: ['run-index:2'],
+    });
+  });
+
+  it('does not fold sub-thread token events into parent aggregate stats', () => {
+    const index = buildRunEventIndex({
+      events: withOffsets([
+        event(1, 'token.updated', {
+          data: {
+            total: { totalTokens: 10, inputTokens: 8 },
+            modelContextWindow: 128000,
+          },
+        }),
+        event(2, 'subthread.token.updated', {
+          threadId: 'child-thread',
+          turnId: 'child-turn',
+          data: {
+            total: { totalTokens: 999, inputTokens: 999 },
+            modelContextWindow: 200000,
+          },
+          raw: { params: { threadId: 'child-thread' } },
+        }),
+      ]),
+    });
+
+    expect(index.aggregateStats).toEqual({
+      turnCount: 0,
+      totalTokens: 10,
+      inputTokens: 8,
+      modelContextWindow: 128000,
     });
   });
 

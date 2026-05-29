@@ -4,10 +4,13 @@
  *
  * Codex's `OutgoingMessageSender` honours this list for both parent and
  * auto-attached sub-thread notifications (CF-17). The aharness CLI
- * receives only the methods NOT in this list — the router only needs to
- * subscribe to the parent-thread variants of `turn/started`,
- * `turn/completed`, `item/started`, `item/completed` plus the
- * `item/agentMessage/delta` stream for the stdout UI.
+ * receives only the methods NOT in this list. Runtime capture depends on
+ * staying subscribed to parent-thread `turn/started`, `turn/completed`,
+ * `item/started`, and `item/completed`; `item/agentMessage/delta` for stdout
+ * streaming; `rawResponseItem/completed` for await/user-input function-call
+ * outputs; `item/fileChange/patchUpdated` and `serverRequest/resolved` for
+ * approval lifecycles; and `thread/tokenUsage/updated` for canonical token
+ * usage JSONL events.
  *
  * Created as part of Task 17 (Phase 1b) — Task 15 will dedupe its own
  * use of this constant by re-exporting from here.

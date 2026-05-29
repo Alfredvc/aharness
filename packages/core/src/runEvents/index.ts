@@ -43,7 +43,13 @@ export {
   type RowPageQuery,
   type RunEventIndex,
 } from './indexer.js';
-export { appEventToRunEventAppendInput, legacyEventInputToRunEventAppendInput } from './adapter.js';
+export {
+  appEventToEnrichedRunEventAppendInput,
+  appEventToRunEventAppendInput,
+  compactRunEventPayload,
+  enrichRunEventAppendInput,
+  legacyEventInputToRunEventAppendInput,
+} from './adapter.js';
 export {
   appendRunEvent,
   getRunEventRecorder,

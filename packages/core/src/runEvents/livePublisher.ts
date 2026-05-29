@@ -24,6 +24,7 @@ export interface LiveRunEventPublisher {
   readonly publishRunStarted: () => void;
   readonly publishRunTerminal: (input: RunTerminalInput) => void;
   readonly publishRunFailed: (message: string) => void;
+  readonly record: (input: RunEventAppendInput) => void;
   readonly publish: (event: AppEvent) => ReplayableAppEvent;
   readonly publishNonRecording: (event: AppEvent) => ReplayableAppEvent;
 }
@@ -118,6 +119,9 @@ export function createLiveRunEventPublisher(
           message,
         },
       });
+    },
+    record(input) {
+      append(input);
     },
     publish(event) {
       const input = appEventToRunEventAppendInput(event);

@@ -13,6 +13,7 @@ export interface PendingFileApprovalKey {
 
 export interface FileApprovalChangesUpdate extends PendingFileApprovalKey {
   readonly changes: ReadonlyArray<FileUpdateChange>;
+  readonly rawParams?: unknown;
 }
 
 export interface FileChangeTrackerOptions {
@@ -120,6 +121,7 @@ export function createFileChangeTracker(options: FileChangeTrackerOptions = {}):
     turnId: string,
     itemId: string,
     changes: ReadonlyArray<FileUpdateChange>,
+    rawParams?: unknown,
   ): void {
     const cloned = cloneChanges(changes);
     const key = makeKey(threadId, turnId, itemId);
@@ -132,6 +134,7 @@ export function createFileChangeTracker(options: FileChangeTrackerOptions = {}):
       options.onPendingFileApprovalChanges?.({
         ...pending,
         changes: cloneChanges(cloned),
+        ...(rawParams !== undefined ? { rawParams } : {}),
       });
     }
   }
@@ -156,7 +159,7 @@ export function createFileChangeTracker(options: FileChangeTrackerOptions = {}):
       if (!isFileChangeThreadItem(params.item)) return;
       const changes = normalizeChanges(params.item.changes);
       if (changes === null) return;
-      updateChanges(params.threadId, params.turnId, params.item.id, changes);
+      updateChanges(params.threadId, params.turnId, params.item.id, changes, { item: params.item });
     },
     notePatchUpdated(params) {
       const normalized = normalizePatchUpdated(params);
@@ -169,7 +172,13 @@ export function createFileChangeTracker(options: FileChangeTrackerOptions = {}):
         );
         return;
       }
-      updateChanges(normalized.threadId, normalized.turnId, normalized.itemId, normalized.changes);
+      updateChanges(
+        normalized.threadId,
+        normalized.turnId,
+        normalized.itemId,
+        normalized.changes,
+        params,
+      );
     },
     lookup(threadId, turnId, itemId) {
       const changes = changesByKey.get(makeKey(threadId, turnId, itemId));

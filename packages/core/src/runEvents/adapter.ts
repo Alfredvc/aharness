@@ -19,6 +19,58 @@ function compactRecord<T extends Record<string, unknown>>(record: T): RunEventPa
   return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
 }
 
+export function compactRunEventPayload<T extends Record<string, unknown>>(
+  record: T,
+): RunEventPayload {
+  return compactRecord(record);
+}
+
+export function enrichRunEventAppendInput(
+  input: RunEventAppendInput | null,
+  additions: Partial<RunEventAppendInput>,
+): RunEventAppendInput | null {
+  if (input === null) return null;
+  let merged: RunEventAppendInput = {
+    ...input,
+    ...additions,
+  };
+  if (input.data !== undefined || additions.data !== undefined) {
+    merged = {
+      ...merged,
+      data: compactRecord({
+        ...(input.data ?? {}),
+        ...(additions.data ?? {}),
+      }),
+    };
+  }
+  if (input.meta !== undefined || additions.meta !== undefined) {
+    merged = {
+      ...merged,
+      meta: compactRecord({
+        ...(input.meta ?? {}),
+        ...(additions.meta ?? {}),
+      }),
+    };
+  }
+  if (input.raw !== undefined || additions.raw !== undefined) {
+    merged = {
+      ...merged,
+      raw: compactRecord({
+        ...(input.raw ?? {}),
+        ...(additions.raw ?? {}),
+      }),
+    };
+  }
+  return merged;
+}
+
+export function appEventToEnrichedRunEventAppendInput(
+  event: AppEvent,
+  additions: Partial<RunEventAppendInput>,
+): RunEventAppendInput | null {
+  return enrichRunEventAppendInput(appEventToRunEventAppendInput(event), additions);
+}
+
 function truncateUtf8(s: string, maxBytes: number): string {
   const enc = new TextEncoder();
   const bytes = enc.encode(s);

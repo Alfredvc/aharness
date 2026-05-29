@@ -75,6 +75,10 @@ import { METHOD } from '../protocol/methodNames.js';
 import { SUBMIT_TOOL_NAME } from '../protocol/submitTool.js';
 import { DAEMON_PROBE_CLIENT_NAME } from '../protocol/types.js';
 import type {
+  ThreadTokenUsageUpdatedNotification,
+  TokenUsageBreakdown,
+} from '../protocol/index.js';
+import type {
   DynamicToolCallParams,
   DynamicToolCallResponse,
   RequestUserInputQuestion,
@@ -85,13 +89,26 @@ import type {
 } from '../protocol/types.js';
 import { deriveRunId, ensureRunDir } from '../run.js';
 import { writeArtifact } from '../artifact.js';
-import { createLiveRunEventPublisher, type RunEventRecorder } from '../runEvents/index.js';
+import {
+  appEventToEnrichedRunEventAppendInput,
+  compactRunEventPayload,
+  createLiveRunEventPublisher,
+  type RunEventAppendInput,
+  type RunEventPayload,
+  type RunEventRecorder,
+} from '../runEvents/index.js';
 import { buildDynamicToolsRegistration } from '../transport/dynamicToolsRegistration.js';
 import { createApprovalDispatcher } from '../transport/approvalDispatch.js';
 import { createItemCompletedWatcherRegistry } from '../transport/itemCompletedWatcher.js';
-import { startNotificationRouter } from '../transport/notificationRouter.js';
+import {
+  startNotificationRouter,
+  type NotificationRouterHandle,
+  type SubThreadCorrelation,
+  type SubThreadNotification,
+} from '../transport/notificationRouter.js';
 import { connectHeadlessWs } from '../transport/wsClient.js';
 import { createAwaitResolver, type AwaitResolver } from '../runtime/awaitResolver.js';
+import { CacheMetrics, type CacheMetricsSummary } from '../runtime/cacheMetrics.js';
 import {
   createActiveThreadBinding,
   type ActiveThreadBinding,
@@ -407,6 +424,21 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   const publishUiEvent = (event: Parameters<typeof uiEventLog.publish>[0]): ReplayableAppEvent => {
     return livePublisher.publish(event);
   };
+  const recordRunEvent = (input: RunEventAppendInput): void => {
+    livePublisher.record(input);
+  };
+  const publishUiEventNonRecording = (
+    event: Parameters<typeof uiEventLog.publish>[0],
+  ): ReplayableAppEvent => {
+    return livePublisher.publishNonRecording(event);
+  };
+  const recordAndPublishUiEvent = (
+    input: RunEventAppendInput | null,
+    event: Parameters<typeof uiEventLog.publish>[0],
+  ): ReplayableAppEvent => {
+    if (input !== null) recordRunEvent(input);
+    return publishUiEventNonRecording(event);
+  };
   const publishPostureChange = (posture: Partial<Posture>): void => {
     publishUiEvent({
       kind: 'PostureChange',
@@ -564,12 +596,30 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     },
   });
   const approvalDispatcher = createApprovalDispatcher({
-    publish: (event) => publishUiEvent(event),
+    publish: (event) => {
+      if (event.kind === 'FrameworkNote') {
+        publishUiEvent(event);
+        return;
+      }
+      publishUiEventNonRecording(event);
+    },
+    record: recordRunEvent,
     isActiveThread: isLiveThreadId,
     onAbandonedThreadDiagnostic: publishAbandonedThreadDiagnostic,
     permissionRequest: (event, meta) =>
       serializeDispatch(() => permissionRequestDispatch(event, meta)),
   });
+  const recordedOwnerInputResolutions = new Set<string>();
+  const recordOwnerInputRequestResolved = (requestId: string, raw?: RunEventPayload): void => {
+    if (recordedOwnerInputResolutions.has(requestId)) return;
+    recordedOwnerInputResolutions.add(requestId);
+    recordRunEvent({
+      type: 'request.resolved',
+      requestId,
+      data: { requestId, kind: 'owner-input', status: 'resolved' },
+      ...(raw !== undefined ? { raw } : {}),
+    });
+  };
   const browserReplyController = createBrowserReplyController({
     isOpen: () => isOpenState(host),
     sendUserPrompt: async (text) => {
@@ -585,9 +635,16 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     isAbandonedThread: isThreadUnavailableForRequests,
     onAbandonedThreadDiagnostic: publishAbandonedThreadDiagnostic,
     onOwnerInputResolved: (requestId) => {
-      publishUiEvent({ kind: 'OwnerInputResolved', id: requestId });
+      recordOwnerInputRequestResolved(requestId);
+      publishUiEventNonRecording({ kind: 'OwnerInputResolved', id: requestId });
     },
     handleApprovalReply: (payload) => approvalDispatcher.handleBrowserReply(payload),
+    onReplySubmitted: (input) => {
+      recordRunEvent(replySubmittedRunEvent(input));
+    },
+    onReplyResolved: (input) => {
+      recordRunEvent(replyResolvedRunEvent(input));
+    },
   });
   activeThreadBinding.subscribe(() => {
     approvalDispatcher.abandonInactiveRequests();
@@ -613,7 +670,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     const delta = typeof params.delta === 'string' ? params.delta : undefined;
     if (delta !== undefined && delta.length > 0) {
       o.stdout.write(delta);
-      publishUiEvent({
+      const event: AppEvent = {
         kind: 'AgentMessageDelta',
         id:
           typeof params.itemId === 'string'
@@ -622,29 +679,44 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
               ? params.turnId
               : 'agent-message',
         delta,
-      });
+      };
+      recordAndPublishUiEvent(
+        appEventToEnrichedRunEventAppendInput(event, {
+          ...(typeof params.threadId === 'string' ? { threadId: params.threadId } : {}),
+          ...(typeof params.turnId === 'string' ? { turnId: params.turnId } : {}),
+          raw: { params: p },
+          meta: { source: METHOD.agentMessageDelta },
+        }),
+        event,
+      );
     }
   };
   const rawResponseCallNames = new Map<string, string>();
   const threadItemToolNames = new Map<string, string>();
-  const publishThreadItemStartedForUi = (item: unknown): void => {
+  const cacheMetrics = new CacheMetrics();
+  const publishThreadItemStartedForUi = (item: unknown, params?: unknown): void => {
+    recordRunEvent(threadItemRunEvent('started', params, item));
     const event = threadItemStartedEventForUi(item);
     if (!event) return;
     if (event.type === 'function_call') {
       threadItemToolNames.set(event.id, event.name);
     }
-    publishUiEvent(event);
+    publishUiEventNonRecording(event);
   };
-  const publishThreadItemCompletedForUi = (item: unknown): void => {
+  const publishThreadItemCompletedForUi = (item: unknown, params?: unknown): void => {
+    recordRunEvent(threadItemRunEvent('completed', params, item));
     const event = threadItemCompletedEventForUi(item, threadItemToolNames);
     if (!event) return;
-    publishUiEvent(event);
+    publishUiEventNonRecording(event);
   };
   const publishRawResponseItemForUi = (params: unknown): void => {
+    const input = rawResponseItemRunEvent(params);
+    if (input !== null) recordRunEvent(input);
     const event = rawResponseItemEventForUi(params, rawResponseCallNames);
     if (!event) return;
-    publishUiEvent(event);
+    publishUiEventNonRecording(event);
   };
+  const notificationRouter: { current?: NotificationRouterHandle } = {};
 
   let uiServer: UiServerHandle | undefined;
   const uiToken = randomBytes(18).toString('base64url');
@@ -798,7 +870,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   let pendingOwnerYieldCount = 0;
   const browserOwnerInputProvider = createBrowserOwnerInputProvider({
     controller: browserReplyController,
-    publishUiEvent,
+    publishUiEvent: publishUiEventNonRecording,
   });
   const ownerInputProvider: OwnerInputProvider = o.ownerInputProvider ?? browserOwnerInputProvider;
   // `isAwaiting` is read by drive-forward AND by the `_testObserveIsAwaiting`
@@ -1039,11 +1111,22 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
           if (!isLiveThreadParams(params)) {
             return abandonedResponse();
           }
-          return serializeDispatch(() =>
-            isLiveThreadParams(params)
-              ? dispatchIfSubmit(params as DynamicToolCallParams, meta, dispatch)
-              : Promise.resolve(abandonedResponse()),
-          );
+          const dynamicParams = isDynamicToolCallParams(params) ? params : null;
+          if (dynamicParams !== null) {
+            recordRunEvent(dynamicToolCallRunEvent(dynamicParams));
+          }
+          return serializeDispatch(async () => {
+            if (!isLiveThreadParams(params)) return abandonedResponse();
+            const response = await dispatchIfSubmit(
+              params as DynamicToolCallParams,
+              meta,
+              dispatch,
+            );
+            if (dynamicParams !== null) {
+              recordRunEvent(dynamicToolResultRunEvent(dynamicParams, response));
+            }
+            return response;
+          });
         });
         // Phase 2b: park the codex-built-in `request_user_input`
         // ServerRequest. The handler narrows malformed params, increments
@@ -1055,17 +1138,30 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         // M18 invariant: register inside `registerHandlers` BEFORE any
         // `thread/start` call.
         c.onServerRequest(METHOD.toolRequestUserInput, (params: unknown) => {
+          const ownerInputParams = isWellFormedRequestUserInputParams(params) ? params : null;
           if (!isLiveThreadParams(params)) {
             publishAbandonedThreadParamsDiagnostic(
               params,
               'ownerInput',
               'owner input request ignored for abandoned thread',
             );
-            return isWellFormedRequestUserInputParams(params)
-              ? buildAbandonedToolRequestUserInputResponse(params)
+            return ownerInputParams !== null
+              ? buildAbandonedToolRequestUserInputResponse(ownerInputParams)
               : { answers: {} };
           }
-          return handleOwnerYieldRequest(params, ownerInputProvider, {
+          if (ownerInputParams !== null) {
+            const event = ownerInputRequestEventForUi(ownerInputParams);
+            const input = appEventToEnrichedRunEventAppendInput(event, {
+              threadId: ownerInputParams.threadId,
+              turnId: ownerInputParams.turnId,
+              itemId: ownerInputParams.itemId,
+              requestId: ownerInputParams.itemId,
+              raw: { params: ownerInputParams },
+              meta: { source: METHOD.toolRequestUserInput },
+            });
+            if (input !== null) recordRunEvent(input);
+          }
+          const handled = handleOwnerYieldRequest(params, ownerInputProvider, {
             onParked: () => {
               pendingOwnerYieldCount += 1;
               publishPostureChange({ isAwaiting: true });
@@ -1076,6 +1172,22 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
             },
             stderr: o.stderr,
           });
+          if (ownerInputParams === null || typeof ownerInputParams.itemId !== 'string') {
+            return handled;
+          }
+          return handled.then(
+            (response) => {
+              recordOwnerInputRequestResolved(ownerInputParams.itemId, { response });
+              return response;
+            },
+            (error: unknown) => {
+              recordOwnerInputRequestResolved(ownerInputParams.itemId, {
+                error:
+                  error instanceof Error ? { name: error.name, message: error.message } : error,
+              });
+              throw error;
+            },
+          );
         });
         c.onServerRequest(METHOD.mcpServerElicitationRequest, (params, meta) =>
           approvalDispatcher.handleElicitation(params, meta),
@@ -1123,6 +1235,29 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
               }\n`,
             );
           });
+        });
+        c.onNotification(METHOD.threadTokenUsageUpdated, (params: unknown) => {
+          const typedParams = threadTokenUsageParams(params);
+          if (typedParams === null) return;
+          if (!isLiveThreadId(typedParams.threadId)) {
+            if (isThreadUnavailableForRequests(typedParams.threadId)) {
+              publishAbandonedThreadDiagnostic({
+                threadId: typedParams.threadId,
+                source: 'tokenUsageUpdated',
+                message: 'token usage notification ignored for abandoned thread',
+              });
+              return;
+            }
+            recordRunEvent(
+              subThreadTokenUsageRunEvent(
+                typedParams,
+                notificationRouter.current?.getSubThreadCorrelation(typedParams.threadId),
+              ),
+            );
+            return;
+          }
+          cacheMetrics.observeWire(typedParams.tokenUsage.last);
+          recordRunEvent(tokenUsageRunEvent(typedParams, cacheMetrics.summary()));
         });
       },
     });
@@ -1232,19 +1367,28 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   const router = startNotificationRouter({
     client: ws,
     activeThreadBinding,
-    onTurnStarted: (turnId) => {
+    onTurnStarted: (turnId, params) => {
       // Phase 2a: every fresh `turn/started` resets the cross-state
       // dispatcher's "I drove the next turn" flag so a subsequent
       // self-loop / no-cross-state turn falls through to drive-forward's
       // default branch.
       clearSubmittedThisTurn();
-      publishUiEvent({
+      const event: AppEvent = {
         kind: 'TurnStarted',
         turnId: turnId ?? '<unknown>',
-      });
+      };
+      recordAndPublishUiEvent(
+        appEventToEnrichedRunEventAppendInput(event, {
+          threadId: activeThreadBinding.require(),
+          ...(turnId !== null ? { turnId } : {}),
+          raw: { params },
+          meta: { source: METHOD.turnStarted },
+        }),
+        event,
+      );
     },
     onTurnCompleted: () => driveForwardHandle.onTurnCompleted(),
-    onItemStarted: (item, itemTurnId) => {
+    onItemStarted: (item, itemTurnId, params) => {
       if (itemTurnId) {
         approvalDispatcher.fileChangeTracker.noteThreadItem({
           threadId: activeThreadBinding.require(),
@@ -1252,9 +1396,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
           item,
         });
       }
-      publishThreadItemStartedForUi(item);
+      publishThreadItemStartedForUi(item, params);
     },
-    onItemCompleted: (item, itemTurnId) => {
+    onItemCompleted: (item, itemTurnId, params) => {
       if (itemTurnId) {
         approvalDispatcher.fileChangeTracker.noteThreadItem({
           threadId: activeThreadBinding.require(),
@@ -1266,19 +1410,33 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       // dance's watcher resolves on the matching `item/completed`
       // payload and proceeds to `turn/interrupt` + `turn/start`.
       watcherRegistry.dispatch(item);
-      publishThreadItemCompletedForUi(item);
+      publishThreadItemCompletedForUi(item, params);
+    },
+    onSubThreadNotification: (notification) => {
+      recordRunEvent(subThreadNotificationRunEvent(notification));
     },
     onAbandonedThreadDiagnostic: publishAbandonedThreadDiagnostic,
   });
+  notificationRouter.current = router;
   ws.onNotification(METHOD.turnCompleted, (p) => {
     const params = p as { threadId?: unknown; turn?: unknown };
     const activeThreadId = activeThreadBinding.current();
     if (activeThreadId === undefined || params.threadId !== activeThreadId) return;
-    publishUiEvent({
+    const turnId = readUiTurnId(params.turn) ?? '<unknown>';
+    const event: AppEvent = {
       kind: 'TurnCompleted',
-      turnId: readUiTurnId(params.turn) ?? '<unknown>',
+      turnId,
       finishReason: readUiFinishReason(params.turn),
-    });
+    };
+    recordAndPublishUiEvent(
+      appEventToEnrichedRunEventAppendInput(event, {
+        threadId: activeThreadId,
+        turnId,
+        raw: { params: p },
+        meta: { source: METHOD.turnCompleted },
+      }),
+      event,
+    );
   });
 
   // 13. Inject the first-state nudge as a `turn/start` kickoff so the
@@ -1329,6 +1487,445 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
 }
 
 type UiItemStartedEvent = Extract<AppEvent, { kind: 'ItemStarted' }>;
+
+function replySubmittedRunEvent(input: {
+  payload: unknown;
+  kind?: string;
+  requestId?: string;
+}): RunEventAppendInput {
+  return {
+    type: 'reply.submitted',
+    ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
+    data: compactRunEventPayload({
+      kind: input.kind,
+      requestId: input.requestId,
+      status: 'submitted',
+      row: {
+        kind: 'reply',
+        label: input.kind ?? 'reply',
+        status: 'submitted',
+        summary: input.requestId,
+      },
+    }),
+    raw: { payload: input.payload },
+  };
+}
+
+function replyResolvedRunEvent(input: {
+  payload: unknown;
+  kind?: string;
+  requestId?: string;
+  result?: { status: number; body: unknown };
+  error?: Error;
+}): RunEventAppendInput {
+  const ok = input.result !== undefined && input.result.status >= 200 && input.result.status < 400;
+  return {
+    type: 'reply.resolved',
+    ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
+    data: compactRunEventPayload({
+      kind: input.kind,
+      requestId: input.requestId,
+      status: ok ? 'accepted' : 'failed',
+      ok,
+      httpStatus: input.result?.status,
+      error: input.error?.message ?? errorCode(input.result?.body),
+      row: {
+        kind: 'reply',
+        label: input.kind ?? 'reply',
+        status: ok ? 'accepted' : 'failed',
+        summary: input.requestId ?? input.error?.message ?? errorCode(input.result?.body),
+      },
+    }),
+    raw: compactRunEventPayload({
+      payload: input.payload,
+      result: input.result,
+      error:
+        input.error !== undefined
+          ? { name: input.error.name, message: input.error.message }
+          : undefined,
+    }),
+  };
+}
+
+function errorCode(body: unknown): string | undefined {
+  const record = asUiRecord(body);
+  const error = record?.['error'];
+  return typeof error === 'string' ? error : undefined;
+}
+
+function dynamicToolCallRunEvent(params: DynamicToolCallParams): RunEventAppendInput {
+  const internal = params.tool === SUBMIT_TOOL_NAME;
+  return {
+    type: 'item.started',
+    threadId: params.threadId,
+    turnId: params.turnId,
+    itemId: params.callId,
+    data: compactRunEventPayload({
+      itemId: params.callId,
+      itemType: 'dynamicToolCall',
+      kind: 'tool',
+      toolName: params.tool,
+      namespace: params.namespace,
+      status: 'started',
+      internal,
+      row: internal
+        ? undefined
+        : {
+            kind: 'tool',
+            label: params.tool,
+            status: 'pending',
+            summary: params.tool,
+          },
+    }),
+    meta: { source: METHOD.toolDynamicCall },
+    raw: { params },
+  };
+}
+
+function dynamicToolResultRunEvent(
+  params: DynamicToolCallParams,
+  response: DynamicToolCallResponse,
+): RunEventAppendInput {
+  const internal = params.tool === SUBMIT_TOOL_NAME;
+  return {
+    type: 'item.completed',
+    threadId: params.threadId,
+    turnId: params.turnId,
+    itemId: params.callId,
+    data: compactRunEventPayload({
+      itemId: params.callId,
+      itemType: 'dynamicToolCall',
+      kind: 'tool',
+      toolName: params.tool,
+      namespace: params.namespace,
+      status: response.success ? 'completed' : 'failed',
+      ok: response.success,
+      internal,
+      row: internal
+        ? undefined
+        : {
+            kind: 'tool',
+            label: params.tool,
+            status: response.success ? 'completed' : 'failed',
+            summary: params.tool,
+          },
+    }),
+    meta: { source: METHOD.toolDynamicCall },
+    raw: { params, response },
+  };
+}
+
+function threadItemRunEvent(
+  phase: 'started' | 'completed',
+  params: unknown,
+  item: unknown,
+): RunEventAppendInput {
+  const paramsRecord = asUiRecord(params);
+  const itemRecord = asUiRecord(item);
+  const threadId = readStringField(paramsRecord ?? {}, 'threadId');
+  const turnId = readStringField(paramsRecord ?? {}, 'turnId');
+  const itemType = itemRecord ? readStringField(itemRecord, 'type') : undefined;
+  const itemId = itemRecord ? (readItemId(itemRecord) ?? undefined) : undefined;
+  const toolName = itemRecord && itemType ? readUiToolName(itemRecord, itemType) : undefined;
+  const receiverThreadIds = itemRecord ? readReceiverThreadIds(itemRecord) : [];
+  const status =
+    phase === 'started'
+      ? 'started'
+      : itemRecord
+        ? (readStringField(itemRecord, 'status') ??
+          (readUiToolOk(itemRecord) ? 'completed' : 'failed'))
+        : 'completed';
+
+  return {
+    type: phase === 'started' ? 'item.started' : 'item.completed',
+    ...(threadId !== undefined ? { threadId } : {}),
+    ...(turnId !== undefined ? { turnId } : {}),
+    ...(itemId !== undefined ? { itemId } : {}),
+    data: compactRunEventPayload({
+      itemId,
+      turnId,
+      threadId,
+      itemType,
+      kind: itemType !== undefined && isUiToolThreadItemType(itemType) ? 'tool' : itemType,
+      toolName,
+      status,
+      ok: phase === 'completed' && itemRecord ? readUiToolOk(itemRecord) : undefined,
+      receiverThreadIds: receiverThreadIds.length > 0 ? receiverThreadIds : undefined,
+      row: threadItemRowData(phase, itemRecord, itemType, toolName, status),
+    }),
+    meta: { source: phase === 'started' ? METHOD.itemStarted : METHOD.itemCompleted },
+    raw: { params },
+  };
+}
+
+function threadItemRowData(
+  phase: 'started' | 'completed',
+  item: Record<string, unknown> | null,
+  itemType: string | undefined,
+  toolName: string | undefined,
+  status: string,
+): RunEventPayload | undefined {
+  if (item === null || itemType === undefined) return undefined;
+  if (isUiToolThreadItemType(itemType)) {
+    return compactRunEventPayload({
+      kind: 'tool',
+      label: toolName ?? itemType,
+      status: phase === 'started' ? 'pending' : status,
+      summary: toolName ?? itemType,
+    });
+  }
+  if (itemType === 'agentMessage' || itemType === 'userMessage' || itemType === 'reasoning') {
+    const text = readItemText(item);
+    return compactRunEventPayload({
+      kind: itemType === 'reasoning' ? 'reasoning' : 'message',
+      label: itemType,
+      text: text.length > 0 ? text : undefined,
+      status,
+    });
+  }
+  return compactRunEventPayload({
+    kind: itemType,
+    label: itemType,
+    status,
+  });
+}
+
+function rawResponseItemRunEvent(params: unknown): RunEventAppendInput | null {
+  const paramsRecord = asUiRecord(params);
+  const item = asUiRecord(paramsRecord?.['item']);
+  if (paramsRecord === null || item === null) return null;
+  const itemType = readStringField(item, 'type');
+  const threadId = readStringField(paramsRecord, 'threadId');
+  const turnId = readStringField(paramsRecord, 'turnId');
+  if (itemType === 'function_call') {
+    const callId = readStringField(item, 'call_id');
+    const name = readStringField(item, 'name');
+    if (callId === undefined) return null;
+    return {
+      type: 'item.started',
+      ...(threadId !== undefined ? { threadId } : {}),
+      ...(turnId !== undefined ? { turnId } : {}),
+      itemId: callId,
+      data: compactRunEventPayload({
+        itemId: callId,
+        itemType,
+        kind: 'tool',
+        toolName: name,
+        status: 'started',
+        row: {
+          kind: 'tool',
+          label: name ?? 'function_call',
+          status: 'pending',
+          summary: name ?? 'function_call',
+        },
+      }),
+      meta: { source: METHOD.rawResponseItemCompleted },
+      raw: { params },
+    };
+  }
+  if (itemType === 'function_call_output') {
+    const callId = readStringField(item, 'call_id');
+    if (callId === undefined) return null;
+    const name = readStringField(item, 'name');
+    const ok = readUiToolOk(item);
+    return {
+      type: 'item.completed',
+      ...(threadId !== undefined ? { threadId } : {}),
+      ...(turnId !== undefined ? { turnId } : {}),
+      itemId: callId,
+      data: compactRunEventPayload({
+        itemId: callId,
+        itemType,
+        kind: 'tool',
+        toolName: name,
+        status: ok ? 'completed' : 'failed',
+        ok,
+        row: {
+          kind: 'tool',
+          label: name ?? 'function_call',
+          status: ok ? 'completed' : 'failed',
+          summary: name ?? 'function_call',
+        },
+      }),
+      meta: { source: METHOD.rawResponseItemCompleted },
+      raw: { params },
+    };
+  }
+  return {
+    type: 'raw_response_item.completed',
+    ...(threadId !== undefined ? { threadId } : {}),
+    ...(turnId !== undefined ? { turnId } : {}),
+    data: compactRunEventPayload({
+      itemType,
+      kind: 'raw-response-item',
+      status: 'completed',
+    }),
+    meta: { source: METHOD.rawResponseItemCompleted },
+    raw: { params },
+  };
+}
+
+function tokenUsageRunEvent(
+  params: ThreadTokenUsageUpdatedNotification['params'],
+  cache: CacheMetricsSummary,
+): RunEventAppendInput {
+  return {
+    type: 'token.updated',
+    threadId: params.threadId,
+    ...(params.turnId !== undefined ? { turnId: params.turnId } : {}),
+    data: compactRunEventPayload({
+      threadId: params.threadId,
+      turnId: params.turnId,
+      total: normalizeTokenUsageBreakdown(params.tokenUsage.total),
+      last: normalizeTokenUsageBreakdown(params.tokenUsage.last),
+      modelContextWindow: numberField(params.tokenUsage.modelContextWindow),
+      cache: compactRunEventPayload({
+        turns: cache.turns,
+        totalInput: cache.totalInput,
+        totalCached: cache.totalCached,
+        ratioPctSinceTurn5: cache.ratioPctSinceTurn5,
+        healthy: cache.healthy,
+      }),
+    }),
+    raw: { params },
+  };
+}
+
+function subThreadTokenUsageRunEvent(
+  params: ThreadTokenUsageUpdatedNotification['params'],
+  correlation?: SubThreadCorrelation,
+): RunEventAppendInput {
+  return {
+    type: 'subthread.token.updated',
+    threadId: params.threadId,
+    turnId: params.turnId,
+    data: compactRunEventPayload({
+      threadId: params.threadId,
+      turnId: params.turnId,
+      total: normalizeTokenUsageBreakdown(params.tokenUsage.total),
+      last: normalizeTokenUsageBreakdown(params.tokenUsage.last),
+      modelContextWindow: numberField(params.tokenUsage.modelContextWindow),
+      parentThreadId: correlation?.parentThreadId,
+      parentTurnId: correlation?.parentTurnId,
+      parentItemId: correlation?.parentItemId,
+      toolKind: correlation?.toolKind,
+      toolName: correlation?.toolName,
+      correlationKnown: correlation !== undefined,
+    }),
+    meta: compactRunEventPayload({ subThread: true, correlation }),
+    raw: { params },
+  };
+}
+
+function subThreadNotificationRunEvent(notification: SubThreadNotification): RunEventAppendInput {
+  const typeBySource: Record<SubThreadNotification['source'], string> = {
+    turnStarted: 'subthread.turn.started',
+    turnCompleted: 'subthread.turn.completed',
+    itemStarted: 'subthread.item.started',
+    itemCompleted: 'subthread.item.completed',
+  };
+  const itemRecord = asUiRecord(notification.item);
+  const itemType = itemRecord ? readStringField(itemRecord, 'type') : undefined;
+  const itemId = itemRecord ? (readItemId(itemRecord) ?? undefined) : undefined;
+  return {
+    type: typeBySource[notification.source],
+    threadId: notification.threadId,
+    ...(notification.turnId !== null ? { turnId: notification.turnId } : {}),
+    ...(itemId !== undefined ? { itemId } : {}),
+    data: compactRunEventPayload({
+      source: notification.source,
+      threadId: notification.threadId,
+      turnId: notification.turnId,
+      itemId,
+      itemType,
+      parentThreadId: notification.correlation?.parentThreadId,
+      parentTurnId: notification.correlation?.parentTurnId,
+      parentItemId: notification.correlation?.parentItemId,
+      toolKind: notification.correlation?.toolKind,
+      toolName: notification.correlation?.toolName,
+      correlationKnown: notification.correlation !== undefined,
+    }),
+    meta: compactRunEventPayload({
+      subThread: true,
+      correlation: notification.correlation,
+    }),
+    raw: { params: notification.params },
+  };
+}
+
+function normalizeTokenUsageBreakdown(
+  value: TokenUsageBreakdown | undefined,
+): RunEventPayload | undefined {
+  if (value === undefined) return undefined;
+  return compactRunEventPayload({
+    totalTokens: numberField(value.totalTokens),
+    inputTokens: numberField(value.inputTokens),
+    cachedInputTokens: numberField(value.cachedInputTokens),
+    outputTokens: numberField(value.outputTokens),
+    reasoningOutputTokens: numberField(value.reasoningOutputTokens),
+  });
+}
+
+function numberField(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function threadTokenUsageParams(
+  params: unknown,
+): ThreadTokenUsageUpdatedNotification['params'] | null {
+  const record = asUiRecord(params);
+  const tokenUsage = asUiRecord(record?.['tokenUsage']);
+  if (record === null || tokenUsage === null) return null;
+  const threadId = readStringField(record, 'threadId');
+  const turnId = readStringField(record, 'turnId');
+  if (threadId === undefined || turnId === undefined) return null;
+  const total = asTokenUsageBreakdown(tokenUsage['total']);
+  const last = asTokenUsageBreakdown(tokenUsage['last']);
+  if (total === undefined || last === undefined) return null;
+  const rawModelContextWindow = tokenUsage['modelContextWindow'];
+  const modelContextWindow =
+    rawModelContextWindow === null ? null : numberField(rawModelContextWindow);
+  return {
+    threadId,
+    turnId,
+    tokenUsage: {
+      total,
+      last,
+      modelContextWindow: modelContextWindow ?? null,
+    },
+  };
+}
+
+function asTokenUsageBreakdown(value: unknown): TokenUsageBreakdown | undefined {
+  const record = asUiRecord(value);
+  if (record === null) return undefined;
+  return compactRunEventPayload({
+    totalTokens: numberField(record['totalTokens']),
+    inputTokens: numberField(record['inputTokens']),
+    cachedInputTokens: numberField(record['cachedInputTokens']),
+    outputTokens: numberField(record['outputTokens']),
+    reasoningOutputTokens: numberField(record['reasoningOutputTokens']),
+  }) as TokenUsageBreakdown;
+}
+
+function isDynamicToolCallParams(params: unknown): params is DynamicToolCallParams {
+  const record = asUiRecord(params);
+  return (
+    record !== null &&
+    typeof record['threadId'] === 'string' &&
+    typeof record['turnId'] === 'string' &&
+    typeof record['callId'] === 'string' &&
+    typeof record['tool'] === 'string' &&
+    Object.prototype.hasOwnProperty.call(record, 'arguments')
+  );
+}
+
+function readReceiverThreadIds(record: Record<string, unknown>): string[] {
+  const value = record['receiverThreadIds'];
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === 'string')
+    : [];
+}
 
 function threadItemStartedEventForUi(item: unknown): UiItemStartedEvent | null {
   const record = asUiRecord(item);
@@ -1826,19 +2423,7 @@ function createBrowserOwnerInputProvider(args: {
 
   return {
     provideAnswers(params) {
-      args.publishUiEvent({
-        kind: 'ServerRequest',
-        id: params.itemId,
-        method: METHOD.toolRequestUserInput,
-        questions: params.questions.map((question) => ({
-          id: question.id,
-          header: question.header,
-          question: question.question,
-          isOther: question.isOther,
-          isSecret: question.isSecret,
-          ...ownerInputChoices(question),
-        })),
-      });
+      args.publishUiEvent(ownerInputRequestEventForUi(params));
 
       const parked = args.controller.parkOwnerInput(params);
       const closed = new Promise<never>((_resolve, reject) => {
@@ -1860,6 +2445,22 @@ function createBrowserOwnerInputProvider(args: {
       closePending = null;
       closePendingRequestId = null;
     },
+  };
+}
+
+function ownerInputRequestEventForUi(params: ToolRequestUserInputParams): AppEvent {
+  return {
+    kind: 'ServerRequest',
+    id: params.itemId,
+    method: METHOD.toolRequestUserInput,
+    questions: params.questions.map((question) => ({
+      id: question.id,
+      header: question.header,
+      question: question.question,
+      isOther: question.isOther,
+      isSecret: question.isSecret,
+      ...ownerInputChoices(question),
+    })),
   };
 }
 

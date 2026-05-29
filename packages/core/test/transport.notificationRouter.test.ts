@@ -42,6 +42,13 @@ describe('notification router (Phase 1)', () => {
       item: { type: 'collabAgentToolCall', receiverThreadIds: ['child-A'] },
     });
     expect(router.isSubThread('child-A')).toBe(true);
+    expect(router.getSubThreadCorrelation('child-A')).toEqual(
+      expect.objectContaining({
+        receiverThreadId: 'child-A',
+        parentThreadId: 'parent-1',
+        toolKind: 'collabAgentToolCall',
+      }),
+    );
     expect(router.isSubThread('parent-1')).toBe(false);
     expect(router.isSubThread('unknown')).toBe(true); // M11: any non-parent is sub-thread
     router.close();
@@ -62,6 +69,56 @@ describe('notification router (Phase 1)', () => {
     expect(onTurnCompleted).toHaveBeenCalledTimes(1);
     c.fire('turn/completed', { threadId: 'child-A' });
     expect(onTurnCompleted).toHaveBeenCalledTimes(1); // sub-thread ignored
+  });
+
+  it('reports received sub-thread notifications without forwarding them to parent callbacks', () => {
+    const c = makeStubClient();
+    const activeThreadBinding = createActiveThreadBinding('parent-1');
+    const onItemStarted = vi.fn();
+    const subThreadNotifications: unknown[] = [];
+    startNotificationRouter({
+      client: c as unknown as JsonRpcClient,
+      activeThreadBinding,
+      onTurnCompleted: () => {},
+      onItemStarted,
+      onItemCompleted: () => {},
+      onSubThreadNotification: (notification) => subThreadNotifications.push(notification),
+    });
+
+    c.fire('item/started', {
+      threadId: 'parent-1',
+      turnId: 'turn-parent',
+      item: {
+        type: 'spawnAgentToolCall',
+        id: 'spawn-1',
+        receiverThreadIds: ['child-1'],
+      },
+    });
+    c.fire('item/started', {
+      threadId: 'child-1',
+      turnId: 'turn-child',
+      item: { type: 'agentMessage', id: 'child-message' },
+    });
+    c.fire('turn/completed', { threadId: 'unknown-child', turn: { id: 'turn-unknown' } });
+
+    expect(onItemStarted).toHaveBeenCalledTimes(1);
+    expect(subThreadNotifications).toEqual([
+      expect.objectContaining({
+        source: 'itemStarted',
+        threadId: 'child-1',
+        turnId: 'turn-child',
+        correlation: expect.objectContaining({
+          parentThreadId: 'parent-1',
+          parentTurnId: 'turn-parent',
+          parentItemId: 'spawn-1',
+        }),
+      }),
+      expect.objectContaining({
+        source: 'turnCompleted',
+        threadId: 'unknown-child',
+        turnId: 'turn-unknown',
+      }),
+    ]);
   });
 
   it('uses the current binding after construction', () => {

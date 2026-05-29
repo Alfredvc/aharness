@@ -296,12 +296,18 @@ function upsertPending(
 
 function isResolutionEvent(type: string): boolean {
   return (
-    type === 'reply.resolved' ||
     type === 'request.resolved' ||
     type === 'request.completed' ||
     type === 'request.cancelled' ||
     type === 'request.failed'
   );
+}
+
+function isAcceptedReplyResolution(event: RunEventEnvelope): boolean {
+  if (event.type !== 'reply.resolved') return false;
+  const data = dataOf(event);
+  if (data['ok'] === true) return true;
+  return readString(data['status']) === 'accepted';
 }
 
 function observePending(pending: Map<string, MutablePending>, event: RunEventEnvelope): void {
@@ -312,10 +318,24 @@ function observePending(pending: Map<string, MutablePending>, event: RunEventEnv
     return;
   }
   if (event.type === 'reply.submitted') {
-    upsertPending(pending, event, requestId, 'submitted');
+    if (pending.has(requestId)) {
+      upsertPending(pending, event, requestId, 'submitted');
+    }
+    return;
+  }
+  if (event.type === 'reply.resolved' && !isAcceptedReplyResolution(event)) {
+    const existing = pending.get(requestId);
+    if (existing !== undefined) {
+      existing.status = 'pending';
+      existing.updatedAt = event.time;
+      existing.lastEventId = event.id;
+    }
     return;
   }
   if (isResolutionEvent(event.type)) {
+    pending.delete(requestId);
+  }
+  if (isAcceptedReplyResolution(event)) {
     pending.delete(requestId);
   }
 }

@@ -55,6 +55,81 @@ describe('createBrowserReplyController', () => {
     expect(onOwnerInputAccepted).toHaveBeenCalledExactlyOnceWith('item-1');
   });
 
+  it('observes submitted and resolved lifecycle records for success and validation failures', async () => {
+    const lifecycle: unknown[] = [];
+    const controller = createBrowserReplyController({
+      isOpen: () => false,
+      sendUserPrompt: vi.fn(),
+      onReplySubmitted: (input) => lifecycle.push({ phase: 'submitted', ...input }),
+      onReplyResolved: (input) => lifecycle.push({ phase: 'resolved', ...input }),
+    });
+    const parked = controller.parkOwnerInput(ownerInputParams());
+
+    const missing = await controller.handleReply({
+      kind: 'owner-input',
+      requestId: 'item-1',
+      answers: { q1: 'alpha' },
+    });
+    expect(missing.status).toBe(400);
+
+    const accepted = await controller.handleReply({
+      kind: 'owner-input',
+      requestId: 'item-1',
+      answers: { q1: 'alpha', q2: 'bravo' },
+    });
+    expect(accepted.status).toBe(200);
+    await parked;
+
+    expect(lifecycle).toEqual([
+      expect.objectContaining({
+        phase: 'submitted',
+        kind: 'owner-input',
+        requestId: 'item-1',
+      }),
+      expect.objectContaining({
+        phase: 'resolved',
+        kind: 'owner-input',
+        requestId: 'item-1',
+        result: expect.objectContaining({ status: 400 }),
+      }),
+      expect.objectContaining({
+        phase: 'submitted',
+        kind: 'owner-input',
+        requestId: 'item-1',
+      }),
+      expect.objectContaining({
+        phase: 'resolved',
+        kind: 'owner-input',
+        requestId: 'item-1',
+        result: expect.objectContaining({ status: 200 }),
+      }),
+    ]);
+  });
+
+  it('observes thrown reply handlers before preserving the thrown error', async () => {
+    const lifecycle: unknown[] = [];
+    const controller = createBrowserReplyController({
+      isOpen: () => true,
+      sendUserPrompt: async () => {
+        throw new Error('send failed');
+      },
+      onReplySubmitted: (input) => lifecycle.push({ phase: 'submitted', ...input }),
+      onReplyResolved: (input) => lifecycle.push({ phase: 'resolved', ...input }),
+    });
+
+    await expect(controller.handleReply({ kind: 'user-prompt', text: 'continue' })).rejects.toThrow(
+      'send failed',
+    );
+    expect(lifecycle).toEqual([
+      expect.objectContaining({ phase: 'submitted', kind: 'user-prompt' }),
+      expect.objectContaining({
+        phase: 'resolved',
+        kind: 'user-prompt',
+        error: expect.objectContaining({ message: 'send failed' }),
+      }),
+    ]);
+  });
+
   it('rejects wrong requestId values without consuming the parked owner request', async () => {
     const controller = createBrowserReplyController({
       isOpen: () => false,

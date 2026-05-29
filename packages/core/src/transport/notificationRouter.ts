@@ -19,15 +19,34 @@ import type { ActiveThreadBinding } from '../runtime/activeThreadBinding.js';
 export interface NotificationRouterOpts {
   readonly client: JsonRpcClient;
   readonly activeThreadBinding: ActiveThreadBinding;
-  readonly onTurnCompleted: () => void | Promise<void>;
-  readonly onTurnStarted?: (turnId: string | null) => void;
-  readonly onItemStarted: (item: unknown, turnId: string | null) => void;
-  readonly onItemCompleted: (item: unknown, turnId: string | null) => void;
+  readonly onTurnCompleted: (params?: unknown) => void | Promise<void>;
+  readonly onTurnStarted?: (turnId: string | null, params?: unknown) => void;
+  readonly onItemStarted: (item: unknown, turnId: string | null, params?: unknown) => void;
+  readonly onItemCompleted: (item: unknown, turnId: string | null, params?: unknown) => void;
+  readonly onSubThreadNotification?: (notification: SubThreadNotification) => void;
   readonly onAbandonedThreadDiagnostic?: (diagnostic: {
     readonly threadId: string;
     readonly source: string;
     readonly message: string;
   }) => void;
+}
+
+export interface SubThreadCorrelation {
+  readonly receiverThreadId: string;
+  readonly parentThreadId: string;
+  readonly parentTurnId?: string;
+  readonly parentItemId?: string;
+  readonly toolKind?: string;
+  readonly toolName?: string;
+}
+
+export interface SubThreadNotification {
+  readonly source: 'turnStarted' | 'turnCompleted' | 'itemStarted' | 'itemCompleted';
+  readonly threadId: string;
+  readonly turnId: string | null;
+  readonly params: unknown;
+  readonly item?: unknown;
+  readonly correlation?: SubThreadCorrelation;
 }
 
 export interface NotificationRouterHandle {
@@ -36,12 +55,14 @@ export interface NotificationRouterHandle {
   isSubThread(threadId: string | undefined): boolean;
   /** Snapshot of cached sub-thread ids (for diagnostics + tests). */
   getKnownSubThreadIds(): ReadonlyArray<string>;
+  getSubThreadCorrelation(threadId: string): SubThreadCorrelation | undefined;
   /** Last turn/started.params.turn.id observed on the parent; cleared on turn/completed. */
   getCurrentTurnId(): string | null;
 }
 
 export function startNotificationRouter(o: NotificationRouterOpts): NotificationRouterHandle {
   const subThreadIds = new Set<string>();
+  const subThreadCorrelations = new Map<string, SubThreadCorrelation>();
   let currentTurnId: string | null = null;
 
   const isFromParent = (params: unknown): boolean => {
@@ -63,47 +84,97 @@ export function startNotificationRouter(o: NotificationRouterOpts): Notification
     });
   };
 
-  const cacheReceiverIdsFromItem = (item: unknown): void => {
+  const emitSubThreadNotification = (
+    source: SubThreadNotification['source'],
+    params: unknown,
+    item?: unknown,
+  ): void => {
+    const threadId = readThreadId(params);
+    if (threadId === undefined) return;
+    const correlation = subThreadCorrelations.get(threadId);
+    o.onSubThreadNotification?.({
+      source,
+      threadId,
+      turnId:
+        source === 'turnStarted' || source === 'turnCompleted'
+          ? readTurnId(params)
+          : readItemTurnId(params),
+      params,
+      ...(item !== undefined ? { item } : {}),
+      ...(correlation !== undefined ? { correlation } : {}),
+    });
+  };
+
+  const cacheReceiverIdsFromItem = (params: unknown, item: unknown): void => {
     if (item === null || typeof item !== 'object') return;
     const i = item as { type?: unknown; receiverThreadIds?: unknown };
     if (i.type !== 'collabAgentToolCall' && i.type !== 'spawnAgentToolCall') return;
     const ids = Array.isArray(i.receiverThreadIds) ? i.receiverThreadIds : [];
-    for (const id of ids) if (typeof id === 'string') subThreadIds.add(id);
+    const parentThreadId = readThreadId(params);
+    const parentTurnId = readItemTurnId(params) ?? undefined;
+    const parentItemId = readItemId(item);
+    const toolName = readToolName(item);
+    for (const id of ids) {
+      if (typeof id !== 'string') continue;
+      subThreadIds.add(id);
+      if (parentThreadId !== undefined) {
+        subThreadCorrelations.set(id, {
+          receiverThreadId: id,
+          parentThreadId,
+          ...(parentTurnId !== undefined ? { parentTurnId } : {}),
+          ...(parentItemId !== undefined ? { parentItemId } : {}),
+          ...(typeof i.type === 'string' ? { toolKind: i.type } : {}),
+          ...(toolName !== undefined ? { toolName } : {}),
+        });
+      }
+    }
   };
 
   const off1 = o.client.onNotification(METHOD.turnStarted, (params) => {
     if (!isFromParent(params)) {
       reportAbandonedParent('turnStarted', params);
+      if (!isAbandonedParentParams(o.activeThreadBinding, params)) {
+        emitSubThreadNotification('turnStarted', params);
+      }
       return;
     }
     currentTurnId = readTurnId(params);
-    o.onTurnStarted?.(currentTurnId);
+    o.onTurnStarted?.(currentTurnId, params);
   });
   const off2 = o.client.onNotification(METHOD.turnCompleted, (params) => {
     if (!isFromParent(params)) {
       reportAbandonedParent('turnCompleted', params);
+      if (!isAbandonedParentParams(o.activeThreadBinding, params)) {
+        emitSubThreadNotification('turnCompleted', params);
+      }
       return;
     }
     currentTurnId = null;
-    void o.onTurnCompleted();
+    void o.onTurnCompleted(params);
   });
   const off3 = o.client.onNotification(METHOD.itemStarted, (params) => {
     if (!isFromParent(params)) {
       reportAbandonedParent('itemStarted', params);
+      if (!isAbandonedParentParams(o.activeThreadBinding, params)) {
+        emitSubThreadNotification('itemStarted', params, readItem(params));
+      }
       return;
     }
     const item = readItem(params);
-    cacheReceiverIdsFromItem(item);
-    o.onItemStarted(item, readItemTurnId(params));
+    cacheReceiverIdsFromItem(params, item);
+    o.onItemStarted(item, readItemTurnId(params), params);
   });
   const off4 = o.client.onNotification(METHOD.itemCompleted, (params) => {
     if (!isFromParent(params)) {
       reportAbandonedParent('itemCompleted', params);
+      if (!isAbandonedParentParams(o.activeThreadBinding, params)) {
+        emitSubThreadNotification('itemCompleted', params, readItem(params));
+      }
       return;
     }
     const item = readItem(params);
-    cacheReceiverIdsFromItem(item);
-    o.onItemCompleted(item, readItemTurnId(params));
+    cacheReceiverIdsFromItem(params, item);
+    o.onItemCompleted(item, readItemTurnId(params), params);
   });
 
   return {
@@ -122,10 +193,18 @@ export function startNotificationRouter(o: NotificationRouterOpts): Notification
     getKnownSubThreadIds() {
       return [...subThreadIds];
     },
+    getSubThreadCorrelation(threadId) {
+      return subThreadCorrelations.get(threadId);
+    },
     getCurrentTurnId() {
       return currentTurnId;
     },
   };
+}
+
+function isAbandonedParentParams(binding: ActiveThreadBinding, params: unknown): boolean {
+  const threadId = readThreadId(params);
+  return threadId !== undefined && binding.isAbandoned(threadId);
 }
 
 function readThreadId(params: unknown): string | undefined {
@@ -145,6 +224,25 @@ function readTurnId(params: unknown): string | null {
 function readItem(params: unknown): unknown {
   if (params === null || typeof params !== 'object') return null;
   return (params as { item?: unknown }).item ?? null;
+}
+
+function readItemId(item: unknown): string | undefined {
+  if (item === null || typeof item !== 'object') return undefined;
+  const id = (item as { id?: unknown; callId?: unknown; call_id?: unknown }).id;
+  if (typeof id === 'string') return id;
+  const callId = (item as { callId?: unknown; call_id?: unknown }).callId;
+  if (typeof callId === 'string') return callId;
+  const snakeCallId = (item as { call_id?: unknown }).call_id;
+  return typeof snakeCallId === 'string' ? snakeCallId : undefined;
+}
+
+function readToolName(item: unknown): string | undefined {
+  if (item === null || typeof item !== 'object') return undefined;
+  const record = item as { name?: unknown; toolName?: unknown; tool?: unknown; type?: unknown };
+  if (typeof record.name === 'string') return record.name;
+  if (typeof record.toolName === 'string') return record.toolName;
+  if (typeof record.tool === 'string') return record.tool;
+  return typeof record.type === 'string' ? record.type : undefined;
 }
 
 function readItemTurnId(params: unknown): string | null {

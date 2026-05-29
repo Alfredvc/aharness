@@ -196,6 +196,31 @@ export interface RawResponseItemCompletedNotification {
   params: { threadId: string; turnId: string; item: ResponseItem };
 }
 
+export interface TokenUsageBreakdown {
+  totalTokens?: number;
+  inputTokens?: number;
+  cachedInputTokens?: number;
+  outputTokens?: number;
+  reasoningOutputTokens?: number;
+}
+
+/**
+ * `thread/tokenUsage/updated` notification. Matches the narrow fields
+ * aharness consumes from Codex's `ThreadTokenUsageUpdatedNotification`.
+ */
+export interface ThreadTokenUsageUpdatedNotification {
+  method: 'thread/tokenUsage/updated';
+  params: {
+    threadId: string;
+    turnId: string;
+    tokenUsage: {
+      total: TokenUsageBreakdown;
+      last: TokenUsageBreakdown;
+      modelContextWindow: number | null;
+    };
+  };
+}
+
 /**
  * Per-message error envelope. JSON-RPC errors are carried in the
  * `error` field of a request response keyed to the original request id;
@@ -230,5 +255,6 @@ export type ServerNotification =
   | HookCompletedNotification
   | AgentMessageDeltaNotification
   | RawResponseItemCompletedNotification
+  | ThreadTokenUsageUpdatedNotification
   | ServerRequestResolvedNotification
   | ErrorNotification;

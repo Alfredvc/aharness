@@ -52,9 +52,11 @@ import type {
   ThreadSnapshot,
   ThreadStartParams,
   ThreadStartResponse,
+  ThreadTokenUsageUpdatedNotification,
   ThreadUnsubscribeParams,
   ThreadUnsubscribeResponse,
   ThreadUnsubscribeStatus,
+  TokenUsageBreakdown,
   ToolRequestUserInputParams,
   ToolRequestUserInputResponse,
   TurnCompletedNotification,
@@ -394,6 +396,35 @@ describe('ServerNotification union', () => {
     expectTypeOf(n.method).toEqualTypeOf<'item/agentMessage/delta'>();
   });
 
+  it('ThreadTokenUsageUpdatedNotification shape', () => {
+    const n: ThreadTokenUsageUpdatedNotification = {
+      method: 'thread/tokenUsage/updated',
+      params: {
+        threadId: 't',
+        turnId: 'u',
+        tokenUsage: {
+          total: {
+            totalTokens: 100,
+            inputTokens: 70,
+            cachedInputTokens: 40,
+            outputTokens: 20,
+            reasoningOutputTokens: 10,
+          },
+          last: { inputTokens: 10, cachedInputTokens: 5 },
+          modelContextWindow: null,
+        },
+      },
+    };
+    expectTypeOf(n.method).toEqualTypeOf<'thread/tokenUsage/updated'>();
+    expectTypeOf<TokenUsageBreakdown>().toMatchTypeOf<{
+      totalTokens?: number;
+      inputTokens?: number;
+      cachedInputTokens?: number;
+      outputTokens?: number;
+      reasoningOutputTokens?: number;
+    }>();
+  });
+
   it('ErrorNotification shape', () => {
     const n: ErrorNotification = { method: 'error', params: { code: -32000, message: 'x' } };
     expectTypeOf(n.method).toEqualTypeOf<'error'>();
@@ -428,6 +459,18 @@ describe('ServerNotification union', () => {
       {
         method: 'item/agentMessage/delta',
         params: { threadId: 't', turnId: 'u', itemId: 'i', delta: 'd' },
+      },
+      {
+        method: 'thread/tokenUsage/updated',
+        params: {
+          threadId: 't',
+          turnId: 'u',
+          tokenUsage: {
+            total: { totalTokens: 1 },
+            last: { inputTokens: 1 },
+            modelContextWindow: 128000,
+          },
+        },
       },
       { method: 'serverRequest/resolved', params: { threadId: 't', requestId: 'r' } },
       { method: 'error', params: { code: -32000, message: 'boom' } },

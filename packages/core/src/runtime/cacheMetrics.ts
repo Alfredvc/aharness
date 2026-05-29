@@ -38,6 +38,11 @@ export interface UsageObservation {
   readonly cached_input_tokens?: number;
 }
 
+export interface WireUsageObservation {
+  readonly inputTokens?: number;
+  readonly cachedInputTokens?: number;
+}
+
 export interface CacheMetricsSummary {
   readonly turns: number;
   readonly totalInput: number;
@@ -86,6 +91,15 @@ export class CacheMetrics {
     this.inputs += usage.input_tokens ?? 0;
     this.cached += usage.cached_input_tokens ?? 0;
     this.turnsObserved += 1;
+  }
+
+  observeWire(usage: WireUsageObservation): void {
+    this.observe({
+      ...(usage.inputTokens !== undefined ? { input_tokens: usage.inputTokens } : {}),
+      ...(usage.cachedInputTokens !== undefined
+        ? { cached_input_tokens: usage.cachedInputTokens }
+        : {}),
+    });
   }
 
   summary(): CacheMetricsSummary {

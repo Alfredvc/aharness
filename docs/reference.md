@@ -176,6 +176,15 @@ During live runs, the same browser shell also shows the active turn state and
 user-relevant tool/MCP calls in the transcript. Internal aharness submit and
 owner-input plumbing remains hidden from the default view.
 
+Run artifacts are written under `.aharness/runs/<runId>/`. For new runs,
+`events.jsonl` is a canonical event transcript and includes full raw runtime
+payloads by default: secret-marked owner input, browser replies, tool
+arguments/results, command output, file diffs, approval/permission/elicitation
+data, token usage payloads, and parent-visible sub-thread notifications. Treat
+it as sensitive. The current browser API remains the flat `/api/state`,
+`/api/stream`, and `/api/reply` surface, and `snapshot.json` remains present for
+current inspection state until the later JSONL source-of-truth cutover.
+
 `aharness install <source>` delegates package-spec handling to npm inside the
 aharness managed npm project. The source may be any package spec npm accepts.
 Install may run npm lifecycle scripts, and v1 does not provide an aharness

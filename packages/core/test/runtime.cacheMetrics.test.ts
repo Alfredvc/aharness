@@ -29,6 +29,20 @@ describe('CacheMetrics', () => {
     expect(r.ratioPctSinceTurn5).toBeNull(); // <5 turns
   });
 
+  it('translates camelCase wire token usage fields at the boundary', () => {
+    const m = new CacheMetrics();
+    m.observeWire({ inputTokens: 1000, cachedInputTokens: 250 });
+    m.observeWire({});
+
+    expect(m.summary()).toEqual(
+      expect.objectContaining({
+        turns: 2,
+        totalInput: 1000,
+        totalCached: 250,
+      }),
+    );
+  });
+
   it('flags warning when ratio drops below threshold after turn 5', () => {
     const m = new CacheMetrics();
     for (let i = 0; i < 6; i++) m.observe({ input_tokens: 1000, cached_input_tokens: 100 }); // 10%

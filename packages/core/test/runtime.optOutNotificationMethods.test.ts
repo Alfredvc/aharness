@@ -19,9 +19,20 @@ const REQUIRED_APPROVAL_LIFECYCLE_NOTIFICATIONS = [
   'item/autoApprovalReview/completed',
 ] as const;
 
+const REQUIRED_RAW_RUNTIME_CAPTURE_NOTIFICATIONS = [
+  METHOD.rawResponseItemCompleted,
+  METHOD.threadTokenUsageUpdated,
+] as const;
+
 describe('approval notification opt-out list', () => {
   it('keeps required approval lifecycle notifications subscribed', () => {
     for (const method of REQUIRED_APPROVAL_LIFECYCLE_NOTIFICATIONS) {
+      expect(PHASE1_OPT_OUT_METHODS).not.toContain(method);
+    }
+  });
+
+  it('keeps Slice 2 raw runtime capture notifications subscribed', () => {
+    for (const method of REQUIRED_RAW_RUNTIME_CAPTURE_NOTIFICATIONS) {
       expect(PHASE1_OPT_OUT_METHODS).not.toContain(method);
     }
   });

@@ -110,3 +110,12 @@ Each run writes inspection files under:
 Look for the event log, snapshots, terminal report, and any final artifacts
 declared by `fsm.final({ artifacts })`. Current public CLI invocations start a
 new run and Codex thread; run artifacts are evidence, not continuation state.
+
+For new runs, `events.jsonl` is the canonical event transcript and includes
+full raw runtime payloads by default. That can include secret-marked owner
+input, browser replies, tool arguments/results, command output, file diffs,
+approval/permission/elicitation data, token usage payloads, and parent-visible
+sub-thread notifications. Treat the run directory as sensitive when sharing
+debugging evidence. The browser still uses flat `/api/state`, `/api/stream`,
+and `/api/reply` routes, and `snapshot.json` still exists for current
+inspection state.

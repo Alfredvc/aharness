@@ -72,6 +72,12 @@ describe('createFileChangeTracker', () => {
         turnId: 'turn-1',
         itemId: 'patch-1',
         changes: [updateChange],
+        rawParams: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          itemId: 'patch-1',
+          changes: [updateChange],
+        },
       },
     ]);
   });
@@ -194,6 +200,12 @@ describe('createFileChangeTracker', () => {
         turnId: 'turn-1',
         itemId: 'patch-1',
         changes: [updateChange],
+        rawParams: {
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          itemId: 'patch-1',
+          changes: [updateChange],
+        },
       },
     ]);
   });

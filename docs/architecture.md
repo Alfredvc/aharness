@@ -112,6 +112,16 @@ Run artifacts include snapshots, event logs, terminal reports, and any final
 artifacts declared by the FSM. These files are inspection evidence for the run;
 the current public CLI starts a new run and Codex thread for each invocation.
 
+For new runs, `events.jsonl` is a canonical `aharness.event.v1` transcript. It
+stores compact normalized event data plus full raw runtime payloads inline,
+including secret-marked owner input, browser replies, tool arguments/results,
+command output, file diffs, approval/permission/elicitation payloads, and token
+usage notifications, plus parent-visible sub-thread notifications. Run
+directories should therefore be handled as sensitive material. The browser
+compatibility surface remains the flat `/api/state`, `/api/stream`, and
+`/api/reply` API in this slice, and `snapshot.json` remains written for current
+inspection state until the later source-of-truth cutover.
+
 ## Package Boundaries
 
 `@aharness/core` provides the authoring SDK and the `aharness` CLI binary.

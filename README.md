@@ -90,6 +90,15 @@ UI, shows live turn/tool activity in the browser transcript, and writes run
 artifacts under `.aharness/runs/<runId>/`. Internal aharness submit calls stay
 out of the default transcript.
 
+New runs write a canonical `events.jsonl` transcript under the run directory.
+That file includes full raw runtime payloads by default, including
+secret-marked owner input, browser reply bodies, tool arguments/results,
+command output, file diffs, approval/permission/elicitation data, and token
+usage payloads, plus parent-visible sub-thread notifications. Treat run
+directories as sensitive. The current browser UI still uses the flat
+`/api/state`, `/api/stream`, and `/api/reply` routes, and `snapshot.json` still
+exists for current inspection state.
+
 ## Write A Workflow
 
 aharness workflows are TypeScript files built with `createFsm`:

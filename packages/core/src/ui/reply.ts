@@ -16,6 +16,17 @@ export type BrowserReplyResult = {
   body: unknown;
 };
 
+export type BrowserReplyLifecycleInput = {
+  payload: unknown;
+  kind?: string;
+  requestId?: string;
+};
+
+export type BrowserReplyResolvedInput = BrowserReplyLifecycleInput & {
+  result?: BrowserReplyResult;
+  error?: Error;
+};
+
 export type BrowserReplyControllerOptions = {
   isOpen: () => boolean;
   sendUserPrompt: (text: string) => void | Promise<void>;
@@ -28,6 +39,8 @@ export type BrowserReplyControllerOptions = {
     readonly message: string;
   }) => void;
   handleApprovalReply?: (payload: unknown) => Promise<BrowserReplyResult> | BrowserReplyResult;
+  onReplySubmitted?: (input: BrowserReplyLifecycleInput) => void;
+  onReplyResolved?: (input: BrowserReplyResolvedInput) => void;
 };
 
 export type BrowserReplyController = {
@@ -51,6 +64,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function unavailable(): BrowserReplyResult {
   return { status: 501, body: { error: 'reply-kind-unavailable' } };
+}
+
+function asError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+function callLifecycleHook(fn: (() => void) | undefined): void {
+  try {
+    fn?.();
+  } catch {
+    // Reply lifecycle hooks are observability only.
+  }
 }
 
 export function createBrowserReplyController(
@@ -156,21 +181,47 @@ export function createBrowserReplyController(
     },
     async handleReply(payload) {
       const kind = isRecord(payload) ? payload['kind'] : undefined;
+      const requestId = isRecord(payload) ? payload['requestId'] : undefined;
+      const lifecycle = {
+        payload,
+        ...(typeof kind === 'string' ? { kind } : {}),
+        ...(typeof requestId === 'string' ? { requestId } : {}),
+      };
+      callLifecycleHook(() => options.onReplySubmitted?.(lifecycle));
       if (!isRecord(payload) || typeof kind !== 'string') {
-        return { status: 400, body: { error: 'invalid-reply-payload' } };
+        const result = { status: 400, body: { error: 'invalid-reply-payload' } };
+        callLifecycleHook(() => options.onReplyResolved?.({ ...lifecycle, result }));
+        return result;
       }
 
-      switch (kind) {
-        case 'owner-input':
-          return handleOwnerInputReply(payload);
-        case 'user-prompt':
-          return handleUserPromptReply(payload);
-        case 'approval':
-        case 'permission':
-        case 'elicitation':
-          return options.handleApprovalReply?.(payload) ?? unavailable();
-        default:
-          return { status: 400, body: { error: 'unknown-reply-kind' } };
+      try {
+        let result: BrowserReplyResult;
+        switch (kind) {
+          case 'owner-input':
+            result = handleOwnerInputReply(payload);
+            break;
+          case 'user-prompt':
+            result = await handleUserPromptReply(payload);
+            break;
+          case 'approval':
+          case 'permission':
+          case 'elicitation':
+            result = (await options.handleApprovalReply?.(payload)) ?? unavailable();
+            break;
+          default:
+            result = { status: 400, body: { error: 'unknown-reply-kind' } };
+            break;
+        }
+        callLifecycleHook(() => options.onReplyResolved?.({ ...lifecycle, result }));
+        return result;
+      } catch (error) {
+        callLifecycleHook(() =>
+          options.onReplyResolved?.({
+            ...lifecycle,
+            error: asError(error),
+          }),
+        );
+        throw error;
       }
     },
   };

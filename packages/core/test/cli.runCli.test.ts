@@ -493,6 +493,7 @@ describe('runCliForTest — pre-spawn gates', () => {
         METHOD.fileChangePatchUpdated,
         METHOD.serverRequestResolved,
         METHOD.rawResponseItemCompleted,
+        METHOD.threadTokenUsageUpdated,
       ]),
     );
   });
@@ -1412,7 +1413,9 @@ describe('runCliForTest — pre-spawn gates', () => {
         'run.started',
         'state.changed',
         'request.created',
+        'reply.submitted',
         'request.resolved',
+        'reply.resolved',
         'run.completed',
         'posture.changed',
       ]),
@@ -1434,8 +1437,41 @@ describe('runCliForTest — pre-spawn gates', () => {
           questionCount: 1,
           status: 'pending',
         }),
+        raw: {
+          params: expect.objectContaining({
+            itemId: 'item-owner-1',
+            questions: [
+              expect.objectContaining({
+                question: 'What should happen next?',
+                isSecret: false,
+              }),
+            ],
+          }),
+        },
       }),
     );
+    expect(
+      eventEntries.find(
+        (entry) => entry.type === 'reply.submitted' && entry.requestId === 'item-owner-1',
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        raw: {
+          payload: {
+            kind: 'owner-input',
+            requestId: 'item-owner-1',
+            answers: { owner: 'alice' },
+          },
+        },
+      }),
+    );
+    const submittedSeq = eventEntries.find((entry) => entry.type === 'reply.submitted')?.seq ?? 0;
+    const requestResolvedSeq =
+      eventEntries.find((entry) => entry.type === 'request.resolved')?.seq ?? 0;
+    const resolvedSeq = eventEntries.find((entry) => entry.type === 'reply.resolved')?.seq ?? 0;
+    expect(submittedSeq).toBeGreaterThan(0);
+    expect(requestResolvedSeq).toBeGreaterThan(submittedSeq);
+    expect(resolvedSeq).toBeGreaterThan(requestResolvedSeq);
     expect(eventEntries.find((entry) => entry.type === 'run.completed')).toEqual(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -1613,6 +1649,289 @@ describe('runCliForTest — pre-spawn gates', () => {
     await driverPromise;
 
     expect(r.exitCode).toBe(0);
+  });
+
+  it('records raw dynamic tool, token, parent item, and sub-thread payloads in canonical JSONL', async () => {
+    interface FinishPayload {
+      ok: boolean;
+    }
+
+    const fsmPath = makeFsmFile(repoRoot, 'raw-runtime-events.fsm.ts');
+    const m = aharness.machine({
+      id: 'raw-runtime-events',
+      initial: 'greet',
+      states: {
+        greet: state({
+          entryPrompt: 'hello',
+          exits: { finish: exit<FinishPayload>({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const sidecar = {
+      greet: {
+        finish: {
+          jsonSchema: { type: 'object' },
+          validate: (input: unknown) => ({ ok: true as const, data: input }),
+        },
+      },
+    };
+    const outbound: Array<{ id?: number; method?: string; params?: unknown; result?: unknown }> =
+      [];
+    let transport!: Transport;
+    const threadId = 'thread-raw-runtime';
+
+    const waitForOutbound = async (
+      predicate: (envelope: {
+        method?: string;
+        id?: number;
+        params?: unknown;
+        result?: unknown;
+      }) => boolean,
+      timeoutMs = 2_000,
+    ): Promise<{ id?: number; method?: string; params?: unknown; result?: unknown }> => {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        for (let i = outbound.length - 1; i >= 0; i--) {
+          const envelope = outbound[i];
+          if (envelope && predicate(envelope)) return envelope;
+        }
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      throw new Error(
+        `timeout waiting for outbound; saw ${outbound
+          .map((message) => message.method ?? `response:${message.id}`)
+          .join(', ')}`,
+      );
+    };
+
+    const connectStub = async (opts: ConnectHeadlessWsOptions) => {
+      transport = {
+        send(msg: unknown) {
+          const envelope = msg as {
+            id?: number;
+            method?: string;
+            params?: unknown;
+            result?: unknown;
+          };
+          outbound.push(envelope);
+          if (envelope.method === METHOD.initialize) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+              }),
+            );
+          }
+        },
+        async close() {
+          /* no-op */
+        },
+      };
+      const client = new JsonRpcClient(transport);
+      opts.registerHandlers?.(client);
+      await client.request(METHOD.initialize, {
+        clientInfo: opts.clientInfo,
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      });
+      return {
+        client,
+        close: async () => {
+          await client.close();
+        },
+      };
+    };
+
+    const driver = async (): Promise<void> => {
+      const threadStart = await waitForOutbound((msg) => msg.method === METHOD.threadStart);
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: threadStart.id,
+        result: { thread: { id: threadId, ephemeral: false } },
+      });
+
+      const kickoff = await waitForOutbound((msg) => msg.method === METHOD.turnStart);
+      transport.onMessage?.({ jsonrpc: '2.0', id: kickoff.id, result: {} });
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.threadTokenUsageUpdated,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          tokenUsage: {
+            total: {
+              totalTokens: 100,
+              inputTokens: 70,
+              cachedInputTokens: 40,
+              outputTokens: 20,
+              reasoningOutputTokens: 10,
+            },
+            last: { inputTokens: 70, cachedInputTokens: 40 },
+            modelContextWindow: 128000,
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.itemStarted,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          item: {
+            type: 'spawnAgentToolCall',
+            id: 'spawn-1',
+            receiverThreadIds: ['child-thread'],
+            arguments: { prompt: 'inspect this' },
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.itemStarted,
+        params: {
+          threadId: 'child-thread',
+          turnId: 'child-turn',
+          item: { type: 'agentMessage', id: 'child-message', text: 'child output' },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.threadTokenUsageUpdated,
+        params: {
+          threadId: 'child-thread',
+          turnId: 'child-turn',
+          tokenUsage: {
+            total: { totalTokens: 999, inputTokens: 900 },
+            last: { inputTokens: 900, cachedInputTokens: 100 },
+            modelContextWindow: 200000,
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: 9300,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          callId: 'call-finish',
+          tool: 'aharness_submit',
+          arguments: { state: 'greet', exit: 'finish', data: { ok: true } },
+        },
+      });
+      await waitForOutbound((msg) => msg.id === 9300 && msg.result !== undefined);
+    };
+
+    const driverPromise = driver();
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        loadFsmImpl: (async () => ({
+          machine: m,
+          sidecar,
+          modulePath: '/tmp/raw-runtime-events.mjs',
+          issues: [],
+          cacheHit: false,
+          hash: 'raw-runtime-events',
+        })) as unknown as RunCliTestHooks['loadFsmImpl'],
+        spawnAppServer: (async () =>
+          makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+        connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+        startUiServerImpl: async () => ({
+          url: 'http://127.0.0.1:45678',
+          close: vi.fn(async () => undefined),
+        }),
+      },
+    });
+    opts.stderr = stderrSink;
+
+    const r = await runCliForTest(opts);
+    await driverPromise;
+
+    expect(r.exitCode).toBe(0);
+    const eventEntries = expectCanonicalRunEventStream(repoRoot);
+    expect(eventEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'token.updated',
+          data: expect.objectContaining({
+            total: expect.objectContaining({ totalTokens: 100, cachedInputTokens: 40 }),
+            modelContextWindow: 128000,
+          }),
+          raw: {
+            params: expect.objectContaining({
+              tokenUsage: expect.objectContaining({
+                last: { inputTokens: 70, cachedInputTokens: 40 },
+              }),
+            }),
+          },
+        }),
+        expect.objectContaining({
+          type: 'item.started',
+          itemId: 'spawn-1',
+          data: expect.objectContaining({
+            receiverThreadIds: ['child-thread'],
+            toolName: 'spawn_agent',
+          }),
+          raw: {
+            params: expect.objectContaining({
+              item: expect.objectContaining({ arguments: { prompt: 'inspect this' } }),
+            }),
+          },
+        }),
+        expect.objectContaining({
+          type: 'subthread.item.started',
+          threadId: 'child-thread',
+          itemId: 'child-message',
+          data: expect.objectContaining({
+            parentThreadId: threadId,
+            parentItemId: 'spawn-1',
+            correlationKnown: true,
+          }),
+          raw: {
+            params: expect.objectContaining({
+              item: expect.objectContaining({ text: 'child output' }),
+            }),
+          },
+        }),
+        expect.objectContaining({
+          type: 'subthread.token.updated',
+          threadId: 'child-thread',
+          turnId: 'child-turn',
+          data: expect.objectContaining({
+            total: expect.objectContaining({ totalTokens: 999 }),
+            modelContextWindow: 200000,
+            parentThreadId: threadId,
+            parentItemId: 'spawn-1',
+            correlationKnown: true,
+          }),
+          raw: {
+            params: expect.objectContaining({
+              tokenUsage: expect.objectContaining({
+                last: { inputTokens: 900, cachedInputTokens: 100 },
+              }),
+            }),
+          },
+        }),
+        expect.objectContaining({
+          type: 'item.started',
+          itemId: 'call-finish',
+          data: expect.objectContaining({
+            itemType: 'dynamicToolCall',
+            toolName: 'aharness_submit',
+            internal: true,
+          }),
+          raw: {
+            params: expect.objectContaining({
+              arguments: { state: 'greet', exit: 'finish', data: { ok: true } },
+            }),
+          },
+        }),
+      ]),
+    );
   });
 
   it('routes browser replies, notifications, metadata, and file-change correlation through the active binding', async () => {
@@ -1798,6 +2117,31 @@ describe('runCliForTest — pre-spawn gates', () => {
       expect(staleOwnerReply).toEqual({
         status: 409,
         body: { error: 'no-pending-owner-input' },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: 9401,
+        method: METHOD.toolRequestUserInput,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-owner-ignored',
+          itemId: 'owner-ignored-1',
+          questions: [
+            {
+              id: 'owner',
+              header: 'Owner',
+              question: 'This abandoned request should not be persisted as pending.',
+              isOther: false,
+              isSecret: false,
+            },
+          ],
+        },
+      });
+      const inactiveOwnerReply = await waitForOutbound(
+        (msg) => msg.id === 9401 && msg.result !== undefined,
+      );
+      expect(inactiveOwnerReply.result).toEqual({
+        answers: { owner: { answers: ['(declined)'] } },
       });
 
       const replyPromise = capturedReplyHandler({
@@ -2004,6 +2348,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             schema?: string;
             type?: string;
             threadId?: string;
+            itemId?: string;
             data?: Record<string, unknown>;
           },
       );
@@ -2017,6 +2362,11 @@ describe('runCliForTest — pre-spawn gates', () => {
         }),
       ]),
     );
+    expect(
+      eventEntries.some(
+        (entry) => entry.type === 'request.created' && entry.itemId === 'owner-ignored-1',
+      ),
+    ).toBe(false);
     expect(eventEntries.every((entry) => !('kind' in entry) && !('ts' in entry))).toBe(true);
     const snapshot = loadHeadlessSnapshotEnvelope(
       join(repoRoot, '.aharness', 'runs', runId, 'snapshot.json'),
