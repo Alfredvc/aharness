@@ -81,6 +81,9 @@ export async function getInstallPaths(): Promise<InstallPaths> {
  * within its own `node_modules` tree in some pnpm layouts).
  */
 async function resolveAharnessCoreSdk(): Promise<string> {
+  const sourceEntry = await resolveSourceModeAharnessCoreSdk();
+  if (sourceEntry) return sourceEntry;
+
   try {
     return import.meta.resolve('@aharness/core');
   } catch {
@@ -115,6 +118,21 @@ async function resolveAharnessCoreSdk(): Promise<string> {
   throw new Error(
     `getInstallPaths: exceeded ${String(MAX_ANCESTOR_DEPTH)} ancestor directories without finding @aharness/core (starting from ${here})`,
   );
+}
+
+async function resolveSourceModeAharnessCoreSdk(): Promise<string | null> {
+  const here = fileURLToPath(import.meta.url);
+  const loaderDir = path.dirname(here);
+  const sourceDir = path.dirname(loaderDir);
+  if (path.basename(sourceDir) !== 'src') return null;
+
+  const candidate = path.join(sourceDir, 'index.ts');
+  try {
+    await fs.access(candidate);
+    return pathToFileURL(candidate).href;
+  } catch {
+    return null;
+  }
 }
 
 /** Walk up from a file path until we find the directory containing `package.json`. */

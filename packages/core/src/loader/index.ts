@@ -178,6 +178,7 @@ export async function loadInstalledFsm(opts: LoadInstalledFsmOptions): Promise<L
     xstatePackageDir: installPaths.xstatePackageDir,
     serializedSidecar: serialized,
     inputFiles: bundle.inputFiles,
+    assetFiles: bundle.assetFiles,
   });
   const paths = installedCachePathsFor(managedProjectRoot, hash);
 

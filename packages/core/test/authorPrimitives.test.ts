@@ -70,6 +70,18 @@ interface DemoCtx {
 }
 
 describe('@aharness/core author primitives (R22)', () => {
+  it('exposes installed-package asset helpers that reject uncompiled package-relative calls', () => {
+    expect(typeof aharness.getAssetUrl).toBe('function');
+    expect(typeof aharness.getAssetText).toBe('function');
+
+    expect(() => aharness.getAssetUrl('prompts/main.md')).toThrow(
+      /installed-package asset calls must be compiled and validated/,
+    );
+    expect(() => aharness.getAssetText('prompts/main.md')).toThrow(
+      /installed-package asset calls must be compiled and validated/,
+    );
+  });
+
   it('constructs a tiny FSM from aharness/state/terminal/passive/type', () => {
     const machine = aharness.machine({
       id: 'demo',

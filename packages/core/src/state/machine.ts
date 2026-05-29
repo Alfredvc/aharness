@@ -32,6 +32,9 @@
  * Author-supplied `context` factory is forwarded with its full XState v5
  * args object so destructuring `({ input })` keeps working.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
 import {
   assign,
   raise,
@@ -483,6 +486,8 @@ type AharnessContextFactory<TInput, TContext> = (args: {
 }) => TContext;
 
 interface AharnessNamespace {
+  getAssetUrl(relativePath: string): URL;
+  getAssetText(relativePath: string, encoding?: BufferEncoding): string;
   /**
    * Generic order is `<const TInput, TContext>` so TS's contextual-typing
    * pass infers `TInput` from the non-context-sensitive `input:` literal
@@ -703,6 +708,25 @@ function aharnessMachineImpl(config: unknown): AnyStateMachine {
   return machine as AnyStateMachine;
 }
 
+function getAssetUrlImpl(relativePath: string): URL {
+  if (typeof relativePath !== 'string' || !relativePath.startsWith('file://')) {
+    throw new Error(
+      'aharness.getAssetUrl: installed-package asset calls must be compiled and validated ' +
+        'by the package-aware loader before runtime',
+    );
+  }
+
+  const url = new URL(relativePath);
+  if (url.protocol !== 'file:') {
+    throw new Error('aharness.getAssetUrl: compiled asset URL must use the file: protocol');
+  }
+  return pathToFileURL(fileURLToPath(url));
+}
+
+function getAssetTextImpl(relativePath: string, encoding: BufferEncoding = 'utf8'): string {
+  return readFileSync(getAssetUrlImpl(relativePath), encoding);
+}
+
 // Cast the implementation to the typed namespace surface. The runtime
 // `aharnessMachineImpl` returns `AnyStateMachine`; the namespace declares
 // `AharnessMachine<TContext, TEvent, {…}>` parameterised by the call site.
@@ -711,5 +735,7 @@ function aharnessMachineImpl(config: unknown): AnyStateMachine {
 // `undefined`. The single `as AharnessNamespace` cast is the boundary where
 // the implementation's erased type meets the typed public surface.
 export const aharness: AharnessNamespace = {
+  getAssetUrl: getAssetUrlImpl,
+  getAssetText: getAssetTextImpl,
   machine: aharnessMachineImpl,
 } as AharnessNamespace;

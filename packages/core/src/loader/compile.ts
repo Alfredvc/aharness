@@ -28,12 +28,19 @@
  * externalising aharness/xstate is the only consistent shape.
  */
 
-import { build, type Metafile, type Plugin } from 'esbuild';
+import { promises as fs } from 'node:fs';
+import { build, type Loader, type Metafile, type PartialMessage, type Plugin } from 'esbuild';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { AnyStateMachine } from 'xstate';
 import { getInstallPaths, type InstallPaths } from './installPath.js';
 import { isSerializedSidecar, type SerializedSidecar } from './cache.js';
+import {
+  transformInstalledAssetCalls,
+  type InstalledAssetDiagnostic,
+  type InstalledAssetRecord,
+} from './assets.js';
+import { isPathInsideOrEqual } from '../internal/packagePaths.js';
 
 const BARE_SPECIFIER_RE = /^(@aharness\/core|xstate)(\/.*)?$/;
 
@@ -44,6 +51,7 @@ export interface CompileResult {
 export interface InstalledBundleResult {
   readonly contents: Uint8Array;
   readonly inputFiles: readonly string[];
+  readonly assetFiles: readonly string[];
 }
 
 /**
@@ -93,6 +101,7 @@ export async function buildInstalledFsmBundle(opts: {
   const installPaths = await getInstallPaths();
   const packageRoot = path.resolve(opts.packageRoot);
   const managedProjectRoot = path.resolve(opts.managedProjectRoot);
+  const assets: InstalledAssetRecord[] = [];
   const result = await build({
     entryPoints: [path.resolve(opts.entryFile)],
     outfile: path.join(managedProjectRoot, '.aharness', 'cache', 'installed', '__build', 'fsm.mjs'),
@@ -109,7 +118,10 @@ export async function buildInstalledFsmBundle(opts: {
     banner: {
       js: `export const __sidecar = ${JSON.stringify(opts.serializedSidecar)};`,
     },
-    plugins: [externalisePlugin(installPaths)],
+    plugins: [
+      installedAssetPlugin({ managedProjectRoot, assets }),
+      externalisePlugin(installPaths),
+    ],
   });
 
   const outputFile = result.outputFiles?.[0];
@@ -123,6 +135,7 @@ export async function buildInstalledFsmBundle(opts: {
   return {
     contents: outputFile.contents,
     inputFiles: inputFilesFromMetafile(result.metafile, packageRoot),
+    assetFiles: Array.from(new Set(assets.map((asset) => path.resolve(asset.resolvedFile)))).sort(),
   };
 }
 
@@ -179,6 +192,74 @@ function externalisePlugin(installPaths: InstallPaths): Plugin {
       });
     },
   };
+}
+
+function installedAssetPlugin(opts: {
+  readonly managedProjectRoot: string;
+  readonly assets: InstalledAssetRecord[];
+}): Plugin {
+  const nodeModulesRoot = path.join(path.resolve(opts.managedProjectRoot), 'node_modules');
+  const realNodeModulesRoot = fs.realpath(nodeModulesRoot);
+  return {
+    name: 'aharness-installed-assets',
+    setup(build) {
+      build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, async (args) => {
+        if (args.namespace !== 'file') return null;
+        const sourceFile = path.resolve(args.path);
+        const realSourceFile = await fs.realpath(sourceFile);
+        const resolvedRealNodeModulesRoot = await realNodeModulesRoot;
+        if (!isPathInsideOrEqual(resolvedRealNodeModulesRoot, realSourceFile)) return null;
+        const managedSourceFile = path.join(
+          nodeModulesRoot,
+          path.relative(resolvedRealNodeModulesRoot, realSourceFile),
+        );
+
+        const sourceText = await fs.readFile(sourceFile, 'utf8');
+        const transformed = await transformInstalledAssetCalls({
+          sourceFile: managedSourceFile,
+          sourceText,
+          managedProjectRoot: opts.managedProjectRoot,
+        });
+
+        if (transformed.diagnostics.length > 0) {
+          return { errors: transformed.diagnostics.map(diagnosticToMessage) };
+        }
+        if (!transformed.changed) return null;
+
+        opts.assets.push(...transformed.assets);
+        return {
+          contents: transformed.contents,
+          loader: loaderForPath(sourceFile),
+          resolveDir: path.dirname(sourceFile),
+        };
+      });
+    },
+  };
+}
+
+function diagnosticToMessage(diagnostic: InstalledAssetDiagnostic): PartialMessage {
+  return {
+    text: diagnostic.message,
+    location: {
+      file: diagnostic.sourceFile,
+      namespace: 'file',
+      line: diagnostic.line,
+      column: diagnostic.column,
+      length: diagnostic.length,
+      lineText: diagnostic.lineText,
+      suggestion: '',
+    },
+    detail: undefined,
+  };
+}
+
+function loaderForPath(filePath: string): Loader {
+  if (filePath.endsWith('.tsx')) return 'tsx';
+  if (filePath.endsWith('.jsx')) return 'jsx';
+  if (filePath.endsWith('.ts') || filePath.endsWith('.mts') || filePath.endsWith('.cts')) {
+    return 'ts';
+  }
+  return 'js';
 }
 
 export interface ImportedFsmModule {

@@ -44,6 +44,27 @@ The lower-level compatibility exports remain available from `@aharness/core`:
 `aharness.machine`, `state`, `exit`, `final`, `terminal`, `passive`, `arg`,
 `embed`, and `skill`. New examples should prefer `createFsm`.
 
+## Package Assets
+
+Installable FSM packages can reference package-contained assets through the
+`aharness` namespace:
+
+- `aharness.getAssetUrl(relativePath)` returns a `file://` `URL`.
+- `aharness.getAssetText(relativePath, encoding?)` reads text synchronously and
+  defaults to UTF-8.
+
+For installable packages, `relativePath` must be a string-literal
+package-relative path such as `prompts/brainstorming.md`. The package-aware
+loader validates these references before importing the compiled FSM. Asset
+paths are resolved relative to the npm package containing the source module
+that made the call, so dependency package modules read their own package assets.
+
+Dynamic paths, absolute paths, parent-directory escapes, missing files,
+directories, symlinks, and realpath escapes are rejected for installable
+packages. Direct-file FSM loading does not add package-relative asset semantics;
+uncompiled calls to these helpers fail with an error telling the author that
+package asset calls must be compiled and validated by the package-aware loader.
+
 ## State Options
 
 `prompt` is the instruction for Codex while the state is active. It may be a

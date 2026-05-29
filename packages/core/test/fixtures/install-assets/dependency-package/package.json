@@ -1,0 +1,11 @@
+{
+  "name": "@scope/asset-dependency",
+  "version": "1.0.0",
+  "type": "module",
+  "exports": {
+    "./src/asset-helper.js": "./src/asset-helper.ts"
+  },
+  "dependencies": {
+    "@aharness/core": "^0.1.0"
+  }
+}

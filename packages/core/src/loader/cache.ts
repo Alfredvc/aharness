@@ -73,6 +73,18 @@ import type { ArgFlagMeta } from './inputSchema.js';
  *   Pre-v2 caches encode the bare-`anyOf` shape MCP rejects.
  */
 const CACHE_VERSION = 'v4';
+/**
+ * Installed-package cache key version.
+ *
+ * v2 (2026-05-29): adds a separate validated asset-file section so package
+ *   asset content changes invalidate installed bundles without changing the
+ *   direct-file cache key shape.
+ *
+ * v1 (2026-05-28): initial package-aware cache key from esbuild metafile
+ *   source inputs plus package identity, host runtime identity, sidecar
+ *   serialization, and lock fingerprint.
+ */
+const INSTALLED_CACHE_VERSION = 'v2';
 
 const SKIP_DIR_NAMES = new Set(['node_modules', 'dist', '.aharness']);
 
@@ -96,6 +108,7 @@ export interface InstalledCacheKeyOptions {
   readonly xstatePackageDir: string;
   readonly serializedSidecar: SerializedSidecar;
   readonly inputFiles: readonly string[];
+  readonly assetFiles?: readonly string[];
 }
 
 /**
@@ -198,11 +211,15 @@ export async function hashInstalledBundleInputs(opts: InstalledCacheKeyOptions):
   const packageRoot = path.resolve(opts.packageRoot);
   const entryFile = path.resolve(opts.entryFile);
   const inputFiles = Array.from(new Set(opts.inputFiles.map((file) => path.resolve(file)))).sort();
+  const inputFileSet = new Set(inputFiles);
+  const assetFiles = Array.from(new Set((opts.assetFiles ?? []).map((file) => path.resolve(file))))
+    .filter((file) => !inputFileSet.has(file))
+    .sort();
 
   const hasher = createHash('sha256');
   const aharnessCoreVersion = await readPackageVersion(opts.aharnessCorePackageDir);
   const xstateVersion = await readPackageVersion(opts.xstatePackageDir);
-  hasher.update(`aharness-installed-loader-cache:${CACHE_VERSION}\n`);
+  hasher.update(`aharness-installed-loader-cache:${INSTALLED_CACHE_VERSION}\n`);
   hasher.update(
     canonicalJson({
       packageName: opts.packageName,
@@ -224,6 +241,13 @@ export async function hashInstalledBundleInputs(opts: InstalledCacheKeyOptions):
   for (const file of inputFiles) {
     const buf = await fs.readFile(file);
     hasher.update(`F:${relativeOrAbsolute(managedProjectRoot, file)}:${buf.byteLength}\n`);
+    hasher.update(buf);
+    hasher.update('\n');
+  }
+  hasher.update('A:assets\n');
+  for (const file of assetFiles) {
+    const buf = await fs.readFile(file);
+    hasher.update(`A:${relativeOrAbsolute(managedProjectRoot, file)}:${buf.byteLength}\n`);
     hasher.update(buf);
     hasher.update('\n');
   }
