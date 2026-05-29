@@ -1,0 +1,271 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  RUN_EVENT_SCHEMA,
+  buildRunEventIndex,
+  type RunEventEnvelope,
+  type RunEventWithOffset,
+} from '../src/runEvents/index.js';
+
+const RUN_ID = 'run-index';
+
+function event(
+  seq: number,
+  type: string,
+  overrides: Partial<RunEventEnvelope> = {},
+): RunEventEnvelope {
+  return {
+    schema: RUN_EVENT_SCHEMA,
+    runId: RUN_ID,
+    seq,
+    id: `${RUN_ID}:${seq}`,
+    time: `2026-05-29T00:00:${String(seq).padStart(2, '0')}.000Z`,
+    type,
+    ...overrides,
+  };
+}
+
+function withOffsets(events: ReadonlyArray<RunEventEnvelope>): RunEventWithOffset[] {
+  let offset = 0;
+  return events.map((runEvent) => {
+    const lineBytes = Buffer.byteLength(`${JSON.stringify(runEvent)}\n`, 'utf8');
+    const entry = { event: runEvent, offset, lineBytes };
+    offset += lineBytes;
+    return entry;
+  });
+}
+
+function fixtureEvents(): RunEventWithOffset[] {
+  return withOffsets([
+    event(1, 'run.started', { data: { startedAt: '2026-05-29T00:00:01.000Z' } }),
+    event(2, 'turn.started', { turnId: 'turn-1' }),
+    event(3, 'state.changed', {
+      stateVisitId: 'visit-plan-1',
+      data: { from: null, to: 'plan', path: 'plan', cause: 'boot' },
+    }),
+    event(4, 'model.message', {
+      stateVisitId: 'visit-plan-1',
+      turnId: 'turn-1',
+      itemId: 'item-msg-1',
+      data: { row: { kind: 'message', label: 'Assistant', text: 'Hello plan' } },
+      raw: { upstream: { content: 'full model payload' } },
+    }),
+    event(5, 'request.created', {
+      stateVisitId: 'visit-plan-1',
+      turnId: 'turn-1',
+      itemId: 'item-request-1',
+      requestId: 'request-1',
+      data: { kind: 'owner-input', summary: 'Approve the plan?' },
+      raw: { question: { isSecret: true, text: 'secret prompt' } },
+    }),
+    event(6, 'reply.submitted', {
+      requestId: 'request-1',
+      data: { summary: 'Owner replied' },
+    }),
+    event(7, 'token.updated', {
+      data: {
+        total: {
+          totalTokens: 100,
+          inputTokens: 70,
+          cachedInputTokens: 40,
+          outputTokens: 20,
+          reasoningOutputTokens: 10,
+        },
+        modelContextWindow: 128000,
+      },
+    }),
+    event(8, 'turn.completed', { turnId: 'turn-1' }),
+    event(9, 'turn.started', { turnId: 'turn-2' }),
+    event(10, 'state.changed', {
+      stateVisitId: 'visit-implementation-1',
+      data: { from: 'plan', to: 'implementation', path: 'implementation', cause: 'submit' },
+    }),
+    event(11, 'item.completed', {
+      stateVisitId: 'visit-implementation-1',
+      turnId: 'turn-2',
+      itemId: 'item-tool-1',
+      data: {
+        row: {
+          kind: 'tool',
+          label: 'Shell',
+          status: 'completed',
+          summary: 'pnpm test',
+          elapsedMs: 42,
+          data: { command: 'pnpm test' },
+        },
+      },
+      raw: { tool: { output: 'full output stays in event page' } },
+    }),
+    event(12, 'turn.completed', { turnId: 'turn-2' }),
+    event(13, 'reply.resolved', {
+      requestId: 'request-1',
+      data: { status: 'accepted' },
+    }),
+    event(14, 'run.completed', { data: { status: 'success' } }),
+  ]);
+}
+
+describe('canonical run event index', () => {
+  it('tracks state visits, state paths, visit rows, recent rows, and current state', () => {
+    const index = buildRunEventIndex({ events: fixtureEvents() });
+
+    expect(index.currentState).toEqual(
+      expect.objectContaining({
+        id: 'visit-implementation-1',
+        path: 'implementation',
+        to: 'implementation',
+        cause: 'submit',
+      }),
+    );
+    expect(index.stateVisits.map((visit) => visit.id)).toEqual([
+      'visit-plan-1',
+      'visit-implementation-1',
+    ]);
+    expect(index.getStateVisitsByPath('plan')).toEqual(['visit-plan-1']);
+    expect(index.getStateVisitRows('visit-plan-1').rows).toEqual([
+      expect.objectContaining({
+        eventId: 'run-index:4',
+        kind: 'message',
+        label: 'Assistant',
+        text: 'Hello plan',
+      }),
+    ]);
+    expect(index.getStateVisitRows('visit-implementation-1').rows).toEqual([
+      expect.objectContaining({
+        eventId: 'run-index:11',
+        kind: 'tool',
+        label: 'Shell',
+        status: 'completed',
+        summary: 'pnpm test',
+        elapsedMs: 42,
+        data: { command: 'pnpm test' },
+      }),
+    ]);
+
+    const firstRecentPage = index.getRecentRows({ limit: 1 });
+    expect(firstRecentPage.rows.map((row) => row.eventId)).toEqual(['run-index:4']);
+    expect(firstRecentPage.nextCursor).toBe('run-index:4:row');
+    expect(index.getRecentRows({ cursor: firstRecentPage.nextCursor, limit: 2 }).rows).toEqual([
+      expect.objectContaining({ eventId: 'run-index:11' }),
+    ]);
+  });
+
+  it('tracks turn, item, and request event ranges', () => {
+    const index = buildRunEventIndex({ events: fixtureEvents() });
+
+    expect(index.getTurnRange('turn-1')).toEqual({
+      firstSeq: 2,
+      lastSeq: 8,
+      eventIds: ['run-index:2', 'run-index:4', 'run-index:5', 'run-index:8'],
+    });
+    expect(index.getItemRange('item-msg-1')).toEqual({
+      firstSeq: 4,
+      lastSeq: 4,
+      eventIds: ['run-index:4'],
+    });
+    expect(index.getRequestRange('request-1')).toEqual({
+      firstSeq: 5,
+      lastSeq: 13,
+      eventIds: ['run-index:5', 'run-index:6', 'run-index:13'],
+    });
+  });
+
+  it('pages event envelopes with raw payloads preserved', () => {
+    const index = buildRunEventIndex({ events: fixtureEvents() });
+
+    const page = index.getEventPage({ after: 'run-index:10', limit: 1 });
+
+    expect(page.events).toEqual([
+      expect.objectContaining({
+        event: expect.objectContaining({
+          id: 'run-index:11',
+          raw: { tool: { output: 'full output stays in event page' } },
+        }),
+      }),
+    ]);
+    expect(page.nextCursor).toBe('run-index:11');
+  });
+
+  it('event pages use the immutable event set captured at index construction', () => {
+    const events = fixtureEvents();
+    const index = buildRunEventIndex({ events });
+    events.push(
+      withOffsets([
+        event(99, 'model.message', {
+          data: { row: { kind: 'message', text: 'late mutation' } },
+        }),
+      ])[0]!,
+    );
+
+    expect(index.events.map((entry) => entry.event.id)).not.toContain('run-index:99');
+    expect(index.getEventPage({ after: 'run-index:98' }).events).toEqual([]);
+  });
+
+  it('builds pending request summaries until resolution events remove them', () => {
+    const pendingIndex = buildRunEventIndex({ events: fixtureEvents().slice(0, 6) });
+
+    expect(pendingIndex.getPendingRequests()).toEqual([
+      {
+        requestId: 'request-1',
+        status: 'submitted',
+        kind: 'owner-input',
+        summary: 'Owner replied',
+        createdAt: '2026-05-29T00:00:05.000Z',
+        updatedAt: '2026-05-29T00:00:06.000Z',
+        stateVisitId: 'visit-plan-1',
+        turnId: 'turn-1',
+        itemId: 'item-request-1',
+        lastEventId: 'run-index:6',
+      },
+    ]);
+
+    const resolvedIndex = buildRunEventIndex({ events: fixtureEvents() });
+    expect(resolvedIndex.getPendingRequests()).toEqual([]);
+  });
+
+  it('folds aggregate run and token stats while omitting absent optional fields', () => {
+    const index = buildRunEventIndex({ events: fixtureEvents() });
+
+    expect(index.aggregateStats).toEqual({
+      status: 'success',
+      startedAt: '2026-05-29T00:00:01.000Z',
+      endedAt: '2026-05-29T00:00:14.000Z',
+      turnCount: 2,
+      totalTokens: 100,
+      inputTokens: 70,
+      cachedInputTokens: 40,
+      outputTokens: 20,
+      reasoningOutputTokens: 10,
+      modelContextWindow: 128000,
+    });
+
+    const sparseIndex = buildRunEventIndex({
+      events: withOffsets([
+        event(1, 'run.started'),
+        event(2, 'turn.started', { turnId: 'turn-1' }),
+      ]),
+    });
+    expect(sparseIndex.aggregateStats).toEqual({
+      status: 'running',
+      startedAt: '2026-05-29T00:00:01.000Z',
+      turnCount: 1,
+      activeTurnId: 'turn-1',
+    });
+  });
+
+  it('omits compact rows when normalized row data is absent instead of parsing raw', () => {
+    const index = buildRunEventIndex({
+      events: withOffsets([
+        event(1, 'model.message', {
+          stateVisitId: 'visit-1',
+          raw: { upstream: { content: 'this should not become a row' } },
+        }),
+      ]),
+    });
+
+    expect(index.getRecentRows().rows).toEqual([]);
+    expect(index.getEventPage().events[0]?.event.raw).toEqual({
+      upstream: { content: 'this should not become a row' },
+    });
+  });
+});
