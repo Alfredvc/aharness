@@ -1,6 +1,7 @@
 import type { JsonRpcClient } from '../jsonrpc/client.js';
 import { METHOD } from '../protocol/methodNames.js';
 import type {
+  CodexReasoningEffort,
   DynamicToolDef,
   ThreadStartParams,
   ThreadStartResponse,
@@ -19,6 +20,8 @@ export interface PerformFreshClearOpts {
   readonly activeThreadBinding: ActiveThreadBinding;
   readonly oldTurnId?: string;
   readonly cwd: string;
+  readonly model?: string;
+  readonly reasoningEffort?: CodexReasoningEffort;
   readonly dynamicTools: ReadonlyArray<DynamicToolDef>;
   readonly composeActiveStateNudge: () => string;
   readonly onCleanupError?: (error: Error) => void;
@@ -57,8 +60,11 @@ export async function performFreshClear(
     opts.onCleanupError?.(normalizeError(e));
   }
 
+  const threadStartConfig = buildFreshClearThreadStartConfig(opts.reasoningEffort);
   const replacement = await opts.client.request<ThreadStartResponse>(METHOD.threadStart, {
     cwd: opts.cwd,
+    ...(opts.model !== undefined ? { model: opts.model } : {}),
+    ...(threadStartConfig !== undefined ? { config: threadStartConfig } : {}),
     dynamicTools: opts.dynamicTools,
     sessionStartSource: 'clear',
   } satisfies ThreadStartParams);
@@ -78,6 +84,13 @@ export async function performFreshClear(
 
 function normalizeError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function buildFreshClearThreadStartConfig(
+  reasoningEffort: CodexReasoningEffort | undefined,
+): Record<string, unknown> | undefined {
+  if (reasoningEffort === undefined) return undefined;
+  return { model_reasoning_effort: reasoningEffort };
 }
 
 function isNonFatalInterruptError(error: Error): boolean {

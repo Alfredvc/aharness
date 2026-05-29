@@ -143,6 +143,63 @@ describe('performFreshClear', () => {
     ]);
   });
 
+  it('passes requested model and reasoning effort only on replacement thread/start', async () => {
+    const binding = createActiveThreadBinding('thread-old');
+    const client = createClient();
+
+    await performFreshClear({
+      client,
+      activeThreadBinding: binding,
+      cwd: '/repo',
+      model: 'gpt-5.1-codex',
+      reasoningEffort: 'high',
+      dynamicTools,
+      composeActiveStateNudge: () => 'state orientation',
+      onCleanupError: vi.fn(),
+    });
+
+    expect(client.calls).toContainEqual({
+      method: METHOD.threadStart,
+      params: {
+        cwd: '/repo',
+        model: 'gpt-5.1-codex',
+        config: { model_reasoning_effort: 'high' },
+        dynamicTools,
+        sessionStartSource: 'clear',
+      },
+    });
+    expect(client.calls).toContainEqual({
+      method: METHOD.turnStart,
+      params: {
+        threadId: 'thread-new',
+        input: [{ type: 'text', text: 'state orientation' }],
+      },
+    });
+  });
+
+  it('does not send thread/start config when no reasoning effort is requested', async () => {
+    const binding = createActiveThreadBinding('thread-old');
+    const client = createClient();
+
+    await performFreshClear({
+      client,
+      activeThreadBinding: binding,
+      cwd: '/repo',
+      model: 'gpt-5.1-codex',
+      dynamicTools,
+      composeActiveStateNudge: () => 'state orientation',
+      onCleanupError: vi.fn(),
+    });
+
+    const threadStart = client.calls.find((call) => call.method === METHOD.threadStart);
+    expect(threadStart?.params).toEqual({
+      cwd: '/repo',
+      model: 'gpt-5.1-codex',
+      dynamicTools,
+      sessionStartSource: 'clear',
+    });
+  });
+
   it('logs interrupt and unsubscribe cleanup errors without blocking replacement startup', async () => {
     const binding = createActiveThreadBinding('thread-old');
     const cleanupErrors: string[] = [];

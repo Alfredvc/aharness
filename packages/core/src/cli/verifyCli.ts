@@ -1,10 +1,12 @@
 /**
  * `aharness verify <file>.fsm.ts` — codex-side standalone verifier.
  *
- * CI use, no daemon, no codex binary, no run directory writes. Loads the
- * FSM via `loadFsm` (re-exported from `@aharness/core`; substrate-agnostic
- * per migration plan §0 author surface reuse rule), runs the codex-side
- * verifier (`@aharness/core/src/verify`), and returns an exit code:
+ * CI use: loads the FSM via `loadFsm` (re-exported from `@aharness/core`;
+ * substrate-agnostic per migration plan §0 author surface reuse rule), runs
+ * the pure codex-side verifier (`@aharness/core/src/verify`), then probes
+ * Codex config/model catalog only when static `clearOnEntry` model/effort
+ * declarations require it. The command performs no run directory writes and
+ * returns an exit code:
  *   - `0` when the verifier returns `ok: true`. Warnings are reported via
  *     the injected `log` callback and do not block.
  *   - `1` when any error-severity issue is present. Each issue is logged
@@ -19,6 +21,12 @@ import { dirname, resolve } from 'node:path';
 import { loadFsm } from '../loader/index.js';
 
 import { verify } from '../verify/index.js';
+import {
+  createCodexConfigModelProvider,
+  verifyClearOnEntryModelCatalog,
+  type CodexConfigModelProvider,
+  type CodexConfigModelProviderFactory,
+} from '../verify/clearOnEntryModelCatalog.js';
 
 export interface RunVerifyCliOpts {
   /** Absolute or `repoRoot`-relative path to the user's `<file>.fsm.ts`. */
@@ -31,6 +39,10 @@ export interface RunVerifyCliOpts {
   readonly repoRoot?: string;
   /** Sink for status / issue lines. Tests pass `vi.fn()` to capture output. */
   readonly log: (line: string) => void;
+  /** Test seam for clearOnEntry model/effort catalog verification. */
+  readonly modelCatalogProvider?: CodexConfigModelProvider;
+  /** Test seam for catalog-provider startup failures. */
+  readonly modelCatalogProviderFactory?: CodexConfigModelProviderFactory;
 }
 
 export interface RunVerifyCliResult {
@@ -45,6 +57,19 @@ export async function runVerifyCli(opts: RunVerifyCliOpts): Promise<RunVerifyCli
     skillEnv: { fsmFileDir, repoRoot },
   });
   if (result.ok) {
+    const catalogIssues = await verifyClearOnEntryModelCatalog({
+      machine: loaded.machine,
+      defaultCwd: repoRoot,
+      providerFactory:
+        opts.modelCatalogProviderFactory ??
+        (async () => opts.modelCatalogProvider ?? createCodexConfigModelProvider()),
+    });
+    if (catalogIssues.length > 0) {
+      for (const issue of catalogIssues) {
+        opts.log(`[${issue.severity}] ${issue.check} (${issue.stateId}): ${issue.message}`);
+      }
+      return { exitCode: 1 };
+    }
     const warningCount = result.warnings.length;
     opts.log(`verify: ok (${String(warningCount)} warnings)`);
     return { exitCode: 0 };

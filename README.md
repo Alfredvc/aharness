@@ -182,14 +182,17 @@ implementation: fsm.state({
 });
 ```
 
-By default, the working directory is the original aharness launch CWD. Object
-form accepts any non-empty combination of `cwd`, `model`, and
-`reasoningEffort`, so a fresh context can also choose the Codex model and
-reasoning effort:
+By default, the working directory is the original aharness launch CWD. Use
+object form to choose a working directory, Codex model, reasoning effort, or
+any non-empty combination of those options:
 
 ```ts
 worktreeReview: fsm.state({
-  clearOnEntry: { cwd: '/absolute/path/to/worktree' },
+  clearOnEntry: {
+    cwd: '/absolute/path/to/worktree',
+    model: 'gpt-5.1-codex',
+    reasoningEffort: 'high',
+  },
   prompt: 'Review the worktree and submit findings.',
   on: {
     reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
@@ -197,39 +200,25 @@ worktreeReview: fsm.state({
 });
 ```
 
+Model-only and effort-only forms are also valid:
+
 ```ts
-modelSpecificReview: fsm.state({
-  clearOnEntry: { model: 'gpt-5.1-codex' },
-  prompt: 'Review with the requested Codex model.',
-  on: {
-    reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
-  },
-});
-
-highEffortReview: fsm.state({
-  clearOnEntry: { reasoningEffort: 'high' },
-  prompt: 'Review with a fresh high-effort context.',
-  on: {
-    reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
-  },
-});
-
-targetedImplementation: fsm.state({
-  clearOnEntry: {
-    cwd: '/absolute/path/to/worktree',
-    model: 'gpt-5.1-codex',
-    reasoningEffort: 'high',
-  },
-  prompt: 'Implement in this worktree with the requested model and effort.',
-  on: {
-    implemented: fsm.submit<{ summary: string }>({ to: 'review' }),
-  },
-});
+clearOnEntry: { model: 'gpt-5.1-codex' }
+clearOnEntry: { reasoningEffort: 'high' }
+clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' }
 ```
 
 `cwd` may also be a function of machine data, and it must resolve to a non-empty
-absolute path for an existing directory. Run directories and artifacts stay
-anchored under the original launch directory.
+absolute path for an existing directory. `model` and `reasoningEffort` are
+static strings; callbacks are not supported for those fields.
+
+Allowed reasoning efforts are `none`, `minimal`, `low`, `medium`, `high`, and
+`xhigh`. Effort can be used without an explicit model; aharness resolves the
+target model from Codex effective config for the clear CWD, then Codex's catalog
+default. `aharness verify` checks static declarations through Codex
+`config/read` and `model/list`. Function-form `cwd` can defer effort support
+checks to runtime preflight. Run directories and artifacts stay anchored under
+the original launch directory.
 
 `reasoningEffort` values are exactly `none`, `minimal`, `low`, `medium`,
 `high`, and `xhigh`. `reasoningEffort` can be used without `model`; aharness

@@ -318,16 +318,31 @@ export type OnEntryFn<TContext = unknown> = (
 
 type ClearOnEntryCwd = string | ((ctx: Readonly<RunCtx>) => string);
 
+export type ClearOnEntryReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
+const clearOnEntryReasoningEfforts = new Set<ClearOnEntryReasoningEffort>([
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+]);
+
 export type ClearOnEntryMeta =
   | true
   | {
-      readonly cwd: ClearOnEntryCwd;
+      readonly cwd?: ClearOnEntryCwd;
+      readonly model?: string;
+      readonly reasoningEffort?: ClearOnEntryReasoningEffort;
     };
 
 type ClearOnEntryOption<TContext extends MachineContext> =
   | boolean
   | {
-      readonly cwd: string | ((ctx: Readonly<TContext & RunCtx>) => string);
+      readonly cwd?: string | ((ctx: Readonly<TContext & RunCtx>) => string);
+      readonly model?: string;
+      readonly reasoningEffort?: ClearOnEntryReasoningEffort;
     };
 
 export interface AharnessStateMeta {
@@ -400,14 +415,39 @@ function normalizeClearOnEntry<TContext extends MachineContext>(
   if (value === true) return true;
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError(
-      'state(): clearOnEntry must be true, false, or an object with cwd when provided',
+      'state(): clearOnEntry must be true, false, or an object with at least one of cwd, model, or reasoningEffort when provided',
     );
   }
   const cwd = (value as { readonly cwd?: unknown }).cwd;
-  if (typeof cwd !== 'string' && typeof cwd !== 'function') {
+  const model = (value as { readonly model?: unknown }).model;
+  const reasoningEffort = (value as { readonly reasoningEffort?: unknown }).reasoningEffort;
+  if (cwd === undefined && model === undefined && reasoningEffort === undefined) {
+    throw new TypeError(
+      'state(): clearOnEntry object must include at least one supported key: cwd, model, reasoningEffort',
+    );
+  }
+  if (cwd !== undefined && typeof cwd !== 'string' && typeof cwd !== 'function') {
     throw new TypeError('state(): clearOnEntry.cwd must be a string or function');
   }
-  return { cwd: cwd as ClearOnEntryCwd };
+  if (model !== undefined && typeof model !== 'string') {
+    throw new TypeError('state(): clearOnEntry.model must be a string');
+  }
+  if (
+    reasoningEffort !== undefined &&
+    (typeof reasoningEffort !== 'string' ||
+      !clearOnEntryReasoningEfforts.has(reasoningEffort as ClearOnEntryReasoningEffort))
+  ) {
+    throw new TypeError(
+      'state(): clearOnEntry.reasoningEffort must be one of: none, minimal, low, medium, high, xhigh',
+    );
+  }
+  return {
+    ...(cwd !== undefined ? { cwd: cwd as ClearOnEntryCwd } : {}),
+    ...(model !== undefined ? { model } : {}),
+    ...(reasoningEffort !== undefined
+      ? { reasoningEffort: reasoningEffort as ClearOnEntryReasoningEffort }
+      : {}),
+  };
 }
 
 export function state<TContext extends MachineContext = MachineContext>(

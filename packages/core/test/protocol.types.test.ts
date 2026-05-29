@@ -12,6 +12,9 @@ import type {
   BrowserApprovalDecision,
   CommandExecutionRequestApprovalParams,
   CommandExecutionRequestApprovalResponse,
+  ConfigReadParams,
+  ConfigReadResponse,
+  CodexReasoningEffort,
   DynamicToolCallOutputContentItem,
   DynamicToolCallParams,
   DynamicToolCallResponse,
@@ -31,6 +34,9 @@ import type {
   McpServerElicitationRequestParams,
   McpServerElicitationRequestResponse,
   McpServerElicitationAction,
+  ModelCatalogEntry,
+  ModelListParams,
+  ModelListResponse,
   PermissionGrantScope,
   PermissionsRequestApprovalParams,
   PermissionsRequestApprovalResponse,
@@ -38,6 +44,7 @@ import type {
   RequestUserInputOption,
   RequestUserInputQuestion,
   RequestPermissionProfile,
+  ReasoningEffortOption,
   ResponseItem,
   ServerRequestResolvedNotification,
   ServerNotification,
@@ -93,9 +100,17 @@ describe('protocol request/response types', () => {
     expectTypeOf<ThreadStartParams>().toMatchTypeOf<{
       baseInstructions?: string;
       dynamicTools?: ReadonlyArray<DynamicToolDef>;
+      model?: string;
+      config?: Record<string, unknown>;
       sessionStartSource?: 'startup' | 'clear';
     }>();
-    const params: ThreadStartParams = { sessionStartSource: 'clear' };
+    const params: ThreadStartParams = {
+      model: 'gpt-5.1-codex',
+      config: { model_reasoning_effort: 'high' },
+      sessionStartSource: 'clear',
+    };
+    expect(params.model).toBe('gpt-5.1-codex');
+    expect(params.config?.['model_reasoning_effort']).toBe('high');
     expect(params.sessionStartSource).toBe('clear');
   });
 
@@ -104,6 +119,53 @@ describe('protocol request/response types', () => {
       thread: ThreadSnapshot;
     }>();
     expectTypeOf<ThreadSnapshot>().toMatchTypeOf<{ id: string; ephemeral: boolean }>();
+  });
+
+  it('config/read request and response expose effective model fields', () => {
+    const params: ConfigReadParams = { cwd: '/tmp/project' };
+    const response: ConfigReadResponse = {
+      config: { model: 'gpt-5.1-codex', model_reasoning_effort: 'high' },
+    };
+    expectTypeOf<ConfigReadParams>().toMatchTypeOf<{
+      includeLayers?: boolean;
+      cwd?: string | null;
+    }>();
+    expectTypeOf<ConfigReadResponse>().toMatchTypeOf<{
+      config: { model?: string | null; model_reasoning_effort?: CodexReasoningEffort | null };
+    }>();
+    expect(params.cwd).toBe('/tmp/project');
+    expect(response.config.model_reasoning_effort).toBe('high');
+  });
+
+  it('model/list request and response expose catalog defaults and efforts', () => {
+    const effort: ReasoningEffortOption = {
+      reasoningEffort: 'minimal',
+      description: 'Minimal reasoning',
+    };
+    const entry: ModelCatalogEntry = {
+      model: 'gpt-5.1-codex',
+      supportedReasoningEfforts: [effort],
+      defaultReasoningEffort: 'minimal',
+      isDefault: true,
+    };
+    const params: ModelListParams = { includeHidden: true, cursor: 'page-2' };
+    const response: ModelListResponse = { data: [entry], nextCursor: null };
+    expectTypeOf<ModelListParams>().toMatchTypeOf<{
+      cursor?: string | null;
+      limit?: number | null;
+      includeHidden?: boolean | null;
+    }>();
+    expectTypeOf<ModelCatalogEntry>().toMatchTypeOf<{
+      model: string;
+      supportedReasoningEfforts: ReadonlyArray<ReasoningEffortOption>;
+      defaultReasoningEffort: CodexReasoningEffort;
+      isDefault: boolean;
+    }>();
+    expectTypeOf<CodexReasoningEffort>().toEqualTypeOf<
+      'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+    >();
+    expect(params.includeHidden).toBe(true);
+    expect(response.data[0]?.isDefault).toBe(true);
   });
 
   it('ThreadResume params + response', () => {

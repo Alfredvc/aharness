@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { runVerifyCli } from '../src/cli/verifyCli.js';
+import type { CodexConfigModelProvider } from '../src/verify/clearOnEntryModelCatalog.js';
 
 const fixtureDir = join(dirname(fileURLToPath(import.meta.url)), 'fixtures');
 
@@ -45,16 +46,233 @@ describe('runVerifyCli', () => {
   });
 
   it('exits 1 and prints issues on a failing FSM', async () => {
+    const provider = fakeCatalogProvider();
     const log = vi.fn();
     const r = await runVerifyCli({
       fsmPath: join(fixtureDir, 'black-hole.fsm.ts'),
       repoRoot,
       log,
+      modelCatalogProvider: provider,
     });
     expect(r.exitCode).toBe(1);
     // At least one issue line should name a real check id from the verifier.
     const lines = log.mock.calls.map((c) => String(c[0]));
     expect(lines.some((l) => l.includes('no-black-hole-non-terminals'))).toBe(true);
+    expect(provider.listModels).not.toHaveBeenCalled();
+    expect(provider.readConfig).not.toHaveBeenCalled();
+  });
+
+  it('does not probe the catalog when no clearOnEntry model or effort is declared', async () => {
+    const provider = fakeCatalogProvider();
+    const log = vi.fn();
+    const r = await runVerifyCli({
+      fsmPath: join(fixtureDir, 'single-state.fsm.ts'),
+      repoRoot,
+      log,
+      modelCatalogProvider: provider,
+    });
+    expect(r.exitCode).toBe(0);
+    expect(provider.listModels).not.toHaveBeenCalled();
+    expect(provider.readConfig).not.toHaveBeenCalled();
+  });
+
+  it('passes when a declared clearOnEntry model is present in model/list', async () => {
+    const fsmPath = await writeClearOnEntryFixture(`{ model: 'gpt-5.1-codex' }`);
+    const provider = fakeCatalogProvider({
+      models: [
+        {
+          model: 'gpt-5.1-codex',
+          supportedReasoningEfforts: [{ reasoningEffort: 'high', description: 'High' }],
+          defaultReasoningEffort: 'high',
+          isDefault: true,
+        },
+      ],
+    });
+    const log = vi.fn();
+    const r = await runVerifyCli({ fsmPath, repoRoot, log, modelCatalogProvider: provider });
+    expect(r.exitCode).toBe(0);
+    expect(provider.listModels).toHaveBeenCalledWith({ includeHidden: true });
+    expect(provider.readConfig).not.toHaveBeenCalled();
+    await fs.rm(dirname(fsmPath), { recursive: true, force: true });
+  });
+
+  it('rejects a declared clearOnEntry model absent from model/list', async () => {
+    const fsmPath = await writeClearOnEntryFixture(`{ model: 'missing-model' }`);
+    const provider = fakeCatalogProvider({
+      models: [
+        {
+          model: 'gpt-5.1-codex',
+          supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: 'Medium' }],
+          defaultReasoningEffort: 'medium',
+          isDefault: true,
+        },
+      ],
+    });
+    const log = vi.fn();
+    const r = await runVerifyCli({ fsmPath, repoRoot, log, modelCatalogProvider: provider });
+    expect(r.exitCode).toBe(1);
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    expect(lines).toContainEqual(expect.stringContaining('clearOnEntry-model-available (clear):'));
+    expect(lines).toContainEqual(expect.stringContaining('"missing-model" is not available'));
+    await fs.rm(dirname(fsmPath), { recursive: true, force: true });
+  });
+
+  it('returns a verifier issue when the catalog provider cannot start', async () => {
+    const fsmPath = await writeClearOnEntryFixture(`{ model: 'gpt-5.1-codex' }`);
+    const log = vi.fn();
+    const r = await runVerifyCli({
+      fsmPath,
+      repoRoot,
+      log,
+      modelCatalogProviderFactory: async () => {
+        throw new Error('spawn unavailable');
+      },
+    });
+    expect(r.exitCode).toBe(1);
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    expect(lines).toContainEqual(
+      expect.stringContaining('clearOnEntry-model-catalog-probe (clear):'),
+    );
+    expect(lines).toContainEqual(expect.stringContaining('spawn unavailable'));
+    await fs.rm(dirname(fsmPath), { recursive: true, force: true });
+  });
+
+  it('returns a verifier issue when model/list fails', async () => {
+    const fsmPath = await writeClearOnEntryFixture(`{ model: 'gpt-5.1-codex' }`);
+    const provider = fakeCatalogProvider({ listModelsError: new Error('rpc model/list failed') });
+    const log = vi.fn();
+    const r = await runVerifyCli({ fsmPath, repoRoot, log, modelCatalogProvider: provider });
+    expect(r.exitCode).toBe(1);
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    expect(lines).toContainEqual(
+      expect.stringContaining('clearOnEntry-model-catalog-probe (clear):'),
+    );
+    expect(lines).toContainEqual(expect.stringContaining('could not read Codex model/list'));
+    expect(lines).toContainEqual(expect.stringContaining('rpc model/list failed'));
+    await fs.rm(dirname(fsmPath), { recursive: true, force: true });
+  });
+
+  it('rejects unsupported reasoning effort for a declared model', async () => {
+    const fsmPath = await writeClearOnEntryFixture(
+      `{ model: 'gpt-5.1-codex', reasoningEffort: 'xhigh' }`,
+    );
+    const provider = fakeCatalogProvider({
+      models: [
+        {
+          model: 'gpt-5.1-codex',
+          supportedReasoningEfforts: [{ reasoningEffort: 'low', description: 'Low' }],
+          defaultReasoningEffort: 'low',
+          isDefault: true,
+        },
+      ],
+    });
+    const log = vi.fn();
+    const r = await runVerifyCli({ fsmPath, repoRoot, log, modelCatalogProvider: provider });
+    expect(r.exitCode).toBe(1);
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    expect(lines).toContainEqual(
+      expect.stringContaining('clearOnEntry-reasoning-effort-supported (clear):'),
+    );
+    expect(lines).toContainEqual(expect.stringContaining('model "gpt-5.1-codex"'));
+    expect(lines).toContainEqual(expect.stringContaining('supported values: low'));
+    await fs.rm(dirname(fsmPath), { recursive: true, force: true });
+  });
+
+  it('validates effort-only declarations against config/read model for the static cwd', async () => {
+    const fsmPath = await writeClearOnEntryFixture(`{ reasoningEffort: 'high' }`);
+    const provider = fakeCatalogProvider({
+      configModel: 'configured-model',
+      models: [
+        {
+          model: 'configured-model',
+          supportedReasoningEfforts: [{ reasoningEffort: 'high', description: 'High' }],
+          defaultReasoningEffort: 'high',
+          isDefault: false,
+        },
+      ],
+    });
+    const log = vi.fn();
+    const r = await runVerifyCli({ fsmPath, repoRoot, log, modelCatalogProvider: provider });
+    expect(r.exitCode).toBe(0);
+    expect(provider.readConfig).toHaveBeenCalledWith({ cwd: repoRoot });
+    await fs.rm(dirname(fsmPath), { recursive: true, force: true });
+  });
+
+  it('uses model/list default when config/read does not name a model', async () => {
+    const fsmPath = await writeClearOnEntryFixture(`{ reasoningEffort: 'minimal' }`);
+    const provider = fakeCatalogProvider({
+      configModel: null,
+      models: [
+        {
+          model: 'first-model',
+          supportedReasoningEfforts: [{ reasoningEffort: 'low', description: 'Low' }],
+          defaultReasoningEffort: 'low',
+          isDefault: false,
+        },
+        {
+          model: 'default-model',
+          supportedReasoningEfforts: [{ reasoningEffort: 'minimal', description: 'Minimal' }],
+          defaultReasoningEffort: 'minimal',
+          isDefault: true,
+        },
+      ],
+    });
+    const log = vi.fn();
+    const r = await runVerifyCli({ fsmPath, repoRoot, log, modelCatalogProvider: provider });
+    expect(r.exitCode).toBe(0);
+    await fs.rm(dirname(fsmPath), { recursive: true, force: true });
+  });
+
+  it('defers effort-only validation when cwd is data-dependent', async () => {
+    const fsmPath = await writeClearOnEntryFixture(
+      `{ cwd: () => process.cwd(), reasoningEffort: 'high' }`,
+    );
+    const provider = fakeCatalogProvider();
+    const log = vi.fn();
+    const r = await runVerifyCli({ fsmPath, repoRoot, log, modelCatalogProvider: provider });
+    expect(r.exitCode).toBe(0);
+    expect(provider.listModels).not.toHaveBeenCalled();
+    expect(provider.readConfig).not.toHaveBeenCalled();
+    await fs.rm(dirname(fsmPath), { recursive: true, force: true });
+  });
+
+  it('reads paginated model/list results with includeHidden', async () => {
+    const fsmPath = await writeClearOnEntryFixture(`{ model: 'second-page-model' }`);
+    const provider = fakeCatalogProvider({
+      pages: [
+        {
+          data: [
+            {
+              model: 'first-page-model',
+              supportedReasoningEfforts: [{ reasoningEffort: 'medium', description: 'Medium' }],
+              defaultReasoningEffort: 'medium',
+              isDefault: true,
+            },
+          ],
+          nextCursor: 'page-2',
+        },
+        {
+          data: [
+            {
+              model: 'second-page-model',
+              supportedReasoningEfforts: [{ reasoningEffort: 'high', description: 'High' }],
+              defaultReasoningEffort: 'high',
+              isDefault: false,
+            },
+          ],
+          nextCursor: null,
+        },
+      ],
+    });
+    const log = vi.fn();
+    const r = await runVerifyCli({ fsmPath, repoRoot, log, modelCatalogProvider: provider });
+    expect(r.exitCode).toBe(0);
+    expect(provider.listModels).toHaveBeenNthCalledWith(1, { includeHidden: true });
+    expect(provider.listModels).toHaveBeenNthCalledWith(2, {
+      includeHidden: true,
+      cursor: 'page-2',
+    });
+    await fs.rm(dirname(fsmPath), { recursive: true, force: true });
   });
 
   it('flags missing skill refs via skill-must-resolve when neither root nor path exists', async () => {
@@ -127,3 +345,69 @@ export default machine;
     await fs.rm(tmpFsmDir, { recursive: true, force: true });
   });
 });
+
+async function writeClearOnEntryFixture(clearOnEntry: string): Promise<string> {
+  const tmpFsmDir = await fs.mkdtemp(join(tmpdir(), 'codex-verify-cli-clear-'));
+  const tmpFsmPath = join(tmpFsmDir, 'clear.fsm.ts');
+  const source = `import { aharness, state, terminal, exit } from '@aharness/core';
+interface P { value: string }
+export const machine = aharness.machine({
+  id: 'clear-catalog',
+  initial: 'start',
+  context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
+  states: {
+    start: state({
+      entryPrompt: 'Start.',
+      exits: { next: exit<P>({ to: 'clear' }) },
+    }),
+    clear: state({
+      entryPrompt: 'Clear.',
+      clearOnEntry: ${clearOnEntry},
+      exits: { done: exit<P>({ to: 'done' }) },
+    }),
+    done: terminal('success'),
+  },
+});
+export default machine;
+`;
+  await fs.writeFile(tmpFsmPath, source, 'utf8');
+  return tmpFsmPath;
+}
+
+type ModelListResponse = Awaited<ReturnType<CodexConfigModelProvider['listModels']>>;
+
+type FakeCatalogProviderOpts = {
+  readonly configModel?: string | null;
+  readonly models?: ModelListResponse['data'];
+  readonly pages?: ReadonlyArray<ModelListResponse>;
+  readonly listModelsError?: unknown;
+};
+
+function fakeCatalogProvider(opts: FakeCatalogProviderOpts = {}): CodexConfigModelProvider & {
+  readonly readConfig: ReturnType<typeof vi.fn<CodexConfigModelProvider['readConfig']>>;
+  readonly listModels: ReturnType<typeof vi.fn<CodexConfigModelProvider['listModels']>>;
+} {
+  const pages = opts.pages ?? [
+    {
+      data: opts.models ?? [],
+      nextCursor: null,
+    },
+  ];
+  return {
+    readConfig: vi.fn(async () => ({
+      config: {
+        ...(opts.configModel !== undefined ? { model: opts.configModel } : {}),
+      },
+    })),
+    listModels: vi.fn(async ({ cursor }) => {
+      if (opts.listModelsError !== undefined) {
+        throw opts.listModelsError;
+      }
+      if (cursor === undefined || cursor === null) {
+        return pages[0] ?? { data: [], nextCursor: null };
+      }
+      const pageNumber = Number(cursor.replace('page-', ''));
+      return pages[pageNumber - 1] ?? { data: [], nextCursor: null };
+    }),
+  };
+}

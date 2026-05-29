@@ -123,7 +123,8 @@ import { makeSerializeDispatch } from '../runtime/serializeDispatch.js';
 import { scheduleCrossStateDance } from '../runtime/crossStateDance.js';
 import { PHASE1_OPT_OUT_METHODS } from '../runtime/optOutNotificationMethods.js';
 import { performFreshClear } from '../runtime/freshClear.js';
-import { resolveClearOnEntryCwd } from '../runtime/clearOnEntryCwd.js';
+import { resolveClearOnEntryOptions } from '../runtime/clearOnEntryCwd.js';
+import { preflightClearOnEntryModel } from '../runtime/clearOnEntryModelPreflight.js';
 import { flushHeadlessSnapshotEnvelope } from '../runtime/snapshotEnvelope.js';
 import { discoverDeclaredHookKinds } from '../state/discoverHooks.js';
 import {
@@ -812,17 +813,30 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       const c = client;
       if (!c) throw new Error('internal: client unbound at fresh-clear time');
       return serializeDispatch(async () => {
-        const cwd = resolveClearOnEntryCwd({
+        const clearOptions = resolveClearOnEntryOptions({
           clearOnEntry,
           context: postTransitionContext,
           defaultCwd: repoRoot,
           stateId: targetStateId,
         });
+        await preflightClearOnEntryModel({
+          client: c,
+          stateId: targetStateId,
+          cwd: clearOptions.cwd,
+          ...(clearOptions.model !== undefined ? { model: clearOptions.model } : {}),
+          ...(clearOptions.reasoningEffort !== undefined
+            ? { reasoningEffort: clearOptions.reasoningEffort }
+            : {}),
+        });
         const boundary = await performFreshClear({
           client: c,
           activeThreadBinding,
           ...(info.oldTurnId !== undefined ? { oldTurnId: info.oldTurnId } : {}),
-          cwd,
+          cwd: clearOptions.cwd,
+          ...(clearOptions.model !== undefined ? { model: clearOptions.model } : {}),
+          ...(clearOptions.reasoningEffort !== undefined
+            ? { reasoningEffort: clearOptions.reasoningEffort }
+            : {}),
           dynamicTools: buildDynamicToolsRegistration(),
           composeActiveStateNudge: () => {
             const orientation = composeActiveStateNudge(host, sidecar);
