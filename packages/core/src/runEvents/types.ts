@@ -1,11 +1,10 @@
 /**
  * Canonical run-event contracts.
  *
- * Slice 0 defines the stable JSONL envelope and the in-memory projection
- * shapes used by replay/index tests. These types are internal to core for
- * now: live runtime writers still use the legacy audit writer in
- * `events.ts`, and later slices will wire these contracts into the runtime
- * once every `events.jsonl` writer has a canonical mapping.
+ * These types define the stable JSONL envelope and the in-memory projection
+ * shapes used by replay/index tests and the live runtime publisher.
+ * `events.ts` still exposes the legacy public input union, but new writes
+ * map through these canonical contracts before landing in `events.jsonl`.
  */
 
 export const RUN_EVENT_SCHEMA = 'aharness.event.v1' as const;

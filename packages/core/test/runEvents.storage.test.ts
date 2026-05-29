@@ -156,6 +156,35 @@ describe('canonical run event writer', () => {
     expect(writer.offset()).toBe(0);
   });
 
+  it('uses per-append warning reporters without leaking them across calls', () => {
+    const eventsPath = tempEventsPath();
+    const firstWarning = vi.fn();
+    const secondWarning = vi.fn();
+    const writer = createRunEventWriter({
+      runId: 'run-per-append-warning',
+      eventsPath,
+      append: () => {
+        throw new Error('disk full');
+      },
+    });
+
+    writer.append({ type: 'run.started' }, { onWarning: firstWarning });
+    writer.append({ type: 'state.changed' }, { onWarning: secondWarning });
+
+    expect(firstWarning).toHaveBeenCalledTimes(1);
+    expect(firstWarning.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        envelope: expect.objectContaining({ type: 'run.started' }),
+      }),
+    );
+    expect(secondWarning).toHaveBeenCalledTimes(1);
+    expect(secondWarning.mock.calls[0]?.[0]).toEqual(
+      expect.objectContaining({
+        envelope: expect.objectContaining({ type: 'state.changed' }),
+      }),
+    );
+  });
+
   it('returns structured warnings for serialization failures without advancing sequence', () => {
     const eventsPath = tempEventsPath();
     const onWarning = vi.fn();

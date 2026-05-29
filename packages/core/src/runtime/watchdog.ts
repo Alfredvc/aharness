@@ -5,8 +5,9 @@
  * resolve within `budgetMs`, `onOver` is invoked exactly once with the
  * budget that was exceeded. The handler itself is never aborted — the
  * watchdog is observational, designed to surface budget overruns
- * (500 ms for submit, 100 ms for shorter request handlers) so the
- * daemon can log them to `events.jsonl` without changing behavior.
+ * (500 ms for submit, 100 ms for shorter request handlers) so callers
+ * can record canonical diagnostics in `events.jsonl` without changing
+ * handler behavior.
  *
  * Implementation note: only the timer fires `onOver`. The `finally`
  * block does not re-check the elapsed time, which would otherwise

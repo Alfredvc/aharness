@@ -10,10 +10,9 @@
  *   4. fsyncs the temp file to durable storage.
  *   5. `rename()`s the temp file over the final path (POSIX atomic).
  *
- * It also appends one entry to `<runDir>/events.jsonl` recording the
- * write — see `events.ts` for that surface; this module does the
- * append directly because `writeArtifact` is the only caller of the
- * `artifact` event kind.
+ * It also appends canonical `artifact.written` metadata to
+ * `<runDir>/events.jsonl` after a successful rename. The append remains
+ * best effort and records only relative path plus byte count.
  */
 import { randomBytes } from 'node:crypto';
 import { mkdir, open, rename, writeFile } from 'node:fs/promises';
@@ -25,7 +24,7 @@ import type { RunDir } from './types.js';
 
 /**
  * Write `content` to `<runDir>/artifacts/<relPath>` atomically and
- * append one `artifact` entry to the run's event log.
+ * append one canonical `artifact.written` event to the run's event log.
  *
  * Returns `{ absolutePath }` so the caller can refer to the final
  * location (e.g. for prompt injection).
@@ -35,8 +34,8 @@ import type { RunDir } from './types.js';
  * Crash window — best-effort durability. The file rename and the
  * `events.jsonl` append are not in a single atomic step. A process
  * kill (SIGKILL or hard crash) between `rename` and `appendEventEntry`
- * leaves the artifact on disk but unrecorded in the audit log. State
- * recovery is from `snapshot.json`, not from `events.jsonl`, so this
+ * leaves the artifact on disk but absent from the canonical event log.
+ * The current slice still writes `snapshot.json` inspection state, so this
  * does not corrupt FSM advancement; if a user FSM needs strict
  * artifact↔log consistency, that is the user FSM's responsibility.
  */

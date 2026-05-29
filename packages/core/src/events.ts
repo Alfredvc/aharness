@@ -1,32 +1,38 @@
 /**
- * Event log writer — `@aharness/core` §4.9.
+ * Canonical event-log compatibility writer.
  *
- * `<runDir>/events.jsonl` is an audit log, **not a durability primitive**.
+ * `<runDir>/events.jsonl` is best-effort canonical `aharness.event.v1`
+ * storage for new runtime writes, **not a durability primitive**.
  * Lines are atomic per-write under POSIX `O_APPEND` only when ≤PIPE_BUF
  * (typically 4 KiB on Linux, 512 B on macOS for pipes; for regular files
  * most kernels still serialize append-mode writes, but this is filesystem-
  * dependent). Readers should tolerate truncated tails. The writer does
  * not fsync; lost trailing entries on hard crash are acceptable for an
- * audit log. Inspect the run's latest `snapshot.json` for state, not
- * this log.
+ * append-only transcript. `snapshot.json` remains written for current
+ * inspection state in this slice.
  *
- * One JSON object per line. The framework writes six kinds of entries:
+ * `appendEventEntry` keeps the legacy public input union callable while
+ * mapping every input to a canonical envelope before it lands on disk:
  *
- *   - `hook`        — emitted by `pipeHooksToActor` and `makeStopHandler`.
+ *   - `hook`        — compatibility input for hook dispatchers and hook
+ *                     clients.
  *                     The raw payload is hashed (SHA-256) rather than
  *                     stored, so secrets in hook inputs do not leak into
  *                     the log.
- *   - `submit`      — emitted by the submit dispatcher on every MCP tool
- *                     fire. Payload is **not** logged (may contain owner
- *                     prose); only `accepted` and an optional `error`
- *                     summary (capped at 1024 bytes UTF-8) are written.
+ *   - `submit`      — compatibility input for `aharness_submit`
+ *                     dynamic-tool handling. Payload is **not** logged
+ *                     (may contain owner prose); only `accepted` and an
+ *                     optional `error` summary (capped at 1024 bytes
+ *                     UTF-8) are written.
  *   - `transition`  — reserved variant; no @aharness/core caller currently
  *                     emits it. (The CC-era inspector-driven persister
  *                     was the only emitter; @aharness/core's daemon writes
  *                     snapshots via `flushSnapshot` without an
  *                     inspector hook.)
- *   - `artifact`    — emitted by `writeArtifact`.
- *   - `terminal`    — emitted by the runtime when the actor finalises.
+ *   - `artifact`    — emitted by `writeArtifact` as `artifact.written`.
+ *   - `terminal`    — compatibility input for terminal completion; the
+ *                     live runtime path writes terminal/run completion
+ *                     through the canonical live publisher.
  *   - `abandonedThreadResidue`
  *                   — emitted when an old thread produces post-clear
  *                     residue. The entry records only a thread id, source,
@@ -36,13 +42,18 @@
  * directly.
  */
 import { createHash } from 'node:crypto';
-import { appendFileSync } from 'node:fs';
 
 import { canonicalJson } from './internal/canonicalJson.js';
+import {
+  appendRunEvent,
+  legacyEventInputToRunEventAppendInput,
+  type RunEventEnvelope,
+  type RunEventWriterWarning,
+} from './runEvents/index.js';
 import { log as runLog } from './runLog.js';
 import type { RunDir } from './types.js';
 
-/** Discriminated union over the six entry kinds — see module docstring. */
+/** Legacy public input union. New persisted lines are canonical envelopes. */
 export type EventLogEntryInput =
   | { kind: 'hook'; name: string; payloadDigest: string }
   | { kind: 'submit'; stateId: string; accepted: boolean; error?: string }
@@ -51,8 +62,8 @@ export type EventLogEntryInput =
   | { kind: 'terminal'; state: string; terminal: string }
   | { kind: 'abandonedThreadResidue'; threadId: string; source: string; message: string };
 
-/** What actually lands in `events.jsonl` — same shape, plus `ts`. */
-export type EventLogEntry = EventLogEntryInput & { ts: string };
+/** @deprecated New writes persist `RunEventEnvelope` lines, not `{ts, kind}` audit entries. */
+export type EventLogEntry = RunEventEnvelope;
 
 /** Maximum UTF-8 byte length for the `error` field on a `submit` entry. */
 const SUBMIT_ERROR_MAX_BYTES = 1024;
@@ -93,17 +104,15 @@ function truncateUtf8(s: string, maxBytes: number): string {
 }
 
 /**
- * Append one entry to `<runDir>/events.jsonl`. Synchronous — the entry
- * lands before the function returns. We use synchronous I/O here on
- * purpose: callers (writeArtifact, the snapshot subscription, the hook
- * dispatcher) want the log to outlive a crash that comes immediately
- * after the operation they're recording.
- *
- * The timestamp is filled in here so callers can't pass stale `ts`.
+ * Append one legacy compatibility input to `<runDir>/events.jsonl` as a
+ * canonical `aharness.event.v1` envelope. Synchronous — the accepted line
+ * lands before the function returns. We use synchronous I/O here on purpose:
+ * callers want the log to outlive a crash that comes immediately after the
+ * operation they're recording.
  *
  * For `submit` entries, the optional `error` string is capped at 1024
  * UTF-8 bytes; over-cap inputs are sliced and suffixed with
- * `…[truncated]` so a runaway ajv message cannot blow up the audit log.
+ * `…[truncated]` so a runaway ajv message cannot blow up the event log.
  */
 export function appendEventEntry(runDir: RunDir, entryInput: EventLogEntryInput): void {
   let normalized: EventLogEntryInput = entryInput;
@@ -119,19 +128,25 @@ export function appendEventEntry(runDir: RunDir, entryInput: EventLogEntryInput)
       message: truncateUtf8(entryInput.message, ABANDONED_THREAD_RESIDUE_MESSAGE_MAX_BYTES),
     };
   }
-  const entry: EventLogEntry = { ts: new Date().toISOString(), ...normalized };
-  // WHY try/catch: `events.jsonl` is best-effort audit data, not a
-  // durability primitive; `snapshot.json` is the state inspection file. The
-  // hot-path callers — snapshot persister, submit dispatcher, hook
-  // pipe — must not fail FSM advancement because the disk is full or
-  // the file is unwritable. Mirrors the swallow pattern in runLog.ts.
-  try {
-    appendFileSync(runDir.eventsPath, JSON.stringify(entry) + '\n');
-  } catch (err) {
-    runLog('events.append-failed', {
-      err: err instanceof Error ? err.message : String(err),
-    });
+
+  let reported = false;
+  const result = appendRunEvent(runDir, legacyEventInputToRunEventAppendInput(normalized), {
+    onWarning: (warning) => {
+      reported = true;
+      reportAppendWarning(warning);
+    },
+  });
+  if (!result.ok && !reported) {
+    reportAppendWarning(result.warning);
   }
+}
+
+function reportAppendWarning(warning: RunEventWriterWarning): void {
+  runLog('events.append-failed', {
+    code: warning.code,
+    err: warning.message,
+    eventType: warning.envelope.type,
+  });
 }
 
 /**

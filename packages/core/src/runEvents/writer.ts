@@ -40,6 +40,10 @@ export type RunEventAppendResult =
       readonly warning: RunEventWriterWarning;
     };
 
+export interface RunEventAppendOptions {
+  readonly onWarning?: (warning: RunEventWriterWarning) => void;
+}
+
 export interface RunEventWriterOptions {
   readonly runId: string;
   readonly eventsPath: string;
@@ -52,7 +56,10 @@ export interface RunEventWriterOptions {
 }
 
 export interface RunEventWriter {
-  readonly append: (input: RunEventAppendInput) => RunEventAppendResult;
+  readonly append: (
+    input: RunEventAppendInput,
+    options?: RunEventAppendOptions,
+  ) => RunEventAppendResult;
   readonly nextSeq: () => number;
   readonly offset: () => number;
 }
@@ -165,14 +172,15 @@ export function createRunEventWriter(options: RunEventWriterOptions): RunEventWr
   let offset = normalizeOffset(options.initialOffset, options.eventsPath);
 
   return {
-    append(input) {
+    append(input, appendOptions) {
+      const reporter = appendOptions?.onWarning ?? options.onWarning;
       const envelope = buildEnvelope(options.runId, nextSeq, timestamp(clock), input);
       let line: string;
       try {
         line = `${JSON.stringify(envelope)}\n`;
       } catch (err) {
         const w = warning('serialize-failed', options.eventsPath, envelope, offset, err);
-        reportWarning(options.onWarning, w);
+        reportWarning(reporter, w);
         return { ok: false, warning: w };
       }
 
@@ -183,7 +191,7 @@ export function createRunEventWriter(options: RunEventWriterOptions): RunEventWr
           truncate(options.eventsPath, offset);
         } catch (err) {
           const w = warning('truncate-failed', options.eventsPath, envelope, offset, err);
-          reportWarning(options.onWarning, w);
+          reportWarning(reporter, w);
           return { ok: false, warning: w };
         }
       } else if (currentSize < offset) {
@@ -194,7 +202,7 @@ export function createRunEventWriter(options: RunEventWriterOptions): RunEventWr
         append(options.eventsPath, line);
       } catch (err) {
         const w = warning('append-failed', options.eventsPath, envelope, offset, err);
-        reportWarning(options.onWarning, w);
+        reportWarning(reporter, w);
         return { ok: false, warning: w };
       }
 

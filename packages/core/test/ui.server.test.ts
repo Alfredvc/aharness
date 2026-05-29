@@ -1,11 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdirSync, readFileSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { FsmState, RunMeta } from '../src/ui/events.js';
 import type { BrowserReplyResult } from '../src/ui/reply.js';
 import { startUiServer, type UiServerHandle } from '../src/ui/server.js';
 import { createUiEventLog, type UiEventLog } from '../src/ui/sse.js';
+import { RUN_EVENT_SCHEMA, createLiveRunEventPublisher } from '../src/runEvents/index.js';
+import type { RunDir } from '../src/types.js';
 
 const runMeta: RunMeta = {
   runId: 'run-1',
@@ -35,6 +38,19 @@ afterEach(async () => {
 });
 
 type TestReplyHandler = (payload: unknown) => BrowserReplyResult | Promise<BrowserReplyResult>;
+
+function tempRunDir(): RunDir {
+  const root = mkdtempSync(join(tmpdir(), 'aharness-ui-live-publisher-'));
+  const artifactsDir = join(root, 'artifacts');
+  mkdirSync(artifactsDir);
+  return {
+    runId: 'run-1',
+    root,
+    snapshotPath: join(root, 'snapshot.json'),
+    eventsPath: join(root, 'events.jsonl'),
+    artifactsDir,
+  };
+}
 
 async function startTestServer(
   eventLog: UiEventLog,
@@ -435,6 +451,85 @@ describe('startUiServer', () => {
     expect(body).toContain('event: AgentMessageDelta\n');
     expect(body).toContain('data:   "delta": "new text"');
     expect(body).not.toContain('already seen');
+  });
+
+  it('preserves /api/state and /api/stream when events pass through the live canonical publisher', async () => {
+    const eventLog = createUiEventLog({ capacity: 8, run: runMeta });
+    const runDir = tempRunDir();
+    const publisher = createLiveRunEventPublisher({
+      runDir,
+      runMeta,
+      uiEventLog: eventLog,
+      stderr: { write: () => true } as unknown as NodeJS.WritableStream,
+    });
+
+    publisher.publishRunStarted();
+    publisher.publish({
+      kind: 'StateChange',
+      from: null,
+      to: 'root.working',
+      cause: 'boot',
+      newState: state,
+    });
+    publisher.publish({ kind: 'AgentMessageDelta', id: 'msg-1', delta: 'Hello' });
+    publisher.publish({
+      kind: 'ServerRequest',
+      id: 'owner-1',
+      method: 'item/tool/requestUserInput',
+      questions: [
+        {
+          id: 'q1',
+          header: 'Next',
+          question: 'What next?',
+          isOther: false,
+          isSecret: false,
+        },
+      ],
+    });
+    publisher.publish({ kind: 'OwnerInputResolved', id: 'owner-1' });
+    eventLog.eventsAfter('999');
+
+    const handle = await startTestServer(eventLog);
+    const stateResponse = await fetch(`${handle.url}/api/state?token=${TEST_UI_TOKEN}`);
+    const stateBody = await stateResponse.json();
+    expect(stateBody).toEqual(
+      expect.objectContaining({
+        latestEventId: '4',
+        state: expect.objectContaining({
+          currentState: state,
+          transcript: [{ id: 'msg-1', text: 'Hello', reasoning: false }],
+          pending: expect.objectContaining({ ownerInput: null }),
+        }),
+      }),
+    );
+
+    const streamResponse = await fetch(`${handle.url}/api/stream?token=${TEST_UI_TOKEN}`, {
+      headers: { 'Last-Event-ID': '2' },
+    });
+    const streamBody = await readSseUntil(streamResponse, 'OwnerInputResolved');
+    expect(streamBody).toContain('id: 3\n');
+    expect(streamBody).toContain('event: ServerRequest\n');
+    expect(streamBody).toContain('event: OwnerInputResolved\n');
+
+    const envelopes = readFileSync(runDir.eventsPath, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(envelopes.map((entry) => entry['schema'])).toEqual([
+      RUN_EVENT_SCHEMA,
+      RUN_EVENT_SCHEMA,
+      RUN_EVENT_SCHEMA,
+      RUN_EVENT_SCHEMA,
+      RUN_EVENT_SCHEMA,
+    ]);
+    expect(envelopes.map((entry) => entry['type'])).toEqual([
+      'run.started',
+      'state.changed',
+      'model.delta',
+      'request.created',
+      'request.resolved',
+    ]);
+    expect(envelopes.every((entry) => entry['type'] !== 'ResyncRequired')).toBe(true);
   });
 
   it('uses the after query cursor when Last-Event-ID is absent', async () => {

@@ -1,11 +1,9 @@
 /**
  * Internal canonical run-event module barrel.
  *
- * This surface groups the Slice 0 storage, replay, and memory-index
- * primitives without exporting them from the public `@aharness/core` author
- * barrel. Later slices may import from this internal path when they cut the
- * runtime over to canonical JSONL, but current runtime behavior remains on the
- * legacy audit writer.
+ * This surface groups the canonical storage, replay, memory-index, and live
+ * runtime adapter primitives without exporting them from the public
+ * `@aharness/core` author barrel.
  */
 export {
   RUN_EVENT_SCHEMA,
@@ -28,6 +26,7 @@ export {
 } from './types.js';
 export {
   createRunEventWriter,
+  type RunEventAppendOptions,
   type RunEventAppendIo,
   type RunEventAppendResult,
   type RunEventTruncateIo,
@@ -44,3 +43,22 @@ export {
   type RowPageQuery,
   type RunEventIndex,
 } from './indexer.js';
+export { appEventToRunEventAppendInput, legacyEventInputToRunEventAppendInput } from './adapter.js';
+export {
+  appendRunEvent,
+  getRunEventRecorder,
+  resetRunEventRecordersForTesting,
+  setRunEventWriterFactoryForTesting,
+  type AppendRunEventOptions,
+  type GetRunEventRecorderOptions,
+  type RunEventRecorder,
+  type RunEventRecorderAppendOptions,
+  type RunEventRecorderWarningSink,
+  type RunEventWriterFactory,
+} from './recorder.js';
+export {
+  createLiveRunEventPublisher,
+  type LiveRunEventPublisher,
+  type LiveRunEventPublisherOptions,
+  type RunTerminalInput,
+} from './livePublisher.js';

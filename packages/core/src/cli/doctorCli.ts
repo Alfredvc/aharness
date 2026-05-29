@@ -15,10 +15,10 @@
  *          `RUN_REPORT.json` is present, a staleness warning is emitted;
  *          when `RUN_REPORT.json` exists the daemon legitimately exited
  *          and the warning is suppressed.
- *        - Cache-ratio summary — last `cache.metrics` JSONL line from
- *          `events.jsonl` (Task 49). Missing/unparseable → silently
- *          skipped (the run may simply not have any tokenUsage updates
- *          yet).
+ *        - Cache-ratio summary — legacy last `cache.metrics` JSONL line
+ *          from `events.jsonl`, when present. Missing/unparseable →
+ *          silently skipped (new canonical run events do not add token
+ *          usage capture in Slice 1).
  *        - Terminal classification — `terminal` and `stateAtTerminal`
  *          from `RUN_REPORT.json` (Task 35c) when present. Absent →
  *          run is still active, no line emitted.
@@ -48,7 +48,7 @@ const exec = promisify(execFile);
  */
 const STALE_DAEMON_THRESHOLD_MS = 15_000;
 
-/** Last `cache.metrics` JSONL line, mirrored from `notificationRouter.ts`. */
+/** Legacy last `cache.metrics` JSONL line, if an older run recorded one. */
 export interface DoctorCacheMetrics {
   readonly turn: number;
   readonly totalInput: number;
@@ -167,8 +167,9 @@ function readDaemonAliveAge(path: string): number | null {
 
 /**
  * Read the last non-empty line of `events.jsonl`, parse it, and return it
- * iff it is a `cache.metrics` line. Anything else (file missing, parse
- * fail, different `kind`) is treated as "no metrics available".
+ * iff it is a legacy `cache.metrics` line. Anything else (file missing,
+ * parse fail, canonical envelope, or different `kind`) is treated as
+ * "no metrics available".
  */
 function readLastCacheMetrics(path: string): DoctorCacheMetrics | null {
   let body: string;

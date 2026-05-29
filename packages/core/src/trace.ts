@@ -17,7 +17,8 @@
  * registry lets `writeArtifact` (called from inside user FSM actions)
  * find the right emitter without threading it through XState input.
  *
- * Privacy posture mirrors `events.jsonl` (§4.9 of `SPEC_SDK.md`):
+ * Privacy posture remains intentionally narrower than canonical run-event
+ * storage: trace files are timeline diagnostics, not raw replay payloads.
  *   - hook payloads digested by default; full only with AHARNESS_TRACE_FULL=1
  *   - submit payloads NEVER written, even with AHARNESS_TRACE_FULL=1
  *   - artifact contents NEVER written

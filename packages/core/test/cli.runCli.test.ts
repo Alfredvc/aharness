@@ -40,6 +40,12 @@ import {
   flushHeadlessSnapshotEnvelope,
   loadHeadlessSnapshotEnvelope,
 } from '../src/runtime/snapshotEnvelope.js';
+import {
+  RUN_EVENT_SCHEMA,
+  type RunEventAppendInput,
+  type RunEventEnvelope,
+  type RunEventRecorder,
+} from '../src/runEvents/index.js';
 import type { ActiveThreadBinding } from '../src/runtime/activeThreadBinding.js';
 import type { ReplayableAppEvent, UiSnapshot } from '../src/ui/events.js';
 import type { StartUiServerOptions } from '../src/ui/server.js';
@@ -87,6 +93,54 @@ function makeWritableBuffer(): {
       },
     } as unknown as NodeJS.WritableStream,
     text: () => chunks.join(''),
+  };
+}
+
+function readRunEventEnvelopes(repoRoot: string): RunEventEnvelope[] {
+  const runId = readdirSync(join(repoRoot, '.aharness', 'runs'))[0];
+  if (!runId) throw new Error('missing run dir');
+  return readFileSync(join(repoRoot, '.aharness', 'runs', runId, 'events.jsonl'), 'utf8')
+    .trim()
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as RunEventEnvelope);
+}
+
+function expectCanonicalRunEventStream(repoRoot: string): RunEventEnvelope[] {
+  const entries = readRunEventEnvelopes(repoRoot);
+  expect(entries.every((entry) => entry.schema === RUN_EVENT_SCHEMA)).toBe(true);
+  expect(entries.map((entry) => entry.seq)).toEqual(entries.map((_entry, index) => index + 1));
+  expect(entries.map((entry) => entry.id)).toEqual(
+    entries.map((entry, index) => `${entry.runId}:${index + 1}`),
+  );
+  expect(entries.every((entry) => !('kind' in entry) && !('ts' in entry))).toBe(true);
+  return entries;
+}
+
+function failingRunEventRecorder(): RunEventRecorder {
+  return {
+    append(input: RunEventAppendInput) {
+      const envelope: RunEventEnvelope = {
+        schema: RUN_EVENT_SCHEMA,
+        runId: 'run-warning',
+        seq: 1,
+        id: 'run-warning:1',
+        time: '2026-05-29T00:00:00.000Z',
+        type: input.type,
+      };
+      return {
+        ok: false,
+        warning: {
+          code: 'append-failed',
+          message: 'disk full',
+          eventsPath: '/tmp/events.jsonl',
+          offset: 0,
+          envelope,
+        },
+      };
+    },
+    nextSeq: () => 1,
+    offset: () => 0,
   };
 }
 
@@ -965,6 +1019,45 @@ describe('runCliForTest — pre-spawn gates', () => {
     });
   });
 
+  it('keeps the browser useful when canonical runtime append fails', async () => {
+    const fsmPath = makeFsmFile(repoRoot, 'ui-append-warning.fsm.ts');
+    const published: ReplayableAppEvent[] = [];
+    const spawnAppServer = vi.fn(async () => {
+      throw new Error('test-abort-after-spawn-args-captured');
+    });
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        _testRunEventRecorder: failingRunEventRecorder(),
+        _testOnUiEvent: (event) => published.push(event),
+        spawnAppServer: spawnAppServer as unknown as RunCliTestHooks['spawnAppServer'],
+      },
+    });
+    opts.stderr = stderrSink;
+
+    const r = await runCliForTest(opts);
+
+    expect(r.exitCode).toBe(1);
+    expect(spawnAppServer).toHaveBeenCalledTimes(1);
+    expect(stderrBuf.join('')).toContain('events.jsonl append failed');
+    expect(published.map((entry) => entry.event)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'FrameworkNote',
+          variant: 'warn',
+          text: expect.stringContaining('events.jsonl append failed'),
+        }),
+        expect.objectContaining({
+          kind: 'StateChange',
+          from: null,
+          to: 'greet',
+          cause: 'boot',
+        }),
+      ]),
+    );
+  });
+
   it('case 12: closes the UI server when app-server spawn fails', async () => {
     const fsmPath = makeFsmFile(repoRoot, 'ui-close-on-spawn-fail.fsm.ts');
     const closeUiServer = vi.fn(async () => undefined);
@@ -991,6 +1084,21 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(startUiServerImpl).toHaveBeenCalledTimes(1);
     expect(spawnAppServer).toHaveBeenCalledTimes(1);
     expect(closeUiServer).toHaveBeenCalledTimes(1);
+    const eventEntries = expectCanonicalRunEventStream(repoRoot);
+    expect(eventEntries.map((entry) => entry.type)).toEqual([
+      'run.started',
+      'state.changed',
+      'run.failed',
+    ]);
+    expect(eventEntries.at(-1)).toEqual(
+      expect.objectContaining({
+        type: 'run.failed',
+        data: expect.objectContaining({
+          status: 'failed',
+          message: 'app-server failed: spawn exploded',
+        }),
+      }),
+    );
   });
 
   it('case 13: reports UI server startup failure and does not spawn app-server', async () => {
@@ -1297,6 +1405,46 @@ describe('runCliForTest — pre-spawn gates', () => {
         },
       ],
     });
+
+    const eventEntries = expectCanonicalRunEventStream(repoRoot);
+    expect(eventEntries.map((entry) => entry.type)).toEqual(
+      expect.arrayContaining([
+        'run.started',
+        'state.changed',
+        'request.created',
+        'request.resolved',
+        'run.completed',
+        'posture.changed',
+      ]),
+    );
+    expect(eventEntries.find((entry) => entry.type === 'run.started')).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          runId: expect.stringMatching(/^[0-9a-f]{6}-[0-9a-f]{6}$/),
+          repoRoot,
+          fsmFile: fsmPath,
+        }),
+      }),
+    );
+    expect(eventEntries.find((entry) => entry.type === 'request.created')).toEqual(
+      expect.objectContaining({
+        requestId: 'item-owner-1',
+        data: expect.objectContaining({
+          kind: 'owner-input',
+          questionCount: 1,
+          status: 'pending',
+        }),
+      }),
+    );
+    expect(eventEntries.find((entry) => entry.type === 'run.completed')).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          state: 'done',
+          terminal: 'success',
+          status: 'success',
+        }),
+      }),
+    );
   });
 
   it('case 17: user-prompt reply in an open state starts a turn with the active thread id and user text', async () => {
@@ -1843,23 +1991,33 @@ describe('runCliForTest — pre-spawn gates', () => {
     );
     const runId = readdirSync(join(repoRoot, '.aharness', 'runs'))[0];
     if (!runId) throw new Error('missing run dir');
-    const auditEntries = readFileSync(
+    const eventEntries = readFileSync(
       join(repoRoot, '.aharness', 'runs', runId, 'events.jsonl'),
       'utf8',
     )
       .trim()
       .split('\n')
       .filter(Boolean)
-      .map((line) => JSON.parse(line) as { kind?: string; threadId?: string; source?: string });
-    expect(auditEntries).toEqual(
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            schema?: string;
+            type?: string;
+            threadId?: string;
+            data?: Record<string, unknown>;
+          },
+      );
+    expect(eventEntries).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          kind: 'abandonedThreadResidue',
+          schema: 'aharness.event.v1',
+          type: 'diagnostic.abandoned_thread',
           threadId: startupThreadId,
-          source: 'turnCompleted',
+          data: expect.objectContaining({ source: 'turnCompleted' }),
         }),
       ]),
     );
+    expect(eventEntries.every((entry) => !('kind' in entry) && !('ts' in entry))).toBe(true);
     const snapshot = loadHeadlessSnapshotEnvelope(
       join(repoRoot, '.aharness', 'runs', runId, 'snapshot.json'),
     );

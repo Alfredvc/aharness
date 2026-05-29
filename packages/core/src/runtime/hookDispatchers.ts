@@ -11,8 +11,8 @@
  * `setImmediate` so it bypasses the per-frame UDS try/catch in
  * `hookSocket.handleRequest` and fires as `uncaughtException` on the
  * daemon's process. The daemon's installed `process.on('uncaughtException')`
- * handler then writes a `daemonUncaughtException` line to events.jsonl
- * and calls `onFatalError` (default `process.exit(1)`).
+ * handler then writes a structured diagnostic to events.jsonl and calls
+ * `onFatalError` (default `process.exit(1)`).
  */
 import type { ActorHost } from './actorHost.js';
 import type { ActiveThreadBinding } from './activeThreadBinding.js';
@@ -48,8 +48,8 @@ export interface PerStateHookDispatcherInput {
   /**
    * Called when an author handler throws. The dispatcher re-throws after
    * this returns so the daemon's uncaught-exception path can run; this
-   * hook exists so the run's `events.jsonl` gets a structured entry with
-   * the state id + kind + matcher + error before the daemon exits
+   * hook exists so the run's `events.jsonl` gets a structured diagnostic
+   * with the state id + kind + matcher + error before the daemon exits
    * (spec §5.6 step 9 / §8). The callback itself MUST NOT throw —
    * the dispatcher does not wrap it in try/catch.
    */
@@ -150,7 +150,7 @@ export function createPerStateHookDispatcher(
     // before being re-thrown. Re-throwing preserves spec §8 / §5.6
     // step 9: the daemon's uncaught-exception path runs and the run
     // exits 1 — the callback exists only so the run's events.jsonl
-    // carries a structured diagnostic entry.
+    // carries a structured diagnostic.
     //
     // Why setImmediate: the per-frame UDS handler in
     // `hookSocket.ts::handleRequest` wraps the dispatcher call in

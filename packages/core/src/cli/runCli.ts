@@ -85,7 +85,7 @@ import type {
 } from '../protocol/types.js';
 import { deriveRunId, ensureRunDir } from '../run.js';
 import { writeArtifact } from '../artifact.js';
-import { appendEventEntry } from '../events.js';
+import { createLiveRunEventPublisher, type RunEventRecorder } from '../runEvents/index.js';
 import { buildDynamicToolsRegistration } from '../transport/dynamicToolsRegistration.js';
 import { createApprovalDispatcher } from '../transport/approvalDispatch.js';
 import { createItemCompletedWatcherRegistry } from '../transport/itemCompletedWatcher.js';
@@ -203,6 +203,12 @@ export interface RunCliTestHooks {
    * log. Production callers leave this unset.
    */
   readonly _testOnUiEvent?: (event: ReplayableAppEvent) => void;
+  /**
+   * Slice 1 test seam: inject a deterministic canonical run-event recorder
+   * for append-failure and sequence-order tests. Production callers leave
+   * this unset and use the shared per-run recorder.
+   */
+  readonly _testRunEventRecorder?: RunEventRecorder;
   /**
    * Test seam for Slice 2 active-thread binding. Lets tests simulate a
    * future replacement-thread swap without enabling fresh-clear behavior.
@@ -383,10 +389,23 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     run: runMeta,
     topology: extractUiTopology(machine, { sidecar }),
   });
+  const livePublisher = createLiveRunEventPublisher({
+    runDir: finalRunDir,
+    runMeta,
+    uiEventLog,
+    stderr: o.stderr,
+    ...(o._testOnUiEvent !== undefined ? { onUiEvent: o._testOnUiEvent } : {}),
+    ...(o._testRunEventRecorder !== undefined ? { recorder: o._testRunEventRecorder } : {}),
+  });
+  livePublisher.publishRunStarted();
+  let finalRunEventPublished = false;
+  const publishRunFailedOnce = (message: string): void => {
+    if (finalRunEventPublished) return;
+    finalRunEventPublished = true;
+    livePublisher.publishRunFailed(message);
+  };
   const publishUiEvent = (event: Parameters<typeof uiEventLog.publish>[0]): ReplayableAppEvent => {
-    const published = uiEventLog.publish(event);
-    o._testOnUiEvent?.(published);
-    return published;
+    return livePublisher.publish(event);
   };
   const publishPostureChange = (posture: Partial<Posture>): void => {
     publishUiEvent({
@@ -415,12 +434,6 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     publishUiEvent({
       kind: 'AbandonedThreadDiagnostic',
       id: `abandoned-thread-${abandonedThreadDiagnosticSeq}`,
-      threadId: diagnostic.threadId,
-      source: diagnostic.source,
-      message: diagnostic.message,
-    });
-    appendEventEntry(finalRunDir, {
-      kind: 'abandonedThreadResidue',
       threadId: diagnostic.threadId,
       source: diagnostic.source,
       message: diagnostic.message,
@@ -509,6 +522,14 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   };
 
   const signalTerminalCompletion = (meta?: ServerRequestMeta): void => {
+    if (!finalRunEventPublished) {
+      finalRunEventPublished = true;
+      const terminalMeta = host.currentMeta();
+      livePublisher.publishRunTerminal({
+        state: host.currentStateId(),
+        terminal: terminalMeta?.kind === 'terminal' ? terminalMeta.outcome : 'unknown',
+      });
+    }
     publishPostureChange({ isTerminal: true });
     const complete = async (): Promise<void> => {
       if (shutdownAfterTerminal.current) {
@@ -642,7 +663,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     });
     o.stdout.write(`aharness: browser UI available at ${urlWithUiToken(uiServer.url, uiToken)}\n`);
   } catch (e) {
-    o.stderr.write(`aharness: UI server failed: ${(e as Error).message}\n`);
+    const message = `UI server failed: ${(e as Error).message}`;
+    o.stderr.write(`aharness: ${message}\n`);
+    publishRunFailedOnce(message);
     return { exitCode: 1 };
   }
 
@@ -746,7 +769,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
           statePath: host.currentStateId(),
         });
       }).catch((error: unknown) => {
-        o.stderr.write(`aharness: fresh clear failed: ${(error as Error).message}\n`);
+        const message = `fresh clear failed: ${(error as Error).message}`;
+        o.stderr.write(`aharness: ${message}\n`);
+        publishRunFailedOnce(message);
         void shutdownAfterTerminal.current?.().finally(() => {
           terminalResolve({ exitCode: 1 });
         });
@@ -888,7 +913,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       enabledFeatures: ['default_mode_request_user_input'],
     });
   } catch (e) {
-    o.stderr.write(`aharness: app-server failed: ${(e as Error).message}\n`);
+    const message = `app-server failed: ${(e as Error).message}`;
+    o.stderr.write(`aharness: ${message}\n`);
+    publishRunFailedOnce(message);
     await closeUiServer();
     return { exitCode: 1 };
   }
@@ -1100,7 +1127,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       },
     });
   } catch (e) {
-    o.stderr.write(`aharness: WS connect failed: ${(e as Error).message}\n`);
+    const message = `WS connect failed: ${(e as Error).message}`;
+    o.stderr.write(`aharness: ${message}\n`);
+    publishRunFailedOnce(message);
     if (wsDiagnostics.length > 0) {
       o.stderr.write(
         `aharness: WS diagnostics:\n${wsDiagnostics.map((m) => `  - ${m}`).join('\n')}\n`,
@@ -1139,7 +1168,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     });
     activeThreadBinding.set(r.thread.id);
   } catch (e) {
-    o.stderr.write(`aharness: thread/start failed: ${(e as Error).message}\n`);
+    const message = `thread/start failed: ${(e as Error).message}`;
+    o.stderr.write(`aharness: ${message}\n`);
+    publishRunFailedOnce(message);
     await shutdown();
     return { exitCode: 1 };
   }
@@ -1164,7 +1195,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         }),
       });
     } catch (e) {
-      o.stderr.write(`aharness: hook socket failed: ${(e as Error).message}\n`);
+      const message = `hook socket failed: ${(e as Error).message}`;
+      o.stderr.write(`aharness: ${message}\n`);
+      publishRunFailedOnce(message);
       await shutdown();
       return { exitCode: 1 };
     }
@@ -1260,7 +1293,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       input: [{ type: 'text', text: orientation }],
     } satisfies TurnStartParams);
   } catch (e) {
-    o.stderr.write(`aharness: kickoff turn/start failed: ${(e as Error).message}\n`);
+    const message = `kickoff turn/start failed: ${(e as Error).message}`;
+    o.stderr.write(`aharness: ${message}\n`);
+    publishRunFailedOnce(message);
     router.close();
     await shutdown();
     return { exitCode: 1 };
