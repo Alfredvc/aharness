@@ -23,10 +23,12 @@ function buildStubs() {
       return { exitCode: 0 };
     }),
     runDoctor: vi.fn(async () => ({ exitCode: 0 })),
-    runDefault: vi.fn(async (o: { fsmPath: string; inputArgs: ReadonlyArray<string> }) => {
-      void o;
-      return { exitCode: 0 };
-    }),
+    runDefault: vi.fn(
+      async (o: { fsmPath: string; inputArgs: ReadonlyArray<string>; yolo?: boolean }) => {
+        void o;
+        return { exitCode: 0 };
+      },
+    ),
     runVisualize: vi.fn(async (o: { fsmPath: string; inputArgs: ReadonlyArray<string> }) => {
       void o;
       return { exitCode: 0 };
@@ -47,10 +49,12 @@ function buildStubs() {
       void o;
       return { exitCode: 0 };
     }),
-    runInstalled: vi.fn(async (o: { command: string; inputArgs: ReadonlyArray<string> }) => {
-      void o;
-      return { exitCode: 0 };
-    }),
+    runInstalled: vi.fn(
+      async (o: { command: string; inputArgs: ReadonlyArray<string>; yolo?: boolean }) => {
+        void o;
+        return { exitCode: 0 };
+      },
+    ),
     runListInstalled: vi.fn(async () => ({ exitCode: 0 })),
     runVerifyInstalled: vi.fn(async (o: { target: string }) => {
       void o;
@@ -101,6 +105,16 @@ describe('dispatch', () => {
       inputArgs: ['--topic', 'auth', '--dry-run'],
     });
     expect(s.runDefault).not.toHaveBeenCalled();
+  });
+
+  it('returns usage for visualize with --yolo instead of treating it as author input', async () => {
+    const s = buildStubs();
+    const cap = captureStderr();
+    const r = await dispatch(['visualize', '/a.fsm.ts', '--yolo'], { ...s, stderr: cap.stream });
+
+    expect(r).toEqual({ exitCode: 2 });
+    expect(s.runVisualize).not.toHaveBeenCalled();
+    expect(cap.text()).toContain('usage:');
   });
 
   it('routes "init --dir x" to runInit with defaults', async () => {
@@ -235,6 +249,30 @@ describe('dispatch', () => {
     expect(s.runDefault).not.toHaveBeenCalled();
   });
 
+  it('routes "run --yolo <command>" with yolo enabled and clean input args', async () => {
+    const s = buildStubs();
+    const r = await dispatch(['run', '--yolo', '@scope/tools/build', '--topic', 'auth'], s);
+
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runInstalled).toHaveBeenCalledWith({
+      command: '@scope/tools/build',
+      inputArgs: ['--topic', 'auth'],
+      yolo: true,
+    });
+  });
+
+  it('routes "run <command> --yolo" with yolo enabled and clean input args', async () => {
+    const s = buildStubs();
+    const r = await dispatch(['run', '@scope/tools/build', '--yolo', '--topic', 'auth'], s);
+
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runInstalled).toHaveBeenCalledWith({
+      command: '@scope/tools/build',
+      inputArgs: ['--topic', 'auth'],
+      yolo: true,
+    });
+  });
+
   it('returns usage for malformed run invocations', async () => {
     const cases: ReadonlyArray<ReadonlyArray<string>> = [
       ['run'],
@@ -249,7 +287,7 @@ describe('dispatch', () => {
 
       expect(r).toEqual({ exitCode: 2 });
       expect(s.runInstalled).not.toHaveBeenCalled();
-      expect(cap.text()).toContain('aharness run <command>');
+      expect(cap.text()).toContain('aharness run [--yolo] <command>');
     }
   });
 
@@ -364,6 +402,28 @@ describe('dispatch', () => {
     });
   });
 
+  it('routes "--yolo <file>" to runDefault with yolo enabled and clean input args', async () => {
+    const s = buildStubs();
+    const r = await dispatch(['--yolo', '/a.fsm.ts', '--topic', 'auth'], s);
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runDefault).toHaveBeenCalledWith({
+      fsmPath: '/a.fsm.ts',
+      inputArgs: ['--topic', 'auth'],
+      yolo: true,
+    });
+  });
+
+  it('routes "<file> --yolo" to runDefault with yolo enabled and clean input args', async () => {
+    const s = buildStubs();
+    const r = await dispatch(['/a.fsm.ts', '--yolo', '--topic', 'auth'], s);
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runDefault).toHaveBeenCalledWith({
+      fsmPath: '/a.fsm.ts',
+      inputArgs: ['--topic', 'auth'],
+      yolo: true,
+    });
+  });
+
   it('routes "<file> --resume" to runDefault as an author input flag', async () => {
     const s = buildStubs();
     await dispatch(['my.fsm.ts', '--resume'], s);
@@ -409,7 +469,8 @@ describe('dispatch', () => {
     expect(cap.text()).not.toContain('aharness package build');
     expect(cap.text()).not.toContain('aharness package verify');
     expect(cap.text()).toContain('aharness install <source>');
-    expect(cap.text()).toContain('aharness run <command>');
+    expect(cap.text()).toContain('aharness [--yolo] <file.fsm.ts> [--<flag> <value>]...');
+    expect(cap.text()).toContain('aharness run [--yolo] <command> [--<flag> <value>]...');
     expect(cap.text()).toContain('aharness list');
     expect(cap.text()).toContain('aharness uninstall <package-name>');
     expect(cap.text()).toContain('aharness verify <package-name>');
@@ -496,6 +557,10 @@ describe('dispatch — input flag passthrough', () => {
 
   it('keeps resume reachable as an author input flag', () => {
     expect(RESERVED_CLI_FLAGS.has('resume')).toBe(false);
+  });
+
+  it('reserves yolo as a framework runtime flag', () => {
+    expect(RESERVED_CLI_FLAGS.has('yolo')).toBe(true);
   });
 
   it('passes --resume combined with any --input flag through to author input parsing', async () => {
