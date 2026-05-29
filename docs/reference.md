@@ -83,7 +83,8 @@ default working directory is the original aharness launch CWD, and the aharness
 run directory and artifacts remain anchored to that original launch directory.
 
 Use object form when a state should start from fresh model context in a
-specific working directory:
+specific working directory, model, or reasoning effort. Object form may contain
+any non-empty combination of `cwd`, `model`, and `reasoningEffort`:
 
 ```ts
 reviewWorktree: fsm.state({
@@ -91,6 +92,36 @@ reviewWorktree: fsm.state({
   prompt: 'Review this worktree and submit findings.',
   on: {
     reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
+  },
+});
+```
+
+```ts
+modelReview: fsm.state({
+  clearOnEntry: { model: 'gpt-5.1-codex' },
+  prompt: 'Review with the requested Codex model.',
+  on: {
+    reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
+  },
+});
+
+highEffortReview: fsm.state({
+  clearOnEntry: { reasoningEffort: 'high' },
+  prompt: 'Review with a fresh high-effort context.',
+  on: {
+    reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
+  },
+});
+
+targetedImplementation: fsm.state({
+  clearOnEntry: {
+    cwd: '/absolute/path/to/worktree',
+    model: 'gpt-5.1-codex',
+    reasoningEffort: 'high',
+  },
+  prompt: 'Implement in this worktree with the requested model and effort.',
+  on: {
+    implemented: fsm.submit<{ summary: string }>({ to: 'review' }),
   },
 });
 ```
@@ -107,6 +138,15 @@ implementPackage: fsm.state({
   },
 });
 ```
+
+`reasoningEffort` values are exactly `none`, `minimal`, `low`, `medium`,
+`high`, and `xhigh`. `reasoningEffort` can be used without `model`; aharness
+resolves the target model from Codex `config/read({ cwd })`, then from the
+`model/list` default entry or first fallback. `aharness verify` checks static
+model and effort declarations against Codex `config/read` and
+`model/list({ includeHidden: true })`. When `cwd` is a function of machine
+data, effort support may be deferred to runtime preflight after the CWD
+resolves. Dynamic `model` and `reasoningEffort` callbacks are not supported.
 
 `main: true` marks a state, passive state, or final as part of the graph's
 primary spine. It is visualization-only metadata and never changes transition

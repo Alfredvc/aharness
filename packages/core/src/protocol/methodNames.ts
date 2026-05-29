@@ -59,6 +59,14 @@ export const METHOD = {
   // No corresponding `turn/aborted` notification exists in the v2 enum (§1.6).
   turnInterrupt: 'turn/interrupt',
 
+  // Configuration and model-catalog requests.
+  // app-server-protocol/src/protocol/common.rs:770
+  // (`ModelList => "model/list"`).
+  modelList: 'model/list',
+  // app-server-protocol/src/protocol/common.rs:904
+  // (`ConfigRead => "config/read"`).
+  configRead: 'config/read',
+
   // Server-issued requests (the daemon handles these).
   // app-server-protocol/src/protocol/common.rs:1234
   // (`CommandExecutionRequestApproval => "item/commandExecution/requestApproval"`).

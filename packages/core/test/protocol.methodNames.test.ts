@@ -45,6 +45,8 @@ describe('METHOD wire literals', () => {
     rawResponseItemCompleted: 'rawResponseItem/completed',
     threadTokenUsageUpdated: 'thread/tokenUsage/updated',
     mcpServerStatusList: 'mcpServerStatus/list',
+    modelList: 'model/list',
+    configRead: 'config/read',
   };
 
   for (const [key, literal] of Object.entries(expected) as Array<[keyof typeof METHOD, string]>) {

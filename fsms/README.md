@@ -2,6 +2,44 @@
 
 This directory holds project-local aharness FSMs that are not package commands.
 
+## `recipe-driven-development.fsm.ts`
+
+Generic replacement for the recipe-driven development skill. It takes an
+implementation roadmap, creates a recipe, and then implements the roadmap
+slice-by-slice until every slice is committed:
+
+1. read the roadmap, identify required grounding files, and create the
+   implementation recipe
+2. confirm or write the current slice plan
+3. clear context before executing the planned slice
+4. execute the slice
+5. review, repair when needed, and verify
+6. update the recipe, stage only slice-owned files plus the recipe, and commit
+7. clear context, re-read the recipe, and repeat from the next slice until the
+   roadmap is complete
+
+Routine phase blockers do not go straight to terminal failure. Each phase routes
+through an autonomous recovery protocol with phase-specific guidance, then
+returns to the failed phase after recovery. The FSM reaches failure only when
+recovery is exhausted or the slice safety cap is hit.
+
+The first state stores required context files such as idea files, specs,
+architecture docs, parent plans, API contracts, and migration notes. Later
+states and recovery prompts include that list so the model can reload the
+grounding context instead of recovering from the roadmap alone.
+
+Run it with an explicit roadmap path:
+
+```sh
+aharness fsms/recipe-driven-development.fsm.ts --roadmap-path docs/plans/example-roadmap.md
+```
+
+Run static verification with:
+
+```sh
+aharness verify fsms/recipe-driven-development.fsm.ts
+```
+
 ## `superpowers-recipe-runner.fsm.ts`
 
 Finishes `docs/plans/2026-05-27-superpowers-fsm-package-implementation-recipe.md`

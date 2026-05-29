@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - name: Verify tag and package versions
+        run: |
+          node - <<'NODE'
+          const { readFileSync } = require('node:fs');
+
+          const root = JSON.parse(readFileSync('package.json', 'utf8'));
+          const version = root.version;
+          const tag = process.env.GITHUB_REF_NAME?.replace(/^v/, '');
+          if (tag !== version) {
+            console.error(`::error::Tag v${tag} does not match package.json version ${version}`);
+            process.exit(1);
+          }
+
+          for (const path of ['packages/core/package.json', 'packages/test-support/package.json']) {
+            const pkg = JSON.parse(readFileSync(path, 'utf8'));
+            if (pkg.version !== version) {
+              console.error(`::error::${pkg.name} version ${pkg.version} does not match root version ${version}`);
+              process.exit(1);
+            }
+          }
+          NODE
+      - run: pnpm run verify:release
+      - name: Pack @aharness/core
+        id: pack-core
+        run: |
+          mkdir -p "$RUNNER_TEMP/aharness-pack"
+          pnpm --dir packages/core pack --pack-destination "$RUNNER_TEMP/aharness-pack" --json > "$RUNNER_TEMP/core-pack.json"
+          tarball=$(node -e "const p=require(process.env.RUNNER_TEMP + '/core-pack.json'); const item=Array.isArray(p)?p[0]:p; console.log(item.filename || item.path)")
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+      - name: Publish @aharness/core
+        run: npm publish "${{ steps.pack-core.outputs.tarball }}" --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Pack @aharness/test-support
+        id: pack-test-support
+        run: |
+          pnpm --dir packages/test-support pack --pack-destination "$RUNNER_TEMP/aharness-pack" --json > "$RUNNER_TEMP/test-support-pack.json"
+          tarball=$(node -e "const p=require(process.env.RUNNER_TEMP + '/test-support-pack.json'); const item=Array.isArray(p)?p[0]:p; console.log(item.filename || item.path)")
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+      - name: Publish @aharness/test-support
+        run: npm publish "${{ steps.pack-test-support.outputs.tarball }}" --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Extract release notes
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          node - <<'NODE' > RELEASE_NOTES.md
+          const { readFileSync } = require('node:fs');
+          const version = process.env.GITHUB_REF_NAME.replace(/^v/, '');
+          const body = readFileSync('CHANGELOG.md', 'utf8');
+          const lines = body.split(/\r?\n/);
+          const start = lines.findIndex((line) =>
+            line.startsWith(`## ${version}`) || line.startsWith(`## [${version}]`)
+          );
+          if (start === -1) process.exit(1);
+          const end = lines.findIndex((line, index) => index > start && line.startsWith('## '));
+          console.log(lines.slice(start, end === -1 ? undefined : end).join('\n').trim());
+          NODE
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "::error::No CHANGELOG section found for $version"
+            exit 1
+          fi
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: RELEASE_NOTES.md

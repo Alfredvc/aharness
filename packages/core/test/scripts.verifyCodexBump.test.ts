@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   CODEX_CHECKOUT_ENV,
   DEFAULT_CODEX_CHECKOUT,
+  createClearOnEntryModelContractCheck,
   createPinnedFileContainsCheck,
   readPinnedCodexFile,
   resolveCodexCheckoutPath,
@@ -69,6 +70,90 @@ async function createFixtureRepo(files: Record<string, string>): Promise<Fixture
     'fixture',
   ]);
   return { path: repo, commit: await runGit(repo, ['rev-parse', 'HEAD']) };
+}
+
+function modelContractFixtureFiles(
+  overrides: Partial<Record<string, string>> = {},
+): Record<string, string> {
+  const files = {
+    'codex-rs/app-server-protocol/src/protocol/common.rs': `
+client_request_definitions! {
+    ConfigRead => "config/read" {
+        params: v2::ConfigReadParams,
+        serialization: global("config"),
+        response: v2::ConfigReadResponse,
+    },
+    ModelList => "model/list" {
+        params: v2::ModelListParams,
+        serialization: None,
+        response: v2::ModelListResponse,
+    },
+}
+`,
+    'codex-rs/app-server-protocol/src/protocol/v2.rs': `
+pub struct ThreadStartParams {
+    pub model: Option<String>,
+    pub cwd: Option<String>,
+    pub config: Option<HashMap<String, JsonValue>>,
+}
+
+pub struct MockExperimentalMethodParams {}
+
+pub struct Config {
+    pub model: Option<String>,
+    pub model_reasoning_effort: Option<ReasoningEffort>,
+}
+
+pub struct ConfigLayerMetadata {}
+
+pub struct ConfigReadParams {
+    pub include_layers: bool,
+    pub cwd: Option<String>,
+}
+
+pub struct ConfigReadResponse {
+    pub config: Config,
+}
+
+pub struct ConfigRequirements {}
+
+pub struct ModelListParams {
+    pub include_hidden: Option<bool>,
+}
+
+pub struct Model {
+    pub model: String,
+    pub supported_reasoning_efforts: Vec<ReasoningEffortOption>,
+    pub default_reasoning_effort: ReasoningEffort,
+    pub is_default: bool,
+}
+
+pub struct ReasoningEffortOption {
+    pub reasoning_effort: ReasoningEffort,
+}
+
+pub struct ModelListResponse {
+    pub data: Vec<Model>,
+    pub next_cursor: Option<String>,
+}
+
+pub struct CollaborationModeListParams {}
+`,
+    'codex-rs/protocol/src/openai_models.rs': `
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    None,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    XHigh,
+}
+
+impl FromStr for ReasoningEffort {}
+`,
+  };
+  return { ...files, ...overrides };
 }
 
 afterEach(async () => {
@@ -168,6 +253,85 @@ describe('runNamedChecks', () => {
         message: expect.stringContaining('item/tool/requestUserInput'),
       },
     ]);
+  });
+
+  it('checks the clearOnEntry model and reasoning-effort Codex contract', async () => {
+    const fixture = await createFixtureRepo(modelContractFixtureFiles());
+
+    const result = await runNamedChecks({
+      checkoutPath: fixture.path,
+      pinnedCommit: fixture.commit,
+      checks: [createClearOnEntryModelContractCheck()],
+    });
+
+    expect(result.failures).toEqual([]);
+  });
+
+  it('reports drift in the clearOnEntry model contract', async () => {
+    const fixture = await createFixtureRepo(
+      modelContractFixtureFiles({
+        'codex-rs/app-server-protocol/src/protocol/v2.rs': `
+pub struct ThreadStartParams {
+    pub model: Option<String>,
+    pub cwd: Option<String>,
+    pub config: Option<HashMap<String, JsonValue>>,
+}
+
+pub struct MockExperimentalMethodParams {}
+
+pub struct Config {
+    pub model: Option<String>,
+    pub model_reasoning_effort: Option<ReasoningEffort>,
+}
+
+pub struct ConfigLayerMetadata {}
+
+pub struct ConfigReadParams {
+    pub include_layers: bool,
+    pub cwd: Option<String>,
+}
+
+pub struct ConfigReadResponse {
+    pub config: Config,
+}
+
+pub struct ConfigRequirements {}
+
+pub struct ModelListParams {
+    pub include_hidden: Option<bool>,
+}
+
+pub struct Model {
+    pub model: String,
+    pub supported_reasoning_efforts: Vec<ReasoningEffortOption>,
+    pub default_reasoning_effort: ReasoningEffort,
+    pub is_default: bool,
+}
+
+pub struct ReasoningEffortOption {
+    pub description: String,
+}
+
+pub struct ModelListResponse {
+    pub data: Vec<Model>,
+    pub next_cursor: Option<String>,
+}
+
+pub struct CollaborationModeListParams {}
+`,
+      }),
+    );
+
+    const result = await runNamedChecks({
+      checkoutPath: fixture.path,
+      pinnedCommit: fixture.commit,
+      checks: [createClearOnEntryModelContractCheck()],
+    });
+
+    expect(result.failures).toContainEqual({
+      check: 'clear-on-entry-model-contract',
+      message: expect.stringContaining('pub reasoning_effort: ReasoningEffort'),
+    });
   });
 });
 
