@@ -91,7 +91,7 @@ importers:
   packages/superpowers:
     dependencies:
       '@aharness/core':
-        specifier: workspace:*
+        specifier: ^0.1.0
         version: link:../core
 
   packages/test-support:

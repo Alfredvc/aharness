@@ -20,10 +20,6 @@
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js"
-    },
-    "./package-runner": {
-      "types": "./dist/package-runner.d.ts",
-      "import": "./dist/package-runner.js"
     }
   },
   "bin": {

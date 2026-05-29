@@ -1,11 +1,11 @@
 ---
 name: writing-plans
-description: Use when turning an approved spec or requirements document into an implementation plan; prefer the ah-superpowers writing-plans FSM command when Harness is available.
+description: Use when turning an approved spec or requirements document into an implementation plan; prefer the aharness run writing-plans FSM command when Harness is available.
 ---
 
 # Writing Plans
 
-This skill has been converted into the `ah-superpowers writing-plans` Harness FSM command.
+This skill has been converted into the `aharness run writing-plans` Harness FSM command.
 
 Use the FSM command when available. The FSM enforces the workflow gates: plan authoring, broad-spec owner decision, plan quality review, owner plan review, and execution-mode choice.
 

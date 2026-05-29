@@ -1,11 +1,11 @@
 ---
 name: brainstorming
-description: Use when exploring an idea into an approved design before implementation; prefer the ah-superpowers brainstorming FSM command when Harness is available.
+description: Use when exploring an idea into an approved design before implementation; prefer the aharness run brainstorming FSM command when Harness is available.
 ---
 
 # Brainstorming
 
-This skill has been converted into the `ah-superpowers brainstorming` Harness FSM command.
+This skill has been converted into the `aharness run brainstorming` Harness FSM command.
 
 Use the FSM command when available. The FSM enforces the workflow gates: design conversation, owner design approval, spec writing, spec self-review, and owner spec approval.
 

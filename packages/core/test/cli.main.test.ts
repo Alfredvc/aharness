@@ -43,10 +43,6 @@ function buildStubs() {
         return { exitCode: 0 };
       },
     ),
-    runPackage: vi.fn(async (o: { argv: ReadonlyArray<string> }) => {
-      void o;
-      return { exitCode: 0 };
-    }),
     runInstall: vi.fn(async (o: { source: string }) => {
       void o;
       return { exitCode: 0 };
@@ -160,22 +156,26 @@ describe('dispatch', () => {
     expect(cap.text()).toMatch(/aharness init --dir/);
   });
 
-  it('routes "package ..." to the package CLI handler', async () => {
-    const s = buildStubs();
-    const r = await dispatch(['package', 'init', '--name', '@aharness/superpowers'], s);
-    expect(r).toEqual({ exitCode: 0 });
-    expect(s.runPackage).toHaveBeenCalledWith({
-      argv: ['init', '--name', '@aharness/superpowers'],
-    });
-    expect(s.runDefault).not.toHaveBeenCalled();
-  });
-
-  it('routes bare "package" to the package namespace instead of the default runner', async () => {
+  it('does not reserve "package" as a generated package namespace', async () => {
     const s = buildStubs();
     const r = await dispatch(['package'], s);
+
     expect(r).toEqual({ exitCode: 0 });
-    expect(s.runPackage).toHaveBeenCalledWith({ argv: [] });
+    expect(s.runDefault).toHaveBeenCalledWith({
+      fsmPath: 'package',
+      inputArgs: [],
+    });
+  });
+
+  it('returns usage for old generated package subcommands', async () => {
+    const s = buildStubs();
+    const cap = captureStderr();
+    const r = await dispatch(['package', 'build'], { ...s, stderr: cap.stream });
+
+    expect(r).toEqual({ exitCode: 2 });
     expect(s.runDefault).not.toHaveBeenCalled();
+    expect(cap.text()).toContain('usage:');
+    expect(cap.text()).not.toContain('aharness package build');
   });
 
   it('routes "install <source>" to the install CLI handler', async () => {
@@ -352,7 +352,6 @@ describe('dispatch', () => {
       fsmPath: './package',
       inputArgs: [],
     });
-    expect(s.runPackage).not.toHaveBeenCalled();
   });
 
   it('routes "<file>" to runDefault with no input args', async () => {
@@ -406,9 +405,9 @@ describe('dispatch', () => {
     const r = await dispatch([], { ...s, stderr: cap.stream });
     expect(r).toEqual({ exitCode: 2 });
     expect(cap.text()).toContain('usage:');
-    expect(cap.text()).toContain('aharness package init');
-    expect(cap.text()).toContain('aharness package build');
-    expect(cap.text()).toContain('aharness package verify');
+    expect(cap.text()).not.toContain('aharness package init');
+    expect(cap.text()).not.toContain('aharness package build');
+    expect(cap.text()).not.toContain('aharness package verify');
     expect(cap.text()).toContain('aharness install <source>');
     expect(cap.text()).toContain('aharness run <command>');
     expect(cap.text()).toContain('aharness list');

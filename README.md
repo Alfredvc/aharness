@@ -166,9 +166,12 @@ aharness visualize <file.fsm.ts> [--<flag> <value>]...
 aharness verify <file.fsm.ts>
 aharness doctor
 aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|yarn|bun>]
-aharness package init [--name <package-name>] [--bin <command>] [--fsms-dir <dir>] [--force]
-aharness package build
-aharness package verify
+aharness install <source>
+aharness run <command> [--<flag> <value>]...
+aharness list
+aharness uninstall <package-name>
+aharness verify <package-name>
+aharness verify <package-name>/<command-name>
 aharness completion install [--shell bash|zsh|fish]
 aharness completion uninstall
 ```
@@ -210,16 +213,17 @@ and handles approvals through a per-run loopback token.
 - [`@aharness/superpowers`](packages/superpowers/README.md) is an example
   reusable FSM package.
 
-Reusable FSM packages use:
+Reusable FSM packages are npm-shaped packages with explicit
+`aharness.package.commands` entries. Install them through npm-backed aharness
+state, then run their commands through the global CLI:
 
 ```bash
-aharness package init --name <package-name>
-aharness package verify
-aharness package build
+aharness install @scope/tools
+aharness run @scope/tools/build
 ```
 
-aharness-owned packages under `@aharness/<name>` use the `ah-<name>` binary
-convention. For example, `@aharness/superpowers` exposes `ah-superpowers`.
+Command entries point at package-root-relative `.fsm.ts` files and are verified
+before aharness writes trusted install records.
 
 ## Documentation
 

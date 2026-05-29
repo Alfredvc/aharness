@@ -121,9 +121,6 @@ aharness visualize <file.fsm.ts> [--<flag> <value>]...
 aharness verify <file.fsm.ts>
 aharness doctor
 aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|yarn|bun>]
-aharness package init [--name <package-name>] [--bin <command>] [--fsms-dir <dir>] [--force]
-aharness package build
-aharness package verify
 aharness install <source>
 aharness run <command> [--<flag> <value>]...
 aharness list
@@ -274,31 +271,39 @@ loop/back edge; they do not expose renderer-local taxonomy names.
 
 ## FSM Packages
 
-Reusable FSM packages use:
+Reusable FSM packages are npm-shaped packages with explicit command metadata in
+`package.json`:
 
-```bash
-aharness package init --name <package-name>
-aharness package verify
-aharness package build
+```json
+{
+  "name": "@scope/tools",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@aharness/core": "^0.1.0"
+  },
+  "aharness": {
+    "package": {
+      "commands": {
+        "build": {
+          "entry": "fsms/build.fsm.ts",
+          "description": "Build project artifacts"
+        }
+      }
+    }
+  }
+}
 ```
 
-Package discovery is direct-child only: each regular `<command>.fsm.ts` file
-under the configured `fsmsDir` becomes a command. Recursive discovery, glob
-patterns, symlinked FSM files, multiple FSM roots, and compiled-only FSM
-packages are unsupported in the current package workflow.
-
-Published package binaries expose:
+Each command entry must be a package-root-relative `.fsm.ts` file. aharness
+validates entries, package-relative asset calls, and `@aharness/core`
+compatibility during install before writing trusted command-index records.
+Packages are installed and run through the global CLI:
 
 ```bash
-<bin> list
-<bin> verify
-<bin> verify <command>
-<bin> help
-<bin> help <command>
-<bin> version
-<bin> <command> [--<flag> <value>]...
+aharness install @scope/tools
+aharness run @scope/tools/build [--<flag> <value>]...
 ```
 
-`list` shows discovered commands and aliases. `verify` checks every packaged
-FSM, or one named command when provided. `help <command>` loads that FSM only to
-display its declared input flags.
+Command names such as `list`, `verify`, `help`, and `version` are valid package
+commands because they run below `aharness run`.

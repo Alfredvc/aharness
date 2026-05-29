@@ -1,44 +1,19 @@
+import { cp, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
-import { Writable } from 'node:stream';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 import { createActor } from '../../core/node_modules/xstate/dist/xstate.cjs.mjs';
 
-import { verifyFsmPackage } from '../../core/src/fsmPackage/verify.js';
-import { runPackagedFsmCliForTest } from '../../core/src/fsmPackage/runner.js';
-import { loadFsm } from '../../core/src/loader/index.js';
+import { readInstallPackageManifest } from '../../core/src/installPackage/index.js';
+import { loadFsm, loadInstalledFsm } from '../../core/src/loader/index.js';
+import { verify } from '../../core/src/verify/index.js';
 import brainstormingMachine from '../fsms/brainstorming.fsm.js';
 import writingPlansMachine from '../fsms/writing-plans.fsm.js';
 
 const packageRoot = fileURLToPath(new URL('..', import.meta.url));
-
-function captureStream(): { stream: NodeJS.WritableStream; text: () => string } {
-  const chunks: string[] = [];
-  const stream = new Writable({
-    write(chunk, _encoding, cb) {
-      chunks.push(typeof chunk === 'string' ? chunk : chunk.toString('utf8'));
-      cb();
-    },
-  });
-  return { stream, text: () => chunks.join('') };
-}
-
-async function runPackageCommand(
-  argv: readonly string[],
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  const stdout = captureStream();
-  const stderr = captureStream();
-  const rootUrl = pathToFileURL(packageRoot.endsWith(path.sep) ? packageRoot : `${packageRoot}/`);
-  const exitCode = await runPackagedFsmCliForTest({
-    packageRootUrl: rootUrl,
-    argv,
-    cwd: packageRoot,
-    stdout: stdout.stream,
-    stderr: stderr.stream,
-  });
-  return { exitCode, stdout: stdout.text(), stderr: stderr.text() };
-}
+const CURRENT_CORE_VERSION = '0.1.0';
 
 function startWritingPlansActor() {
   const actor = createActor(writingPlansMachine, {
@@ -105,39 +80,64 @@ function stateSkillRefs(machine: unknown, stateId: string): readonly unknown[] {
 }
 
 describe('@aharness/superpowers package', () => {
-  it('verifies the package with visible FSM commands', async () => {
-    const result = await verifyFsmPackage({ packageRoot });
+  it('declares explicit install command metadata', async () => {
+    const result = await readInstallPackageManifest({
+      packageRoot,
+      currentCoreVersion: CURRENT_CORE_VERSION,
+    });
 
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.value.verifiedFsmCount).toBe(2);
-      expect(result.value.config.packageName).toBe('@aharness/superpowers');
-      expect(result.value.config.binName).toBe('ah-superpowers');
+      expect(result.value.packageName).toBe('@aharness/superpowers');
+      expect(result.value.coreDependencyRange).toBe('^0.1.0');
+      expect(result.value.commands).toEqual([
+        expect.objectContaining({
+          commandName: 'brainstorming',
+          entry: 'fsms/brainstorming.fsm.ts',
+          description: 'Explore an idea into an approved design spec.',
+        }),
+        expect.objectContaining({
+          commandName: 'writing-plans',
+          entry: 'fsms/writing-plans.fsm.ts',
+          description: 'Write and review an implementation plan before execution.',
+        }),
+      ]);
     }
   });
 
-  it('lists package commands and prints command input help', async () => {
-    const list = await runPackageCommand(['list']);
+  it('loads and verifies declared commands from an installed package layout', async () => {
+    const installed = await copySuperpowersToManagedProject();
+    try {
+      const manifest = await readInstallPackageManifest({
+        packageRoot: installed.packageRoot,
+        currentCoreVersion: CURRENT_CORE_VERSION,
+      });
+      expect(manifest.ok).toBe(true);
+      if (!manifest.ok) return;
 
-    expect(list.exitCode).toBe(0);
-    expect(list.stdout).toContain('brainstorming');
-    expect(list.stdout).toContain('Explore an idea into an approved design spec.');
-    expect(list.stdout).toContain('writing-plans');
-    expect(list.stdout).toContain('Write and review an implementation plan before execution.');
+      for (const command of manifest.value.commands) {
+        const loaded = await loadInstalledFsm({
+          entryFile: command.entryPath,
+          packageName: manifest.value.packageName,
+          commandName: command.commandName,
+          packageRoot: installed.packageRoot,
+          managedProjectRoot: installed.managedProjectRoot,
+          storeRoot: installed.storeRoot,
+          lockFingerprint: 'lock:superpowers-test',
+          noCache: true,
+        });
 
-    const brainstormingHelp = await runPackageCommand(['help', 'brainstorming']);
-
-    expect(brainstormingHelp.exitCode).toBe(0);
-    expect(brainstormingHelp.stdout).toContain('usage:\n  ah-superpowers brainstorming');
-    expect(brainstormingHelp.stdout).toContain('--spec-path <string>');
-    expect(brainstormingHelp.stdout).toContain('--topic <string>');
-
-    const help = await runPackageCommand(['help', 'writing-plans']);
-
-    expect(help.exitCode).toBe(0);
-    expect(help.stdout).toContain('usage:\n  ah-superpowers writing-plans');
-    expect(help.stdout).toContain('--plan-path <string>');
-    expect(help.stdout).toContain('--spec-path <string>');
+        const result = verify(loaded.machine, loaded.sidecar, loaded.issues, {
+          skillEnv: {
+            fsmFileDir: path.dirname(command.entryPath),
+            repoRoot: installed.packageRoot,
+          },
+        });
+        expect(result.ok, command.commandName).toBe(true);
+      }
+    } finally {
+      await rm(installed.storeRoot, { recursive: true, force: true });
+    }
   });
 
   it('resolves bundled state guides by package-relative path', async () => {
@@ -180,6 +180,34 @@ describe('@aharness/superpowers package', () => {
     );
   });
 });
+
+async function copySuperpowersToManagedProject(): Promise<{
+  readonly storeRoot: string;
+  readonly managedProjectRoot: string;
+  readonly packageRoot: string;
+}> {
+  const storeRoot = await mkdtemp(path.join(os.tmpdir(), 'aharness-superpowers-install-'));
+  const managedProjectRoot = path.join(storeRoot, 'packages');
+  const installedPackageRoot = path.join(
+    managedProjectRoot,
+    'node_modules',
+    '@aharness',
+    'superpowers',
+  );
+  await mkdir(installedPackageRoot, { recursive: true });
+  await cp(path.join(packageRoot, 'package.json'), path.join(installedPackageRoot, 'package.json'));
+  await cp(path.join(packageRoot, 'fsms'), path.join(installedPackageRoot, 'fsms'), {
+    recursive: true,
+  });
+  await cp(path.join(packageRoot, 'skills'), path.join(installedPackageRoot, 'skills'), {
+    recursive: true,
+  });
+  return {
+    storeRoot,
+    managedProjectRoot,
+    packageRoot: installedPackageRoot,
+  };
+}
 
 describe('brainstorming route gates', () => {
   it('loops from design rejection back to designConversation', () => {

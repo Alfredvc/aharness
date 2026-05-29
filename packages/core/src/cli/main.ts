@@ -13,7 +13,6 @@
  *   - `aharness completion` — per-Tab bridge invoked by the shell-side
  *     delegate script that tabtab installs. Bounded by a 500 ms
  *     watchdog so a stuck import never hangs the user's shell.
- *   - `aharness package <init|build|verify>` — package authoring commands.
  *   - `aharness install <source>` — npm-backed installed package mutation.
  *   - `aharness run <command>` — installed package command execution.
  *   - `aharness list` — installed package command listing.
@@ -45,7 +44,6 @@ import { runInstalledCli } from './runInstalledCli.js';
 import { runListInstalledCli } from './listInstalledCli.js';
 import { runVerifyInstalledCli } from './verifyInstalledCli.js';
 import { runUninstallCli } from './uninstallCli.js';
-import { runPackageCli } from './packageCli.js';
 
 export interface DispatchResult {
   readonly exitCode: number;
@@ -80,7 +78,6 @@ export interface Dispatcher {
     install: boolean;
     pm?: 'npm' | 'pnpm' | 'yarn' | 'bun';
   }) => Promise<{ exitCode: number }>;
-  readonly runPackage: (o: { argv: ReadonlyArray<string> }) => Promise<{ exitCode: number }>;
   readonly runInstall: (o: { source: string }) => Promise<{ exitCode: number }>;
   readonly runInstalled: (o: {
     command: string;
@@ -138,9 +135,6 @@ export async function dispatch(
     const opts = parseInitArgs(rest);
     if (!opts) return { exitCode: usage(stderr) };
     return d.runInit(opts);
-  }
-  if (cmd === 'package') {
-    return d.runPackage({ argv: rest });
   }
   if (cmd === 'install') {
     const source = parseInstallSource(rest);
@@ -204,7 +198,7 @@ function parseFsmPathAndInputArgs(
 ): { fsmPath: string; inputArgs: ReadonlyArray<string> } | null {
   const positional: string[] = [];
   const inputArgs: string[] = [];
-  // The verbs (`verify`, `doctor`, `completion`, `init`, `package`, `visualize`) have already been
+  // The verbs (`verify`, `doctor`, `completion`, `init`, `visualize`) have already been
   // triaged by the early-returns above. The loop below scans the same `argv`
   // only because no verb matched; the remaining tokens are the FSM path and
   // any user-defined `--<flag>` pairs.
@@ -275,9 +269,6 @@ function usage(stderr: NodeJS.WritableStream): number {
       '  aharness <file.fsm.ts> [--<flag> <value>]...\n' +
       '  aharness visualize <file.fsm.ts> [--<flag> <value>]...\n' +
       '  aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|yarn|bun>]\n' +
-      '  aharness package init [--name <package-name>] [--bin <command>] [--fsms-dir <dir>] [--force]\n' +
-      '  aharness package build\n' +
-      '  aharness package verify\n' +
       '  aharness install <source>\n' +
       '  aharness verify <file.fsm.ts>\n' +
       '  aharness verify <package-name>\n' +
@@ -328,13 +319,6 @@ if (process.argv[1]?.endsWith('main.js')) {
         git,
         install,
         ...(pm ? { pm } : {}),
-        cwd: process.cwd(),
-        stdout: process.stdout,
-        stderr: process.stderr,
-      }),
-    runPackage: ({ argv }) =>
-      runPackageCli({
-        argv,
         cwd: process.cwd(),
         stdout: process.stdout,
         stderr: process.stderr,

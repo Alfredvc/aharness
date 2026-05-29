@@ -17,7 +17,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@aharness/core/runtime': resolveSrc('./packages/core/src/runtime.ts'),
-      '@aharness/core/package-runner': resolveSrc('./packages/core/src/package-runner.ts'),
       '@aharness/core': resolveSrc('./packages/core/src/index.ts'),
       '@aharness/test-support': resolveSrc('./packages/test-support/src/index.ts'),
     },

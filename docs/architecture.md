@@ -119,7 +119,8 @@ the current public CLI starts a new run and Codex thread for each invocation.
 utilities. It has a regular dependency on `@aharness/core`; it is not a peer
 dependency.
 
-Reusable FSM packages can be built with `aharness package`. Package authors own
-their `fsms/` and bundled `skills/`; aharness owns the generated executable and
-delegates package commands back through the same verifier and runtime used for
-direct `.fsm.ts` files.
+Reusable FSM packages are npm-shaped packages with explicit
+`aharness.package.commands.<command>.entry` metadata. Package authors own their
+`fsms/`, bundled `skills/`, helper modules, and package-relative assets; the
+global `aharness install` / `aharness run` surface indexes and executes verified
+commands from the installed package tree.

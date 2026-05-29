@@ -7,21 +7,25 @@ Slice 1 exposes two commands: `brainstorming` and `writing-plans`. Execution com
 ## Usage
 
 ```sh
-ah-superpowers list
-ah-superpowers help brainstorming
-ah-superpowers help writing-plans
-ah-superpowers verify
-ah-superpowers brainstorming --topic "Feature idea" --spec-path docs/specs/feature-design.md
-ah-superpowers writing-plans --spec-path docs/specs/feature.md --plan-path docs/plans/feature.md
+aharness install @aharness/superpowers
+aharness list
+aharness verify @aharness/superpowers
+aharness run brainstorming --topic "Feature idea" --spec-path docs/specs/feature-design.md
+aharness run @aharness/superpowers/writing-plans --spec-path docs/specs/feature.md --plan-path docs/plans/feature.md
 ```
 
 During package development, verify from this directory:
 
 ```sh
-pnpm run package:verify
+pnpm exec aharness verify fsms/brainstorming.fsm.ts
+pnpm exec aharness verify fsms/writing-plans.fsm.ts
 ```
 
 ## Commands
+
+Commands are declared in `package.json` under
+`aharness.package.commands.<command>.entry` and run through the global
+`aharness run` surface after installation.
 
 ### `brainstorming`
 
