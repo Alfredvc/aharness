@@ -15,6 +15,8 @@
  *     watchdog so a stuck import never hangs the user's shell.
  *   - `aharness package <init|build|verify>` — package authoring commands.
  *   - `aharness install <source>` — npm-backed installed package mutation.
+ *   - `aharness run <command>` — installed package command execution.
+ *   - `aharness list` — installed package command listing.
  *   - `aharness visualize <file.fsm.ts>` — browser-only FSM inspection.
  *   - `aharness <file.fsm.ts>` — foreground boot (Phase 1: single-process).
  *
@@ -28,6 +30,8 @@
  * `T14a` — the headless Phase 1 boot runs the daemon in-process and
  * the MCP child has been replaced by codex's `dynamic_tools` channel.
  */
+import { isAbsolute } from 'node:path';
+
 import { runVerifyCli } from './verifyCli.js';
 import { runDoctorCli } from './doctorCli.js';
 import { runCli } from './runCli.js';
@@ -36,6 +40,9 @@ import { runCompletionInstall, runCompletionUninstall } from './completion.js';
 import { runCompletionBridge } from './completionBridge.js';
 import { runInitCli } from './initCli.js';
 import { runInstallCli } from './installCli.js';
+import { runInstalledCli } from './runInstalledCli.js';
+import { runListInstalledCli } from './listInstalledCli.js';
+import { runVerifyInstalledCli } from './verifyInstalledCli.js';
 import { runPackageCli } from './packageCli.js';
 
 export interface DispatchResult {
@@ -73,6 +80,12 @@ export interface Dispatcher {
   }) => Promise<{ exitCode: number }>;
   readonly runPackage: (o: { argv: ReadonlyArray<string> }) => Promise<{ exitCode: number }>;
   readonly runInstall: (o: { source: string }) => Promise<{ exitCode: number }>;
+  readonly runInstalled: (o: {
+    command: string;
+    inputArgs: ReadonlyArray<string>;
+  }) => Promise<{ exitCode: number }>;
+  readonly runListInstalled: (o: Record<string, never>) => Promise<{ exitCode: number }>;
+  readonly runVerifyInstalled: (o: { target: string }) => Promise<{ exitCode: number }>;
   /** Sink for usage/error text. Tests inject a buffer; production uses stderr. */
   readonly stderr?: NodeJS.WritableStream;
 }
@@ -84,8 +97,10 @@ export async function dispatch(
   const stderr = d.stderr ?? process.stderr;
   const [cmd, ...rest] = argv;
   if (cmd === 'verify') {
-    if (!rest[0]) return { exitCode: usage(stderr) };
-    return d.runVerify({ fsmPath: rest[0] });
+    if (rest.length !== 1 || !rest[0]) return { exitCode: usage(stderr) };
+    const target = rest[0];
+    if (isDirectVerifyTarget(target)) return d.runVerify({ fsmPath: target });
+    return d.runVerifyInstalled({ target });
   }
   if (cmd === 'doctor') {
     return d.runDoctor();
@@ -129,6 +144,15 @@ export async function dispatch(
     if (!source) return { exitCode: usage(stderr) };
     return d.runInstall({ source });
   }
+  if (cmd === 'run') {
+    const parsed = parseFsmPathAndInputArgs(rest);
+    if (!parsed) return { exitCode: usage(stderr) };
+    return d.runInstalled({ command: parsed.fsmPath, inputArgs: parsed.inputArgs });
+  }
+  if (cmd === 'list') {
+    if (rest.length !== 0) return { exitCode: usage(stderr) };
+    return d.runListInstalled({});
+  }
   if (cmd === 'visualize') {
     const parsed = parseFsmPathAndInputArgs(rest);
     if (!parsed) return { exitCode: usage(stderr) };
@@ -149,6 +173,15 @@ function parseInstallSource(args: ReadonlyArray<string>): string | null {
   const source = args[0]!;
   if (source.length === 0 || source.startsWith('-')) return null;
   return source;
+}
+
+function isDirectVerifyTarget(target: string): boolean {
+  return (
+    target.endsWith('.fsm.ts') ||
+    target.startsWith('./') ||
+    target.startsWith('../') ||
+    isAbsolute(target)
+  );
 }
 
 function parseFsmPathAndInputArgs(
@@ -232,6 +265,10 @@ function usage(stderr: NodeJS.WritableStream): number {
       '  aharness package verify\n' +
       '  aharness install <source>\n' +
       '  aharness verify <file.fsm.ts>\n' +
+      '  aharness verify <package-name>\n' +
+      '  aharness verify <package-name>/<command-name>\n' +
+      '  aharness run <command> [--<flag> <value>]...\n' +
+      '  aharness list\n' +
       '  aharness doctor\n' +
       '  aharness completion install [--shell bash|zsh|fish]   # one-time shell setup\n' +
       '  aharness completion uninstall\n',
@@ -289,6 +326,27 @@ if (process.argv[1]?.endsWith('main.js')) {
     runInstall: ({ source }) =>
       runInstallCli({
         source,
+        cwd: process.cwd(),
+        stdout: process.stdout,
+        stderr: process.stderr,
+      }),
+    runInstalled: ({ command, inputArgs }) =>
+      runInstalledCli({
+        command,
+        cwd: process.cwd(),
+        stdout: process.stdout,
+        stderr: process.stderr,
+        inputArgs,
+      }),
+    runListInstalled: () =>
+      runListInstalledCli({
+        cwd: process.cwd(),
+        stdout: process.stdout,
+        stderr: process.stderr,
+      }),
+    runVerifyInstalled: ({ target }) =>
+      runVerifyInstalledCli({
+        target,
         cwd: process.cwd(),
         stdout: process.stdout,
         stderr: process.stderr,

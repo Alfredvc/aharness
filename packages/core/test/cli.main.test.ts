@@ -51,6 +51,15 @@ function buildStubs() {
       void o;
       return { exitCode: 0 };
     }),
+    runInstalled: vi.fn(async (o: { command: string; inputArgs: ReadonlyArray<string> }) => {
+      void o;
+      return { exitCode: 0 };
+    }),
+    runListInstalled: vi.fn(async () => ({ exitCode: 0 })),
+    runVerifyInstalled: vi.fn(async (o: { target: string }) => {
+      void o;
+      return { exitCode: 0 };
+    }),
   };
 }
 
@@ -210,6 +219,92 @@ describe('dispatch', () => {
     expect(s.runInstall).not.toHaveBeenCalled();
   });
 
+  it('routes "run <command>" to installed command execution with author input flags', async () => {
+    const s = buildStubs();
+    const r = await dispatch(['run', '@scope/tools/build', '--topic', 'auth', '--dry-run'], s);
+
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runInstalled).toHaveBeenCalledWith({
+      command: '@scope/tools/build',
+      inputArgs: ['--topic', 'auth', '--dry-run'],
+    });
+    expect(s.runDefault).not.toHaveBeenCalled();
+  });
+
+  it('returns usage for malformed run invocations', async () => {
+    const cases: ReadonlyArray<ReadonlyArray<string>> = [
+      ['run'],
+      ['run', 'build', 'extra'],
+      ['run', '--topic', 'auth'],
+    ];
+
+    for (const argv of cases) {
+      const s = buildStubs();
+      const cap = captureStderr();
+      const r = await dispatch(argv, { ...s, stderr: cap.stream });
+
+      expect(r).toEqual({ exitCode: 2 });
+      expect(s.runInstalled).not.toHaveBeenCalled();
+      expect(cap.text()).toContain('aharness run <command>');
+    }
+  });
+
+  it('routes top-level list to installed package listing', async () => {
+    const s = buildStubs();
+    const r = await dispatch(['list'], s);
+
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runListInstalled).toHaveBeenCalledWith({});
+    expect(s.runDefault).not.toHaveBeenCalled();
+  });
+
+  it('returns usage for malformed list invocations', async () => {
+    const s = buildStubs();
+    const cap = captureStderr();
+    const r = await dispatch(['list', 'extra'], { ...s, stderr: cap.stream });
+
+    expect(r).toEqual({ exitCode: 2 });
+    expect(s.runListInstalled).not.toHaveBeenCalled();
+    expect(cap.text()).toContain('aharness list');
+  });
+
+  it('routes installed verify overloads while preserving direct file verify syntax', async () => {
+    const s = buildStubs();
+
+    await dispatch(['verify', 'workflow.fsm.ts'], s);
+    await dispatch(['verify', './workflows/main.fsm.ts'], s);
+    await dispatch(['verify', '@scope/tools'], s);
+    await dispatch(['verify', '@scope/tools/build'], s);
+    await dispatch(['verify', 'tools/build'], s);
+
+    expect(s.runVerify).toHaveBeenNthCalledWith(1, { fsmPath: 'workflow.fsm.ts' });
+    expect(s.runVerify).toHaveBeenNthCalledWith(2, { fsmPath: './workflows/main.fsm.ts' });
+    expect(s.runVerifyInstalled).toHaveBeenNthCalledWith(1, { target: '@scope/tools' });
+    expect(s.runVerifyInstalled).toHaveBeenNthCalledWith(2, { target: '@scope/tools/build' });
+    expect(s.runVerifyInstalled).toHaveBeenNthCalledWith(3, { target: 'tools/build' });
+  });
+
+  it('keeps explicit run/list/verify-like paths runnable through the default runner', async () => {
+    const s = buildStubs();
+
+    await dispatch(['./run'], s);
+    await dispatch(['run.fsm.ts'], s);
+    await dispatch(['./list'], s);
+    await dispatch(['list.fsm.ts'], s);
+    await dispatch(['./verify'], s);
+    await dispatch(['verify.fsm.ts'], s);
+
+    expect(s.runDefault).toHaveBeenNthCalledWith(1, { fsmPath: './run', inputArgs: [] });
+    expect(s.runDefault).toHaveBeenNthCalledWith(2, { fsmPath: 'run.fsm.ts', inputArgs: [] });
+    expect(s.runDefault).toHaveBeenNthCalledWith(3, { fsmPath: './list', inputArgs: [] });
+    expect(s.runDefault).toHaveBeenNthCalledWith(4, { fsmPath: 'list.fsm.ts', inputArgs: [] });
+    expect(s.runDefault).toHaveBeenNthCalledWith(5, { fsmPath: './verify', inputArgs: [] });
+    expect(s.runDefault).toHaveBeenNthCalledWith(6, { fsmPath: 'verify.fsm.ts', inputArgs: [] });
+    expect(s.runInstalled).not.toHaveBeenCalled();
+    expect(s.runListInstalled).not.toHaveBeenCalled();
+    expect(s.runVerifyInstalled).not.toHaveBeenCalled();
+  });
+
   it('keeps an explicit ./package path runnable through the default runner', async () => {
     const s = buildStubs();
     const r = await dispatch(['./package'], s);
@@ -276,6 +371,9 @@ describe('dispatch', () => {
     expect(cap.text()).toContain('aharness package build');
     expect(cap.text()).toContain('aharness package verify');
     expect(cap.text()).toContain('aharness install <source>');
+    expect(cap.text()).toContain('aharness run <command>');
+    expect(cap.text()).toContain('aharness list');
+    expect(cap.text()).toContain('aharness verify <package-name>');
     expect(cap.text()).not.toContain('[--resume]');
   });
 

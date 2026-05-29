@@ -22,6 +22,17 @@ export {
   type ParsedCommandIdentity,
   type ResolvedCommandIndexEntry,
 } from './commands.js';
+export {
+  checkInstalledLockFingerprint,
+  readInstalledRuntimeSnapshot,
+  resolveInstalledCommand,
+  resolveInstalledPackage,
+  type CheckInstalledLockFingerprintDeps,
+  type InstalledRuntimeSnapshot,
+  type ReadInstalledRuntimeSnapshotOptions,
+  type ResolvedInstalledCommand,
+  type ResolvedInstalledPackage,
+} from './runtime.js';
 export { ensureManagedProject, readManagedProjectDependencies } from './managedProject.js';
 export {
   runNpmInstall,

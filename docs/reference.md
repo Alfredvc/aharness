@@ -125,6 +125,10 @@ aharness package init [--name <package-name>] [--bin <command>] [--fsms-dir <dir
 aharness package build
 aharness package verify
 aharness install <source>
+aharness run <command> [--<flag> <value>]...
+aharness list
+aharness verify <package-name>
+aharness verify <package-name>/<command-name>
 aharness completion install [--shell bash|zsh|fish]
 aharness completion uninstall
 ```
@@ -152,9 +156,28 @@ Install may run npm lifecycle scripts, and v1 does not provide an aharness
 `--ignore-scripts` flag. aharness writes trusted install and command-index
 records only after the installed package metadata, assets, loader, and verifier
 checks succeed. If validation fails after npm mutates the managed project, npm
-files may remain changed, but unverified commands are not indexed. Installed
-package `run`, `list`, `verify`, and `uninstall` forms are not part of this
-documented surface yet.
+files may remain changed, but unverified commands are not indexed.
+
+`aharness run <command> [--<flag> <value>]...` runs an installed package
+command. Fully qualified command names, such as `@scope/tools/build` or
+`tools/build`, are stable. Bare command names are accepted only when exactly one
+installed package provides that command; bare-name collisions require a fully
+qualified command. Package commands named `list` or `verify` are invoked through
+`aharness run list` and `aharness run verify`, not as top-level verbs.
+
+`aharness list` prints installed packages, their commands, and any bare-command
+collisions.
+
+`aharness verify <file.fsm.ts>` still verifies a direct FSM file. Installed
+packages can be checked with `aharness verify <package-name>`, and a single
+installed command can be checked with
+`aharness verify <package-name>/<command-name>`.
+
+Installed `run` and installed `verify` recompute the current managed npm
+project lock fingerprint before loading a package command. If the managed tree
+no longer matches the verified install record, reinstall the package before
+running or verifying it. `aharness uninstall` is not part of this documented
+surface yet.
 
 ### Browser Graph
 
