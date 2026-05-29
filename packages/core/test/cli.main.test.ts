@@ -47,6 +47,10 @@ function buildStubs() {
       void o;
       return { exitCode: 0 };
     }),
+    runInstall: vi.fn(async (o: { source: string }) => {
+      void o;
+      return { exitCode: 0 };
+    }),
   };
 }
 
@@ -161,6 +165,51 @@ describe('dispatch', () => {
     expect(s.runDefault).not.toHaveBeenCalled();
   });
 
+  it('routes "install <source>" to the install CLI handler', async () => {
+    const s = buildStubs();
+    const r = await dispatch(['install', '@scope/tools@latest'], s);
+
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runInstall).toHaveBeenCalledWith({ source: '@scope/tools@latest' });
+    expect(s.runDefault).not.toHaveBeenCalled();
+  });
+
+  it('returns usage for malformed install invocations', async () => {
+    const cases: ReadonlyArray<ReadonlyArray<string>> = [
+      ['install'],
+      ['install', '@scope/tools', 'extra'],
+      ['install', '--ignore-scripts'],
+    ];
+
+    for (const argv of cases) {
+      const s = buildStubs();
+      const cap = captureStderr();
+      const r = await dispatch(argv, { ...s, stderr: cap.stream });
+
+      expect(r).toEqual({ exitCode: 2 });
+      expect(s.runInstall).not.toHaveBeenCalled();
+      expect(cap.text()).toContain('aharness install <source>');
+    }
+  });
+
+  it('keeps explicit install-like paths runnable through the default runner', async () => {
+    const s = buildStubs();
+    const dotSlash = await dispatch(['./install'], s);
+    const fsmPath = await dispatch(['install.fsm.ts'], s);
+
+    expect(dotSlash).toEqual({ exitCode: 0 });
+    expect(fsmPath).toEqual({ exitCode: 0 });
+    expect(s.runDefault).toHaveBeenNthCalledWith(1, {
+      fsmPath: './install',
+      inputArgs: [],
+    });
+    expect(s.runDefault).toHaveBeenNthCalledWith(2, {
+      fsmPath: 'install.fsm.ts',
+      inputArgs: [],
+    });
+    expect(s.runInstall).not.toHaveBeenCalled();
+  });
+
   it('keeps an explicit ./package path runnable through the default runner', async () => {
     const s = buildStubs();
     const r = await dispatch(['./package'], s);
@@ -226,6 +275,7 @@ describe('dispatch', () => {
     expect(cap.text()).toContain('aharness package init');
     expect(cap.text()).toContain('aharness package build');
     expect(cap.text()).toContain('aharness package verify');
+    expect(cap.text()).toContain('aharness install <source>');
     expect(cap.text()).not.toContain('[--resume]');
   });
 

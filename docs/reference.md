@@ -124,6 +124,7 @@ aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|y
 aharness package init [--name <package-name>] [--bin <command>] [--fsms-dir <dir>] [--force]
 aharness package build
 aharness package verify
+aharness install <source>
 aharness completion install [--shell bash|zsh|fish]
 aharness completion uninstall
 ```
@@ -144,6 +145,16 @@ inspectable.
 During live runs, the same browser shell also shows the active turn state and
 user-relevant tool/MCP calls in the transcript. Internal aharness submit and
 owner-input plumbing remains hidden from the default view.
+
+`aharness install <source>` delegates package-spec handling to npm inside the
+aharness managed npm project. The source may be any package spec npm accepts.
+Install may run npm lifecycle scripts, and v1 does not provide an aharness
+`--ignore-scripts` flag. aharness writes trusted install and command-index
+records only after the installed package metadata, assets, loader, and verifier
+checks succeed. If validation fails after npm mutates the managed project, npm
+files may remain changed, but unverified commands are not indexed. Installed
+package `run`, `list`, `verify`, and `uninstall` forms are not part of this
+documented surface yet.
 
 ### Browser Graph
 

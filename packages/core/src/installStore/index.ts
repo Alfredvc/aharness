@@ -22,3 +22,26 @@ export {
   type ParsedCommandIdentity,
   type ResolvedCommandIndexEntry,
 } from './commands.js';
+export { ensureManagedProject, readManagedProjectDependencies } from './managedProject.js';
+export {
+  runNpmInstall,
+  type InstallNpmRunner,
+  type NpmInstallSuccess,
+  type NpmSpawn,
+  type NpmSpawnInvocation,
+  type NpmSpawnResult,
+  type RunNpmInstallOptions,
+} from './npmRunner.js';
+export {
+  computeSourceIntentKey,
+  deriveDependencyKeyFromSource,
+  identifyDirectDependencyKey,
+  resolveLocalDirectorySource,
+} from './sourceIntent.js';
+export { computeLockFingerprint, type ComputeLockFingerprintOptions } from './lockfile.js';
+export {
+  installPackageFromSource,
+  type InstallPackageFromSourceOptions,
+  type InstallPackageMutationResult,
+  type InstallPackageSuccess,
+} from './install.js';

@@ -14,6 +14,7 @@
  *     delegate script that tabtab installs. Bounded by a 500 ms
  *     watchdog so a stuck import never hangs the user's shell.
  *   - `aharness package <init|build|verify>` — package authoring commands.
+ *   - `aharness install <source>` — npm-backed installed package mutation.
  *   - `aharness visualize <file.fsm.ts>` — browser-only FSM inspection.
  *   - `aharness <file.fsm.ts>` — foreground boot (Phase 1: single-process).
  *
@@ -34,6 +35,7 @@ import { runVisualizeCli } from './visualizeCli.js';
 import { runCompletionInstall, runCompletionUninstall } from './completion.js';
 import { runCompletionBridge } from './completionBridge.js';
 import { runInitCli } from './initCli.js';
+import { runInstallCli } from './installCli.js';
 import { runPackageCli } from './packageCli.js';
 
 export interface DispatchResult {
@@ -70,6 +72,7 @@ export interface Dispatcher {
     pm?: 'npm' | 'pnpm' | 'yarn' | 'bun';
   }) => Promise<{ exitCode: number }>;
   readonly runPackage: (o: { argv: ReadonlyArray<string> }) => Promise<{ exitCode: number }>;
+  readonly runInstall: (o: { source: string }) => Promise<{ exitCode: number }>;
   /** Sink for usage/error text. Tests inject a buffer; production uses stderr. */
   readonly stderr?: NodeJS.WritableStream;
 }
@@ -121,6 +124,11 @@ export async function dispatch(
   if (cmd === 'package') {
     return d.runPackage({ argv: rest });
   }
+  if (cmd === 'install') {
+    const source = parseInstallSource(rest);
+    if (!source) return { exitCode: usage(stderr) };
+    return d.runInstall({ source });
+  }
   if (cmd === 'visualize') {
     const parsed = parseFsmPathAndInputArgs(rest);
     if (!parsed) return { exitCode: usage(stderr) };
@@ -134,6 +142,13 @@ export async function dispatch(
   if (!parsedDefault) return { exitCode: usage(stderr) };
 
   return d.runDefault(parsedDefault);
+}
+
+function parseInstallSource(args: ReadonlyArray<string>): string | null {
+  if (args.length !== 1) return null;
+  const source = args[0]!;
+  if (source.length === 0 || source.startsWith('-')) return null;
+  return source;
 }
 
 function parseFsmPathAndInputArgs(
@@ -215,6 +230,7 @@ function usage(stderr: NodeJS.WritableStream): number {
       '  aharness package init [--name <package-name>] [--bin <command>] [--fsms-dir <dir>] [--force]\n' +
       '  aharness package build\n' +
       '  aharness package verify\n' +
+      '  aharness install <source>\n' +
       '  aharness verify <file.fsm.ts>\n' +
       '  aharness doctor\n' +
       '  aharness completion install [--shell bash|zsh|fish]   # one-time shell setup\n' +
@@ -266,6 +282,13 @@ if (process.argv[1]?.endsWith('main.js')) {
     runPackage: ({ argv }) =>
       runPackageCli({
         argv,
+        cwd: process.cwd(),
+        stdout: process.stdout,
+        stderr: process.stderr,
+      }),
+    runInstall: ({ source }) =>
+      runInstallCli({
+        source,
         cwd: process.cwd(),
         stdout: process.stdout,
         stderr: process.stderr,
