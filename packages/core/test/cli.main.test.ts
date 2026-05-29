@@ -60,6 +60,10 @@ function buildStubs() {
       void o;
       return { exitCode: 0 };
     }),
+    runUninstall: vi.fn(async (o: { packageName: string }) => {
+      void o;
+      return { exitCode: 0 };
+    }),
   };
 }
 
@@ -268,6 +272,36 @@ describe('dispatch', () => {
     expect(cap.text()).toContain('aharness list');
   });
 
+  it('routes "uninstall <package-name>" to installed package removal', async () => {
+    const s = buildStubs();
+    const scoped = await dispatch(['uninstall', '@scope/tools'], s);
+    const unscoped = await dispatch(['uninstall', 'tools'], s);
+
+    expect(scoped).toEqual({ exitCode: 0 });
+    expect(unscoped).toEqual({ exitCode: 0 });
+    expect(s.runUninstall).toHaveBeenNthCalledWith(1, { packageName: '@scope/tools' });
+    expect(s.runUninstall).toHaveBeenNthCalledWith(2, { packageName: 'tools' });
+    expect(s.runDefault).not.toHaveBeenCalled();
+  });
+
+  it('returns usage for malformed uninstall invocations', async () => {
+    const cases: ReadonlyArray<ReadonlyArray<string>> = [
+      ['uninstall'],
+      ['uninstall', 'tools', 'extra'],
+      ['uninstall', '--package'],
+    ];
+
+    for (const argv of cases) {
+      const s = buildStubs();
+      const cap = captureStderr();
+      const r = await dispatch(argv, { ...s, stderr: cap.stream });
+
+      expect(r).toEqual({ exitCode: 2 });
+      expect(s.runUninstall).not.toHaveBeenCalled();
+      expect(cap.text()).toContain('aharness uninstall <package-name>');
+    }
+  });
+
   it('routes installed verify overloads while preserving direct file verify syntax', async () => {
     const s = buildStubs();
 
@@ -293,6 +327,8 @@ describe('dispatch', () => {
     await dispatch(['list.fsm.ts'], s);
     await dispatch(['./verify'], s);
     await dispatch(['verify.fsm.ts'], s);
+    await dispatch(['./uninstall'], s);
+    await dispatch(['uninstall.fsm.ts'], s);
 
     expect(s.runDefault).toHaveBeenNthCalledWith(1, { fsmPath: './run', inputArgs: [] });
     expect(s.runDefault).toHaveBeenNthCalledWith(2, { fsmPath: 'run.fsm.ts', inputArgs: [] });
@@ -300,9 +336,12 @@ describe('dispatch', () => {
     expect(s.runDefault).toHaveBeenNthCalledWith(4, { fsmPath: 'list.fsm.ts', inputArgs: [] });
     expect(s.runDefault).toHaveBeenNthCalledWith(5, { fsmPath: './verify', inputArgs: [] });
     expect(s.runDefault).toHaveBeenNthCalledWith(6, { fsmPath: 'verify.fsm.ts', inputArgs: [] });
+    expect(s.runDefault).toHaveBeenNthCalledWith(7, { fsmPath: './uninstall', inputArgs: [] });
+    expect(s.runDefault).toHaveBeenNthCalledWith(8, { fsmPath: 'uninstall.fsm.ts', inputArgs: [] });
     expect(s.runInstalled).not.toHaveBeenCalled();
     expect(s.runListInstalled).not.toHaveBeenCalled();
     expect(s.runVerifyInstalled).not.toHaveBeenCalled();
+    expect(s.runUninstall).not.toHaveBeenCalled();
   });
 
   it('keeps an explicit ./package path runnable through the default runner', async () => {
@@ -373,6 +412,7 @@ describe('dispatch', () => {
     expect(cap.text()).toContain('aharness install <source>');
     expect(cap.text()).toContain('aharness run <command>');
     expect(cap.text()).toContain('aharness list');
+    expect(cap.text()).toContain('aharness uninstall <package-name>');
     expect(cap.text()).toContain('aharness verify <package-name>');
     expect(cap.text()).not.toContain('[--resume]');
   });

@@ -127,6 +127,7 @@ aharness package verify
 aharness install <source>
 aharness run <command> [--<flag> <value>]...
 aharness list
+aharness uninstall <package-name>
 aharness verify <package-name>
 aharness verify <package-name>/<command-name>
 aharness completion install [--shell bash|zsh|fish]
@@ -168,6 +169,13 @@ qualified command. Package commands named `list` or `verify` are invoked through
 `aharness list` prints installed packages, their commands, and any bare-command
 collisions.
 
+`aharness uninstall <package-name>` removes an installed package by its exact
+package identity, including scoped names such as `@scope/tools`. It delegates
+the package removal to npm inside the aharness managed npm project, removes the
+trusted install record, and regenerates the command index from the remaining
+trusted installs. The command target is a package name, not a command name or
+bare command alias.
+
 `aharness verify <file.fsm.ts>` still verifies a direct FSM file. Installed
 packages can be checked with `aharness verify <package-name>`, and a single
 installed command can be checked with
@@ -176,8 +184,14 @@ installed command can be checked with
 Installed `run` and installed `verify` recompute the current managed npm
 project lock fingerprint before loading a package command. If the managed tree
 no longer matches the verified install record, reinstall the package before
-running or verifying it. `aharness uninstall` is not part of this documented
-surface yet.
+running or verifying it.
+
+`commands.json` is a derived index from `installs.json`. If aharness detects a
+missing, malformed, or stale command index after a crash or interrupted trusted
+write, it regenerates the index from a valid `installs.json` after confirming
+the recorded package lock fingerprints still match the managed npm project.
+Malformed `installs.json` remains a hard trust-boundary failure because there is
+no trusted source of truth to regenerate from.
 
 ### Browser Graph
 

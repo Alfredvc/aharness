@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { Writable } from 'node:stream';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -82,7 +85,34 @@ describe('aharness list installed packages', () => {
     expect(readSnapshotImpl).toHaveBeenCalledTimes(1);
   });
 
-  it('formats stale or malformed trusted snapshot diagnostics as list failures', async () => {
+  it('does not keep trusted store reads open after listing a snapshot', async () => {
+    const storeRoot = await mkdtemp(path.join(os.tmpdir(), 'aharness-list-no-read-lock-'));
+    try {
+      await mkdir(storeRoot, { recursive: true });
+      const snapshot = runtimeSnapshot(
+        [
+          installRecord('@scope/tools', {
+            build: commandMetadata('build'),
+          }),
+        ],
+        storeRoot,
+      );
+
+      const result = await runListInstalledCli({
+        cwd: '/workspace',
+        stdout: captureStream().stream,
+        stderr: captureStream().stream,
+        readSnapshotImpl: async () => ({ ok: true, value: snapshot }),
+      });
+      await writeFile(snapshot.paths.commandsPath, '{"rewritten":true}\n');
+
+      expect(result).toEqual({ exitCode: 0 });
+    } finally {
+      await rm(storeRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('formats unrecoverable trusted snapshot diagnostics as list failures', async () => {
     const stderr = captureStream();
 
     const result = await runListInstalledCli({
@@ -93,9 +123,9 @@ describe('aharness list installed packages', () => {
         ok: false,
         diagnostics: [
           {
-            code: 'command-index-generation-mismatch',
-            field: 'generation',
-            message: 'commands.json is stale',
+            code: 'trusted-installs-unrecoverable',
+            path: '/store/installs.json',
+            message: 'installs.json is malformed',
           },
         ],
       }),
@@ -103,11 +133,14 @@ describe('aharness list installed packages', () => {
 
     expect(result).toEqual({ exitCode: 1 });
     expect(stderr.text()).toContain('aharness list failed:');
-    expect(stderr.text()).toContain('command-index-generation-mismatch');
+    expect(stderr.text()).toContain('trusted-installs-unrecoverable');
   });
 });
 
-function runtimeSnapshot(records: readonly TrustedInstallRecord[]): InstalledRuntimeSnapshot {
+function runtimeSnapshot(
+  records: readonly TrustedInstallRecord[],
+  storeRoot = '/store',
+): InstalledRuntimeSnapshot {
   const installs: Record<string, TrustedInstallRecord> = {};
   const commands: Record<string, TrustedCommandIndexEntry> = {};
   for (const record of records) {
@@ -126,10 +159,10 @@ function runtimeSnapshot(records: readonly TrustedInstallRecord[]): InstalledRun
   }
   return {
     paths: {
-      storeRoot: '/store',
-      managedProjectRoot: '/store/packages',
-      installsPath: '/store/installs.json',
-      commandsPath: '/store/commands.json',
+      storeRoot,
+      managedProjectRoot: path.join(storeRoot, 'packages'),
+      installsPath: path.join(storeRoot, 'installs.json'),
+      commandsPath: path.join(storeRoot, 'commands.json'),
     },
     installs: { schemaVersion: 1, generation: 'gen-1', installs },
     commands: { schemaVersion: 1, generation: 'gen-1', commands },

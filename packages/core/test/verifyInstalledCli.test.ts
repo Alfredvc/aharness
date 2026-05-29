@@ -1,4 +1,6 @@
 import * as path from 'node:path';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import * as os from 'node:os';
 import { Writable } from 'node:stream';
 
 import { describe, expect, it, vi } from 'vitest';
@@ -144,6 +146,41 @@ describe('aharness verify installed packages and commands', () => {
     expect(stderr.text()).toContain('installed-lock-fingerprint-mismatch');
   });
 
+  it('does not keep trusted store reads open while command verification loads FSMs', async () => {
+    const storeRoot = await mkdtemp(path.join(os.tmpdir(), 'aharness-verify-no-read-lock-'));
+    try {
+      await mkdir(storeRoot, { recursive: true });
+      const snapshot = runtimeSnapshot(
+        [
+          installRecord('@scope/tools', {
+            build: commandMetadata('build'),
+          }),
+        ],
+        storeRoot,
+      );
+      const loadInstalledFsmImpl = vi.fn(async () => {
+        await writeFile(snapshot.paths.commandsPath, '{"rewritten":true}\n');
+        return makeLoadedFsm();
+      });
+
+      const result = await runVerifyInstalledCli({
+        target: '@scope/tools/build',
+        cwd: '/workspace',
+        stdout: captureStream().stream,
+        stderr: captureStream().stream,
+        readSnapshotImpl: async () => ({ ok: true, value: snapshot }),
+        checkLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
+        loadInstalledFsmImpl,
+        verifyImpl: vi.fn(() => okVerifyResult()),
+      });
+
+      expect(result).toEqual({ exitCode: 0 });
+      expect(loadInstalledFsmImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      await rm(storeRoot, { recursive: true, force: true });
+    }
+  });
+
   it('formats verifier errors and exits nonzero', async () => {
     const snapshot = runtimeSnapshot([
       installRecord('@scope/tools', { build: commandMetadata('build') }),
@@ -185,7 +222,10 @@ describe('aharness verify installed packages and commands', () => {
   });
 });
 
-function runtimeSnapshot(records: readonly TrustedInstallRecord[]): InstalledRuntimeSnapshot {
+function runtimeSnapshot(
+  records: readonly TrustedInstallRecord[],
+  storeRoot = '/store',
+): InstalledRuntimeSnapshot {
   const installs: Record<string, TrustedInstallRecord> = {};
   const commands: Record<string, TrustedCommandIndexEntry> = {};
   for (const record of records) {
@@ -204,10 +244,10 @@ function runtimeSnapshot(records: readonly TrustedInstallRecord[]): InstalledRun
   }
   return {
     paths: {
-      storeRoot: '/store',
-      managedProjectRoot: '/store/packages',
-      installsPath: '/store/installs.json',
-      commandsPath: '/store/commands.json',
+      storeRoot,
+      managedProjectRoot: path.join(storeRoot, 'packages'),
+      installsPath: path.join(storeRoot, 'installs.json'),
+      commandsPath: path.join(storeRoot, 'commands.json'),
     },
     installs: { schemaVersion: 1, generation: 'gen-1', installs },
     commands: { schemaVersion: 1, generation: 'gen-1', commands },

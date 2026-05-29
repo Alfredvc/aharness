@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -40,9 +40,28 @@ describe('install store runtime snapshot helpers', () => {
     expect(snapshot.value.paths.storeRoot).toBe(storeRoot);
   });
 
-  it('fails a partially missing trusted file pair without regenerating', async () => {
+  it('recovers a missing command index when installs are valid and fingerprints match', async () => {
+    const install = installRecord('@scope/tools', { build: commandMetadata('build') });
     await mkdir(storeRoot, { recursive: true });
-    await writeJson(paths.installsPath, installsFile());
+    await writeJson(paths.installsPath, installsFile({ installs: { '@scope/tools': install } }));
+
+    const snapshot = await readInstalledRuntimeSnapshot({
+      paths,
+      computeLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
+    });
+
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) return;
+    expect(snapshot.value.commands.generation).toBe(snapshot.value.installs.generation);
+    expect(snapshot.value.commands.commands['@scope/tools/build']).toEqual(
+      commandIndexEntry('@scope/tools', 'build'),
+    );
+    await expect(readFile(paths.commandsPath, 'utf8')).resolves.toContain('@scope/tools/build');
+  });
+
+  it('fails when commands.json exists without trusted installs as source of truth', async () => {
+    await mkdir(storeRoot, { recursive: true });
+    await writeJson(paths.commandsPath, commandsFile());
 
     const snapshot = await readInstalledRuntimeSnapshot({ paths });
 
@@ -51,26 +70,107 @@ describe('install store runtime snapshot helpers', () => {
       expect(snapshot.diagnostics).toEqual([
         expect.objectContaining({
           code: 'trusted-runtime-files-incomplete',
-          path: paths.commandsPath,
+          path: paths.installsPath,
         }),
       ]);
     }
   });
 
-  it('fails stale command indexes with the generation mismatch diagnostic', async () => {
+  it('recovers stale command indexes with matching install fingerprints', async () => {
     await writeTrustedPair({
-      installs: installsFile({ generation: 'gen-2' }),
+      installs: installsFile({
+        generation: 'gen-2',
+        installs: {
+          '@scope/tools': installRecord('@scope/tools', { build: commandMetadata('build') }),
+        },
+      }),
       commands: commandsFile({ generation: 'gen-1' }),
     });
 
-    const snapshot = await readInstalledRuntimeSnapshot({ paths });
+    const snapshot = await readInstalledRuntimeSnapshot({
+      paths,
+      computeLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
+    });
+
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) return;
+    expect(snapshot.value.commands.generation).toBe('gen-2');
+    expect(snapshot.value.commands.commands['@scope/tools/build']).toEqual(
+      commandIndexEntry('@scope/tools', 'build'),
+    );
+  });
+
+  it('recovers malformed command indexes only after validating install fingerprints', async () => {
+    await mkdir(storeRoot, { recursive: true });
+    await writeJson(
+      paths.installsPath,
+      installsFile({
+        installs: {
+          '@scope/tools': installRecord('@scope/tools', { build: commandMetadata('build') }),
+        },
+      }),
+    );
+    await writeFile(paths.commandsPath, '{ nope');
+
+    const snapshot = await readInstalledRuntimeSnapshot({
+      paths,
+      computeLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
+    });
+
+    expect(snapshot.ok).toBe(true);
+    if (!snapshot.ok) return;
+    expect(snapshot.value.commands.commands['@scope/tools/build']).toEqual(
+      commandIndexEntry('@scope/tools', 'build'),
+    );
+  });
+
+  it('does not recover command indexes when a package fingerprint changed', async () => {
+    await writeTrustedPair({
+      installs: installsFile({
+        generation: 'gen-2',
+        installs: {
+          '@scope/tools': installRecord('@scope/tools', { build: commandMetadata('build') }),
+        },
+      }),
+      commands: commandsFile({ generation: 'gen-1' }),
+    });
+
+    const snapshot = await readInstalledRuntimeSnapshot({
+      paths,
+      computeLockFingerprintImpl: async () => ({ ok: true, value: 'changed-lock' }),
+    });
 
     expect(snapshot.ok).toBe(false);
     if (!snapshot.ok) {
       expect(snapshot.diagnostics).toEqual([
         expect.objectContaining({
-          code: 'command-index-generation-mismatch',
-          field: 'generation',
+          code: 'installed-lock-fingerprint-mismatch',
+          field: 'installs.@scope/tools.lockFingerprint',
+        }),
+      ]);
+    }
+  });
+
+  it('fails malformed installs with source-of-truth recovery guidance', async () => {
+    await mkdir(storeRoot, { recursive: true });
+    await writeFile(paths.installsPath, '{ nope');
+    await writeJson(paths.commandsPath, commandsFile());
+
+    const snapshot = await readInstalledRuntimeSnapshot({
+      paths,
+      computeLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
+    });
+
+    expect(snapshot.ok).toBe(false);
+    if (!snapshot.ok) {
+      expect(snapshot.diagnostics).toEqual([
+        expect.objectContaining({
+          code: 'trusted-json-invalid',
+          path: paths.installsPath,
+        }),
+        expect.objectContaining({
+          code: 'trusted-installs-unrecoverable',
+          path: paths.installsPath,
         }),
       ]);
     }

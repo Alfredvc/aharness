@@ -8,6 +8,7 @@ import {
   ensureManagedProject,
   readManagedProjectDependencies,
   runNpmInstall,
+  runNpmUninstall,
   type NpmSpawnInvocation,
 } from '../src/installStore/index.js';
 
@@ -109,6 +110,32 @@ describe('managed npm project', () => {
       '--install-links',
       '--',
       localPackage,
+    ]);
+  });
+
+  it('spawns npm uninstall with shell false, --save, and the dependency key', async () => {
+    const managedProjectRoot = await tmpStore();
+    const calls: NpmSpawnInvocation[] = [];
+
+    const result = await runNpmUninstall({
+      managedProjectRoot,
+      dependencyKey: '@scope/tools-alias',
+      spawn: async (call) => {
+        calls.push(call);
+        return { status: 0, stdout: 'removed', stderr: '' };
+      },
+    });
+
+    expect(result).toEqual({ ok: true, value: { stdout: 'removed', stderr: '' } });
+    expect(calls).toEqual([
+      {
+        command: 'npm',
+        args: ['uninstall', '--save', '@scope/tools-alias'],
+        options: {
+          cwd: managedProjectRoot,
+          shell: false,
+        },
+      },
     ]);
   });
 });

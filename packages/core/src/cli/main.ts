@@ -17,6 +17,7 @@
  *   - `aharness install <source>` — npm-backed installed package mutation.
  *   - `aharness run <command>` — installed package command execution.
  *   - `aharness list` — installed package command listing.
+ *   - `aharness uninstall <package-name>` — npm-backed package removal.
  *   - `aharness visualize <file.fsm.ts>` — browser-only FSM inspection.
  *   - `aharness <file.fsm.ts>` — foreground boot (Phase 1: single-process).
  *
@@ -43,6 +44,7 @@ import { runInstallCli } from './installCli.js';
 import { runInstalledCli } from './runInstalledCli.js';
 import { runListInstalledCli } from './listInstalledCli.js';
 import { runVerifyInstalledCli } from './verifyInstalledCli.js';
+import { runUninstallCli } from './uninstallCli.js';
 import { runPackageCli } from './packageCli.js';
 
 export interface DispatchResult {
@@ -86,6 +88,7 @@ export interface Dispatcher {
   }) => Promise<{ exitCode: number }>;
   readonly runListInstalled: (o: Record<string, never>) => Promise<{ exitCode: number }>;
   readonly runVerifyInstalled: (o: { target: string }) => Promise<{ exitCode: number }>;
+  readonly runUninstall: (o: { packageName: string }) => Promise<{ exitCode: number }>;
   /** Sink for usage/error text. Tests inject a buffer; production uses stderr. */
   readonly stderr?: NodeJS.WritableStream;
 }
@@ -153,6 +156,11 @@ export async function dispatch(
     if (rest.length !== 0) return { exitCode: usage(stderr) };
     return d.runListInstalled({});
   }
+  if (cmd === 'uninstall') {
+    const packageName = parseUninstallPackageName(rest);
+    if (!packageName) return { exitCode: usage(stderr) };
+    return d.runUninstall({ packageName });
+  }
   if (cmd === 'visualize') {
     const parsed = parseFsmPathAndInputArgs(rest);
     if (!parsed) return { exitCode: usage(stderr) };
@@ -166,6 +174,13 @@ export async function dispatch(
   if (!parsedDefault) return { exitCode: usage(stderr) };
 
   return d.runDefault(parsedDefault);
+}
+
+function parseUninstallPackageName(args: ReadonlyArray<string>): string | null {
+  if (args.length !== 1) return null;
+  const packageName = args[0]!;
+  if (packageName.length === 0 || packageName.startsWith('-')) return null;
+  return packageName;
 }
 
 function parseInstallSource(args: ReadonlyArray<string>): string | null {
@@ -269,6 +284,7 @@ function usage(stderr: NodeJS.WritableStream): number {
       '  aharness verify <package-name>/<command-name>\n' +
       '  aharness run <command> [--<flag> <value>]...\n' +
       '  aharness list\n' +
+      '  aharness uninstall <package-name>\n' +
       '  aharness doctor\n' +
       '  aharness completion install [--shell bash|zsh|fish]   # one-time shell setup\n' +
       '  aharness completion uninstall\n',
@@ -347,6 +363,13 @@ if (process.argv[1]?.endsWith('main.js')) {
     runVerifyInstalled: ({ target }) =>
       runVerifyInstalledCli({
         target,
+        cwd: process.cwd(),
+        stdout: process.stdout,
+        stderr: process.stderr,
+      }),
+    runUninstall: ({ packageName }) =>
+      runUninstallCli({
+        packageName,
         cwd: process.cwd(),
         stdout: process.stdout,
         stderr: process.stderr,

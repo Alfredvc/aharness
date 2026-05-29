@@ -17,6 +17,10 @@ export {
   type CommandIndexGenerationComparison,
 } from './records.js';
 export {
+  regenerateCommandIndexFromInstalls,
+  type RegenerateCommandIndexFromInstallsOptions,
+} from './recovery.js';
+export {
   parseCommandIdentity,
   resolveCommandFromIndex,
   type ParsedCommandIdentity,
@@ -42,6 +46,10 @@ export {
   type NpmSpawnInvocation,
   type NpmSpawnResult,
   type RunNpmInstallOptions,
+  runNpmUninstall,
+  type NpmUninstallSuccess,
+  type RunNpmUninstallOptions,
+  type UninstallNpmRunner,
 } from './npmRunner.js';
 export {
   computeSourceIntentKey,
@@ -56,3 +64,9 @@ export {
   type InstallPackageMutationResult,
   type InstallPackageSuccess,
 } from './install.js';
+export {
+  uninstallPackage,
+  type UninstallPackageMutationResult,
+  type UninstallPackageOptions,
+  type UninstallPackageSuccess,
+} from './uninstall.js';

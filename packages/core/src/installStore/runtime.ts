@@ -4,8 +4,9 @@ import { compareCommandIndexGeneration, type CommandIndexGenerationComparison } 
 import { resolveCommandFromIndex } from './commands.js';
 import { computeLockFingerprint, type ComputeLockFingerprintOptions } from './lockfile.js';
 import { resolveInstallStorePaths, type InstallStorePaths } from './paths.js';
+import { regenerateCommandIndexFromInstalls } from './recovery.js';
 import { validateTrustedCommandsFile, validateTrustedInstallsFile } from './schema.js';
-import { readTrustedJson } from './trustedJson.js';
+import { readTrustedJson, writeTrustedJson } from './trustedJson.js';
 import {
   INSTALL_STORE_SCHEMA_VERSION,
   type InstallStoreDiagnostic,
@@ -27,6 +28,10 @@ export interface ReadInstalledRuntimeSnapshotOptions {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly homeDir?: string;
   readonly paths?: InstallStorePaths;
+  readonly computeLockFingerprintImpl?: (
+    opts: ComputeLockFingerprintOptions,
+  ) => Promise<InstallStoreResult<string>>;
+  readonly writeTrustedJsonImpl?: typeof writeTrustedJson;
 }
 
 export interface ResolvedInstalledCommand {
@@ -81,14 +86,13 @@ export async function readInstalledRuntimeSnapshot(
     };
   }
 
-  if (installsPresence.exists !== commandsPresence.exists) {
-    const missingPath = installsPresence.exists ? paths.commandsPath : paths.installsPath;
+  if (!installsPresence.exists && commandsPresence.exists) {
     return {
       ok: false,
       diagnostics: [
         {
           code: 'trusted-runtime-files-incomplete',
-          path: missingPath,
+          path: paths.installsPath,
           message:
             'trusted install runtime files are incomplete; installs.json and commands.json ' +
             'must both exist before installed commands are trusted',
@@ -98,17 +102,28 @@ export async function readInstalledRuntimeSnapshot(
   }
 
   const installs = await readTrustedJson(paths.installsPath, validateTrustedInstallsFile);
+  if (!installs.ok) {
+    return {
+      ok: false,
+      diagnostics: [...installs.diagnostics, unrecoverableInstallsDiagnostic(paths.installsPath)],
+    };
+  }
+
+  if (!commandsPresence.exists) {
+    return recoverRuntimeSnapshot({ paths, installs: installs.value, opts });
+  }
+
   const commands = await readTrustedJson(paths.commandsPath, validateTrustedCommandsFile);
-  const diagnostics = [...resultDiagnostics(installs), ...resultDiagnostics(commands)];
-  if (diagnostics.length > 0) return { ok: false, diagnostics };
-  if (!installs.ok || !commands.ok) return { ok: false, diagnostics };
+  if (!commands.ok) {
+    return recoverRuntimeSnapshot({ paths, installs: installs.value, opts });
+  }
 
   const generation: CommandIndexGenerationComparison = compareCommandIndexGeneration(
     installs.value,
     commands.value,
   );
   if (!generation.current) {
-    return { ok: false, diagnostics: generation.diagnostics };
+    return recoverRuntimeSnapshot({ paths, installs: installs.value, opts });
   }
 
   return {
@@ -117,6 +132,33 @@ export async function readInstalledRuntimeSnapshot(
       paths,
       installs: installs.value,
       commands: commands.value,
+    },
+  };
+}
+
+async function recoverRuntimeSnapshot(args: {
+  readonly paths: InstallStorePaths;
+  readonly installs: TrustedInstallsFile;
+  readonly opts: ReadInstalledRuntimeSnapshotOptions;
+}): Promise<InstallStoreResult<InstalledRuntimeSnapshot>> {
+  const recovered = await regenerateCommandIndexFromInstalls({
+    paths: args.paths,
+    installs: args.installs,
+    ...(args.opts.computeLockFingerprintImpl !== undefined
+      ? { computeLockFingerprintImpl: args.opts.computeLockFingerprintImpl }
+      : {}),
+    ...(args.opts.writeTrustedJsonImpl !== undefined
+      ? { writeTrustedJsonImpl: args.opts.writeTrustedJsonImpl }
+      : {}),
+  });
+  if (!recovered.ok) return recovered;
+
+  return {
+    ok: true,
+    value: {
+      paths: args.paths,
+      installs: args.installs,
+      commands: recovered.value,
     },
   };
 }
@@ -270,16 +312,22 @@ async function filePresence(
   }
 }
 
-function resultDiagnostics<T>(result: InstallStoreResult<T>): readonly InstallStoreDiagnostic[] {
-  return result.ok ? [] : result.diagnostics;
-}
-
 function isNodeError(err: unknown, code: string): boolean {
   return (
     err instanceof Error &&
     typeof (err as NodeJS.ErrnoException).code === 'string' &&
     (err as NodeJS.ErrnoException).code === code
   );
+}
+
+function unrecoverableInstallsDiagnostic(path: string): InstallStoreDiagnostic {
+  return {
+    code: 'trusted-installs-unrecoverable',
+    path,
+    message:
+      'installs.json is the trusted source of truth for installed packages; restore or remove ' +
+      'that file before installed commands can be trusted',
+  };
 }
 
 function errorMessage(err: unknown): string {
