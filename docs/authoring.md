@@ -106,6 +106,49 @@ interpret that reply into structured data.
 Use built-in events when repository policy should intercept Codex activity:
 `permissionRequest`, `preToolUse`, `postToolUse`, and `userPromptSubmit`.
 
+Use `clearOnEntry` when entering a state should discard prior model context.
+Boolean form starts the state with fresh model context in the original aharness
+launch working directory:
+
+```ts
+implementation: fsm.state({
+  clearOnEntry: true,
+  prompt: 'Implement the approved plan and submit test evidence.',
+  on: {
+    implemented: fsm.submit<{ testsPassed: boolean }>({ to: 'review' }),
+  },
+});
+```
+
+Object form also chooses the working directory for the fresh model context:
+
+```ts
+packageWork: fsm.state({
+  clearOnEntry: { cwd: '/absolute/path/to/package' },
+  prompt: 'Make the package change and submit a summary.',
+  on: {
+    changed: fsm.submit<{ summary: string }>({ to: 'done' }),
+  },
+});
+```
+
+`cwd` must be a non-empty absolute path for an existing directory. It can be a
+function of machine data for worktree or multi-project workflows:
+
+```ts
+worktreeReview: fsm.state({
+  clearOnEntry: { cwd: (data) => data.worktreePath },
+  prompt: 'Review the worktree and submit findings.',
+  on: {
+    reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
+  },
+});
+```
+
+The aharness run directory, snapshots, event logs, and final artifacts remain
+anchored to the original launch working directory even when a state chooses a
+different working directory.
+
 Use `fsm.embed(...)` when a repeated sub-process deserves its own child FSM with
 typed final outputs.
 

@@ -324,7 +324,7 @@ function describeStatefulNode(
     entryPrompt: describeText(meta.entryPrompt, '<dynamic prompt>'),
     ...(awaitsOwnerText !== undefined ? { awaitsOwnerText } : {}),
     open: meta.open,
-    ...(meta.clearOnEntry === true ? { clearOnEntry: true } : {}),
+    ...(meta.clearOnEntry !== undefined ? { clearOnEntry: true } : {}),
     ...(meta.stopGuidance !== undefined ? { hasStopGuidance: true } : {}),
     ...(meta.onEntry !== undefined ? { hasOnEntry: true } : {}),
     ...(hooks.length > 0 ? { hooks } : {}),

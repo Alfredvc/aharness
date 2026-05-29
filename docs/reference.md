@@ -77,8 +77,36 @@ with `withEvents(...)` and for the built-in event keys.
 `ask` declares owner-facing text for states that need owner input. Use it with
 an await or with a later submit that interprets the owner reply.
 
-`clearOnEntry: true` starts a fresh Codex thread after a committed non-self
-transition enters that state. Machine data and run artifacts remain live.
+`clearOnEntry: true` starts the state with fresh model context after a
+committed non-self transition enters that state. Machine data remains live. The
+default working directory is the original aharness launch CWD, and the aharness
+run directory and artifacts remain anchored to that original launch directory.
+
+Use object form when a state should start from fresh model context in a
+specific working directory:
+
+```ts
+reviewWorktree: fsm.state({
+  clearOnEntry: { cwd: '/absolute/path/to/worktree' },
+  prompt: 'Review this worktree and submit findings.',
+  on: {
+    reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
+  },
+});
+```
+
+`cwd` must resolve to a non-empty absolute path for an existing directory. It
+may also be computed from machine data:
+
+```ts
+implementPackage: fsm.state({
+  clearOnEntry: { cwd: (data) => data.packageDir },
+  prompt: 'Work in the package directory and submit implementation evidence.',
+  on: {
+    implemented: fsm.submit<{ summary: string }>({ to: 'verify' }),
+  },
+});
+```
 
 `main: true` marks a state, passive state, or final as part of the graph's
 primary spine. It is visualization-only metadata and never changes transition

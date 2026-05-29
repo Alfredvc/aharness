@@ -75,6 +75,7 @@ describe('extractUiTopology', () => {
         }),
         review: state({
           entryPrompt: reviewPrompt,
+          clearOnEntry: { cwd: '/tmp/review' },
           exits: {
             approve: exit<{ ok: boolean }>({ to: 'done' }),
           },
@@ -144,8 +145,10 @@ describe('extractUiTopology', () => {
           kind: 'dynamic',
           text: reviewPrompt.toString(),
         },
+        clearOnEntry: true,
       },
     });
+    expect(review?.detail).not.toHaveProperty('cwd');
     expect(done).toMatchObject({
       detail: {
         outcome: 'success',

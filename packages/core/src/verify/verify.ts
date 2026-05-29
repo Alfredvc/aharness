@@ -398,7 +398,7 @@ function checkClearOnEntryNotInitial(machine: AnyStateMachine): VerifyIssue[] {
     if (visited.has(node.id)) return;
     visited.add(node.id);
 
-    if (node !== machine.root && asStatefulMeta(node)?.clearOnEntry === true) {
+    if (node !== machine.root && asStatefulMeta(node)?.clearOnEntry !== undefined) {
       const sid = stateKeyPath(node);
       issues.push(
         err(

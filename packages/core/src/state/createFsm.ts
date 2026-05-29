@@ -64,6 +64,12 @@ import {
 
 type CanonicalText<Data> = string | ((data: Readonly<Data>) => string);
 
+type CanonicalClearOnEntry<Data> =
+  | boolean
+  | {
+      readonly cwd: string | ((data: Readonly<Data>) => string);
+    };
+
 type CanonicalReducer<Data, Payload> = (draft: Data, payload: Payload) => void | Partial<Data>;
 
 type CanonicalEffect<Data, Payload> = (args: {
@@ -353,7 +359,7 @@ interface CanonicalStateOptions<Data, Events extends EventCatalog> {
   readonly ask?: CanonicalText<Data>;
   readonly on?: CanonicalOn<Data, Events>;
   readonly entry?: (data: Readonly<Data>, ops: AharnessOps) => void | Promise<void>;
-  readonly clearOnEntry?: boolean;
+  readonly clearOnEntry?: CanonicalClearOnEntry<Data>;
   readonly guidance?: CanonicalText<Data>;
   readonly skills?: ReadonlyArray<SkillRef>;
   readonly xstate?: Record<string, unknown>;

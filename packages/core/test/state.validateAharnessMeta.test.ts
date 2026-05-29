@@ -21,3 +21,46 @@ describe('validateAharnessMeta — embedded compound shape', () => {
     });
   });
 });
+
+describe('validateAharnessMeta — clearOnEntry metadata', () => {
+  const baseStatefulMeta = {
+    kind: 'stateful',
+    open: false,
+    entryPrompt: 'do thing',
+    exits: {},
+  };
+
+  it('accepts true and object-form clearOnEntry metadata', () => {
+    const fn = () => '/abs/path';
+
+    expect(validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: true })).toEqual({
+      ...baseStatefulMeta,
+      clearOnEntry: true,
+    });
+    expect(
+      validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: { cwd: '/abs/path' } }),
+    ).toEqual({
+      ...baseStatefulMeta,
+      clearOnEntry: { cwd: '/abs/path' },
+    });
+    expect(validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: { cwd: fn } })).toEqual({
+      ...baseStatefulMeta,
+      clearOnEntry: { cwd: fn },
+    });
+  });
+
+  it('rejects malformed clearOnEntry metadata', () => {
+    expect(() => validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: false })).toThrow(
+      /clearOnEntry/,
+    );
+    expect(() => validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: {} })).toThrow(
+      /clearOnEntry\.cwd/,
+    );
+    expect(() =>
+      validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: { cwd: undefined } }),
+    ).toThrow(/clearOnEntry\.cwd/);
+    expect(() => validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: undefined })).toThrow(
+      /clearOnEntry/,
+    );
+  });
+});

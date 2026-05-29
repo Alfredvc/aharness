@@ -106,7 +106,9 @@ export default fsm.machine({
 - Do not write `SUBMIT__*` or `AWAIT__*` handlers by hand.
 - Do not use owner input as an implicit transition. Use `ask` plus typed submit, or use exactly one `fsm.await`.
 - Prefer `fsm.submit`, `fsm.await`, and built-in hook events over custom events unless the workflow genuinely has another typed runtime input.
-- Use `clearOnEntry: true` only on a live, non-initial state where stale model context is a real workflow risk.
+- Use `clearOnEntry` only on a live, non-initial state where stale model context is a real workflow risk.
+- Use `clearOnEntry: true` to start with fresh model context in the original aharness launch working directory.
+- Use `clearOnEntry: { cwd: '/absolute/path' }` or `clearOnEntry: { cwd: (data) => data.worktreePath }` when a worktree or multi-project workflow needs fresh model context in a specific working directory. The resolved `cwd` must be a non-empty absolute path for an existing directory; run artifacts remain anchored to the original launch directory.
 - Use `fsm.final({ artifacts })` for final reports. Artifact renderers must be synchronous.
 - Keep raw `xstate` usage explicit and local. Prefer canonical fields when they express the behavior.
 

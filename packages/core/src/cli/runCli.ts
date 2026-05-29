@@ -106,6 +106,7 @@ import { makeSerializeDispatch } from '../runtime/serializeDispatch.js';
 import { scheduleCrossStateDance } from '../runtime/crossStateDance.js';
 import { PHASE1_OPT_OUT_METHODS } from '../runtime/optOutNotificationMethods.js';
 import { performFreshClear } from '../runtime/freshClear.js';
+import { resolveClearOnEntryCwd } from '../runtime/clearOnEntryCwd.js';
 import { flushHeadlessSnapshotEnvelope } from '../runtime/snapshotEnvelope.js';
 import { discoverDeclaredHookKinds } from '../state/discoverHooks.js';
 import {
@@ -113,6 +114,7 @@ import {
   prepareCanonicalAwaitCommit,
 } from '../state/canonicalTransition.js';
 import { createAharnessOps, type AharnessOps } from '../state/aharnessOps.js';
+import type { ClearOnEntryMeta } from '../state/exits.js';
 import { getAharnessMeta, iterStates, stateKeyPath } from '../state.js';
 import type { HookKind } from '../state/hooks.js';
 import type { RunCtx, SchemaSidecar } from '../types.js';
@@ -375,6 +377,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       runMeta.threadId = threadId;
     },
   });
+  const pendingFreshClearThreadIds = new Set<string>();
   o._testOnActiveThreadBinding?.(activeThreadBinding);
   const uiEventLog = createUiEventLog({
     run: runMeta,
@@ -423,13 +426,26 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       message: diagnostic.message,
     });
   };
+  const isThreadUnavailableForRequests = (threadId: string): boolean =>
+    activeThreadBinding.isAbandoned(threadId) || pendingFreshClearThreadIds.has(threadId);
+  const isLiveThreadId = (threadId: string): boolean => {
+    const activeThreadId = activeThreadBinding.current();
+    return (
+      activeThreadId === undefined ||
+      (threadId === activeThreadId && !isThreadUnavailableForRequests(threadId))
+    );
+  };
+  const isLiveThreadParams = (params: unknown): boolean => {
+    const threadId = readThreadIdParam(params);
+    return threadId === null ? true : isLiveThreadId(threadId);
+  };
   const publishAbandonedThreadParamsDiagnostic = (
     params: unknown,
     source: string,
     message: string,
   ): void => {
     const threadId = readThreadIdParam(params);
-    if (threadId === null || !activeThreadBinding.isAbandoned(threadId)) return;
+    if (threadId === null || !isThreadUnavailableForRequests(threadId)) return;
     publishAbandonedThreadDiagnostic({ threadId, source, message });
   };
   let publishedOpen = false;
@@ -528,7 +544,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   });
   const approvalDispatcher = createApprovalDispatcher({
     publish: (event) => publishUiEvent(event),
-    isActiveThread: (threadId) => isActiveThreadId(activeThreadBinding, threadId),
+    isActiveThread: isLiveThreadId,
     onAbandonedThreadDiagnostic: publishAbandonedThreadDiagnostic,
     permissionRequest: (event, meta) =>
       serializeDispatch(() => permissionRequestDispatch(event, meta)),
@@ -545,7 +561,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         input: [{ type: 'text', text }],
       } satisfies TurnStartParams);
     },
-    isAbandonedThread: (threadId) => activeThreadBinding.isAbandoned(threadId),
+    isAbandonedThread: isThreadUnavailableForRequests,
     onAbandonedThreadDiagnostic: publishAbandonedThreadDiagnostic,
     onOwnerInputResolved: (requestId) => {
       publishUiEvent({ kind: 'OwnerInputResolved', id: requestId });
@@ -564,12 +580,13 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       turnId?: unknown;
     };
     const activeThreadId = activeThreadBinding.current();
-    if (typeof params.threadId === 'string' && activeThreadBinding.isAbandoned(params.threadId)) {
+    if (typeof params.threadId === 'string' && isThreadUnavailableForRequests(params.threadId)) {
       publishAbandonedThreadDiagnostic({
         threadId: params.threadId,
         source: 'agentMessageDelta',
         message: 'agent message delta ignored for abandoned thread',
       });
+      return;
     }
     if (activeThreadId === undefined || params.threadId !== activeThreadId) return;
     const delta = typeof params.delta === 'string' ? params.delta : undefined;
@@ -677,10 +694,15 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   }): void {
     if (info.from === info.to) return;
     const meta = host.currentMeta();
-    if (meta?.kind !== 'stateful' || meta.clearOnEntry !== true) return;
+    if (meta?.kind !== 'stateful' || !Object.prototype.hasOwnProperty.call(meta, 'clearOnEntry')) {
+      return;
+    }
+    const targetStateId = host.currentStateId();
+    const postTransitionContext = host.currentContext() as RunCtx;
+    const clearOnEntry = meta.clearOnEntry as ClearOnEntryMeta;
     const oldThreadId = info.oldThreadId ?? activeThreadBinding.current();
     if (oldThreadId !== undefined) {
-      activeThreadBinding.markAbandoned(oldThreadId);
+      pendingFreshClearThreadIds.add(oldThreadId);
     }
     const register =
       info.afterReply ??
@@ -693,11 +715,17 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       const c = client;
       if (!c) throw new Error('internal: client unbound at fresh-clear time');
       return serializeDispatch(async () => {
+        const cwd = resolveClearOnEntryCwd({
+          clearOnEntry,
+          context: postTransitionContext,
+          defaultCwd: repoRoot,
+          stateId: targetStateId,
+        });
         const boundary = await performFreshClear({
           client: c,
           activeThreadBinding,
           ...(info.oldTurnId !== undefined ? { oldTurnId: info.oldTurnId } : {}),
-          cwd: repoRoot,
+          cwd,
           dynamicTools: buildDynamicToolsRegistration(),
           composeActiveStateNudge: () => {
             const orientation = composeActiveStateNudge(host, sidecar);
@@ -981,11 +1009,11 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
             );
             return buildAbandonedDynamicToolCallResponse();
           };
-          if (!isActiveThreadParams(activeThreadBinding, params)) {
+          if (!isLiveThreadParams(params)) {
             return abandonedResponse();
           }
           return serializeDispatch(() =>
-            isActiveThreadParams(activeThreadBinding, params)
+            isLiveThreadParams(params)
               ? dispatchIfSubmit(params as DynamicToolCallParams, meta, dispatch)
               : Promise.resolve(abandonedResponse()),
           );
@@ -1000,7 +1028,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         // M18 invariant: register inside `registerHandlers` BEFORE any
         // `thread/start` call.
         c.onServerRequest(METHOD.toolRequestUserInput, (params: unknown) => {
-          if (!isActiveThreadParams(activeThreadBinding, params)) {
+          if (!isLiveThreadParams(params)) {
             publishAbandonedThreadParamsDiagnostic(
               params,
               'ownerInput',
@@ -1051,7 +1079,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         // (commitAwait throw, flushSnapshotFn disk error, ...) to stderr
         // instead of leaking as an unhandled rejection.
         c.onNotification(METHOD.rawResponseItemCompleted, (params: unknown) => {
-          if (!isActiveThreadParams(activeThreadBinding, params)) {
+          if (!isLiveThreadParams(params)) {
             publishAbandonedThreadParamsDiagnostic(
               params,
               'rawResponseItemCompleted',
@@ -1911,22 +1939,10 @@ function synthesizeDeclineReply(params: ToolRequestUserInputParams): ToolRequest
   };
 }
 
-function isActiveThreadId(binding: ActiveThreadBinding, threadId: string): boolean {
-  const activeThreadId = binding.current();
-  return (
-    activeThreadId === undefined || (threadId === activeThreadId && !binding.isAbandoned(threadId))
-  );
-}
-
 function readThreadIdParam(params: unknown): string | null {
   if (params === null || typeof params !== 'object') return null;
   const threadId = (params as { threadId?: unknown }).threadId;
   return typeof threadId === 'string' ? threadId : null;
-}
-
-function isActiveThreadParams(binding: ActiveThreadBinding, params: unknown): boolean {
-  const threadId = readThreadIdParam(params);
-  return threadId === null ? true : isActiveThreadId(binding, threadId);
 }
 
 // ---------------------------------------------------------------------------

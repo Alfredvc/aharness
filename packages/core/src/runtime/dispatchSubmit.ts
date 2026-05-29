@@ -696,7 +696,8 @@ function currentStatefulMeta(host: ActorHost): AharnessStateMeta | undefined {
 }
 
 function currentStateDeclaresClearOnEntry(host: ActorHost): boolean {
-  return currentStatefulMeta(host)?.clearOnEntry === true;
+  const meta = currentStatefulMeta(host);
+  return meta !== undefined && Object.prototype.hasOwnProperty.call(meta, 'clearOnEntry');
 }
 
 function errReply(text: string): DynamicToolCallResponse {

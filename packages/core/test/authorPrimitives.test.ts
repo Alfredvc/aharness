@@ -5,9 +5,9 @@
  * If this passes in phase 1, Task 36's "example FSM compiles unchanged
  * after switching the import to @aharness/core" gate is safe.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, expectTypeOf, it } from 'vitest';
 import { assign, createActor } from 'xstate';
-import { aharness, state, terminal, passive, exit, createFsm } from '../src/index.js';
+import { aharness, state, terminal, passive, exit, createFsm, type RunCtx } from '../src/index.js';
 
 describe('state() new shape', () => {
   it('returns a state config with meta.aharness populated', () => {
@@ -20,6 +20,37 @@ describe('state() new shape', () => {
     expect(cfg).toHaveProperty('meta.aharness.exits.submit.kind', 'submit');
     expect(cfg).toHaveProperty('meta.aharness.exits.submit.to', 'next');
     expect(cfg).toHaveProperty('meta.aharness.clearOnEntry', true);
+  });
+
+  it('accepts clearOnEntry cwd object forms and omits false', () => {
+    interface WorktreeCtx {
+      readonly currentWorktreeDir: string;
+    }
+
+    const stringCwd = state({
+      entryPrompt: 'do thing',
+      exits: { submit: exit<{ x: number }>({ to: 'next' }) },
+      clearOnEntry: { cwd: '/abs/path' },
+    });
+    const functionCwd = state<WorktreeCtx>({
+      entryPrompt: 'do thing',
+      exits: { submit: exit<{ x: number }>({ to: 'next' }) },
+      clearOnEntry: {
+        cwd: (ctx) => {
+          expectTypeOf(ctx).toEqualTypeOf<Readonly<WorktreeCtx & RunCtx>>();
+          return ctx.currentWorktreeDir;
+        },
+      },
+    });
+    const falseClear = state({
+      entryPrompt: 'do thing',
+      exits: { submit: exit<{ x: number }>({ to: 'next' }) },
+      clearOnEntry: false,
+    });
+
+    expect(stringCwd).toHaveProperty('meta.aharness.clearOnEntry', { cwd: '/abs/path' });
+    expect(functionCwd.meta.aharness.clearOnEntry).toEqual({ cwd: expect.any(Function) });
+    expect(falseClear.meta.aharness).not.toHaveProperty('clearOnEntry');
   });
 
   it('defaults kind:"submit" on exit declarations omitting kind', () => {
@@ -212,6 +243,36 @@ describe('createFsm() canonical authoring surface', () => {
     expect(passiveNode).toHaveProperty('meta.aharness.kind', 'passive');
     expect(passiveNode).toHaveProperty('meta.aharness.main', true);
     expect(passiveNode).toHaveProperty('always', { target: 'done' });
+  });
+
+  it('accepts canonical clearOnEntry cwd object forms', () => {
+    interface WorktreeData {
+      readonly currentWorktreeDir: string;
+    }
+    const fsm = createFsm<WorktreeData>();
+
+    const stringCwd = fsm.state({
+      prompt: 'Use an absolute CWD.',
+      clearOnEntry: { cwd: '/abs/path' },
+      on: {
+        submit: fsm.submit<{ ok: boolean }>({ to: 'done' }),
+      },
+    });
+    const functionCwd = fsm.state({
+      prompt: 'Resolve CWD from data.',
+      clearOnEntry: {
+        cwd: (data) => {
+          expectTypeOf(data).toEqualTypeOf<Readonly<WorktreeData>>();
+          return data.currentWorktreeDir;
+        },
+      },
+      on: {
+        submit: fsm.submit<{ ok: boolean }>({ to: 'done' }),
+      },
+    });
+
+    expect(stringCwd).toHaveProperty('meta.aharness.clearOnEntry', { cwd: '/abs/path' });
+    expect(functionCwd.meta.aharness.clearOnEntry).toEqual({ cwd: expect.any(Function) });
   });
 
   it('validates canonical passive main metadata before lowering', () => {

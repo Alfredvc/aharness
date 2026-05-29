@@ -316,6 +316,20 @@ export type OnEntryFn<TContext = unknown> = (
   ops: AharnessOps,
 ) => Promise<void> | void;
 
+type ClearOnEntryCwd = string | ((ctx: Readonly<RunCtx>) => string);
+
+export type ClearOnEntryMeta =
+  | true
+  | {
+      readonly cwd: ClearOnEntryCwd;
+    };
+
+type ClearOnEntryOption<TContext extends MachineContext> =
+  | boolean
+  | {
+      readonly cwd: string | ((ctx: Readonly<TContext & RunCtx>) => string);
+    };
+
 export interface AharnessStateMeta {
   readonly kind: 'stateful';
   readonly open: boolean;
@@ -326,7 +340,7 @@ export interface AharnessStateMeta {
   readonly stopGuidance?: (ctx: RunCtx, exits: ExitCatalog) => string;
   readonly awaitsOwnerText?: AwaitsOwnerTextDecl;
   readonly onEntry?: OnEntryFn;
-  readonly clearOnEntry?: true;
+  readonly clearOnEntry?: ClearOnEntryMeta;
   readonly hooks?: StateHooks<unknown>;
   readonly canonicalEvents?: Readonly<Record<string, CanonicalEventMeta>>;
   /**
@@ -369,7 +383,7 @@ export interface StateOptions<TContext extends MachineContext = MachineContext> 
   readonly stopGuidance?: (ctx: TContext & RunCtx, exits: ExitCatalog) => string;
   readonly awaitsOwnerText?: AwaitsOwnerTextDecl<TContext>;
   readonly onEntry?: OnEntryFn<TContext>;
-  readonly clearOnEntry?: boolean;
+  readonly clearOnEntry?: ClearOnEntryOption<TContext>;
   readonly hooks?: StateHooks<TContext>;
   readonly canonicalEvents?: Readonly<Record<string, CanonicalEventMeta<TContext>>>;
   readonly skills?: ReadonlyArray<SkillRef>;
@@ -377,6 +391,23 @@ export interface StateOptions<TContext extends MachineContext = MachineContext> 
 
 export interface StateConfig {
   readonly meta: { readonly aharness: AharnessStateMeta };
+}
+
+function normalizeClearOnEntry<TContext extends MachineContext>(
+  value: ClearOnEntryOption<TContext> | undefined,
+): AharnessStateMeta['clearOnEntry'] {
+  if (value === undefined || value === false) return undefined;
+  if (value === true) return true;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(
+      'state(): clearOnEntry must be true, false, or an object with cwd when provided',
+    );
+  }
+  const cwd = (value as { readonly cwd?: unknown }).cwd;
+  if (typeof cwd !== 'string' && typeof cwd !== 'function') {
+    throw new TypeError('state(): clearOnEntry.cwd must be a string or function');
+  }
+  return { cwd: cwd as ClearOnEntryCwd };
 }
 
 export function state<TContext extends MachineContext = MachineContext>(
@@ -444,9 +475,7 @@ export function state<TContext extends MachineContext = MachineContext>(
   if (opts.onEntry !== undefined && typeof opts.onEntry !== 'function') {
     throw new TypeError('state(): onEntry must be a function');
   }
-  if (opts.clearOnEntry !== undefined && typeof opts.clearOnEntry !== 'boolean') {
-    throw new TypeError('state(): clearOnEntry must be a boolean when provided');
-  }
+  const clearOnEntry = normalizeClearOnEntry(opts.clearOnEntry);
   if (opts.main !== undefined && typeof opts.main !== 'boolean') {
     throw new TypeError('state(): main must be a boolean when provided');
   }
@@ -479,7 +508,7 @@ export function state<TContext extends MachineContext = MachineContext>(
       ? { awaitsOwnerText: opts.awaitsOwnerText as AwaitsOwnerTextDecl }
       : {}),
     ...(opts.onEntry !== undefined ? { onEntry: opts.onEntry as OnEntryFn } : {}),
-    ...(opts.clearOnEntry === true ? { clearOnEntry: true as const } : {}),
+    ...(clearOnEntry !== undefined ? { clearOnEntry } : {}),
     ...(opts.hooks !== undefined ? { hooks: opts.hooks as StateHooks<unknown> } : {}),
     ...(opts.canonicalEvents !== undefined
       ? { canonicalEvents: opts.canonicalEvents as Readonly<Record<string, CanonicalEventMeta>> }

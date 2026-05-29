@@ -155,8 +155,40 @@ Then use the mechanism demos as references:
 - [`examples/README.md`](examples/README.md) gives the recommended examples
   path.
 - [`examples/DEMOS.md`](examples/DEMOS.md) catalogs await exits, approval
-  hooks, composition, skill loading, branching, fresh threads, and final
+  hooks, composition, skill loading, branching, fresh model context, and final
   artifacts.
+
+## Fresh Model Context
+
+Use `clearOnEntry` on a non-initial state when the next phase should start with
+fresh model context:
+
+```ts
+implementation: fsm.state({
+  clearOnEntry: true,
+  prompt: 'Implement the approved plan and submit test evidence.',
+  on: {
+    implemented: fsm.submit<{ testsPassed: boolean }>({ to: 'review' }),
+  },
+});
+```
+
+By default, the working directory is the original aharness launch CWD. Use
+object form to start fresh model context in a specific working directory:
+
+```ts
+worktreeReview: fsm.state({
+  clearOnEntry: { cwd: '/absolute/path/to/worktree' },
+  prompt: 'Review the worktree and submit findings.',
+  on: {
+    reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
+  },
+});
+```
+
+`cwd` may also be a function of machine data, and it must resolve to a non-empty
+absolute path for an existing directory. Run directories and artifacts stay
+anchored under the original launch directory.
 
 ## CLI
 

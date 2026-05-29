@@ -29,7 +29,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createActor } from 'xstate';
+import { assign, createActor } from 'xstate';
 
 import { aharness, state, exit, terminal } from '../src/index.js';
 import { runCliForTest, type RunCliForTestOpts, type RunCliTestHooks } from '../src/cli/runCli.js';
@@ -2103,7 +2103,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     );
   });
 
-  it('publishes a fresh-clear boundary only after replacement orientation succeeds', async () => {
+  it('publishes a fresh clear boundary only after replacement orientation succeeds', async () => {
     interface Payload {
       ok: boolean;
     }
@@ -2202,6 +2202,7 @@ describe('runCliForTest — pre-spawn gates', () => {
 
     const driver = async (): Promise<void> => {
       const initialThreadStart = await waitForOutbound((msg) => msg.method === METHOD.threadStart);
+      expect((initialThreadStart.params as { cwd?: unknown }).cwd).toBe(repoRoot);
       transport.onMessage?.({
         jsonrpc: '2.0',
         id: initialThreadStart.id,
@@ -2238,6 +2239,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           msg.params !== null &&
           (msg.params as { sessionStartSource?: unknown }).sessionStartSource === 'clear',
       );
+      expect((replacementThreadStart.params as { cwd?: unknown }).cwd).toBe(repoRoot);
       transport.onMessage?.({
         jsonrpc: '2.0',
         id: replacementThreadStart.id,
@@ -2312,6 +2314,631 @@ describe('runCliForTest — pre-spawn gates', () => {
     await driverPromise;
 
     expect(r.exitCode).toBe(0);
+  });
+
+  it('uses resolved fresh clear cwd for replacement threads while run files stay under the launch root', async () => {
+    interface Ctx {
+      currentWorktreeDir: string;
+    }
+    interface Payload {
+      worktreeDir: string;
+    }
+
+    const scenarios = [
+      {
+        name: 'absolute-object',
+        clearOnEntry: (worktreeDir: string) => ({ cwd: worktreeDir }),
+      },
+      {
+        name: 'post-transition-function',
+        clearOnEntry: () => ({
+          cwd: (data: Readonly<Ctx>) => data.currentWorktreeDir,
+        }),
+      },
+    ] as const;
+
+    for (const scenario of scenarios) {
+      const worktreeDir = join(repoRoot, `worktree-${scenario.name}`);
+      mkdirSync(worktreeDir, { recursive: true });
+      const fsmPath = makeFsmFile(repoRoot, `fresh-clear-cwd-${scenario.name}.fsm.ts`);
+      const m = aharness.machine({
+        id: `fresh-clear-cwd-${scenario.name}`,
+        initial: 'a',
+        context: (): Ctx => ({ currentWorktreeDir: '' }),
+        states: {
+          a: state<Ctx>({
+            entryPrompt: 'state a active',
+            exits: {
+              go: exit<Payload>({
+                to: 'b',
+                actions: assign({
+                  currentWorktreeDir: ({ event }) =>
+                    (event as { payload: Payload }).payload.worktreeDir,
+                }),
+              }),
+            },
+          }),
+          b: state<Ctx>({
+            entryPrompt: 'state b active',
+            clearOnEntry: scenario.clearOnEntry(worktreeDir),
+            exits: { done: exit<Payload>({ to: 'done' }) },
+          }),
+          done: terminal('success'),
+        },
+      });
+      const validator = {
+        jsonSchema: { type: 'object' },
+        validate: (input: unknown) => ({ ok: true as const, data: input }),
+      };
+      const sidecar = { a: { go: validator }, b: { done: validator } };
+
+      const outbound: Array<{ id?: number; method?: string; params?: unknown; result?: unknown }> =
+        [];
+      let transport!: Transport;
+      const startupThreadId = `thread-${scenario.name}-startup`;
+      const replacementThreadId = `thread-${scenario.name}-replacement`;
+
+      const waitForOutbound = async (
+        predicate: (envelope: {
+          method?: string;
+          id?: number;
+          params?: unknown;
+          result?: unknown;
+        }) => boolean,
+        timeoutMs = 2_000,
+      ): Promise<{ id?: number; method?: string; params?: unknown; result?: unknown }> => {
+        const start = Date.now();
+        while (Date.now() - start < timeoutMs) {
+          for (let i = outbound.length - 1; i >= 0; i--) {
+            const envelope = outbound[i];
+            if (envelope && predicate(envelope)) return envelope;
+          }
+          await new Promise((r) => setTimeout(r, 5));
+        }
+        throw new Error(
+          `timeout waiting for outbound in ${scenario.name}; saw ${outbound
+            .map((message) => message.method ?? `response:${message.id}`)
+            .join(', ')}`,
+        );
+      };
+
+      const connectStub = async (opts: ConnectHeadlessWsOptions) => {
+        transport = {
+          send(msg: unknown) {
+            const envelope = msg as {
+              id?: number;
+              method?: string;
+              params?: unknown;
+              result?: unknown;
+            };
+            outbound.push(envelope);
+            if (envelope.method === METHOD.initialize) {
+              queueMicrotask(() =>
+                transport.onMessage?.({
+                  jsonrpc: '2.0',
+                  id: envelope.id,
+                  result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+                }),
+              );
+            }
+          },
+          async close() {
+            /* no-op */
+          },
+        };
+        const client = new JsonRpcClient(transport);
+        opts.registerHandlers?.(client);
+        await client.request(METHOD.initialize, {
+          clientInfo: opts.clientInfo,
+          capabilities: { experimentalApi: true, requestAttestation: false },
+        });
+        return {
+          client,
+          close: async () => {
+            await client.close();
+          },
+        };
+      };
+
+      const driver = async (): Promise<void> => {
+        const initialThreadStart = await waitForOutbound(
+          (msg) => msg.method === METHOD.threadStart,
+        );
+        expect((initialThreadStart.params as { cwd?: unknown }).cwd).toBe(repoRoot);
+        transport.onMessage?.({
+          jsonrpc: '2.0',
+          id: initialThreadStart.id,
+          result: { thread: { id: startupThreadId, ephemeral: false } },
+        });
+
+        const kickoff = await waitForOutbound((msg) => msg.method === METHOD.turnStart);
+        transport.onMessage?.({ jsonrpc: '2.0', id: kickoff.id, result: {} });
+
+        transport.onMessage?.({
+          jsonrpc: '2.0',
+          id: 9900,
+          method: METHOD.toolDynamicCall,
+          params: {
+            threadId: startupThreadId,
+            turnId: 'turn-old',
+            callId: 'call-go',
+            tool: 'aharness_submit',
+            arguments: JSON.stringify({
+              state: 'a',
+              exit: 'go',
+              data: { worktreeDir },
+            }),
+          },
+        });
+        await waitForOutbound((msg) => msg.id === 9900 && msg.result !== undefined);
+
+        const interrupt = await waitForOutbound((msg) => msg.method === METHOD.turnInterrupt);
+        transport.onMessage?.({ jsonrpc: '2.0', id: interrupt.id, result: {} });
+
+        const unsubscribe = await waitForOutbound((msg) => msg.method === METHOD.threadUnsubscribe);
+        transport.onMessage?.({ jsonrpc: '2.0', id: unsubscribe.id, result: {} });
+
+        const replacementThreadStart = await waitForOutbound(
+          (msg) =>
+            msg.method === METHOD.threadStart &&
+            typeof msg.params === 'object' &&
+            msg.params !== null &&
+            (msg.params as { sessionStartSource?: unknown }).sessionStartSource === 'clear',
+        );
+        expect((replacementThreadStart.params as { cwd?: unknown }).cwd).toBe(worktreeDir);
+        transport.onMessage?.({
+          jsonrpc: '2.0',
+          id: replacementThreadStart.id,
+          result: { thread: { id: replacementThreadId, ephemeral: false } },
+        });
+
+        const replacementTurnStart = await waitForOutbound(
+          (msg) =>
+            msg.method === METHOD.turnStart &&
+            typeof msg.params === 'object' &&
+            msg.params !== null &&
+            (msg.params as { threadId?: unknown }).threadId === replacementThreadId,
+        );
+        transport.onMessage?.({ jsonrpc: '2.0', id: replacementTurnStart.id, result: {} });
+
+        transport.onMessage?.({
+          jsonrpc: '2.0',
+          id: 9901,
+          method: METHOD.toolDynamicCall,
+          params: {
+            threadId: replacementThreadId,
+            turnId: 'turn-new',
+            callId: 'call-done',
+            tool: 'aharness_submit',
+            arguments: JSON.stringify({
+              state: 'b',
+              exit: 'done',
+              data: { worktreeDir },
+            }),
+          },
+        });
+        await waitForOutbound((msg) => msg.id === 9901 && msg.result !== undefined);
+      };
+
+      const driverPromise = driver();
+      const opts = buildOpts({
+        cwd: repoRoot,
+        fsmPath,
+        hooks: {
+          loadFsmImpl: (async () => ({
+            machine: m,
+            sidecar,
+            modulePath: `/tmp/fresh-clear-cwd-${scenario.name}.mjs`,
+            issues: [],
+            cacheHit: false,
+            hash: `fresh-clear-cwd-${scenario.name}`,
+          })) as unknown as RunCliTestHooks['loadFsmImpl'],
+          spawnAppServer: (async () =>
+            makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+          connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+          startUiServerImpl: async () => ({
+            url: 'http://127.0.0.1:45678',
+            close: vi.fn(async () => undefined),
+          }),
+        },
+      });
+      opts.stderr = stderrSink;
+
+      const r = await runCliForTest(opts);
+      await driverPromise;
+
+      expect(r.exitCode).toBe(0);
+      expect(existsSync(join(repoRoot, '.aharness', 'runs'))).toBe(true);
+      expect(existsSync(join(worktreeDir, '.aharness'))).toBe(false);
+    }
+  });
+
+  it('uses the same fresh clear scheduler after await-resolution transitions', async () => {
+    interface Payload {
+      ok: boolean;
+    }
+
+    const fsmPath = makeFsmFile(repoRoot, 'fresh-clear-await.fsm.ts');
+    const m = aharness.machine({
+      id: 'fresh-clear-await',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'state a awaiting owner',
+          exits: { ownerReply: { kind: 'await', to: 'b' } },
+        }),
+        b: state({
+          entryPrompt: 'state b active',
+          clearOnEntry: true,
+          exits: { done: exit<Payload>({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const validator = {
+      jsonSchema: { type: 'object' },
+      validate: (input: unknown) => ({ ok: true as const, data: input }),
+    };
+    const sidecar = { b: { done: validator } };
+
+    const outbound: Array<{ id?: number; method?: string; params?: unknown; result?: unknown }> =
+      [];
+    let transport!: Transport;
+    const startupThreadId = 'thread-fresh-clear-await-startup';
+    const replacementThreadId = 'thread-fresh-clear-await-replacement';
+
+    const waitForOutbound = async (
+      predicate: (envelope: {
+        method?: string;
+        id?: number;
+        params?: unknown;
+        result?: unknown;
+      }) => boolean,
+      timeoutMs = 2_000,
+    ): Promise<{ id?: number; method?: string; params?: unknown; result?: unknown }> => {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        for (let i = outbound.length - 1; i >= 0; i--) {
+          const envelope = outbound[i];
+          if (envelope && predicate(envelope)) return envelope;
+        }
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      throw new Error(
+        `timeout waiting for outbound; saw ${outbound
+          .map((message) => message.method ?? `response:${message.id}`)
+          .join(', ')}`,
+      );
+    };
+
+    const connectStub = async (opts: ConnectHeadlessWsOptions) => {
+      transport = {
+        send(msg: unknown) {
+          const envelope = msg as {
+            id?: number;
+            method?: string;
+            params?: unknown;
+            result?: unknown;
+          };
+          outbound.push(envelope);
+          if (envelope.method === METHOD.initialize) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+              }),
+            );
+          }
+        },
+        async close() {
+          /* no-op */
+        },
+      };
+      const client = new JsonRpcClient(transport);
+      opts.registerHandlers?.(client);
+      await client.request(METHOD.initialize, {
+        clientInfo: opts.clientInfo,
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      });
+      return {
+        client,
+        close: async () => {
+          await client.close();
+        },
+      };
+    };
+
+    const driver = async (): Promise<void> => {
+      const initialThreadStart = await waitForOutbound((msg) => msg.method === METHOD.threadStart);
+      expect((initialThreadStart.params as { cwd?: unknown }).cwd).toBe(repoRoot);
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: initialThreadStart.id,
+        result: { thread: { id: startupThreadId, ephemeral: false } },
+      });
+
+      const kickoff = await waitForOutbound((msg) => msg.method === METHOD.turnStart);
+      transport.onMessage?.({ jsonrpc: '2.0', id: kickoff.id, result: {} });
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.rawResponseItemCompleted,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old',
+          item: {
+            type: 'function_call',
+            call_id: 'call-await',
+            name: 'request_user_input',
+            arguments: JSON.stringify({
+              questions: [{ id: 'owner', question: 'answer?', isOther: false, isSecret: false }],
+            }),
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.rawResponseItemCompleted,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old',
+          item: {
+            type: 'function_call_output',
+            call_id: 'call-await',
+            output: JSON.stringify({ answers: { owner: { answers: ['owner text'] } } }),
+          },
+        },
+      });
+
+      const interrupt = await waitForOutbound((msg) => msg.method === METHOD.turnInterrupt);
+      transport.onMessage?.({ jsonrpc: '2.0', id: interrupt.id, result: {} });
+
+      const unsubscribe = await waitForOutbound((msg) => msg.method === METHOD.threadUnsubscribe);
+      transport.onMessage?.({ jsonrpc: '2.0', id: unsubscribe.id, result: {} });
+
+      const replacementThreadStart = await waitForOutbound(
+        (msg) =>
+          msg.method === METHOD.threadStart &&
+          typeof msg.params === 'object' &&
+          msg.params !== null &&
+          (msg.params as { sessionStartSource?: unknown }).sessionStartSource === 'clear',
+      );
+      expect((replacementThreadStart.params as { cwd?: unknown }).cwd).toBe(repoRoot);
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: replacementThreadStart.id,
+        result: { thread: { id: replacementThreadId, ephemeral: false } },
+      });
+
+      const replacementTurnStart = await waitForOutbound(
+        (msg) =>
+          msg.method === METHOD.turnStart &&
+          typeof msg.params === 'object' &&
+          msg.params !== null &&
+          (msg.params as { threadId?: unknown }).threadId === replacementThreadId,
+      );
+      transport.onMessage?.({ jsonrpc: '2.0', id: replacementTurnStart.id, result: {} });
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: 9920,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId: replacementThreadId,
+          turnId: 'turn-new',
+          callId: 'call-done',
+          tool: 'aharness_submit',
+          arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
+        },
+      });
+      await waitForOutbound((msg) => msg.id === 9920 && msg.result !== undefined);
+    };
+
+    const driverPromise = driver();
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        loadFsmImpl: (async () => ({
+          machine: m,
+          sidecar,
+          modulePath: '/tmp/fresh-clear-await.mjs',
+          issues: [],
+          cacheHit: false,
+          hash: 'fresh-clear-await',
+        })) as unknown as RunCliTestHooks['loadFsmImpl'],
+        spawnAppServer: (async () =>
+          makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+        connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+        startUiServerImpl: async () => ({
+          url: 'http://127.0.0.1:45678',
+          close: vi.fn(async () => undefined),
+        }),
+      },
+    });
+    opts.stderr = stderrSink;
+
+    const r = await runCliForTest(opts);
+    await driverPromise;
+
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('invalid clearOnEntry cwd fails before fresh clear cleanup or replacement startup', async () => {
+    interface Payload {
+      ok: boolean;
+    }
+
+    const missingCwd = join(repoRoot, 'missing-worktree');
+    const fsmPath = makeFsmFile(repoRoot, 'fresh-clear-invalid-cwd.fsm.ts');
+    const m = aharness.machine({
+      id: 'fresh-clear-invalid-cwd',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'state a active',
+          exits: { go: exit<Payload>({ to: 'b' }) },
+        }),
+        b: state({
+          entryPrompt: 'state b active',
+          clearOnEntry: { cwd: missingCwd },
+          exits: { done: exit<Payload>({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const validator = {
+      jsonSchema: { type: 'object' },
+      validate: (input: unknown) => ({ ok: true as const, data: input }),
+    };
+    const sidecar = { a: { go: validator }, b: { done: validator } };
+
+    const outbound: Array<{ id?: number; method?: string; params?: unknown; result?: unknown }> =
+      [];
+    const published: ReplayableAppEvent[] = [];
+    let transport!: Transport;
+    let activeBinding: ActiveThreadBinding | undefined;
+    const startupThreadId = 'thread-fresh-clear-invalid-startup';
+
+    const waitForOutbound = async (
+      predicate: (envelope: {
+        method?: string;
+        id?: number;
+        params?: unknown;
+        result?: unknown;
+      }) => boolean,
+      timeoutMs = 2_000,
+    ): Promise<{ id?: number; method?: string; params?: unknown; result?: unknown }> => {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        for (let i = outbound.length - 1; i >= 0; i--) {
+          const envelope = outbound[i];
+          if (envelope && predicate(envelope)) return envelope;
+        }
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      throw new Error(
+        `timeout waiting for outbound; saw ${outbound
+          .map((message) => message.method ?? `response:${message.id}`)
+          .join(', ')}`,
+      );
+    };
+
+    const connectStub = async (opts: ConnectHeadlessWsOptions) => {
+      transport = {
+        send(msg: unknown) {
+          const envelope = msg as {
+            id?: number;
+            method?: string;
+            params?: unknown;
+            result?: unknown;
+          };
+          outbound.push(envelope);
+          if (envelope.method === METHOD.initialize) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+              }),
+            );
+          }
+        },
+        async close() {
+          /* no-op */
+        },
+      };
+      const client = new JsonRpcClient(transport);
+      opts.registerHandlers?.(client);
+      await client.request(METHOD.initialize, {
+        clientInfo: opts.clientInfo,
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      });
+      return {
+        client,
+        close: async () => {
+          await client.close();
+        },
+      };
+    };
+
+    const driver = async (): Promise<void> => {
+      const initialThreadStart = await waitForOutbound((msg) => msg.method === METHOD.threadStart);
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: initialThreadStart.id,
+        result: { thread: { id: startupThreadId, ephemeral: false } },
+      });
+
+      const kickoff = await waitForOutbound((msg) => msg.method === METHOD.turnStart);
+      transport.onMessage?.({ jsonrpc: '2.0', id: kickoff.id, result: {} });
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: 9910,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old',
+          callId: 'call-go',
+          tool: 'aharness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'go', data: { ok: true } }),
+        },
+      });
+      await waitForOutbound((msg) => msg.id === 9910 && msg.result !== undefined);
+    };
+
+    const driverPromise = driver();
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        loadFsmImpl: (async () => ({
+          machine: m,
+          sidecar,
+          modulePath: '/tmp/fresh-clear-invalid-cwd.mjs',
+          issues: [],
+          cacheHit: false,
+          hash: 'fresh-clear-invalid-cwd',
+        })) as unknown as RunCliTestHooks['loadFsmImpl'],
+        spawnAppServer: (async () =>
+          makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+        connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+        startUiServerImpl: async () => ({
+          url: 'http://127.0.0.1:45678',
+          close: vi.fn(async () => undefined),
+        }),
+        _testOnActiveThreadBinding: (binding) => {
+          activeBinding = binding;
+        },
+        _testOnUiEvent: (event) => published.push(event),
+      },
+    });
+    opts.stderr = stderrSink;
+
+    const r = await runCliForTest(opts);
+    await driverPromise;
+
+    expect(r.exitCode).toBe(1);
+    expect(stderrBuf.join('')).toContain(
+      `state "b" clearOnEntry.cwd does not exist: ${missingCwd}`,
+    );
+    expect(activeBinding?.isAbandoned(startupThreadId)).toBe(false);
+    expect(
+      outbound.some(
+        (msg) =>
+          msg.method === METHOD.turnInterrupt ||
+          msg.method === METHOD.threadUnsubscribe ||
+          (msg.method === METHOD.threadStart &&
+            typeof msg.params === 'object' &&
+            msg.params !== null &&
+            (msg.params as { sessionStartSource?: unknown }).sessionStartSource === 'clear'),
+      ),
+    ).toBe(false);
+    expect(published.map((entry) => entry.event)).not.toContainEqual(
+      expect.objectContaining({ kind: 'FreshClearBoundary' }),
+    );
   });
 
   it('case 18: user-prompt reply in a closed state returns non-2xx and does not start a turn', async () => {

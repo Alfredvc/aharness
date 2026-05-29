@@ -197,7 +197,50 @@ Reducers receive mutable draft data. They must be synchronous. They may mutate `
 
 Effects receive read-only data and payload plus `ops`. They are for external work that must complete before commit. There is no fire-and-forget effect API.
 
-`AharnessOps` is currently a reserved empty facade. Fresh clear is declarative via `clearOnEntry`, not `ops.clear()`.
+`AharnessOps` is currently a reserved empty facade. Fresh model context is declarative via `clearOnEntry`, not `ops.clear()`.
+
+Use `clearOnEntry` on a live, non-initial state when entering that state should
+discard prior model context. Boolean form keeps the working directory at the
+original aharness launch CWD:
+
+```ts
+implement: fsm.state({
+  clearOnEntry: true,
+  prompt: 'Implement the approved change and submit test evidence.',
+  on: {
+    implemented: fsm.submit<{ summary: string }>({ to: 'verify' }),
+  },
+});
+```
+
+Object form starts the fresh model context in a specific working directory:
+
+```ts
+reviewWorktree: fsm.state({
+  clearOnEntry: { cwd: '/absolute/path/to/worktree' },
+  prompt: 'Review this worktree and submit findings.',
+  on: {
+    reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
+  },
+});
+```
+
+Use function-form `cwd` for worktree and multi-project workflows where the
+directory comes from machine data:
+
+```ts
+packageWork: fsm.state({
+  clearOnEntry: { cwd: (data) => data.packageDir },
+  prompt: 'Work in the package directory and submit a summary.',
+  on: {
+    changed: fsm.submit<{ summary: string }>({ to: 'done' }),
+  },
+});
+```
+
+`cwd` must resolve to a non-empty absolute path for an existing directory. The
+aharness run directory, snapshots, event logs, and artifacts remain anchored to
+the original launch directory.
 
 Use final artifacts for run reports:
 

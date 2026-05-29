@@ -1,5 +1,20 @@
 import type { AharnessMeta } from '../types.js';
 
+function validateClearOnEntry(value: unknown): void {
+  if (value === true) return;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(
+      `validateAharnessMeta: stateful meta 'clearOnEntry' must be true or an object with cwd`,
+    );
+  }
+  const cwd = (value as { readonly cwd?: unknown }).cwd;
+  if (typeof cwd !== 'string' && typeof cwd !== 'function') {
+    throw new Error(
+      `validateAharnessMeta: stateful meta 'clearOnEntry.cwd' must be string or function`,
+    );
+  }
+}
+
 /**
  * Runtime guard for the `meta.aharness` field on a state node. The verifier
  * already runs structural checks via `verify.ts`, but `aharness.machine(...)`
@@ -40,6 +55,9 @@ export function validateAharnessMeta(value: unknown): AharnessMeta | undefined {
       throw new Error(
         `validateAharnessMeta: stateful meta 'entryPrompt' must be string or function`,
       );
+    }
+    if (Object.prototype.hasOwnProperty.call(v, 'clearOnEntry')) {
+      validateClearOnEntry(v['clearOnEntry']);
     }
     return value as AharnessMeta;
   }

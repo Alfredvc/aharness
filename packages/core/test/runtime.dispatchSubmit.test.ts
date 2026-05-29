@@ -214,7 +214,7 @@ const sidecarCrossState: SchemaSidecar = {
   },
 };
 
-function buildCrossStateClearOnEntryMachine() {
+function buildCrossStateClearOnEntryMachine(clearOnEntry: true | { readonly cwd: string } = true) {
   return aharness.machine({
     id: 'm',
     initial: 'a',
@@ -227,7 +227,7 @@ function buildCrossStateClearOnEntryMachine() {
       b: state({
         exits: { back: exit<{}>({ to: 'a' }) },
         entryPrompt: 'in b',
-        clearOnEntry: true,
+        clearOnEntry,
       }),
     },
   });
@@ -1164,6 +1164,42 @@ describe('createSubmitDispatcher — Phase 1', () => {
       'reply-observed',
       'fresh-after-reply',
     ]);
+  });
+
+  it('cross-state submit into clearOnEntry cwd object schedules fresh clear', async () => {
+    const machine = buildCrossStateClearOnEntryMachine({ cwd: '/abs/worktree' });
+    const host = new ActorHost(machine, undefined);
+    host.start();
+    const scheduleFreshClear = vi.fn();
+    const scheduleCrossStateDance = vi.fn();
+    const dispatch = createSubmitDispatcher({
+      host,
+      machine,
+      sidecar: sidecarCrossState,
+      flushSnapshot: vi.fn(),
+      composeActiveStateNudge: vi.fn(() => 'must-not-compose'),
+      scheduleCrossStateDance,
+      scheduleFreshClear,
+    });
+
+    const r = await dispatch(
+      {
+        threadId: 'thread-old',
+        turnId: 'turn-old',
+        callId: 'cid-1',
+        tool: 'aharness_submit',
+        arguments: JSON.stringify({ state: 'a', exit: 'go', data: {} }),
+      },
+      {
+        requestId: 'req-1',
+        afterReply: vi.fn(),
+      },
+    );
+
+    expect(r.success).toBe(true);
+    expect(host.currentStateId()).toBe('b');
+    expect(scheduleFreshClear).toHaveBeenCalledTimes(1);
+    expect(scheduleCrossStateDance).not.toHaveBeenCalled();
   });
 
   it('submit failure paths do not call runOnEntry', async () => {

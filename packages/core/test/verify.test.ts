@@ -107,6 +107,33 @@ describe('@aharness/core verify: clearOnEntry initial-state rule', () => {
     );
   });
 
+  it('rejects an object-form clearOnEntry state that is initially active', () => {
+    const m = aharness.machine({
+      id: 'clear-root-object',
+      initial: 'a',
+      context: () => ({}),
+      states: {
+        a: state({
+          entryPrompt: 'do',
+          clearOnEntry: { cwd: '/abs/path' },
+          exits: { ok: exit<{ v: number }>({ to: 'final' }) },
+        }),
+        final: terminal('success'),
+      },
+    });
+
+    const result = verify(m, sidecarWith([['a', 'ok']]), []);
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'clearOnEntry-not-initial',
+          stateId: 'a',
+        }),
+      ]),
+    );
+  });
+
   it('rejects nested and parallel initially active clearOnEntry states', () => {
     const m = aharness.machine({
       id: 'clear-nested',
