@@ -124,6 +124,35 @@ describe('install store runtime snapshot helpers', () => {
     );
   });
 
+  it('leaves malformed command indexes unrecovered when install fingerprints mismatch', async () => {
+    await mkdir(storeRoot, { recursive: true });
+    await writeJson(
+      paths.installsPath,
+      installsFile({
+        installs: {
+          '@scope/tools': installRecord('@scope/tools', { build: commandMetadata('build') }),
+        },
+      }),
+    );
+    await writeFile(paths.commandsPath, '{ nope');
+
+    const snapshot = await readInstalledRuntimeSnapshot({
+      paths,
+      computeLockFingerprintImpl: async () => ({ ok: true, value: 'changed-lock' }),
+    });
+
+    expect(snapshot.ok).toBe(false);
+    if (!snapshot.ok) {
+      expect(snapshot.diagnostics).toEqual([
+        expect.objectContaining({
+          code: 'installed-lock-fingerprint-mismatch',
+          field: 'installs.@scope/tools.lockFingerprint',
+        }),
+      ]);
+    }
+    await expect(readFile(paths.commandsPath, 'utf8')).resolves.toBe('{ nope');
+  });
+
   it('does not recover command indexes when a package fingerprint changed', async () => {
     await writeTrustedPair({
       installs: installsFile({

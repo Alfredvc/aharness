@@ -12,6 +12,11 @@ export const STALE_DIST_PATHS = [
   'packages/core/dist/cli/daemonInternal.d.ts',
   'packages/core/dist/cli/shutdownSequence.js',
   'packages/core/dist/cli/shutdownSequence.d.ts',
+  'packages/core/dist/package-runner.js',
+  'packages/core/dist/package-runner.d.ts',
+  'packages/core/dist/cli/packageCli.js',
+  'packages/core/dist/cli/packageCli.d.ts',
+  'packages/core/dist/fsmPackage',
 ];
 
 const stale = STALE_DIST_PATHS.filter((path) => existsSync(join(ROOT, path)));

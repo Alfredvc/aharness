@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { Writable } from 'node:stream';
@@ -6,10 +6,14 @@ import { Writable } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 
 import { runListInstalledCli } from '../src/cli/listInstalledCli.js';
-import type {
-  InstalledRuntimeSnapshot,
-  TrustedCommandIndexEntry,
-  TrustedInstallRecord,
+import {
+  computeLockFingerprint,
+  resolveInstallStorePaths,
+  type InstalledRuntimeSnapshot,
+  type InstallStorePaths,
+  type TrustedCommandIndexEntry,
+  type TrustedInstallRecord,
+  type TrustedInstallsFile,
 } from '../src/installStore/index.js';
 
 describe('aharness list installed packages', () => {
@@ -112,6 +116,30 @@ describe('aharness list installed packages', () => {
     }
   });
 
+  it('lists commands after recovering a malformed command index from real trusted files', async () => {
+    const storeRoot = await mkdtemp(path.join(os.tmpdir(), 'aharness-list-recovered-index-'));
+    try {
+      const paths = await writeRealTrustedStore(storeRoot);
+      const stdout = captureStream();
+      const stderr = captureStream();
+
+      const result = await runListInstalledCli({
+        cwd: '/workspace',
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: { AHARNESS_HOME: storeRoot },
+      });
+
+      expect(result).toEqual({ exitCode: 0 });
+      expect(stderr.text()).toBe('');
+      expect(stdout.text()).toContain('@scope/tools 1.2.3');
+      expect(stdout.text()).toContain('  build');
+      await expect(readFile(paths.commandsPath, 'utf8')).resolves.toContain('@scope/tools/build');
+    } finally {
+      await rm(storeRoot, { recursive: true, force: true });
+    }
+  });
+
   it('formats unrecoverable trusted snapshot diagnostics as list failures', async () => {
     const stderr = captureStream();
 
@@ -194,6 +222,87 @@ function commandMetadata(
     entry: `fsms/${commandName}.fsm.ts`,
     ...(description !== undefined ? { description } : {}),
   };
+}
+
+async function writeRealTrustedStore(storeRoot: string): Promise<InstallStorePaths> {
+  const paths = resolveInstallStorePaths({ env: { AHARNESS_HOME: storeRoot } });
+  await mkdir(paths.managedProjectRoot, { recursive: true });
+  await writePackageLock(paths.managedProjectRoot);
+  const fingerprint = await computeLockFingerprint({
+    managedProjectRoot: paths.managedProjectRoot,
+    dependencyKey: '@scope/tools',
+    packageName: '@scope/tools',
+    packageVersion: '1.2.3',
+  });
+  if (!fingerprint.ok) {
+    throw new Error(`test lock fingerprint failed: ${JSON.stringify(fingerprint.diagnostics)}`);
+  }
+  const record: TrustedInstallRecord = {
+    packageName: '@scope/tools',
+    dependencyKey: '@scope/tools',
+    requestedSpec: '@scope/tools@latest',
+    packageRoot: path.join(paths.managedProjectRoot, 'node_modules', '@scope', 'tools'),
+    packageVersion: '1.2.3',
+    sourceIntentKey: 'registry:https://registry.npmjs.org/:@scope/tools',
+    lockFingerprint: fingerprint.value,
+    commands: {
+      build: commandMetadata('build'),
+    },
+  };
+  await writeJson(
+    paths.installsPath,
+    installsFile({
+      generation: 'gen-real',
+      installs: {
+        '@scope/tools': record,
+      },
+    }),
+  );
+  await writeFile(paths.commandsPath, '{ nope');
+  return paths;
+}
+
+async function writePackageLock(managedProjectRoot: string): Promise<void> {
+  await writeFile(
+    path.join(managedProjectRoot, 'package-lock.json'),
+    JSON.stringify(
+      {
+        name: 'aharness-managed-fsm-packages',
+        lockfileVersion: 3,
+        packages: {
+          '': {
+            dependencies: {
+              '@scope/tools': '1.2.3',
+            },
+          },
+          'node_modules/@scope/tools': {
+            version: '1.2.3',
+            resolved: 'https://registry.npmjs.org/@scope/tools/-/tools-1.2.3.tgz',
+            integrity: 'sha512-tools',
+          },
+        },
+      },
+      null,
+      2,
+    ) + '\n',
+  );
+}
+
+function installsFile(
+  opts: {
+    readonly generation?: string;
+    readonly installs?: Record<string, TrustedInstallRecord>;
+  } = {},
+): TrustedInstallsFile {
+  return {
+    schemaVersion: 1,
+    generation: opts.generation ?? 'gen-1',
+    installs: opts.installs ?? {},
+  };
+}
+
+async function writeJson(filePath: string, value: unknown): Promise<void> {
+  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function captureStream(): { stream: NodeJS.WritableStream; text: () => string } {

@@ -124,3 +124,10 @@ Reusable FSM packages are npm-shaped packages with explicit
 `fsms/`, bundled `skills/`, helper modules, and package-relative assets; the
 global `aharness install` / `aharness run` surface indexes and executes verified
 commands from the installed package tree.
+
+The installed package tree remains npm-managed. aharness trusts only
+`installs.json` and the derived `commands.json` after command verification, and
+installed `run` / installed `verify` recompute lock fingerprints before loading
+a command. A malformed command index can be regenerated from valid install
+records, but malformed install records are not recoverable because they are the
+source of truth.

@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
@@ -326,6 +327,41 @@ describe('npm lock fingerprinting', () => {
     if (first.ok && second.ok) expect(second.value).not.toBe(first.value);
   });
 
+  it('includes resolved local git commit data in the fingerprint but not source intent', async () => {
+    const cwd = await tmpRoot();
+    const repoRoot = path.join(cwd, 'repo');
+    const repoUrl = pathToFileURL(repoRoot).href;
+    const firstRoot = await tmpRoot();
+    const secondRoot = await tmpRoot();
+    await writeLocalGitLockfile(firstRoot, repoUrl, 'abc123');
+    await writeLocalGitLockfile(secondRoot, repoUrl, 'def456');
+
+    const sourceMain = await computeSourceIntentKey({ source: `git+${repoUrl}#main`, cwd });
+    const sourceFeature = await computeSourceIntentKey({ source: `git+${repoUrl}#feature`, cwd });
+    expect(sourceMain).toEqual({
+      ok: true,
+      value: `git:${repoUrl}`,
+    });
+    expect(sourceFeature).toEqual(sourceMain);
+
+    const first = await computeLockFingerprint({
+      managedProjectRoot: firstRoot,
+      dependencyKey: 'local-git-tools',
+      packageName: 'local-git-tools',
+      packageVersion: '1.0.0',
+    });
+    const second = await computeLockFingerprint({
+      managedProjectRoot: secondRoot,
+      dependencyKey: 'local-git-tools',
+      packageName: 'local-git-tools',
+      packageVersion: '1.0.0',
+    });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (first.ok && second.ok) expect(second.value).not.toBe(first.value);
+  });
+
   it('rejects direct link entries because local directory installs must be snapshots', async () => {
     const managedProjectRoot = await tmpRoot();
     await writeFile(
@@ -437,6 +473,36 @@ async function writeGitLockfile(managedProjectRoot: string, commit: string): Pro
           'node_modules/repo': {
             version: '1.0.0',
             resolved: `git+ssh://git@github.com/owner/repo.git#${commit}`,
+            integrity: `sha512-${commit}`,
+          },
+        },
+      },
+      null,
+      2,
+    ) + '\n',
+  );
+}
+
+async function writeLocalGitLockfile(
+  managedProjectRoot: string,
+  repoUrl: string,
+  commit: string,
+): Promise<void> {
+  await writeFile(
+    path.join(managedProjectRoot, 'package-lock.json'),
+    JSON.stringify(
+      {
+        name: 'aharness-managed-fsm-packages',
+        lockfileVersion: 3,
+        packages: {
+          '': {
+            dependencies: {
+              'local-git-tools': `git+${repoUrl}#main`,
+            },
+          },
+          'node_modules/local-git-tools': {
+            version: '1.0.0',
+            resolved: `git+${repoUrl}#${commit}`,
             integrity: `sha512-${commit}`,
           },
         },

@@ -2,7 +2,8 @@
 
 `@aharness/superpowers` packages the Superpowers workflow as aharness FSM commands.
 
-Slice 1 exposes two commands: `brainstorming` and `writing-plans`. Execution commands, helper FSMs, and the end-to-end `flow` command are not exposed yet.
+This package exposes two installed commands: `brainstorming` and `writing-plans`.
+Run them through the global `aharness run` surface after installation.
 
 ## Usage
 
@@ -25,7 +26,8 @@ pnpm exec aharness verify fsms/writing-plans.fsm.ts
 
 Commands are declared in `package.json` under
 `aharness.package.commands.<command>.entry` and run through the global
-`aharness run` surface after installation.
+`aharness run` surface after installation. The package does not publish a
+package-specific command binary.
 
 ### `brainstorming`
 

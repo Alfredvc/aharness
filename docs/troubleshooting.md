@@ -61,6 +61,34 @@ If an input field shadows a framework flag, aharness warns that the field is
 unreachable from the CLI; set that value with another input path or rename the
 field.
 
+## Installed Package Commands Do Not Run
+
+Installed FSM packages are trusted only after `aharness install <source>`
+validates package metadata, package-relative assets, loader behavior, and the
+verifier result for every declared command. npm may still change files in the
+managed package project before aharness rejects a package. In that case
+aharness leaves npm-managed files in place, but it does not update
+`installs.json` or `commands.json`, so unverified commands remain unrunnable.
+
+If `aharness run` or installed `aharness verify` reports
+`installed-lock-fingerprint-mismatch`, the managed npm tree no longer matches
+the verified install record. Re-run `aharness install <same-source>` to refresh
+the package, or run `aharness uninstall <package-name>` before installing a
+different source for the same package name.
+
+If `commands.json` is missing, stale, or malformed, aharness regenerates it from
+a valid `installs.json` after checking recorded lock fingerprints. If
+`installs.json` is malformed, aharness reports `trusted-installs-unrecoverable`;
+remove or restore that file before installed commands can be trusted again.
+
+Bare command names work only when exactly one installed package provides that
+command. If aharness reports an ambiguous command, run the fully qualified
+identity shown in the diagnostic, such as:
+
+```bash
+aharness run @scope/tools/build
+```
+
 ## Approval Or Owner Input Is Stuck
 
 aharness runs foreground-only and opens a loopback browser UI for owner

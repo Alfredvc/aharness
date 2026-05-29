@@ -1,6 +1,7 @@
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Writable } from 'node:stream';
 
 import { describe, expect, it } from 'vitest';
@@ -407,6 +408,93 @@ describe('aharness install CLI', () => {
     expect(remoteSecond?.lockFingerprint).not.toBe(remoteFirst?.lockFingerprint);
   });
 
+  it('refreshes local git floating refs by repository identity while lock commits change', async () => {
+    const cwd = await tmpRoot('aharness-install-cli-local-git-cwd-');
+    const storeRoot = await tmpRoot('aharness-install-cli-local-git-store-');
+    const repoRoot = path.join(cwd, 'local-git-repo');
+    const otherRepoRoot = path.join(cwd, 'other-local-git-repo');
+    const repoUrl = pathToFileURL(repoRoot).href;
+    const otherRepoUrl = pathToFileURL(otherRepoRoot).href;
+    const sourceMain = `git+${repoUrl}#main`;
+    const sourceFeature = `git+${repoUrl}#feature`;
+    const otherSource = `git+${otherRepoUrl}#main`;
+    const gitV1 = path.join(cwd, 'local-git-v1');
+    const gitV2 = path.join(cwd, 'local-git-v2');
+    const gitOther = path.join(cwd, 'local-git-other');
+    await writeInstallPackage(gitV1, {
+      name: 'local-git-tools',
+      version: '1.0.0',
+      fsmSource: validFsmSource('local-git-one'),
+    });
+    await writeInstallPackage(gitV2, {
+      name: 'local-git-tools',
+      version: '1.0.1',
+      fsmSource: validFsmSource('local-git-two'),
+    });
+    await writeInstallPackage(gitOther, {
+      name: 'local-git-tools',
+      version: '2.0.0',
+      fsmSource: validFsmSource('local-git-other'),
+    });
+
+    const npmInstall = fakeNpmInstallFromSources({
+      [sourceMain]: {
+        sourceRoot: gitV1,
+        dependencyKey: 'local-git-tools',
+        dependencySpec: sourceMain,
+        lockResolved: `git+${repoUrl}#abc123`,
+        lockIntegrity: 'sha512-local-git-one',
+      },
+      [sourceFeature]: {
+        sourceRoot: gitV2,
+        dependencyKey: 'local-git-tools',
+        dependencySpec: sourceFeature,
+        lockResolved: `git+${repoUrl}#def456`,
+        lockIntegrity: 'sha512-local-git-two',
+      },
+      [otherSource]: {
+        sourceRoot: gitOther,
+        dependencyKey: 'local-git-tools',
+        dependencySpec: otherSource,
+        lockResolved: `git+${otherRepoUrl}#abc123`,
+        lockIntegrity: 'sha512-local-git-other',
+      },
+    });
+
+    await expectInstallOk(sourceMain, cwd, storeRoot, npmInstall);
+    const first = (await readTrustedInstalls(storeRoot)).installs['local-git-tools'];
+    await expectInstallOk(sourceFeature, cwd, storeRoot, npmInstall);
+    const second = (await readTrustedInstalls(storeRoot)).installs['local-git-tools'];
+
+    expect(first?.sourceIntentKey).toBe(`git:${repoUrl}`);
+    expect(second?.sourceIntentKey).toBe(first?.sourceIntentKey);
+    expect(second?.packageVersion).toBe('1.0.1');
+    expect(second?.lockFingerprint).not.toBe(first?.lockFingerprint);
+
+    const beforeInstalls = await readFile(path.join(storeRoot, 'installs.json'), 'utf8');
+    const beforeCommands = await readFile(path.join(storeRoot, 'commands.json'), 'utf8');
+    const collision = await installPackageFromSource({
+      source: otherSource,
+      cwd,
+      env: { AHARNESS_HOME: storeRoot },
+      currentCoreVersion: CURRENT_CORE_VERSION,
+      npmInstall,
+    });
+
+    expect(collision.ok).toBe(false);
+    if (!collision.ok) {
+      expect(collision.diagnostics).toEqual([
+        expect.objectContaining({ code: 'install-source-collision' }),
+      ]);
+    }
+    await expect(readFile(path.join(storeRoot, 'installs.json'), 'utf8')).resolves.toBe(
+      beforeInstalls,
+    );
+    await expect(readFile(path.join(storeRoot, 'commands.json'), 'utf8')).resolves.toBe(
+      beforeCommands,
+    );
+  });
+
   it('rejects the same registry package name from a different registry origin', async () => {
     const cwd = await tmpRoot('aharness-install-cli-registry-origin-cwd-');
     const storeRoot = await tmpRoot('aharness-install-cli-registry-origin-store-');
@@ -580,6 +668,56 @@ describe('aharness install CLI', () => {
     await expect(readFile(path.join(storeRoot, 'commands.json'), 'utf8')).resolves.toBe(
       beforeCommands,
     );
+  });
+
+  it('formats post-mutation refresh failures without changing trusted files', async () => {
+    const cwd = await tmpRoot('aharness-install-cli-refresh-public-cwd-');
+    const storeRoot = await tmpRoot('aharness-install-cli-refresh-public-store-');
+    const sourceRoot = path.join(cwd, 'refresh-public');
+    await writeInstallPackage(sourceRoot, {
+      name: 'refresh-public',
+      version: '1.0.0',
+      fsmSource: validFsmSource('refresh-public-one'),
+    });
+    await expectInstallOk('./refresh-public', cwd, storeRoot, fakeNpmInstall);
+    const beforeInstalls = await readFile(path.join(storeRoot, 'installs.json'), 'utf8');
+    const beforeCommands = await readFile(path.join(storeRoot, 'commands.json'), 'utf8');
+
+    await writeInstallPackage(sourceRoot, {
+      name: 'refresh-public',
+      version: '1.0.1',
+      fsmSource: validFsmSource('refresh-public-two'),
+      aharnessPackage: {},
+    });
+    const stdout = captureStream();
+    const stderr = captureStream();
+    const failure = await runInstallCli({
+      source: './refresh-public',
+      cwd,
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      env: { AHARNESS_HOME: storeRoot },
+      currentCoreVersion: CURRENT_CORE_VERSION,
+      npmInstall: fakeNpmInstall,
+    });
+
+    expect(failure).toEqual({ exitCode: 1 });
+    expect(stdout.text()).toBe('');
+    expect(stderr.text()).toContain('[install-commands-missing]');
+    expect(stderr.text()).toContain('npm may have changed files under');
+    expect(stderr.text()).toContain('unverified commands were not indexed');
+    await expect(readFile(path.join(storeRoot, 'installs.json'), 'utf8')).resolves.toBe(
+      beforeInstalls,
+    );
+    await expect(readFile(path.join(storeRoot, 'commands.json'), 'utf8')).resolves.toBe(
+      beforeCommands,
+    );
+    await expect(
+      readFile(
+        path.join(storeRoot, 'packages', 'node_modules', 'refresh-public', 'package.json'),
+        'utf8',
+      ),
+    ).resolves.toContain('"version": "1.0.1"');
   });
 
   it('rejects installs when npm changes multiple direct dependencies', async () => {

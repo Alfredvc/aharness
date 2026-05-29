@@ -17,6 +17,8 @@ Start here:
   model.
 - [Reference](../../docs/reference.md) for `createFsm`, CLI commands, and
   package authoring.
+- [Troubleshooting](../../docs/troubleshooting.md) for Codex prerequisites,
+  installed-package recovery, and lock fingerprint failures.
 - [Architecture](../../docs/architecture.md) for the Codex/aharness runtime
   boundary.
 - [Supported Codex versions](SUPPORTED_CODEX.md) for the runtime version gate.

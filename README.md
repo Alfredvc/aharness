@@ -223,7 +223,10 @@ aharness run @scope/tools/build
 ```
 
 Command entries point at package-root-relative `.fsm.ts` files and are verified
-before aharness writes trusted install records.
+before aharness writes trusted install records. If validation fails after npm
+changes the managed package tree, unverified commands are not indexed; see
+[`docs/troubleshooting.md`](docs/troubleshooting.md) for recovery and lock
+fingerprint mismatch guidance.
 
 ## Documentation
 

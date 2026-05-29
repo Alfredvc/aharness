@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
@@ -71,6 +72,23 @@ describe('install source intent normalization', () => {
         value: 'git:https://github.com/owner/repo',
       });
     }
+  });
+
+  it('normalizes local git file URLs by repository identity without refs', async () => {
+    const cwd = await tmpRoot();
+    const repoRoot = path.join(cwd, 'repo');
+    const repoUrl = pathToFileURL(repoRoot).href;
+
+    const main = await computeSourceIntentKey({ source: `git+${repoUrl}#main`, cwd });
+    const feature = await computeSourceIntentKey({ source: `git+${repoUrl}#feature`, cwd });
+    const commit = await computeSourceIntentKey({ source: `git+${repoUrl}#abcdef123`, cwd });
+
+    expect(main).toEqual({
+      ok: true,
+      value: `git:${repoUrl}`,
+    });
+    expect(feature).toEqual(main);
+    expect(commit).toEqual(main);
   });
 
   it('normalizes local directories and local tarballs by realpath', async () => {

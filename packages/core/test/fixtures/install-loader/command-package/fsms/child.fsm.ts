@@ -11,7 +11,9 @@ export default aharness.machine({
     local: state({
       entryPrompt: 'same package child',
       exits: {
-        done: exit<LocalPayload>({ to: 'shipped' }),
+        done: exit<LocalPayload>({
+          when: [{ guard: ({ event }) => event.payload.ok, to: 'shipped' }, { to: 'failed' }],
+        }),
       },
     }),
     shipped: final({ outcome: 'success' }),

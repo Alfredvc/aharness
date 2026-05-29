@@ -1,15 +1,20 @@
 import * as path from 'node:path';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import { Writable } from 'node:stream';
 
 import { describe, expect, it, vi } from 'vitest';
 
 import { runVerifyInstalledCli } from '../src/cli/verifyInstalledCli.js';
-import type {
-  InstalledRuntimeSnapshot,
-  TrustedCommandIndexEntry,
-  TrustedInstallRecord,
+import {
+  computeLockFingerprint,
+  resolveInstallStorePaths,
+  type InstalledRuntimeSnapshot,
+  type InstallStorePaths,
+  type TrustedCommandIndexEntry,
+  type TrustedInstallRecord,
+  type TrustedCommandsFile,
+  type TrustedInstallsFile,
 } from '../src/installStore/index.js';
 import type { LoadFsmResult } from '../src/loader/index.js';
 import type { VerifyResult } from '../src/verify/index.js';
@@ -181,6 +186,96 @@ describe('aharness verify installed packages and commands', () => {
     }
   });
 
+  it('verifies through a recovered malformed command index from real trusted files', async () => {
+    const storeRoot = await mkdtemp(path.join(os.tmpdir(), 'aharness-verify-recovered-index-'));
+    try {
+      const paths = await writeRealTrustedStore(storeRoot, { commands: 'malformed' });
+      const loadInstalledFsmImpl = vi.fn(async () => makeLoadedFsm());
+      const verifyImpl = vi.fn(() => okVerifyResult());
+      const stdout = captureStream();
+      const stderr = captureStream();
+
+      const result = await runVerifyInstalledCli({
+        target: '@scope/tools/build',
+        cwd: '/workspace',
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        env: { AHARNESS_HOME: storeRoot },
+        loadInstalledFsmImpl,
+        verifyImpl,
+      });
+
+      expect(result).toEqual({ exitCode: 0 });
+      expect(stderr.text()).toBe('');
+      expect(stdout.text()).toContain('verify: ok (@scope/tools/build, 0 warnings)');
+      expect(loadInstalledFsmImpl).toHaveBeenCalledTimes(1);
+      await expect(readFile(paths.commandsPath, 'utf8')).resolves.toContain('@scope/tools/build');
+    } finally {
+      await rm(storeRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('surfaces malformed installs as a hard trusted-store failure from real files', async () => {
+    const storeRoot = await mkdtemp(path.join(os.tmpdir(), 'aharness-verify-bad-installs-'));
+    try {
+      const paths = resolveInstallStorePaths({ env: { AHARNESS_HOME: storeRoot } });
+      await mkdir(storeRoot, { recursive: true });
+      await writeFile(paths.installsPath, '{ nope');
+      await writeJson(paths.commandsPath, commandsFile({ generation: 'gen-real' }));
+      const loadInstalledFsmImpl = vi.fn(async () => makeLoadedFsm());
+      const verifyImpl = vi.fn(() => okVerifyResult());
+      const stderr = captureStream();
+
+      const result = await runVerifyInstalledCli({
+        target: '@scope/tools/build',
+        cwd: '/workspace',
+        stdout: captureStream().stream,
+        stderr: stderr.stream,
+        env: { AHARNESS_HOME: storeRoot },
+        loadInstalledFsmImpl,
+        verifyImpl,
+      });
+
+      expect(result).toEqual({ exitCode: 1 });
+      expect(stderr.text()).toContain('trusted-installs-unrecoverable');
+      expect(loadInstalledFsmImpl).not.toHaveBeenCalled();
+      expect(verifyImpl).not.toHaveBeenCalled();
+    } finally {
+      await rm(storeRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('tells users to reinstall or uninstall when command verification sees a changed lock', async () => {
+    const storeRoot = await mkdtemp(path.join(os.tmpdir(), 'aharness-verify-lock-mismatch-'));
+    try {
+      await writeRealTrustedStore(storeRoot, {
+        commands: 'valid',
+        trustedLockFingerprint: 'stale-lock',
+      });
+      const loadInstalledFsmImpl = vi.fn(async () => makeLoadedFsm());
+      const verifyImpl = vi.fn(() => okVerifyResult());
+      const stderr = captureStream();
+
+      const result = await runVerifyInstalledCli({
+        target: '@scope/tools/build',
+        cwd: '/workspace',
+        stdout: captureStream().stream,
+        stderr: stderr.stream,
+        env: { AHARNESS_HOME: storeRoot },
+        loadInstalledFsmImpl,
+        verifyImpl,
+      });
+
+      expect(result).toEqual({ exitCode: 1 });
+      expect(stderr.text()).toContain('installed-lock-fingerprint-mismatch');
+      expect(stderr.text()).toContain('reinstall or uninstall');
+      expect(loadInstalledFsmImpl).not.toHaveBeenCalled();
+      expect(verifyImpl).not.toHaveBeenCalled();
+    } finally {
+      await rm(storeRoot, { recursive: true, force: true });
+    }
+  });
+
   it('formats verifier errors and exits nonzero', async () => {
     const snapshot = runtimeSnapshot([
       installRecord('@scope/tools', { build: commandMetadata('build') }),
@@ -275,6 +370,133 @@ function commandMetadata(commandName: string): TrustedInstallRecord['commands'][
     commandName,
     entry: `fsms/${commandName}.fsm.ts`,
   };
+}
+
+async function writeRealTrustedStore(
+  storeRoot: string,
+  opts: {
+    readonly commands: 'valid' | 'malformed';
+    readonly trustedLockFingerprint?: string;
+  },
+): Promise<InstallStorePaths> {
+  const paths = resolveInstallStorePaths({ env: { AHARNESS_HOME: storeRoot } });
+  await mkdir(paths.managedProjectRoot, { recursive: true });
+  await writePackageLock(paths.managedProjectRoot);
+  const fingerprint = await computeLockFingerprint({
+    managedProjectRoot: paths.managedProjectRoot,
+    dependencyKey: '@scope/tools',
+    packageName: '@scope/tools',
+    packageVersion: '1.2.3',
+  });
+  if (!fingerprint.ok) {
+    throw new Error(`test lock fingerprint failed: ${JSON.stringify(fingerprint.diagnostics)}`);
+  }
+
+  const record: TrustedInstallRecord = {
+    packageName: '@scope/tools',
+    dependencyKey: '@scope/tools',
+    requestedSpec: '@scope/tools@latest',
+    packageRoot: path.join(paths.managedProjectRoot, 'node_modules', '@scope', 'tools'),
+    packageVersion: '1.2.3',
+    sourceIntentKey: 'registry:https://registry.npmjs.org/:@scope/tools',
+    lockFingerprint: opts.trustedLockFingerprint ?? fingerprint.value,
+    commands: {
+      build: commandMetadata('build'),
+    },
+  };
+  await writeJson(
+    paths.installsPath,
+    installsFile({
+      generation: 'gen-real',
+      installs: {
+        '@scope/tools': record,
+      },
+    }),
+  );
+  if (opts.commands === 'malformed') {
+    await writeFile(paths.commandsPath, '{ nope');
+  } else {
+    await writeJson(
+      paths.commandsPath,
+      commandsFile({
+        generation: 'gen-real',
+        commands: {
+          '@scope/tools/build': commandIndexEntryFromRecord(record, 'build'),
+        },
+      }),
+    );
+  }
+  return paths;
+}
+
+async function writePackageLock(managedProjectRoot: string): Promise<void> {
+  await writeFile(
+    path.join(managedProjectRoot, 'package-lock.json'),
+    JSON.stringify(
+      {
+        name: 'aharness-managed-fsm-packages',
+        lockfileVersion: 3,
+        packages: {
+          '': {
+            dependencies: {
+              '@scope/tools': '1.2.3',
+            },
+          },
+          'node_modules/@scope/tools': {
+            version: '1.2.3',
+            resolved: 'https://registry.npmjs.org/@scope/tools/-/tools-1.2.3.tgz',
+            integrity: 'sha512-tools',
+          },
+        },
+      },
+      null,
+      2,
+    ) + '\n',
+  );
+}
+
+function installsFile(
+  opts: {
+    readonly generation?: string;
+    readonly installs?: Record<string, TrustedInstallRecord>;
+  } = {},
+): TrustedInstallsFile {
+  return {
+    schemaVersion: 1,
+    generation: opts.generation ?? 'gen-1',
+    installs: opts.installs ?? {},
+  };
+}
+
+function commandsFile(
+  opts: {
+    readonly generation?: string;
+    readonly commands?: Record<string, TrustedCommandIndexEntry>;
+  } = {},
+): TrustedCommandsFile {
+  return {
+    schemaVersion: 1,
+    generation: opts.generation ?? 'gen-1',
+    commands: opts.commands ?? {},
+  };
+}
+
+function commandIndexEntryFromRecord(
+  record: TrustedInstallRecord,
+  commandName: string,
+): TrustedCommandIndexEntry {
+  return {
+    packageName: record.packageName,
+    commandName,
+    entry: `fsms/${commandName}.fsm.ts`,
+    packageRoot: record.packageRoot,
+    ...(record.packageVersion !== undefined ? { packageVersion: record.packageVersion } : {}),
+    lockFingerprint: record.lockFingerprint,
+  };
+}
+
+async function writeJson(filePath: string, value: unknown): Promise<void> {
+  await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function makeLoadedFsm(): LoadFsmResult {

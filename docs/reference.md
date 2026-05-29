@@ -306,4 +306,6 @@ aharness run @scope/tools/build [--<flag> <value>]...
 ```
 
 Command names such as `list`, `verify`, `help`, and `version` are valid package
-commands because they run below `aharness run`.
+commands because they run below `aharness run`. Package-specific binaries are
+not part of installed package execution; the stable command identity is
+`<package-name>/<command-name>`.

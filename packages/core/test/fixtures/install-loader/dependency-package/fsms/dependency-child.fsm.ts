@@ -12,7 +12,12 @@ export default aharness.machine({
     dependency: state({
       entryPrompt: `dependency child ${dependencyHelper()}`,
       exits: {
-        done: exit<DependencyPayload>({ to: 'dependencyDone' }),
+        done: exit<DependencyPayload>({
+          when: [
+            { guard: ({ event }) => event.payload.source === 'ok', to: 'dependencyDone' },
+            { to: 'dependencyFailed' },
+          ],
+        }),
       },
     }),
     dependencyDone: final({ outcome: 'success' }),

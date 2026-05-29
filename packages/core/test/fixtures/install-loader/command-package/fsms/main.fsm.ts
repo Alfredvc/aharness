@@ -17,11 +17,22 @@ export default aharness.machine({
     router: state<RouteContext>({
       entryPrompt: `route ${commandHelper()} ${dependencyHelper()}`,
       exits: {
-        go: exit<RoutePayload>({
-          to: 'same',
-          actions: assign({
-            routedBy: () => dependencyHelper(),
-          }),
+        go: exit<RoutePayload, RouteContext>({
+          when: [
+            {
+              guard: ({ event }) => event.payload.destination === 'dependency',
+              to: 'dependency',
+              actions: assign({
+                routedBy: () => dependencyHelper(),
+              }),
+            },
+            {
+              to: 'same',
+              actions: assign({
+                routedBy: () => dependencyHelper(),
+              }),
+            },
+          ],
         }),
       },
     }),

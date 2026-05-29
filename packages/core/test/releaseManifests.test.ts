@@ -70,6 +70,11 @@ describe('release manifest readiness', () => {
     expect(script).toContain('packages/core/dist/mcp');
     expect(script).toContain('packages/core/dist/cli/daemonInternal.js');
     expect(script).toContain('packages/core/dist/cli/shutdownSequence.js');
+    expect(script).toContain('packages/core/dist/package-runner.js');
+    expect(script).toContain('packages/core/dist/package-runner.d.ts');
+    expect(script).toContain('packages/core/dist/cli/packageCli.js');
+    expect(script).toContain('packages/core/dist/cli/packageCli.d.ts');
+    expect(script).toContain('packages/core/dist/fsmPackage');
   });
 
   it('release pack verification rejects source trees and build-info files', () => {
