@@ -20,6 +20,7 @@ export interface RunInstalledCliOptions {
   readonly stdout: NodeJS.WritableStream;
   readonly stderr: NodeJS.WritableStream;
   readonly inputArgs?: ReadonlyArray<string>;
+  readonly yolo?: boolean;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly homeDir?: string;
   readonly readSnapshotImpl?: () => Promise<InstallStoreResult<InstalledRuntimeSnapshot>>;
@@ -80,6 +81,7 @@ export async function runInstalledCli(
     stdout: opts.stdout,
     stderr: opts.stderr,
     inputArgs: opts.inputArgs ?? [],
+    ...(opts.yolo === true ? { yolo: true } : {}),
     verify: () => Promise.resolve({ exitCode: 0 }),
     loadFsmImpl,
   });

@@ -243,13 +243,13 @@ support may be checked by runtime preflight after the CWD resolves. Dynamic
 ## CLI
 
 ```bash
-aharness <file.fsm.ts> [--<flag> <value>]...
+aharness [--yolo] <file.fsm.ts> [--<flag> <value>]...
 aharness visualize <file.fsm.ts> [--<flag> <value>]...
 aharness verify <file.fsm.ts>
 aharness doctor
 aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|yarn|bun>]
 aharness install <source>
-aharness run <command> [--<flag> <value>]...
+aharness run [--yolo] <command> [--<flag> <value>]...
 aharness list
 aharness uninstall <package-name>
 aharness verify <package-name>
@@ -260,6 +260,14 @@ aharness completion uninstall
 
 Machine inputs become kebab-case flags, so `fixtureRoot` becomes
 `--fixture-root`.
+
+`--yolo` is a dangerous live-runtime flag for direct FSM runs and installed
+command runs. It starts Codex with `approval_policy="never"` and
+`sandbox_mode="danger-full-access"`, mirroring Codex's dangerous bypass mode.
+It is not available for non-live subcommands such as `verify`, `visualize`,
+`doctor`, `install`, `list`, `uninstall`, or `completion`. For direct runs it
+may appear before or after the FSM path; for installed commands it may appear
+before or after the command name.
 
 ## How It Works
 

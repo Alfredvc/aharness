@@ -167,6 +167,8 @@ export interface RunCliOpts {
    * against the loaded FSM's `inputFlags` after `loadFsm`.
    */
   readonly inputArgs?: ReadonlyArray<string>;
+  /** Start Codex with Codex-equivalent YOLO permissions. */
+  readonly yolo?: boolean;
 }
 
 export interface RunCliResult {
@@ -964,7 +966,12 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   // 10. Spawn codex app-server (Unix listen).
   const sockPath = join(finalRunDir.root, 'app-server.sock');
   const mockModelBaseUrl = process.env['AHARNESS_MOCK_MODEL_BASE_URL'] ?? o._testMockModelBaseUrl;
-  const cliOverrides: Array<readonly [string, string]> = [['approval_policy', '"on-request"']];
+  const cliOverrides: Array<readonly [string, string]> = o.yolo
+    ? [
+        ['approval_policy', '"never"'],
+        ['sandbox_mode', '"danger-full-access"'],
+      ]
+    : [['approval_policy', '"on-request"']];
   if (mockModelBaseUrl) {
     cliOverrides.push(
       ['model_provider', '"mock"'],

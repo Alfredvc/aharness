@@ -10,16 +10,16 @@
  * reach the user-facing CLI). Only the root FSM's input fields are checked.
  *
  * Future top-level flags update this constant; the warning logic re-runs
- * against existing FSMs at next boot. The set is sourced from the Phase 4
- * dispatcher design in `docs/specs/2026-05-08-fsm-composition-and-cli-args-design.md`
- * — `completion` is the most surprising entry; it lands in Phase 4 as
- * `aharness completion <shell>` (shell-completion script emitter).
+ * against existing FSMs at next boot. The set includes top-level verbs and
+ * runtime-owned flags such as `--yolo`, which the dispatcher consumes before
+ * `inputArgs` reach author input parsing.
  */
 export const RESERVED_CLI_FLAGS: ReadonlySet<string> = new Set([
   'verify',
   'doctor',
   'completion',
   'init',
+  'yolo',
 ]);
 
 /**

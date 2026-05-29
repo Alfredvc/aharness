@@ -55,6 +55,7 @@ export interface Dispatcher {
   readonly runDefault: (o: {
     fsmPath: string;
     inputArgs: ReadonlyArray<string>;
+    yolo?: boolean;
   }) => Promise<{ exitCode: number }>;
   readonly runVisualize: (o: {
     fsmPath: string;
@@ -82,6 +83,7 @@ export interface Dispatcher {
   readonly runInstalled: (o: {
     command: string;
     inputArgs: ReadonlyArray<string>;
+    yolo?: boolean;
   }) => Promise<{ exitCode: number }>;
   readonly runListInstalled: (o: Record<string, never>) => Promise<{ exitCode: number }>;
   readonly runVerifyInstalled: (o: { target: string }) => Promise<{ exitCode: number }>;
@@ -142,9 +144,13 @@ export async function dispatch(
     return d.runInstall({ source });
   }
   if (cmd === 'run') {
-    const parsed = parseFsmPathAndInputArgs(rest);
+    const parsed = parseFsmPathAndInputArgs(rest, { consumeYolo: true });
     if (!parsed) return { exitCode: usage(stderr) };
-    return d.runInstalled({ command: parsed.fsmPath, inputArgs: parsed.inputArgs });
+    return d.runInstalled({
+      command: parsed.fsmPath,
+      inputArgs: parsed.inputArgs,
+      ...(parsed.yolo ? { yolo: true } : {}),
+    });
   }
   if (cmd === 'list') {
     if (rest.length !== 0) return { exitCode: usage(stderr) };
@@ -164,10 +170,14 @@ export async function dispatch(
   // Every `--<flag>` token and its non-flag value, if any, is collected
   // verbatim into `inputArgs` and forwarded to `runCli`, which calls
   // `parseInputFlags` against the loaded FSM's `inputFlags` after `loadFsm`.
-  const parsedDefault = parseFsmPathAndInputArgs(argv);
+  const parsedDefault = parseFsmPathAndInputArgs(argv, { consumeYolo: true });
   if (!parsedDefault) return { exitCode: usage(stderr) };
 
-  return d.runDefault(parsedDefault);
+  return d.runDefault({
+    fsmPath: parsedDefault.fsmPath,
+    inputArgs: parsedDefault.inputArgs,
+    ...(parsedDefault.yolo ? { yolo: true } : {}),
+  });
 }
 
 function parseUninstallPackageName(args: ReadonlyArray<string>): string | null {
@@ -195,15 +205,22 @@ function isDirectVerifyTarget(target: string): boolean {
 
 function parseFsmPathAndInputArgs(
   argv: ReadonlyArray<string>,
-): { fsmPath: string; inputArgs: ReadonlyArray<string> } | null {
+  opts: { consumeYolo?: boolean } = {},
+): { fsmPath: string; inputArgs: ReadonlyArray<string>; yolo?: boolean } | null {
   const positional: string[] = [];
   const inputArgs: string[] = [];
+  let yolo = false;
   // The verbs (`verify`, `doctor`, `completion`, `init`, `visualize`) have already been
   // triaged by the early-returns above. The loop below scans the same `argv`
   // only because no verb matched; the remaining tokens are the FSM path and
   // any user-defined `--<flag>` pairs.
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
+    if (opts.consumeYolo && a === '--yolo') {
+      yolo = true;
+      continue;
+    }
+    if (!opts.consumeYolo && a === '--yolo') return null;
     if (a.startsWith('--')) {
       inputArgs.push(a);
       const next = argv[i + 1];
@@ -216,7 +233,7 @@ function parseFsmPathAndInputArgs(
     positional.push(a);
   }
   if (positional.length !== 1) return null;
-  return { fsmPath: positional[0]!, inputArgs };
+  return { fsmPath: positional[0]!, inputArgs, ...(yolo ? { yolo: true } : {}) };
 }
 
 function parseInitArgs(args: ReadonlyArray<string>): {
@@ -266,14 +283,14 @@ function parseInitArgs(args: ReadonlyArray<string>): {
 function usage(stderr: NodeJS.WritableStream): number {
   stderr.write(
     'usage:\n' +
-      '  aharness <file.fsm.ts> [--<flag> <value>]...\n' +
+      '  aharness [--yolo] <file.fsm.ts> [--<flag> <value>]...\n' +
       '  aharness visualize <file.fsm.ts> [--<flag> <value>]...\n' +
       '  aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|yarn|bun>]\n' +
       '  aharness install <source>\n' +
       '  aharness verify <file.fsm.ts>\n' +
       '  aharness verify <package-name>\n' +
       '  aharness verify <package-name>/<command-name>\n' +
-      '  aharness run <command> [--<flag> <value>]...\n' +
+      '  aharness run [--yolo] <command> [--<flag> <value>]...\n' +
       '  aharness list\n' +
       '  aharness uninstall <package-name>\n' +
       '  aharness doctor\n' +
@@ -293,14 +310,17 @@ if (process.argv[1]?.endsWith('main.js')) {
         log: (s) => process.stdout.write(s + '\n'),
         now: () => new Date(),
       }),
-    runDefault: ({ fsmPath, inputArgs }) =>
-      runCli({
+    runDefault: ({ fsmPath, inputArgs, yolo }) => {
+      const opts = {
         fsmPath,
         cwd: process.cwd(),
         stderr: process.stderr,
         stdout: process.stdout,
         inputArgs,
-      }),
+        ...(yolo ? { yolo: true } : {}),
+      };
+      return runCli(opts);
+    },
     runVisualize: ({ fsmPath, inputArgs }) =>
       runVisualizeCli({
         fsmPath,
@@ -330,14 +350,17 @@ if (process.argv[1]?.endsWith('main.js')) {
         stdout: process.stdout,
         stderr: process.stderr,
       }),
-    runInstalled: ({ command, inputArgs }) =>
-      runInstalledCli({
+    runInstalled: ({ command, inputArgs, yolo }) => {
+      const opts = {
         command,
         cwd: process.cwd(),
         stdout: process.stdout,
         stderr: process.stderr,
         inputArgs,
-      }),
+        ...(yolo ? { yolo: true } : {}),
+      };
+      return runInstalledCli(opts);
+    },
     runListInstalled: () =>
       runListInstalledCli({
         cwd: process.cwd(),

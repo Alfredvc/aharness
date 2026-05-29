@@ -43,7 +43,8 @@ describe('aharness run installed commands', () => {
       cwd: '/workspace',
       stdout: stdout.stream,
       stderr: stderr.stream,
-      inputArgs: ['--topic', 'auth', '--dry-run'],
+      inputArgs: ['--topic', 'auth'],
+      yolo: true,
       readSnapshotImpl: async () => ({ ok: true, value: snapshot }),
       checkLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
       loadInstalledFsmImpl,
@@ -56,7 +57,8 @@ describe('aharness run installed commands', () => {
     expect(runtimeCalls[0]).toMatchObject({
       fsmPath: path.join('/store/packages/node_modules/@scope/tools', 'fsms/build.fsm.ts'),
       cwd: '/workspace',
-      inputArgs: ['--topic', 'auth', '--dry-run'],
+      inputArgs: ['--topic', 'auth'],
+      yolo: true,
     });
     expect(loadInstalledFsmImpl).toHaveBeenCalledWith({
       entryFile: path.join('/store/packages/node_modules/@scope/tools', 'fsms/build.fsm.ts'),

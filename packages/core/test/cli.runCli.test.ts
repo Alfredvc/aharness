@@ -52,6 +52,10 @@ import type { StartUiServerOptions } from '../src/ui/server.js';
 import type { ConnectHeadlessWsOptions } from '../src/transport/wsClient.js';
 
 const APPROVAL_POLICY_OVERRIDE = ['approval_policy', '"on-request"'] as const;
+const YOLO_OVERRIDES = [
+  ['approval_policy', '"never"'],
+  ['sandbox_mode', '"danger-full-access"'],
+] as const;
 
 // ---------------------------------------------------------------------------
 // Stubs.
@@ -628,6 +632,61 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(spawnAppServer).toHaveBeenCalledTimes(1);
     expect(capturedOverrides).toEqual([
       APPROVAL_POLICY_OVERRIDE,
+      ['model_provider', '"mock"'],
+      ['model_providers.mock.name', '"mock"'],
+      ['model_providers.mock.base_url', '"http://127.0.0.1:17777"'],
+      ['model_providers.mock.wire_api', '"responses"'],
+    ]);
+  });
+
+  it('passes YOLO approval and sandbox overrides for a zero-hook run', async () => {
+    const fsmPath = makeFsmFile(repoRoot, 'yolo.fsm.ts');
+    let capturedOverrides: ReadonlyArray<readonly [string, string]> | undefined;
+    const spawnAppServer = vi.fn(async (opts: SpawnAppServerOptions) => {
+      capturedOverrides = opts.cliOverrides;
+      throw new Error('test-abort-after-spawn-args-captured');
+    });
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        spawnAppServer: spawnAppServer as unknown as RunCliTestHooks['spawnAppServer'],
+      },
+    });
+    opts.stderr = stderrSink;
+    opts.yolo = true;
+
+    const r = await runCliForTest(opts);
+
+    expect(r.exitCode).toBe(1);
+    expect(spawnAppServer).toHaveBeenCalledTimes(1);
+    expect(capturedOverrides).toEqual(YOLO_OVERRIDES);
+  });
+
+  it('passes YOLO overrides before mock-model provider overrides', async () => {
+    const fsmPath = makeFsmFile(repoRoot, 'yolo-mock-model.fsm.ts');
+    let capturedOverrides: ReadonlyArray<readonly [string, string]> | undefined;
+    const spawnAppServer = vi.fn(async (opts: SpawnAppServerOptions) => {
+      capturedOverrides = opts.cliOverrides;
+      throw new Error('test-abort-after-spawn-args-captured');
+    });
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        spawnAppServer: spawnAppServer as unknown as RunCliTestHooks['spawnAppServer'],
+      },
+    });
+    opts.stderr = stderrSink;
+    opts.yolo = true;
+    opts._testMockModelBaseUrl = 'http://127.0.0.1:17777';
+
+    const r = await runCliForTest(opts);
+
+    expect(r.exitCode).toBe(1);
+    expect(spawnAppServer).toHaveBeenCalledTimes(1);
+    expect(capturedOverrides).toEqual([
+      ...YOLO_OVERRIDES,
       ['model_provider', '"mock"'],
       ['model_providers.mock.name', '"mock"'],
       ['model_providers.mock.base_url', '"http://127.0.0.1:17777"'],
