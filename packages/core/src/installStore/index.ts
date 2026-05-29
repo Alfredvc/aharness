@@ -52,10 +52,13 @@ export {
   type UninstallNpmRunner,
 } from './npmRunner.js';
 export {
+  computeInstalledSourceIntentKey,
   computeSourceIntentKey,
   deriveDependencyKeyFromSource,
+  identifyDependencyKeyBySourceIntent,
   identifyDirectDependencyKey,
   resolveLocalDirectorySource,
+  resolveLocalTarballSource,
 } from './sourceIntent.js';
 export { computeLockFingerprint, type ComputeLockFingerprintOptions } from './lockfile.js';
 export {

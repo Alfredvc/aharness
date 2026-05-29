@@ -1,6 +1,7 @@
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
@@ -111,6 +112,44 @@ describe('managed npm project', () => {
       '--',
       localPackage,
     ]);
+  });
+
+  it('passes local tarball sources to npm as absolute paths without --install-links', async () => {
+    const caller = await tmpStore();
+    const managedProjectRoot = await tmpStore();
+
+    const tarball = path.join(caller, 'workflow-package.tgz');
+    const tarGz = path.join(caller, 'workflow-package.tar.gz');
+    await writeFile(tarball, 'tgz bytes');
+    await writeFile(tarGz, 'tar.gz bytes');
+
+    const cases = [
+      { source: './workflow-package.tgz', expected: await realpath(tarball) },
+      { source: 'file:workflow-package.tgz', expected: await realpath(tarball) },
+      { source: pathToFileURL(tarball).href, expected: await realpath(tarball) },
+      { source: './workflow-package.tar.gz', expected: await realpath(tarGz) },
+    ];
+
+    for (const testCase of cases) {
+      const calls: NpmSpawnInvocation[] = [];
+      const result = await runNpmInstall({
+        managedProjectRoot,
+        cwd: caller,
+        source: testCase.source,
+        spawn: async (call) => {
+          calls.push(call);
+          return { status: 0, stdout: '', stderr: '' };
+        },
+      });
+
+      expect(result.ok, testCase.source).toBe(true);
+      expect(calls[0]?.args, testCase.source).toEqual([
+        'install',
+        '--save-prod',
+        '--',
+        testCase.expected,
+      ]);
+    }
   });
 
   it('spawns npm uninstall with shell false, --save, and the dependency key', async () => {

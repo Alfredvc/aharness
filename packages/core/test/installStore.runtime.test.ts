@@ -276,6 +276,7 @@ describe('install store runtime snapshot helpers', () => {
         expect.objectContaining({
           code: 'installed-lock-fingerprint-mismatch',
           field: 'lockFingerprint',
+          message: expect.stringContaining('uninstall'),
         }),
       ]);
     }

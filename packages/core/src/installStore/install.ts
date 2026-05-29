@@ -16,8 +16,9 @@ import { resolveInstallStorePaths, type InstallStorePaths } from './paths.js';
 import { ensureManagedProject, readManagedProjectDependencies } from './managedProject.js';
 import { runNpmInstall, type InstallNpmRunner } from './npmRunner.js';
 import {
-  computeSourceIntentKey,
+  computeInstalledSourceIntentKey,
   deriveDependencyKeyFromSource,
+  identifyDependencyKeyBySourceIntent,
   identifyDirectDependencyKey,
 } from './sourceIntent.js';
 import { computeLockFingerprint } from './lockfile.js';
@@ -91,15 +92,18 @@ export async function installPackageFromSource(
     after: afterDependencies.value,
     source: opts.source,
   });
-  if (
-    !dependencyKeyResult.ok &&
-    dependencyKeyResult.diagnostics.every(
-      (diagnostic) => diagnostic.code === 'direct-dependency-key-not-found',
-    )
-  ) {
+  if (!dependencyKeyResult.ok && onlyDirectDependencyNotFound(dependencyKeyResult.diagnostics)) {
     dependencyKeyResult = await deriveDependencyKeyFromSource({
       source: opts.source,
       cwd: opts.cwd,
+    });
+  }
+  if (!dependencyKeyResult.ok && onlyDirectDependencyNotFound(dependencyKeyResult.diagnostics)) {
+    dependencyKeyResult = await identifyDependencyKeyBySourceIntent({
+      source: opts.source,
+      sourceCwd: opts.cwd,
+      dependencyCwd: paths.managedProjectRoot,
+      dependencies: afterDependencies.value,
     });
   }
   if (!dependencyKeyResult.ok) return failure(dependencyKeyResult.diagnostics, true, paths);
@@ -119,10 +123,15 @@ export async function installPackageFromSource(
     );
   }
 
-  const packageRoot = path.join(paths.managedProjectRoot, 'node_modules', dependencyKey);
-  const sourceIntentKey = await computeSourceIntentKey({ source: opts.source, cwd: opts.cwd });
+  const sourceIntentKey = await computeInstalledSourceIntentKey({
+    source: opts.source,
+    cwd: opts.cwd,
+    managedProjectRoot: paths.managedProjectRoot,
+    dependencyKey,
+  });
   if (!sourceIntentKey.ok) return failure(sourceIntentKey.diagnostics, true, paths);
 
+  const packageRoot = path.join(paths.managedProjectRoot, 'node_modules', dependencyKey);
   const manifest = await readInstallPackageManifest({
     packageRoot,
     currentCoreVersion: opts.currentCoreVersion,
@@ -365,6 +374,10 @@ function failure(
     npmMutated,
     managedProjectRoot: paths.managedProjectRoot,
   };
+}
+
+function onlyDirectDependencyNotFound(diagnostics: readonly InstallStoreDiagnostic[]): boolean {
+  return diagnostics.every((diagnostic) => diagnostic.code === 'direct-dependency-key-not-found');
 }
 
 function isNodeError(err: unknown, code: string): boolean {

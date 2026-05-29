@@ -46,12 +46,23 @@ export async function computeLockFingerprint(
   }
 
   const directEntryKey = `node_modules/${opts.dependencyKey}`;
-  if (!isRecord(packages[directEntryKey])) {
+  const directEntry = packages[directEntryKey];
+  if (!isRecord(directEntry)) {
     return failure({
       code: 'lockfile-direct-entry-missing',
       path: lockfilePath,
       field: `packages.${directEntryKey}`,
       message: `npm package-lock.json is missing direct package entry '${directEntryKey}'`,
+    });
+  }
+  if (directEntry['link'] === true) {
+    return failure({
+      code: 'lockfile-direct-entry-linked',
+      path: lockfilePath,
+      field: `packages.${directEntryKey}.link`,
+      message:
+        `npm package-lock direct entry '${directEntryKey}' is still a link; ` +
+        'reinstall the package so aharness verifies a snapshot',
     });
   }
 
@@ -101,19 +112,14 @@ function walkReachablePackageEntries(opts: {
     }
     out[entryKey] = entry;
 
-    const dependencies = entry['dependencies'];
-    if (dependencies === undefined) continue;
-    if (!isRecord(dependencies)) {
-      diagnostics.push({
-        code: 'lockfile-entry-dependencies-invalid',
-        path: opts.lockfilePath,
-        field: `packages.${entryKey}.dependencies`,
-        message: `npm package-lock entry '${entryKey}' dependencies must be an object`,
-      });
-      continue;
-    }
+    const dependencyNames = dependencyNamesForEntry(
+      entry,
+      entryKey,
+      opts.lockfilePath,
+      diagnostics,
+    );
 
-    for (const dependencyName of Object.keys(dependencies).sort()) {
+    for (const dependencyName of dependencyNames) {
       const dependencyEntryKey = resolveDependencyEntryKey(opts.packages, entryKey, dependencyName);
       if (dependencyEntryKey === null) {
         diagnostics.push({
@@ -139,16 +145,53 @@ function walkReachablePackageEntries(opts: {
   return { ok: true, value: sorted };
 }
 
+function dependencyNamesForEntry(
+  entry: Record<string, unknown>,
+  entryKey: string,
+  lockfilePath: string,
+  diagnostics: InstallStoreDiagnostic[],
+): readonly string[] {
+  const names = new Set<string>();
+  for (const fieldName of ['dependencies', 'optionalDependencies'] as const) {
+    const dependencies = entry[fieldName];
+    if (dependencies === undefined) continue;
+    if (!isRecord(dependencies)) {
+      diagnostics.push({
+        code: 'lockfile-entry-dependencies-invalid',
+        path: lockfilePath,
+        field: `packages.${entryKey}.${fieldName}`,
+        message: `npm package-lock entry '${entryKey}' ${fieldName} must be an object`,
+      });
+      continue;
+    }
+    for (const dependencyName of Object.keys(dependencies)) {
+      names.add(dependencyName);
+    }
+  }
+  return Array.from(names).sort();
+}
+
 function resolveDependencyEntryKey(
   packages: Record<string, unknown>,
   entryKey: string,
   dependencyName: string,
 ): string | null {
-  const nested = `${entryKey}/node_modules/${dependencyName}`;
-  if (packages[nested] !== undefined) return nested;
+  for (const packageEntryKey of packageEntrySearchOrder(entryKey)) {
+    const candidate = `${packageEntryKey}/node_modules/${dependencyName}`;
+    if (packages[candidate] !== undefined) return candidate;
+  }
   const hoisted = `node_modules/${dependencyName}`;
   if (packages[hoisted] !== undefined) return hoisted;
   return null;
+}
+
+function packageEntrySearchOrder(entryKey: string): readonly string[] {
+  const parts = entryKey.split('/node_modules/');
+  const searchOrder: string[] = [];
+  for (let end = parts.length; end >= 1; end -= 1) {
+    searchOrder.push(parts.slice(0, end).join('/node_modules/'));
+  }
+  return searchOrder;
 }
 
 function failure(diagnostic: InstallStoreDiagnostic): InstallStoreResult<never> {

@@ -47,8 +47,14 @@ describe('install source identity helpers', () => {
     });
 
     expect(local).toEqual({ ok: true, value: `local-directory:${await realpath(localPackage)}` });
-    expect(registry).toEqual({ ok: true, value: 'registry:@scope/tools' });
-    expect(alias).toEqual({ ok: true, value: 'registry:@scope/tools' });
+    expect(registry).toEqual({
+      ok: true,
+      value: 'registry:https://registry.npmjs.org/:@scope/tools',
+    });
+    expect(alias).toEqual({
+      ok: true,
+      value: 'registry:https://registry.npmjs.org/:@scope/tools',
+    });
   });
 });
 
@@ -92,6 +98,274 @@ describe('npm lock fingerprinting', () => {
 
     expect(changed.ok).toBe(true);
     if (changed.ok) expect(changed.value).not.toBe(before);
+  });
+
+  it('follows optional dependency entries and ignores unreachable package entries', async () => {
+    const managedProjectRoot = await tmpRoot();
+    await writeFile(
+      path.join(managedProjectRoot, 'package-lock.json'),
+      JSON.stringify(
+        {
+          name: 'aharness-managed-fsm-packages',
+          lockfileVersion: 3,
+          packages: {
+            '': {
+              dependencies: {
+                '@scope/tools': 'file:tools-1.0.0',
+              },
+            },
+            'node_modules/@scope/tools': {
+              version: '1.0.0',
+              resolved: 'file:tools-1.0.0',
+              optionalDependencies: {
+                'optional-helper': '^1.0.0',
+              },
+            },
+            'node_modules/optional-helper': {
+              version: '1.0.0',
+              resolved: 'https://registry.npmjs.org/optional-helper/-/optional-helper-1.0.0.tgz',
+              integrity: 'sha512-one',
+            },
+            'node_modules/unreachable': {
+              version: '1.0.0',
+              resolved: 'https://registry.npmjs.org/unreachable/-/unreachable-1.0.0.tgz',
+            },
+          },
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+    const first = await computeLockFingerprint({
+      managedProjectRoot,
+      dependencyKey: '@scope/tools',
+      packageName: '@scope/tools',
+      packageVersion: '1.0.0',
+    });
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    await writeFile(
+      path.join(managedProjectRoot, 'package-lock.json'),
+      JSON.stringify(
+        {
+          name: 'aharness-managed-fsm-packages',
+          lockfileVersion: 3,
+          packages: {
+            '': {
+              dependencies: {
+                '@scope/tools': 'file:tools-1.0.0',
+              },
+            },
+            'node_modules/@scope/tools': {
+              version: '1.0.0',
+              resolved: 'file:tools-1.0.0',
+              optionalDependencies: {
+                'optional-helper': '^1.0.0',
+              },
+            },
+            'node_modules/optional-helper': {
+              version: '1.0.0',
+              resolved: 'https://registry.npmjs.org/optional-helper/-/optional-helper-1.0.0.tgz',
+              integrity: 'sha512-two',
+            },
+            'node_modules/unreachable': {
+              version: '2.0.0',
+              resolved: 'https://registry.npmjs.org/unreachable/-/unreachable-2.0.0.tgz',
+            },
+          },
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+    const changedReachable = await computeLockFingerprint({
+      managedProjectRoot,
+      dependencyKey: '@scope/tools',
+      packageName: '@scope/tools',
+      packageVersion: '1.0.0',
+    });
+    expect(changedReachable.ok).toBe(true);
+    if (changedReachable.ok) expect(changedReachable.value).not.toBe(first.value);
+
+    await writeFile(
+      path.join(managedProjectRoot, 'package-lock.json'),
+      JSON.stringify(
+        {
+          name: 'aharness-managed-fsm-packages',
+          lockfileVersion: 3,
+          packages: {
+            '': {
+              dependencies: {
+                '@scope/tools': 'file:tools-1.0.0',
+              },
+            },
+            'node_modules/@scope/tools': {
+              version: '1.0.0',
+              resolved: 'file:tools-1.0.0',
+              optionalDependencies: {
+                'optional-helper': '^1.0.0',
+              },
+            },
+            'node_modules/optional-helper': {
+              version: '1.0.0',
+              resolved: 'https://registry.npmjs.org/optional-helper/-/optional-helper-1.0.0.tgz',
+              integrity: 'sha512-one',
+            },
+            'node_modules/unreachable': {
+              version: '3.0.0',
+              resolved: 'https://registry.npmjs.org/unreachable/-/unreachable-3.0.0.tgz',
+            },
+          },
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+    const changedUnreachable = await computeLockFingerprint({
+      managedProjectRoot,
+      dependencyKey: '@scope/tools',
+      packageName: '@scope/tools',
+      packageVersion: '1.0.0',
+    });
+    expect(changedUnreachable.ok).toBe(true);
+    if (changedUnreachable.ok) expect(changedUnreachable.value).toBe(first.value);
+  });
+
+  it('resolves dependencies from ancestor package node_modules entries', async () => {
+    const managedProjectRoot = await tmpRoot();
+    await writeFile(
+      path.join(managedProjectRoot, 'package-lock.json'),
+      JSON.stringify(
+        {
+          name: 'aharness-managed-fsm-packages',
+          lockfileVersion: 3,
+          packages: {
+            '': {
+              dependencies: {
+                '@scope/tools': 'file:tools-1.0.0',
+              },
+            },
+            'node_modules/@scope/tools': {
+              version: '1.0.0',
+              resolved: 'file:tools-1.0.0',
+              dependencies: {
+                'parent-helper': '^1.0.0',
+              },
+            },
+            'node_modules/@scope/tools/node_modules/parent-helper': {
+              version: '1.0.0',
+              resolved: 'https://registry.npmjs.org/parent-helper/-/parent-helper-1.0.0.tgz',
+              dependencies: {
+                'child-helper': '^1.0.0',
+              },
+            },
+            'node_modules/@scope/tools/node_modules/parent-helper/node_modules/child-helper': {
+              version: '1.0.0',
+              resolved: 'https://registry.npmjs.org/child-helper/-/child-helper-1.0.0.tgz',
+              dependencies: {
+                'sibling-helper': '^1.0.0',
+              },
+            },
+            'node_modules/@scope/tools/node_modules/parent-helper/node_modules/sibling-helper': {
+              version: '1.0.0',
+              resolved: 'https://registry.npmjs.org/sibling-helper/-/sibling-helper-1.0.0.tgz',
+              integrity: 'sha512-sibling',
+            },
+          },
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+
+    const fingerprint = await computeLockFingerprint({
+      managedProjectRoot,
+      dependencyKey: '@scope/tools',
+      packageName: '@scope/tools',
+      packageVersion: '1.0.0',
+    });
+
+    if (!fingerprint.ok) {
+      expect(fingerprint.diagnostics).toEqual([]);
+      return;
+    }
+    expect(fingerprint.value).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('includes resolved git commit data in the fingerprint but not source intent', async () => {
+    const cwd = await tmpRoot();
+    const firstRoot = await tmpRoot();
+    const secondRoot = await tmpRoot();
+    await writeGitLockfile(firstRoot, 'abc123');
+    await writeGitLockfile(secondRoot, 'def456');
+
+    const sourceMain = await computeSourceIntentKey({ source: 'owner/repo#main', cwd });
+    const sourceTag = await computeSourceIntentKey({ source: 'github:owner/repo#v1', cwd });
+    expect(sourceMain).toEqual({
+      ok: true,
+      value: 'git:https://github.com/owner/repo',
+    });
+    expect(sourceTag).toEqual(sourceMain);
+
+    const first = await computeLockFingerprint({
+      managedProjectRoot: firstRoot,
+      dependencyKey: 'repo',
+      packageName: 'repo',
+      packageVersion: '1.0.0',
+    });
+    const second = await computeLockFingerprint({
+      managedProjectRoot: secondRoot,
+      dependencyKey: 'repo',
+      packageName: 'repo',
+      packageVersion: '1.0.0',
+    });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (first.ok && second.ok) expect(second.value).not.toBe(first.value);
+  });
+
+  it('rejects direct link entries because local directory installs must be snapshots', async () => {
+    const managedProjectRoot = await tmpRoot();
+    await writeFile(
+      path.join(managedProjectRoot, 'package-lock.json'),
+      JSON.stringify(
+        {
+          name: 'aharness-managed-fsm-packages',
+          lockfileVersion: 3,
+          packages: {
+            '': {
+              dependencies: {
+                '@scope/tools': 'file:../tools',
+              },
+            },
+            'node_modules/@scope/tools': {
+              link: true,
+              resolved: '../tools',
+            },
+          },
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+
+    const result = await computeLockFingerprint({
+      managedProjectRoot,
+      dependencyKey: '@scope/tools',
+      packageName: '@scope/tools',
+    });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({
+          code: 'lockfile-direct-entry-linked',
+          field: 'packages.node_modules/@scope/tools.link',
+        }),
+      ]);
+    }
   });
 
   it('rejects unsupported or incomplete lockfile shapes with diagnostics', async () => {
@@ -138,6 +412,32 @@ async function writeLockfile(
           'node_modules/helper-lib': {
             version: opts.dependencyVersion,
             resolved: `https://registry.npmjs.org/helper-lib/-/helper-lib-${opts.dependencyVersion}.tgz`,
+          },
+        },
+      },
+      null,
+      2,
+    ) + '\n',
+  );
+}
+
+async function writeGitLockfile(managedProjectRoot: string, commit: string): Promise<void> {
+  await writeFile(
+    path.join(managedProjectRoot, 'package-lock.json'),
+    JSON.stringify(
+      {
+        name: 'aharness-managed-fsm-packages',
+        lockfileVersion: 3,
+        packages: {
+          '': {
+            dependencies: {
+              repo: 'github:owner/repo#main',
+            },
+          },
+          'node_modules/repo': {
+            version: '1.0.0',
+            resolved: `git+ssh://git@github.com/owner/repo.git#${commit}`,
+            integrity: `sha512-${commit}`,
           },
         },
       },

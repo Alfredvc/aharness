@@ -269,7 +269,7 @@ export async function checkInstalledLockFingerprint(
           field: 'lockFingerprint',
           message:
             `installed package '${record.packageName}' no longer matches the verified install ` +
-            'record; reinstall the package before running or verifying it',
+            'record; reinstall or uninstall the package before running or verifying it',
         },
       ],
     };

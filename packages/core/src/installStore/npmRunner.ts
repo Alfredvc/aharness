@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 
 import type { InstallStoreDiagnostic, InstallStoreResult } from './types.js';
-import { resolveLocalDirectorySource } from './sourceIntent.js';
+import { resolveLocalDirectorySource, resolveLocalTarballSource } from './sourceIntent.js';
 
 export interface NpmSpawnInvocation {
   readonly command: string;
@@ -55,7 +55,16 @@ export async function runNpmInstall(
   opts: RunNpmInstallOptions,
 ): Promise<InstallStoreResult<NpmInstallSuccess>> {
   const localDirectory = await resolveLocalDirectorySource({ source: opts.source, cwd: opts.cwd });
-  const installSource = localDirectory ?? opts.source;
+  let localTarball: string | null = null;
+  if (localDirectory === null) {
+    const localTarballResult = await resolveLocalTarballSource({
+      source: opts.source,
+      cwd: opts.cwd,
+    });
+    if (!localTarballResult.ok) return localTarballResult;
+    localTarball = localTarballResult.value;
+  }
+  const installSource = localDirectory ?? localTarball ?? opts.source;
   const args = [
     'install',
     '--save-prod',

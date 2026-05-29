@@ -159,6 +159,23 @@ records only after the installed package metadata, assets, loader, and verifier
 checks succeed. If validation fails after npm mutates the managed project, npm
 files may remain changed, but unverified commands are not indexed.
 
+Installed package identity is the installed package's own `package.json` name.
+For npm aliases, the alias remains the npm dependency key used for uninstall,
+but aharness command identity and collision checks use the installed package
+name. Source refresh checks normalize npm package specs by stable source:
+registry origin plus package name, alias target package, canonical Git/GitHub
+repository, local directory realpath, local tarball realpath, or remote tarball
+URL with transient auth material removed. Versions, dist-tags, semver ranges,
+Git refs, Git commits, and local snapshot contents do not make a different
+source by themselves.
+
+Re-running `aharness install <same-source>` refreshes a package only after the
+new installed package validates and all commands verify. Local directory and
+local tarball installs are snapshots; changing the source contents requires
+running install again. If a different source resolves to a package name that is
+already installed, aharness rejects it and tells you to uninstall the existing
+package before replacing it.
+
 `aharness run <command> [--<flag> <value>]...` runs an installed package
 command. Fully qualified command names, such as `@scope/tools/build` or
 `tools/build`, are stable. Bare command names are accepted only when exactly one
@@ -183,8 +200,8 @@ installed command can be checked with
 
 Installed `run` and installed `verify` recompute the current managed npm
 project lock fingerprint before loading a package command. If the managed tree
-no longer matches the verified install record, reinstall the package before
-running or verifying it.
+no longer matches the verified install record, reinstall or uninstall the
+package before running or verifying it.
 
 `commands.json` is a derived index from `installs.json`. If aharness detects a
 missing, malformed, or stale command index after a crash or interrupted trusted
