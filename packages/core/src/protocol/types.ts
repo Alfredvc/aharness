@@ -79,6 +79,7 @@ export interface ThreadStartParams {
   cwd?: string;
   model?: string;
   modelProvider?: string;
+  config?: Record<string, unknown>;
   ephemeral?: boolean;
   /** `v2.rs:502-508`, `v2.rs:3591`: startup for initial threads, clear for replacement threads. */
   sessionStartSource?: ThreadStartSource;
@@ -113,6 +114,76 @@ export interface ThreadStartResponse {
  * naming predates verification against codex source.
  */
 export type ThreadStartResult = ThreadStartResponse;
+
+export type CodexReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
+/**
+ * `config/read` request params. Matches
+ * `app-server-protocol/src/protocol/v2.rs:926`; only the
+ * fields aharness sends are modelled.
+ */
+export interface ConfigReadParams {
+  includeLayers?: boolean;
+  cwd?: string | null;
+}
+
+/**
+ * Narrow `config/read` effective config payload. Upstream exposes many
+ * keys; aharness reads only the default model and reasoning effort.
+ */
+export interface ConfigReadConfig {
+  model?: string | null;
+  model_reasoning_effort?: CodexReasoningEffort | null;
+  readonly [k: string]: JsonValue | undefined;
+}
+
+/**
+ * `config/read` response. Matches the subset of
+ * `app-server-protocol/src/protocol/v2.rs:939` aharness reads.
+ */
+export interface ConfigReadResponse {
+  config: ConfigReadConfig;
+}
+
+/**
+ * `model/list` request params. Matches
+ * `app-server-protocol/src/protocol/v2.rs:2485`.
+ */
+export interface ModelListParams {
+  cursor?: string | null;
+  limit?: number | null;
+  includeHidden?: boolean | null;
+}
+
+/**
+ * Reasoning-effort option advertised by `model/list`. Matches
+ * `app-server-protocol/src/protocol/v2.rs:2549` with camelCase
+ * wire keys.
+ */
+export interface ReasoningEffortOption {
+  reasoningEffort: CodexReasoningEffort;
+  description: string;
+}
+
+/**
+ * Narrow model catalog entry returned by `model/list`. Matches the fields
+ * aharness reads from `app-server-protocol/src/protocol/v2.rs:2515`.
+ */
+export interface ModelCatalogEntry {
+  model: string;
+  supportedReasoningEfforts: ReadonlyArray<ReasoningEffortOption>;
+  defaultReasoningEffort: CodexReasoningEffort;
+  isDefault: boolean;
+}
+
+/**
+ * `model/list` response. Matches
+ * `app-server-protocol/src/protocol/v2.rs:2557`.
+ */
+export interface ModelListResponse {
+  data: ReadonlyArray<ModelCatalogEntry>;
+  nextCursor?: string | null;
+}
 
 /**
  * `thread/resume` request params. Matches

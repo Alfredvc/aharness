@@ -2119,7 +2119,7 @@ describe('runCliForTest — pre-spawn gates', () => {
         }),
         b: state({
           entryPrompt: 'state b active',
-          clearOnEntry: true,
+          clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' },
           exits: { done: exit<Payload>({ to: 'done' }) },
         }),
         done: terminal('success'),
@@ -2226,6 +2226,27 @@ describe('runCliForTest — pre-spawn gates', () => {
       });
       await waitForOutbound((msg) => msg.id === 9800 && msg.result !== undefined);
 
+      const preflightModelList = await waitForOutbound((msg) => msg.method === METHOD.modelList);
+      expect(preflightModelList.params).toEqual({ includeHidden: true });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: preflightModelList.id,
+        result: {
+          data: [
+            {
+              model: 'gpt-5.1-codex',
+              supportedReasoningEfforts: [
+                { reasoningEffort: 'high', description: 'High' },
+                { reasoningEffort: 'medium', description: 'Medium' },
+              ],
+              defaultReasoningEffort: 'medium',
+              isDefault: true,
+            },
+          ],
+          nextCursor: null,
+        },
+      });
+
       const interrupt = await waitForOutbound((msg) => msg.method === METHOD.turnInterrupt);
       transport.onMessage?.({ jsonrpc: '2.0', id: interrupt.id, result: {} });
 
@@ -2239,7 +2260,14 @@ describe('runCliForTest — pre-spawn gates', () => {
           msg.params !== null &&
           (msg.params as { sessionStartSource?: unknown }).sessionStartSource === 'clear',
       );
-      expect((replacementThreadStart.params as { cwd?: unknown }).cwd).toBe(repoRoot);
+      expect(replacementThreadStart.params).toEqual(
+        expect.objectContaining({
+          cwd: repoRoot,
+          model: 'gpt-5.1-codex',
+          config: { model_reasoning_effort: 'high' },
+          sessionStartSource: 'clear',
+        }),
+      );
       transport.onMessage?.({
         jsonrpc: '2.0',
         id: replacementThreadStart.id,
@@ -2253,6 +2281,10 @@ describe('runCliForTest — pre-spawn gates', () => {
           msg.params !== null &&
           (msg.params as { threadId?: unknown }).threadId === replacementThreadId,
       );
+      expect(replacementTurnStart.params).toEqual({
+        threadId: replacementThreadId,
+        input: expect.any(Array),
+      });
       expect(published.map((entry) => entry.event)).not.toContainEqual(
         expect.objectContaining({ kind: 'FreshClearBoundary' }),
       );
@@ -2334,6 +2366,14 @@ describe('runCliForTest — pre-spawn gates', () => {
         clearOnEntry: () => ({
           cwd: (data: Readonly<Ctx>) => data.currentWorktreeDir,
         }),
+      },
+      {
+        name: 'post-transition-function-effort-only',
+        clearOnEntry: () => ({
+          cwd: (data: Readonly<Ctx>) => data.currentWorktreeDir,
+          reasoningEffort: 'high' as const,
+        }),
+        expectReasoningEffort: 'high' as const,
       },
     ] as const;
 
@@ -2472,6 +2512,37 @@ describe('runCliForTest — pre-spawn gates', () => {
         });
         await waitForOutbound((msg) => msg.id === 9900 && msg.result !== undefined);
 
+        if ('expectReasoningEffort' in scenario) {
+          const configRead = await waitForOutbound((msg) => msg.method === METHOD.configRead);
+          expect(configRead.params).toEqual({ cwd: worktreeDir });
+          transport.onMessage?.({
+            jsonrpc: '2.0',
+            id: configRead.id,
+            result: { config: { model: null } },
+          });
+
+          const modelList = await waitForOutbound((msg) => msg.method === METHOD.modelList);
+          expect(modelList.params).toEqual({ includeHidden: true });
+          transport.onMessage?.({
+            jsonrpc: '2.0',
+            id: modelList.id,
+            result: {
+              data: [
+                {
+                  model: 'catalog-default',
+                  supportedReasoningEfforts: [
+                    { reasoningEffort: 'high', description: 'High' },
+                    { reasoningEffort: 'medium', description: 'Medium' },
+                  ],
+                  defaultReasoningEffort: 'medium',
+                  isDefault: true,
+                },
+              ],
+              nextCursor: null,
+            },
+          });
+        }
+
         const interrupt = await waitForOutbound((msg) => msg.method === METHOD.turnInterrupt);
         transport.onMessage?.({ jsonrpc: '2.0', id: interrupt.id, result: {} });
 
@@ -2486,6 +2557,13 @@ describe('runCliForTest — pre-spawn gates', () => {
             (msg.params as { sessionStartSource?: unknown }).sessionStartSource === 'clear',
         );
         expect((replacementThreadStart.params as { cwd?: unknown }).cwd).toBe(worktreeDir);
+        if ('expectReasoningEffort' in scenario) {
+          expect(replacementThreadStart.params).toEqual(
+            expect.objectContaining({
+              config: { model_reasoning_effort: scenario.expectReasoningEffort },
+            }),
+          );
+        }
         transport.onMessage?.({
           jsonrpc: '2.0',
           id: replacementThreadStart.id,
@@ -2551,6 +2629,226 @@ describe('runCliForTest — pre-spawn gates', () => {
       expect(existsSync(join(repoRoot, '.aharness', 'runs'))).toBe(true);
       expect(existsSync(join(worktreeDir, '.aharness'))).toBe(false);
     }
+  });
+
+  it('fails runtime preflight for unsupported effort before replacement thread/start', async () => {
+    interface Ctx {
+      currentWorktreeDir: string;
+    }
+    interface Payload {
+      worktreeDir: string;
+    }
+
+    const worktreeDir = join(repoRoot, 'worktree-unsupported-effort');
+    mkdirSync(worktreeDir, { recursive: true });
+    const fsmPath = makeFsmFile(repoRoot, 'fresh-clear-unsupported-effort.fsm.ts');
+    const m = aharness.machine({
+      id: 'fresh-clear-unsupported-effort',
+      initial: 'a',
+      context: (): Ctx => ({ currentWorktreeDir: '' }),
+      states: {
+        a: state<Ctx>({
+          entryPrompt: 'state a active',
+          exits: {
+            go: exit<Payload>({
+              to: 'b',
+              actions: assign({
+                currentWorktreeDir: ({ event }) =>
+                  (event as { payload: Payload }).payload.worktreeDir,
+              }),
+            }),
+          },
+        }),
+        b: state<Ctx>({
+          entryPrompt: 'state b active',
+          clearOnEntry: {
+            cwd: (data: Readonly<Ctx>) => data.currentWorktreeDir,
+            reasoningEffort: 'xhigh',
+          },
+          exits: { done: exit<Payload>({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const validator = {
+      jsonSchema: { type: 'object' },
+      validate: (input: unknown) => ({ ok: true as const, data: input }),
+    };
+    const sidecar = { a: { go: validator }, b: { done: validator } };
+
+    const outbound: Array<{ id?: number; method?: string; params?: unknown; result?: unknown }> =
+      [];
+    let transport!: Transport;
+    let activeBinding: ActiveThreadBinding | undefined;
+    const startupThreadId = 'thread-unsupported-effort-startup';
+
+    const waitForOutbound = async (
+      predicate: (envelope: {
+        method?: string;
+        id?: number;
+        params?: unknown;
+        result?: unknown;
+      }) => boolean,
+      timeoutMs = 2_000,
+    ): Promise<{ id?: number; method?: string; params?: unknown; result?: unknown }> => {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        for (let i = outbound.length - 1; i >= 0; i--) {
+          const envelope = outbound[i];
+          if (envelope && predicate(envelope)) return envelope;
+        }
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      throw new Error(
+        `timeout waiting for outbound; saw ${outbound
+          .map((message) => message.method ?? `response:${message.id}`)
+          .join(', ')}`,
+      );
+    };
+
+    const connectStub = async (opts: ConnectHeadlessWsOptions) => {
+      transport = {
+        send(msg: unknown) {
+          const envelope = msg as {
+            id?: number;
+            method?: string;
+            params?: unknown;
+            result?: unknown;
+          };
+          outbound.push(envelope);
+          if (envelope.method === METHOD.initialize) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+              }),
+            );
+          }
+        },
+        async close() {
+          /* no-op */
+        },
+      };
+      const client = new JsonRpcClient(transport);
+      opts.registerHandlers?.(client);
+      await client.request(METHOD.initialize, {
+        clientInfo: opts.clientInfo,
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      });
+      return {
+        client,
+        close: async () => {
+          await client.close();
+        },
+      };
+    };
+
+    const driver = async (): Promise<void> => {
+      const initialThreadStart = await waitForOutbound((msg) => msg.method === METHOD.threadStart);
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: initialThreadStart.id,
+        result: { thread: { id: startupThreadId, ephemeral: false } },
+      });
+
+      const kickoff = await waitForOutbound((msg) => msg.method === METHOD.turnStart);
+      transport.onMessage?.({ jsonrpc: '2.0', id: kickoff.id, result: {} });
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: 9910,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old',
+          callId: 'call-go',
+          tool: 'aharness_submit',
+          arguments: JSON.stringify({
+            state: 'a',
+            exit: 'go',
+            data: { worktreeDir },
+          }),
+        },
+      });
+      await waitForOutbound((msg) => msg.id === 9910 && msg.result !== undefined);
+
+      const configRead = await waitForOutbound((msg) => msg.method === METHOD.configRead);
+      expect(configRead.params).toEqual({ cwd: worktreeDir });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: configRead.id,
+        result: { config: { model: 'unsupported-effort-model' } },
+      });
+
+      const modelList = await waitForOutbound((msg) => msg.method === METHOD.modelList);
+      expect(modelList.params).toEqual({ includeHidden: true });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: modelList.id,
+        result: {
+          data: [
+            {
+              model: 'unsupported-effort-model',
+              supportedReasoningEfforts: [
+                { reasoningEffort: 'low', description: 'Low' },
+                { reasoningEffort: 'medium', description: 'Medium' },
+              ],
+              defaultReasoningEffort: 'medium',
+              isDefault: true,
+            },
+          ],
+          nextCursor: null,
+        },
+      });
+    };
+
+    const driverPromise = driver();
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        loadFsmImpl: (async () => ({
+          machine: m,
+          sidecar,
+          modulePath: '/tmp/fresh-clear-unsupported-effort.mjs',
+          issues: [],
+          cacheHit: false,
+          hash: 'fresh-clear-unsupported-effort',
+        })) as unknown as RunCliTestHooks['loadFsmImpl'],
+        spawnAppServer: (async () =>
+          makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+        connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+        startUiServerImpl: async () => ({
+          url: 'http://127.0.0.1:45678',
+          close: vi.fn(async () => undefined),
+        }),
+        _testOnActiveThreadBinding: (binding) => {
+          activeBinding = binding;
+        },
+      },
+    });
+    opts.stderr = stderrSink;
+
+    const r = await runCliForTest(opts);
+    await driverPromise;
+
+    expect(r.exitCode).toBe(1);
+    expect(activeBinding?.current()).toBe(startupThreadId);
+    expect(
+      outbound.some(
+        (msg) =>
+          msg.method === METHOD.threadStart &&
+          typeof msg.params === 'object' &&
+          msg.params !== null &&
+          (msg.params as { sessionStartSource?: unknown }).sessionStartSource === 'clear',
+      ),
+    ).toBe(false);
+    const stderrText = stderrBuf.join('');
+    expect(stderrText).toContain('state "b"');
+    expect(stderrText).toContain('xhigh');
+    expect(stderrText).toContain('unsupported-effort-model');
+    expect(stderrText).toContain('low, medium');
   });
 
   it('uses the same fresh clear scheduler after await-resolution transitions', async () => {

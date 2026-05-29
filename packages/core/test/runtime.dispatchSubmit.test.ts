@@ -44,6 +44,7 @@ import { ActorHost } from '../src/runtime/actorHost.js';
 import { createSubmitDispatcher } from '../src/runtime/dispatchSubmit.js';
 import { composeStateNudge } from '../src/runtime/nudge.js';
 import type { DynamicToolCallParams } from '../src/protocol/types.js';
+import type { ClearOnEntryMeta } from '../src/state/exits.js';
 
 interface Ctx {
   count: number;
@@ -214,7 +215,7 @@ const sidecarCrossState: SchemaSidecar = {
   },
 };
 
-function buildCrossStateClearOnEntryMachine(clearOnEntry: true | { readonly cwd: string } = true) {
+function buildCrossStateClearOnEntryMachine(clearOnEntry: ClearOnEntryMeta = true) {
   return aharness.machine({
     id: 'm',
     initial: 'a',
@@ -1168,6 +1169,45 @@ describe('createSubmitDispatcher — Phase 1', () => {
 
   it('cross-state submit into clearOnEntry cwd object schedules fresh clear', async () => {
     const machine = buildCrossStateClearOnEntryMachine({ cwd: '/abs/worktree' });
+    const host = new ActorHost(machine, undefined);
+    host.start();
+    const scheduleFreshClear = vi.fn();
+    const scheduleCrossStateDance = vi.fn();
+    const dispatch = createSubmitDispatcher({
+      host,
+      machine,
+      sidecar: sidecarCrossState,
+      flushSnapshot: vi.fn(),
+      composeActiveStateNudge: vi.fn(() => 'must-not-compose'),
+      scheduleCrossStateDance,
+      scheduleFreshClear,
+    });
+
+    const r = await dispatch(
+      {
+        threadId: 'thread-old',
+        turnId: 'turn-old',
+        callId: 'cid-1',
+        tool: 'aharness_submit',
+        arguments: JSON.stringify({ state: 'a', exit: 'go', data: {} }),
+      },
+      {
+        requestId: 'req-1',
+        afterReply: vi.fn(),
+      },
+    );
+
+    expect(r.success).toBe(true);
+    expect(host.currentStateId()).toBe('b');
+    expect(scheduleFreshClear).toHaveBeenCalledTimes(1);
+    expect(scheduleCrossStateDance).not.toHaveBeenCalled();
+  });
+
+  it('cross-state submit into clearOnEntry model object schedules fresh clear', async () => {
+    const machine = buildCrossStateClearOnEntryMachine({
+      model: 'gpt-5.1-codex',
+      reasoningEffort: 'high',
+    });
     const host = new ActorHost(machine, undefined);
     host.start();
     const scheduleFreshClear = vi.fn();

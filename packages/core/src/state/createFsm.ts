@@ -18,6 +18,7 @@ import {
   type CanonicalEventKind,
   type CanonicalEventMeta,
   type CanonicalSubmitBranchMeta,
+  type ClearOnEntryReasoningEffort,
   type ExitDef,
   type FinalConfig,
   type FinalOutputFn,
@@ -67,7 +68,9 @@ type CanonicalText<Data> = string | ((data: Readonly<Data>) => string);
 type CanonicalClearOnEntry<Data> =
   | boolean
   | {
-      readonly cwd: string | ((data: Readonly<Data>) => string);
+      readonly cwd?: string | ((data: Readonly<Data>) => string);
+      readonly model?: string;
+      readonly reasoningEffort?: ClearOnEntryReasoningEffort;
     };
 
 type CanonicalReducer<Data, Payload> = (draft: Data, payload: Payload) => void | Partial<Data>;

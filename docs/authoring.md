@@ -120,11 +120,16 @@ implementation: fsm.state({
 });
 ```
 
-Object form also chooses the working directory for the fresh model context:
+Object form also chooses the working directory, model, reasoning effort, or any
+non-empty combination of those options for the fresh model context:
 
 ```ts
 packageWork: fsm.state({
-  clearOnEntry: { cwd: '/absolute/path/to/package' },
+  clearOnEntry: {
+    cwd: '/absolute/path/to/package',
+    model: 'gpt-5.1-codex',
+    reasoningEffort: 'high',
+  },
   prompt: 'Make the package change and submit a summary.',
   on: {
     changed: fsm.submit<{ summary: string }>({ to: 'done' }),
@@ -144,6 +149,25 @@ worktreeReview: fsm.state({
   },
 });
 ```
+
+Model-only and effort-only declarations are valid when the working directory
+should remain the aharness launch CWD:
+
+```ts
+clearOnEntry: { model: 'gpt-5.1-codex' }
+clearOnEntry: { reasoningEffort: 'high' }
+clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' }
+```
+
+`model` and `reasoningEffort` are static strings. Dynamic callbacks are not
+supported for those fields. Allowed reasoning efforts are `none`, `minimal`,
+`low`, `medium`, `high`, and `xhigh`.
+
+`reasoningEffort` can be used without `model`. aharness resolves the target
+model from Codex effective config for the clear CWD, then Codex's catalog
+default. Static declarations are checked by `aharness verify` through Codex
+`config/read` and `model/list`; function-form `cwd` may defer effort support
+checks to runtime preflight.
 
 The aharness run directory, snapshots, event logs, and final artifacts remain
 anchored to the original launch working directory even when a state chooses a

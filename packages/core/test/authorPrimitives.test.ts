@@ -53,6 +53,77 @@ describe('state() new shape', () => {
     expect(falseClear.meta.aharness).not.toHaveProperty('clearOnEntry');
   });
 
+  it('accepts clearOnEntry model and reasoning effort object forms', () => {
+    const modelOnly = state({
+      entryPrompt: 'do thing',
+      exits: { submit: exit<{ x: number }>({ to: 'next' }) },
+      clearOnEntry: { model: 'gpt-5.1-codex' },
+    });
+    const effortOnly = state({
+      entryPrompt: 'do thing',
+      exits: { submit: exit<{ x: number }>({ to: 'next' }) },
+      clearOnEntry: { reasoningEffort: 'high' },
+    });
+    const modelAndEffort = state({
+      entryPrompt: 'do thing',
+      exits: { submit: exit<{ x: number }>({ to: 'next' }) },
+      clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' },
+    });
+    const cwdModelAndEffort = state({
+      entryPrompt: 'do thing',
+      exits: { submit: exit<{ x: number }>({ to: 'next' }) },
+      clearOnEntry: {
+        cwd: '/abs/path',
+        model: 'gpt-5.1-codex',
+        reasoningEffort: 'minimal',
+      },
+    });
+
+    expect(modelOnly).toHaveProperty('meta.aharness.clearOnEntry', {
+      model: 'gpt-5.1-codex',
+    });
+    expect(effortOnly).toHaveProperty('meta.aharness.clearOnEntry', {
+      reasoningEffort: 'high',
+    });
+    expect(modelAndEffort).toHaveProperty('meta.aharness.clearOnEntry', {
+      model: 'gpt-5.1-codex',
+      reasoningEffort: 'high',
+    });
+    expect(cwdModelAndEffort).toHaveProperty('meta.aharness.clearOnEntry', {
+      cwd: '/abs/path',
+      model: 'gpt-5.1-codex',
+      reasoningEffort: 'minimal',
+    });
+  });
+
+  it('rejects malformed clearOnEntry model and reasoning effort object forms', () => {
+    const base = {
+      entryPrompt: 'do thing',
+      exits: { submit: exit<{ x: number }>({ to: 'next' }) },
+    };
+
+    expect(() => state({ ...base, clearOnEntry: {} })).toThrow(/cwd, model, reasoningEffort/);
+    expect(() =>
+      state({ ...base, clearOnEntry: { model: 5 } as unknown as { model: string } }),
+    ).toThrow(/clearOnEntry\.model/);
+    expect(() =>
+      state({
+        ...base,
+        clearOnEntry: { reasoningEffort: true } as unknown as {
+          reasoningEffort: 'high';
+        },
+      }),
+    ).toThrow(/clearOnEntry\.reasoningEffort/);
+    expect(() =>
+      state({
+        ...base,
+        clearOnEntry: { reasoningEffort: 'extreme' } as unknown as {
+          reasoningEffort: 'high';
+        },
+      }),
+    ).toThrow(/clearOnEntry\.reasoningEffort.*none, minimal, low, medium, high, xhigh/);
+  });
+
   it('defaults kind:"submit" on exit declarations omitting kind', () => {
     const cfg = state({
       entryPrompt: 'do thing',
@@ -273,6 +344,59 @@ describe('createFsm() canonical authoring surface', () => {
 
     expect(stringCwd).toHaveProperty('meta.aharness.clearOnEntry', { cwd: '/abs/path' });
     expect(functionCwd.meta.aharness.clearOnEntry).toEqual({ cwd: expect.any(Function) });
+  });
+
+  it('accepts canonical clearOnEntry model and reasoning effort object forms', () => {
+    const fsm = createFsm<CanonicalDemoData>();
+
+    const modelOnly = fsm.state({
+      prompt: 'Use a requested model.',
+      clearOnEntry: { model: 'gpt-5.1-codex' },
+      on: {
+        submit: fsm.submit<{ ok: boolean }>({ to: 'done' }),
+      },
+    });
+    const effortOnly = fsm.state({
+      prompt: 'Use a requested effort.',
+      clearOnEntry: { reasoningEffort: 'high' },
+      on: {
+        submit: fsm.submit<{ ok: boolean }>({ to: 'done' }),
+      },
+    });
+    const modelAndEffort = fsm.state({
+      prompt: 'Use a requested model.',
+      clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' },
+      on: {
+        submit: fsm.submit<{ ok: boolean }>({ to: 'done' }),
+      },
+    });
+    const cwdModelAndEffort = fsm.state({
+      prompt: 'Use an absolute CWD and requested model.',
+      clearOnEntry: {
+        cwd: '/abs/path',
+        model: 'gpt-5.1-codex',
+        reasoningEffort: 'low',
+      },
+      on: {
+        submit: fsm.submit<{ ok: boolean }>({ to: 'done' }),
+      },
+    });
+
+    expect(modelOnly).toHaveProperty('meta.aharness.clearOnEntry', {
+      model: 'gpt-5.1-codex',
+    });
+    expect(effortOnly).toHaveProperty('meta.aharness.clearOnEntry', {
+      reasoningEffort: 'high',
+    });
+    expect(modelAndEffort).toHaveProperty('meta.aharness.clearOnEntry', {
+      model: 'gpt-5.1-codex',
+      reasoningEffort: 'high',
+    });
+    expect(cwdModelAndEffort).toHaveProperty('meta.aharness.clearOnEntry', {
+      cwd: '/abs/path',
+      model: 'gpt-5.1-codex',
+      reasoningEffort: 'low',
+    });
   });
 
   it('validates canonical passive main metadata before lowering', () => {

@@ -213,16 +213,29 @@ implement: fsm.state({
 });
 ```
 
-Object form starts the fresh model context in a specific working directory:
+Object form starts the fresh model context in a specific working directory,
+model, reasoning effort, or any non-empty combination of those options:
 
 ```ts
 reviewWorktree: fsm.state({
-  clearOnEntry: { cwd: '/absolute/path/to/worktree' },
+  clearOnEntry: {
+    cwd: '/absolute/path/to/worktree',
+    model: 'gpt-5.1-codex',
+    reasoningEffort: 'high',
+  },
   prompt: 'Review this worktree and submit findings.',
   on: {
     reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
   },
 });
+```
+
+Model-only, effort-only, and model-plus-effort forms are valid:
+
+```ts
+clearOnEntry: { model: 'gpt-5.1-codex' }
+clearOnEntry: { reasoningEffort: 'high' }
+clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' }
 ```
 
 Use function-form `cwd` for worktree and multi-project workflows where the
@@ -240,7 +253,15 @@ packageWork: fsm.state({
 
 `cwd` must resolve to a non-empty absolute path for an existing directory. The
 aharness run directory, snapshots, event logs, and artifacts remain anchored to
-the original launch directory.
+the original launch directory. `model` and `reasoningEffort` must be static
+strings. Allowed efforts are `none`, `minimal`, `low`, `medium`, `high`, and
+`xhigh`.
+
+`reasoningEffort` can omit `model`. aharness resolves the target model from
+Codex effective config for the clear CWD, then Codex's catalog default. Static
+declarations are checked by `aharness verify` through Codex `config/read` and
+`model/list`; function-form `cwd` may defer effort support checks to runtime
+preflight.
 
 Use final artifacts for run reports:
 

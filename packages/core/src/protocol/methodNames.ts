@@ -128,6 +128,16 @@ export const METHOD = {
   // diagnostics and future author-declared tool surfaces; the live
   // submit path uses `dynamic_tools`, not an aharness MCP server.
   mcpServerStatusList: 'mcpServerStatus/list',
+
+  // app-server-protocol/src/protocol/common.rs:770
+  // (`ModelList => "model/list"`). Used by verify/runtime clearOnEntry
+  // catalog checks to validate requested model and reasoning-effort pairs.
+  modelList: 'model/list',
+
+  // app-server-protocol/src/protocol/common.rs:904
+  // (`ConfigRead => "config/read"`). Used by clearOnEntry effort-only
+  // checks to resolve the effective model for a statically known cwd.
+  configRead: 'config/read',
 } as const;
 
 export type MethodName = (typeof METHOD)[keyof typeof METHOD];

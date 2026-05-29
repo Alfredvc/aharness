@@ -24,6 +24,7 @@ const CODEX_PATHS = {
     'codex-rs/app-server-protocol/schema/typescript/v2/FileChangeApprovalDecision.ts',
   coreProtocol: 'codex-rs/protocol/src/protocol.rs',
   protocolModels: 'codex-rs/protocol/src/models.rs',
+  protocolOpenAiModels: 'codex-rs/protocol/src/openai_models.rs',
   requestUserInputProtocol: 'codex-rs/protocol/src/request_user_input.rs',
   requestUserInputHandler: 'codex-rs/core/src/tools/handlers/request_user_input.rs',
   requestUserInputTool: 'codex-rs/tools/src/request_user_input_tool.rs',
@@ -66,6 +67,8 @@ const METHOD_LITERAL_SOURCES: ReadonlyArray<{
   { key: 'rawResponseItemCompleted', variant: 'RawResponseItemCompleted' },
   { key: 'threadTokenUsageUpdated', variant: 'ThreadTokenUsageUpdated' },
   { key: 'mcpServerStatusList', variant: 'McpServerStatusList' },
+  { key: 'modelList', variant: 'ModelList' },
+  { key: 'configRead', variant: 'ConfigRead' },
 ];
 
 type Env = Record<string, string | undefined>;
@@ -216,6 +219,19 @@ function forbiddenSnippetMessages(
   return snippets
     .filter((snippet) => source.includes(snippet))
     .map((snippet) => `${filePath} unexpectedly contains ${JSON.stringify(snippet)}`);
+}
+
+function missingSpanSnippetMessages(
+  filePath: string,
+  source: string,
+  start: string,
+  end: string,
+  snippets: readonly string[],
+  pinnedCommit: string,
+): string[] {
+  const span = extractRequiredSpan(source, start, end, filePath);
+  if (Array.isArray(span)) return span;
+  return missingSnippetMessages(filePath, span, snippets, pinnedCommit);
 }
 
 function missingCheckoutMessage(checkoutPath: string): string {
@@ -489,6 +505,110 @@ export function createDaemonProbeClientNameCheck(): CodexBumpCheck {
   };
 }
 
+export function createClearOnEntryModelContractCheck(): CodexBumpCheck {
+  return {
+    name: 'clear-on-entry-model-contract',
+    async run(context) {
+      const [commonSource, v2Source, openAiModelsSource] = await Promise.all([
+        context.readFile(CODEX_PATHS.commonProtocol),
+        context.readFile(CODEX_PATHS.v2Protocol),
+        context.readFile(CODEX_PATHS.protocolOpenAiModels),
+      ]);
+
+      return [
+        ...missingSnippetMessages(
+          CODEX_PATHS.commonProtocol,
+          commonSource,
+          ['ModelList => "model/list"', 'ConfigRead => "config/read"'],
+          context.pinnedCommit,
+        ),
+        ...missingSpanSnippetMessages(
+          CODEX_PATHS.v2Protocol,
+          v2Source,
+          'pub struct ThreadStartParams {',
+          'pub struct MockExperimentalMethodParams',
+          ['pub config: Option<HashMap<String, JsonValue>>'],
+          context.pinnedCommit,
+        ),
+        ...missingSpanSnippetMessages(
+          CODEX_PATHS.v2Protocol,
+          v2Source,
+          'pub struct ConfigReadParams {',
+          'pub struct ConfigReadResponse',
+          ['pub include_layers: bool', 'pub cwd: Option<String>'],
+          context.pinnedCommit,
+        ),
+        ...missingSpanSnippetMessages(
+          CODEX_PATHS.v2Protocol,
+          v2Source,
+          'pub struct ConfigReadResponse {',
+          'pub struct ConfigRequirements',
+          ['pub config: Config'],
+          context.pinnedCommit,
+        ),
+        ...missingSpanSnippetMessages(
+          CODEX_PATHS.v2Protocol,
+          v2Source,
+          'pub struct ModelListParams {',
+          'pub struct ModelAvailabilityNux',
+          ['pub include_hidden: Option<bool>'],
+          context.pinnedCommit,
+        ),
+        ...missingSpanSnippetMessages(
+          CODEX_PATHS.v2Protocol,
+          v2Source,
+          'pub struct Model {',
+          'pub struct ModelUpgradeInfo',
+          [
+            'pub model: String',
+            'pub supported_reasoning_efforts: Vec<ReasoningEffortOption>',
+            'pub default_reasoning_effort: ReasoningEffort',
+            'pub is_default: bool',
+          ],
+          context.pinnedCommit,
+        ),
+        ...missingSpanSnippetMessages(
+          CODEX_PATHS.v2Protocol,
+          v2Source,
+          'pub struct ReasoningEffortOption {',
+          'pub struct ModelListResponse',
+          ['pub reasoning_effort: ReasoningEffort'],
+          context.pinnedCommit,
+        ),
+        ...missingSpanSnippetMessages(
+          CODEX_PATHS.v2Protocol,
+          v2Source,
+          'pub struct ModelListResponse {',
+          '/// EXPERIMENTAL - list collaboration mode presets.',
+          ['pub data: Vec<Model>', 'pub next_cursor: Option<String>'],
+          context.pinnedCommit,
+        ),
+        ...missingSnippetMessages(
+          CODEX_PATHS.v2Protocol,
+          v2Source,
+          ['pub model_reasoning_effort: Option<ReasoningEffort>'],
+          context.pinnedCommit,
+        ),
+        ...missingSnippetMessages(
+          CODEX_PATHS.protocolOpenAiModels,
+          openAiModelsSource,
+          [
+            '#[serde(rename_all = "lowercase")]',
+            'pub enum ReasoningEffort',
+            'None',
+            'Minimal',
+            'Low',
+            'Medium',
+            'High',
+            'XHigh',
+          ],
+          context.pinnedCommit,
+        ),
+      ];
+    },
+  };
+}
+
 export const DEFAULT_CHECKS: readonly CodexBumpCheck[] = [
   {
     name: 'pinned-commit-available',
@@ -501,6 +621,7 @@ export const DEFAULT_CHECKS: readonly CodexBumpCheck[] = [
   createApprovalSandboxEnumCheck(),
   createAppServerCliSurfaceCheck(),
   createDaemonProbeClientNameCheck(),
+  createClearOnEntryModelContractCheck(),
 ];
 
 export async function runNamedChecks(options: RunNamedChecksOptions): Promise<CodexBumpResult> {

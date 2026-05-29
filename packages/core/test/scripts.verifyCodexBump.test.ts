@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import {
   CODEX_CHECKOUT_ENV,
   DEFAULT_CODEX_CHECKOUT,
+  createClearOnEntryModelContractCheck,
   createPinnedFileContainsCheck,
   readPinnedCodexFile,
   resolveCodexCheckoutPath,
@@ -169,6 +170,39 @@ describe('runNamedChecks', () => {
       },
     ]);
   });
+
+  it('passes the clearOnEntry model contract check against a Codex-like fixture repo', async () => {
+    const fixture = await createFixtureRepo(clearOnEntryModelContractFixture());
+
+    const result = await runNamedChecks({
+      checkoutPath: fixture.path,
+      pinnedCommit: fixture.commit,
+      checks: [createClearOnEntryModelContractCheck()],
+    });
+
+    expect(result.failures).toEqual([]);
+  });
+
+  it('reports drift from the clearOnEntry model contract check', async () => {
+    const files = clearOnEntryModelContractFixture();
+    files['codex-rs/app-server-protocol/src/protocol/v2.rs'] = files[
+      'codex-rs/app-server-protocol/src/protocol/v2.rs'
+    ].replace('    pub config: Option<HashMap<String, JsonValue>>,\n', '');
+    const fixture = await createFixtureRepo(files);
+
+    const result = await runNamedChecks({
+      checkoutPath: fixture.path,
+      pinnedCommit: fixture.commit,
+      checks: [createClearOnEntryModelContractCheck()],
+    });
+
+    expect(result.failures).toEqual([
+      {
+        check: 'clear-on-entry-model-contract',
+        message: expect.stringContaining('pub config: Option<HashMap<String, JsonValue>>'),
+      },
+    ]);
+  });
 });
 
 describe('runCodexBumpCli', () => {
@@ -199,3 +233,88 @@ describe('runCodexBumpCli', () => {
     expect(stderr).toContainEqual(expect.stringContaining('item/tool/requestUserInput'));
   });
 });
+
+function clearOnEntryModelContractFixture(): Record<string, string> {
+  return {
+    'codex-rs/app-server-protocol/src/protocol/common.rs': `
+client_request_definitions! {
+    ModelList => "model/list" {
+        params: v2::ModelListParams,
+        response: v2::ModelListResponse,
+    },
+    ConfigRead => "config/read" {
+        params: v2::ConfigReadParams,
+        response: v2::ConfigReadResponse,
+    },
+}
+`,
+    'codex-rs/app-server-protocol/src/protocol/v2.rs': `
+pub struct ConfigReadParams {
+    pub include_layers: bool,
+    pub cwd: Option<String>,
+}
+
+pub struct ConfigReadResponse {
+    pub config: Config,
+}
+
+pub struct ConfigRequirements {}
+
+pub struct ModelListParams {
+    pub cursor: Option<String>,
+    pub limit: Option<u32>,
+    pub include_hidden: Option<bool>,
+}
+
+pub struct ModelAvailabilityNux {}
+
+pub struct Model {
+    pub id: String,
+    pub model: String,
+    pub supported_reasoning_efforts: Vec<ReasoningEffortOption>,
+    pub default_reasoning_effort: ReasoningEffort,
+    pub is_default: bool,
+}
+
+pub struct ModelUpgradeInfo {}
+
+pub struct ReasoningEffortOption {
+    pub reasoning_effort: ReasoningEffort,
+}
+
+pub struct ModelListResponse {
+    pub data: Vec<Model>,
+    pub next_cursor: Option<String>,
+}
+
+/// EXPERIMENTAL - list collaboration mode presets.
+pub struct CollaborationModeListParams {}
+
+pub struct ThreadStartParams {
+    pub model: Option<String>,
+    pub cwd: Option<String>,
+    pub config: Option<HashMap<String, JsonValue>>,
+}
+
+pub struct MockExperimentalMethodParams {}
+
+pub struct Config {
+    pub model: String,
+    pub model_reasoning_effort: Option<ReasoningEffort>,
+}
+`,
+    'codex-rs/protocol/src/openai_models.rs': `
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+    None,
+    Minimal,
+    Low,
+    Medium,
+    High,
+    XHigh,
+}
+
+impl FromStr for ReasoningEffort {}
+`,
+  };
+}

@@ -78,6 +78,9 @@ Current check families:
   the absence of an app-server-specific `--approval-policy` flag.
 - The aharness `DAEMON_PROBE_CLIENT_NAME` constant
   `codex_app_server_daemon`.
+- Clear-on-entry model and reasoning-effort surfaces:
+  `thread/start.config`, `config/read`, `model/list`,
+  `ReasoningEffort`, and model-specific supported efforts.
 
 Root `pnpm run verify` and `pnpm run verify:release` run this package-local
 check. It requires a local Codex checkout containing the pinned commit, either
@@ -273,6 +276,60 @@ Approval notification audit:
   `item/commandExecution/terminalInteraction` are not required for
   approval-card lifecycle in Phase 4c; this package does not add new
   rendering behavior for those notifications in this chunk.
+
+---
+
+## Clear-on-entry model and reasoning-effort contract
+
+The clear-on-entry model/effort feature depends on Codex app-server
+surfaces that are present at the pinned commit `127434cd8b96`.
+
+Source verification at the pinned commit:
+
+- `app-server-protocol/src/protocol/v2.rs:3548-3618` declares
+  `ThreadStartParams`. The aharness sends explicit clear replacement
+  model selection through `thread/start.model`, and effort selection
+  through `thread/start.config.model_reasoning_effort`; the required
+  generic config channel is
+  `pub config: Option<HashMap<String, JsonValue>>`.
+- `app-server-protocol/src/protocol/common.rs:904-907` declares
+  `ConfigRead => "config/read"` with `params: v2::ConfigReadParams`
+  and `response: v2::ConfigReadResponse`.
+- `app-server-protocol/src/protocol/v2.rs:926-934` declares
+  `ConfigReadParams`, including optional `cwd`, so the aharness can
+  ask Codex for the effective config from a clear replacement working
+  directory.
+- `app-server-protocol/src/protocol/v2.rs:939-945` declares
+  `ConfigReadResponse { config: Config, ... }`. The effective config
+  includes `model` and `model_reasoning_effort`; the aharness reads
+  `model` for effort-only declarations and writes
+  `model_reasoning_effort` under `thread/start.config` for replacement
+  startup.
+- `app-server-protocol/src/protocol/common.rs:770-773` declares
+  `ModelList => "model/list"` with `params: v2::ModelListParams` and
+  `response: v2::ModelListResponse`.
+- `app-server-protocol/src/protocol/v2.rs:2485-2495` declares
+  `ModelListParams`, including `include_hidden`. The aharness uses
+  `includeHidden: true` so explicit model declarations are checked
+  against the full catalog.
+- `app-server-protocol/src/protocol/v2.rs:2515-2534` declares the
+  model catalog entry. The aharness relies on `model`,
+  `supported_reasoning_efforts`, `default_reasoning_effort`, and
+  `is_default`.
+- `app-server-protocol/src/protocol/v2.rs:2549-2552` declares
+  `ReasoningEffortOption { reasoning_effort, description }`.
+- `app-server-protocol/src/protocol/v2.rs:2557-2562` declares
+  `ModelListResponse { data, next_cursor }`; the aharness follows
+  pagination until `nextCursor` is absent.
+- `protocol/src/openai_models.rs:43-51` declares `ReasoningEffort`
+  with values `none`, `minimal`, `low`, `medium`, `high`, and `xhigh`
+  via lowercase serde serialization.
+
+The offline drift checker verifies these snippets and spans with the
+`clear-on-entry-model-contract` check. If any required source surface is
+missing at a future pin, do not keep this feature by relying on mutable
+local Codex `HEAD`; either bump the documented pin to a commit that
+contains the contract or revise the aharness implementation and docs.
 
 ---
 
@@ -512,6 +569,10 @@ When bumping the pinned codex commit:
    `config/src/config_toml.rs` and the resolution chain in
    `core/src/config/mod.rs`. Update the TOML section above if any
    key name or `serde` rename changes.
-6. Update the commit hash header at the top of this file and the
+6. Re-run the `clear-on-entry-model-contract` drift check. Re-inspect
+   `ThreadStartParams.config`, `config/read`, `model/list`,
+   `Model.supported_reasoning_efforts`, and `ReasoningEffort` before
+   changing the pin.
+7. Update the commit hash header at the top of this file and the
    `git-<short-hash>` line in `scripts/codex-version-min.txt`.
-7. Re-run integration tests against the new commit.
+8. Re-run integration tests against the new commit.
