@@ -1,0 +1,12 @@
+{
+  "name": "@scope/dependency-package",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@aharness/core": "^0.1.0"
+  },
+  "exports": {
+    "./fsms/dependency-child.fsm.js": "./fsms/dependency-child.fsm.ts",
+    "./src/dependency-helper.js": "./src/dependency-helper.ts"
+  }
+}

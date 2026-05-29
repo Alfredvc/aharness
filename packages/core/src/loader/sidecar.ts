@@ -56,8 +56,13 @@ import { Ajv, type Schema, type ValidateFunction } from 'ajv';
 import type { JSONSchema7 } from 'json-schema';
 import type { SchemaSidecar, SidecarValidateResult, ValidationError } from '../types.js';
 import { getEnclosingStateId } from './stateId.js';
-import { getInstallPaths } from './installPath.js';
+import { getInstallPaths, type InstallPaths } from './installPath.js';
 import { collectArgBindings, extractInputFromLiteral, type ArgFlagMeta } from './inputSchema.js';
+import {
+  resolveDirectFsmImport,
+  resolvePackageSourceImport,
+  type PackageResolutionContext,
+} from './packageResolution.js';
 
 // `ajv@8` does `module.exports = Ajv` on the CJS side and re-exports the
 // class via the named `Ajv` export. The named import resolves to a
@@ -74,6 +79,7 @@ const XSTATE_MODULE_SPECIFIER = 'xstate';
 
 export interface SidecarExtractionOptions {
   readonly filePath: string;
+  readonly packageResolution?: PackageResolutionContext;
   /**
    * Set of absolute file paths currently on the recursion stack. Used to break
    * cycles when a parent embeds a child that (transitively) embeds the parent.
@@ -154,7 +160,7 @@ export async function extractSchemaSidecar(
   opts: SidecarExtractionOptions,
 ): Promise<SidecarExtractionResult> {
   const installPaths = await getInstallPaths();
-  const program = buildProgram(opts.filePath, installPaths.aharnessCoreSdkPackageDir);
+  const program = buildProgram(opts.filePath, installPaths, opts.packageResolution);
   const sourceFile = program.getSourceFile(opts.filePath);
   if (!sourceFile) {
     throw new Error(
@@ -450,6 +456,7 @@ export async function extractSchemaSidecar(
     sourceFile,
     opts.filePath,
     opts.cycleGuard ?? new Set([opts.filePath]),
+    opts.packageResolution,
   );
   for (const { hostKey, childSidecar, childIssues } of childResults) {
     for (const childStateId of Object.keys(childSidecar)) {
@@ -520,6 +527,7 @@ async function resolveAndExtractChildSidecars(
   sourceFile: ts.SourceFile,
   parentFilePath: string,
   cycleGuard: ReadonlySet<string>,
+  packageResolution: PackageResolutionContext | undefined,
 ): Promise<
   Array<{
     hostKey: string;
@@ -527,7 +535,7 @@ async function resolveAndExtractChildSidecars(
     childIssues: SidecarIssue[];
   }>
 > {
-  const fsmImports = collectFsmDefaultImports(sourceFile, parentFilePath);
+  const fsmImports = collectFsmDefaultImports(sourceFile, parentFilePath, packageResolution);
   if (fsmImports.size === 0) return [];
 
   const machineBindings = collectMachineBindings(
@@ -569,6 +577,7 @@ async function resolveAndExtractChildSidecars(
     const childResult = await extractSchemaSidecar({
       filePath: childTsPath,
       cycleGuard: nextGuard,
+      ...(packageResolution ? { packageResolution } : {}),
     });
     results.push({
       hostKey,
@@ -589,6 +598,7 @@ async function resolveAndExtractChildSidecars(
 function collectFsmDefaultImports(
   sourceFile: ts.SourceFile,
   parentFilePath: string,
+  packageResolution: PackageResolutionContext | undefined,
 ): Map<string, string> {
   const out = new Map<string, string>();
   for (const stmt of sourceFile.statements) {
@@ -598,7 +608,14 @@ function collectFsmDefaultImports(
     if (!spec.text.endsWith('.fsm.js')) continue;
     const defaultName = stmt.importClause?.name?.text;
     if (!defaultName) continue;
-    const tsPath = path.resolve(path.dirname(parentFilePath), spec.text.replace(/\.js$/, '.ts'));
+    const tsPath = packageResolution
+      ? resolvePackageSourceImport({
+          importerFile: parentFilePath,
+          specifier: spec.text,
+          packageResolution,
+        })
+      : resolveDirectFsmImport(parentFilePath, spec.text);
+    if (!tsPath) continue;
     out.set(defaultName, tsPath);
   }
   return out;
@@ -1233,8 +1250,15 @@ export function extractTypeArgFromTypeCall(expr: ts.Expression): ts.TypeNode | n
  * mappings cover both bare and sub-path specifiers (`@aharness/core`
  * and `@aharness/core/runtime`).
  */
-function buildProgram(filePath: string, aharnessCoreSdkPackageDir: string): ts.Program {
-  const aharnessNodeModules = path.dirname(path.dirname(aharnessCoreSdkPackageDir));
+function buildProgram(
+  filePath: string,
+  installPaths: InstallPaths,
+  packageResolution: PackageResolutionContext | undefined,
+): ts.Program {
+  const aharnessNodeModules = path.dirname(path.dirname(installPaths.aharnessCoreSdkPackageDir));
+  const baseUrl = packageResolution
+    ? path.join(path.resolve(packageResolution.managedProjectRoot), 'node_modules')
+    : aharnessNodeModules;
   const compilerOptions: ts.CompilerOptions = {
     target: ts.ScriptTarget.ES2022,
     module: ts.ModuleKind.NodeNext,
@@ -1245,12 +1269,18 @@ function buildProgram(filePath: string, aharnessCoreSdkPackageDir: string): ts.P
     skipDefaultLibCheck: true,
     strict: false,
     noEmit: true,
-    baseUrl: aharnessNodeModules,
+    baseUrl,
     paths: {
-      '@aharness/core': ['@aharness/core'],
-      '@aharness/core/*': ['@aharness/core/*'],
-      xstate: ['xstate'],
-      'xstate/*': ['xstate/*'],
+      '@aharness/core': [
+        packageResolution ? installPaths.aharnessCoreSdkPackageDir : '@aharness/core',
+      ],
+      '@aharness/core/*': [
+        packageResolution
+          ? path.join(installPaths.aharnessCoreSdkPackageDir, '*')
+          : '@aharness/core/*',
+      ],
+      xstate: [packageResolution ? installPaths.xstatePackageDir : 'xstate'],
+      'xstate/*': [packageResolution ? path.join(installPaths.xstatePackageDir, '*') : 'xstate/*'],
     },
   };
   return ts.createProgram({

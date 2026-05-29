@@ -1,0 +1,19 @@
+{
+  "name": "@scope/command-package",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@aharness/core": "^0.1.0",
+    "@scope/dependency-package": "1.0.0"
+  },
+  "aharness": {
+    "package": {
+      "commands": {
+        "main": {
+          "entry": "fsms/main.fsm.ts",
+          "description": "Installed loader command"
+        }
+      }
+    }
+  }
+}

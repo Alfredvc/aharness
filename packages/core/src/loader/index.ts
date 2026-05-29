@@ -29,6 +29,7 @@
  */
 
 import * as path from 'node:path';
+import { promises as fs } from 'node:fs';
 import { Ajv } from 'ajv';
 import type { JSONSchema7 } from 'json-schema';
 import type { AnyStateMachine } from 'xstate';
@@ -36,11 +37,14 @@ import type { SchemaSidecar, SidecarValidateResult, ValidationError } from '../t
 import {
   cachePathsFor,
   ensureCacheDir,
+  hashInstalledBundleInputs,
   hashSourceTree,
+  installedCachePathsFor,
   moduleExists,
   type SerializedSidecar,
 } from './cache.js';
-import { compileFsm, importFsmModule } from './compile.js';
+import { buildInstalledFsmBundle, compileFsm, importFsmModule } from './compile.js';
+import { getInstallPaths } from './installPath.js';
 import { extractSchemaSidecar, type SidecarIssue } from './sidecar.js';
 import type { ArgFlagMeta } from './inputSchema.js';
 
@@ -50,6 +54,17 @@ export interface LoadFsmOptions {
   /** Project root — where `.aharness/cache/` and `node_modules/` live. */
   readonly repoRoot: string;
   /** When `true`, skip the cache read side (for tests / debug). */
+  readonly noCache?: boolean;
+}
+
+export interface LoadInstalledFsmOptions {
+  readonly entryFile: string;
+  readonly packageName: string;
+  readonly commandName: string;
+  readonly packageRoot: string;
+  readonly managedProjectRoot: string;
+  readonly storeRoot: string;
+  readonly lockFingerprint: string;
   readonly noCache?: boolean;
 }
 
@@ -128,6 +143,108 @@ export async function loadFsm(opts: LoadFsmOptions): Promise<LoadFsmResult> {
     issues: extraction.issues,
     cacheHit: false,
     hash,
+    ...(extraction.inputSchema
+      ? { inputSchema: extraction.inputSchema, inputFlags: extraction.inputFlags ?? {} }
+      : {}),
+  };
+}
+
+export async function loadInstalledFsm(opts: LoadInstalledFsmOptions): Promise<LoadFsmResult> {
+  const normalized = normalizeInstalledFsmOptions(opts);
+  const { entryFile, packageRoot, managedProjectRoot } = normalized;
+
+  const extraction = await extractSchemaSidecar({
+    filePath: entryFile,
+    packageResolution: { packageRoot, managedProjectRoot },
+  });
+  const serialized = serializeExtraction(extraction);
+  const bundle = await buildInstalledFsmBundle({
+    entryFile,
+    serializedSidecar: serialized,
+    packageRoot,
+    managedProjectRoot,
+  });
+  const installPaths = await getInstallPaths();
+  const hash = await hashInstalledBundleInputs({
+    packageName: opts.packageName,
+    commandName: opts.commandName,
+    entryFile,
+    packageRoot,
+    managedProjectRoot,
+    lockFingerprint: opts.lockFingerprint,
+    aharnessCoreEntry: installPaths.aharnessCoreSdkEntry,
+    aharnessCorePackageDir: installPaths.aharnessCoreSdkPackageDir,
+    xstateEntry: installPaths.xstateEntry,
+    xstatePackageDir: installPaths.xstatePackageDir,
+    serializedSidecar: serialized,
+    inputFiles: bundle.inputFiles,
+  });
+  const paths = installedCachePathsFor(managedProjectRoot, hash);
+
+  if (!opts.noCache && (await moduleExists(paths))) {
+    const imported = await importFsmModule(paths.modulePath);
+    if (imported.rawSidecar) {
+      const cached = imported.rawSidecar;
+      return {
+        machine: imported.machine,
+        sidecar: rehydrateSidecar(cached),
+        modulePath: paths.modulePath,
+        issues: cached.issues,
+        cacheHit: true,
+        hash,
+        ...(cached.inputSchema
+          ? { inputSchema: cached.inputSchema, inputFlags: cached.inputFlags ?? {} }
+          : {}),
+      };
+    }
+  }
+
+  await ensureCacheDir(paths);
+  await fs.writeFile(paths.modulePath, bundle.contents);
+  const imported = await importFsmModule(paths.modulePath);
+  return {
+    machine: imported.machine,
+    sidecar: extraction.sidecar,
+    modulePath: paths.modulePath,
+    issues: extraction.issues,
+    cacheHit: false,
+    hash,
+    ...(extraction.inputSchema
+      ? { inputSchema: extraction.inputSchema, inputFlags: extraction.inputFlags ?? {} }
+      : {}),
+  };
+}
+
+function normalizeInstalledFsmOptions(opts: LoadInstalledFsmOptions): {
+  readonly entryFile: string;
+  readonly packageRoot: string;
+  readonly managedProjectRoot: string;
+  readonly storeRoot: string;
+} {
+  return {
+    entryFile: normalizeRequiredPath('entryFile', opts.entryFile),
+    packageRoot: normalizeRequiredPath('packageRoot', opts.packageRoot),
+    managedProjectRoot: normalizeRequiredPath('managedProjectRoot', opts.managedProjectRoot),
+    storeRoot: normalizeRequiredPath('storeRoot', opts.storeRoot),
+  };
+}
+
+function normalizeRequiredPath(label: string, value: string): string {
+  if (value.length === 0) {
+    throw new Error(`loadInstalledFsm: ${label} must be a non-empty path`);
+  }
+  return path.resolve(value);
+}
+
+function serializeExtraction(extraction: {
+  readonly sidecar: SchemaSidecar;
+  readonly issues: readonly SidecarIssue[];
+  readonly inputSchema?: JSONSchema7;
+  readonly inputFlags?: Record<string, ArgFlagMeta>;
+}): SerializedSidecar {
+  return {
+    schemas: schemasOnly(extraction.sidecar),
+    issues: extraction.issues,
     ...(extraction.inputSchema
       ? { inputSchema: extraction.inputSchema, inputFlags: extraction.inputFlags ?? {} }
       : {}),

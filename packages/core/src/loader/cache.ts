@@ -46,6 +46,7 @@ import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import type { JSONSchema7 } from 'json-schema';
+import { canonicalJson } from '../internal/canonicalJson.js';
 import type { SidecarIssue } from './sidecar.js';
 import type { ArgFlagMeta } from './inputSchema.js';
 
@@ -80,6 +81,21 @@ export interface CachePaths {
   readonly cacheDir: string;
   readonly hash: string;
   readonly modulePath: string;
+}
+
+export interface InstalledCacheKeyOptions {
+  readonly packageName: string;
+  readonly commandName: string;
+  readonly entryFile: string;
+  readonly packageRoot: string;
+  readonly managedProjectRoot: string;
+  readonly lockFingerprint: string;
+  readonly aharnessCoreEntry: string;
+  readonly aharnessCorePackageDir: string;
+  readonly xstateEntry: string;
+  readonly xstatePackageDir: string;
+  readonly serializedSidecar: SerializedSidecar;
+  readonly inputFiles: readonly string[];
 }
 
 /**
@@ -164,6 +180,72 @@ export function cachePathsFor(repoRoot: string, hash: string): CachePaths {
     hash,
     modulePath: path.join(cacheDir, 'fsm.mjs'),
   };
+}
+
+export function installedCachePathsFor(managedProjectRoot: string, hash: string): CachePaths {
+  const cacheRoot = path.join(managedProjectRoot, '.aharness', 'cache', 'installed');
+  const cacheDir = path.join(cacheRoot, hash);
+  return {
+    cacheRoot,
+    cacheDir,
+    hash,
+    modulePath: path.join(cacheDir, 'fsm.mjs'),
+  };
+}
+
+export async function hashInstalledBundleInputs(opts: InstalledCacheKeyOptions): Promise<string> {
+  const managedProjectRoot = path.resolve(opts.managedProjectRoot);
+  const packageRoot = path.resolve(opts.packageRoot);
+  const entryFile = path.resolve(opts.entryFile);
+  const inputFiles = Array.from(new Set(opts.inputFiles.map((file) => path.resolve(file)))).sort();
+
+  const hasher = createHash('sha256');
+  const aharnessCoreVersion = await readPackageVersion(opts.aharnessCorePackageDir);
+  const xstateVersion = await readPackageVersion(opts.xstatePackageDir);
+  hasher.update(`aharness-installed-loader-cache:${CACHE_VERSION}\n`);
+  hasher.update(
+    canonicalJson({
+      packageName: opts.packageName,
+      commandName: opts.commandName,
+      entry: relativeOrAbsolute(packageRoot, entryFile),
+      packageRoot: relativeOrAbsolute(managedProjectRoot, packageRoot),
+      lockFingerprint: opts.lockFingerprint,
+      aharnessCoreEntry: path.resolve(opts.aharnessCoreEntry),
+      aharnessCorePackageDir: path.resolve(opts.aharnessCorePackageDir),
+      aharnessCoreVersion,
+      xstateEntry: path.resolve(opts.xstateEntry),
+      xstatePackageDir: path.resolve(opts.xstatePackageDir),
+      xstateVersion,
+      serializedSidecar: opts.serializedSidecar,
+    }),
+  );
+  hasher.update('\n');
+
+  for (const file of inputFiles) {
+    const buf = await fs.readFile(file);
+    hasher.update(`F:${relativeOrAbsolute(managedProjectRoot, file)}:${buf.byteLength}\n`);
+    hasher.update(buf);
+    hasher.update('\n');
+  }
+
+  return hasher.digest('hex');
+}
+
+async function readPackageVersion(packageDir: string): Promise<string | null> {
+  try {
+    const raw = await fs.readFile(path.join(packageDir, 'package.json'), 'utf8');
+    const parsed = JSON.parse(raw) as { version?: unknown };
+    return typeof parsed.version === 'string' ? parsed.version : null;
+  } catch {
+    return null;
+  }
+}
+
+function relativeOrAbsolute(root: string, filePath: string): string {
+  const relative = path.relative(root, filePath);
+  if (relative.length === 0) return '.';
+  if (!relative.startsWith('..') && !path.isAbsolute(relative)) return relative;
+  return path.resolve(filePath);
 }
 
 /**

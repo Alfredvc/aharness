@@ -28,7 +28,7 @@
  * externalising aharness/xstate is the only consistent shape.
  */
 
-import { build, type Plugin } from 'esbuild';
+import { build, type Metafile, type Plugin } from 'esbuild';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { AnyStateMachine } from 'xstate';
@@ -39,6 +39,11 @@ const BARE_SPECIFIER_RE = /^(@aharness\/core|xstate)(\/.*)?$/;
 
 export interface CompileResult {
   readonly outPath: string;
+}
+
+export interface InstalledBundleResult {
+  readonly contents: Uint8Array;
+  readonly inputFiles: readonly string[];
 }
 
 /**
@@ -77,6 +82,59 @@ export async function compileFsm(
     plugins: [externalisePlugin(installPaths)],
   });
   return { outPath };
+}
+
+export async function buildInstalledFsmBundle(opts: {
+  readonly entryFile: string;
+  readonly serializedSidecar: SerializedSidecar;
+  readonly packageRoot: string;
+  readonly managedProjectRoot: string;
+}): Promise<InstalledBundleResult> {
+  const installPaths = await getInstallPaths();
+  const packageRoot = path.resolve(opts.packageRoot);
+  const managedProjectRoot = path.resolve(opts.managedProjectRoot);
+  const result = await build({
+    entryPoints: [path.resolve(opts.entryFile)],
+    outfile: path.join(managedProjectRoot, '.aharness', 'cache', 'installed', '__build', 'fsm.mjs'),
+    bundle: true,
+    format: 'esm',
+    platform: 'node',
+    target: 'node20',
+    sourcemap: false,
+    logLevel: 'silent',
+    absWorkingDir: packageRoot,
+    nodePaths: [path.join(managedProjectRoot, 'node_modules')],
+    write: false,
+    metafile: true,
+    banner: {
+      js: `export const __sidecar = ${JSON.stringify(opts.serializedSidecar)};`,
+    },
+    plugins: [externalisePlugin(installPaths)],
+  });
+
+  const outputFile = result.outputFiles?.[0];
+  if (!outputFile) {
+    throw new Error('buildInstalledFsmBundle: esbuild returned no output file');
+  }
+  if (!result.metafile) {
+    throw new Error('buildInstalledFsmBundle: esbuild returned no metafile');
+  }
+
+  return {
+    contents: outputFile.contents,
+    inputFiles: inputFilesFromMetafile(result.metafile, packageRoot),
+  };
+}
+
+function inputFilesFromMetafile(metafile: Metafile, absWorkingDir: string): readonly string[] {
+  const files: string[] = [];
+  for (const inputPath of Object.keys(metafile.inputs)) {
+    if (inputPath.startsWith('<')) continue;
+    files.push(
+      path.isAbsolute(inputPath) ? path.resolve(inputPath) : path.resolve(absWorkingDir, inputPath),
+    );
+  }
+  return Array.from(new Set(files)).sort();
 }
 
 function externalisePlugin(installPaths: InstallPaths): Plugin {
