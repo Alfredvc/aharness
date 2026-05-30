@@ -1,22 +1,38 @@
 import type { AharnessMeta } from '../types.js';
+import type { StateModelEffort } from './exits.js';
 
-const clearOnEntryReasoningEfforts = new Set(['none', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+const stateModelEfforts = new Set<StateModelEffort>([
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+]);
 
 function validateClearOnEntry(value: unknown): void {
   if (value === true) return;
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(
-      `validateAharnessMeta: stateful meta 'clearOnEntry' must be true or an object with at least one of cwd, model, or reasoningEffort`,
+      `validateAharnessMeta: stateful meta 'clearOnEntry' must be true or an object with at least one supported key: cwd`,
     );
   }
   const clear = value as {
     readonly cwd?: unknown;
-    readonly model?: unknown;
-    readonly reasoningEffort?: unknown;
   };
-  if (clear.cwd === undefined && clear.model === undefined && clear.reasoningEffort === undefined) {
+  if (Object.prototype.hasOwnProperty.call(clear, 'model')) {
     throw new Error(
-      `validateAharnessMeta: stateful meta 'clearOnEntry' object must include at least one supported key: cwd, model, reasoningEffort`,
+      `validateAharnessMeta: clearOnEntry.model is no longer supported; use state-level meta 'model: { name, effort }' instead`,
+    );
+  }
+  if (Object.prototype.hasOwnProperty.call(clear, 'reasoningEffort')) {
+    throw new Error(
+      `validateAharnessMeta: clearOnEntry.reasoningEffort is no longer supported; use state-level meta 'model: { name, effort }' instead`,
+    );
+  }
+  if (clear.cwd === undefined) {
+    throw new Error(
+      `validateAharnessMeta: stateful meta 'clearOnEntry' object must include at least one supported key: cwd`,
     );
   }
   if (clear.cwd !== undefined && typeof clear.cwd !== 'string' && typeof clear.cwd !== 'function') {
@@ -24,16 +40,32 @@ function validateClearOnEntry(value: unknown): void {
       `validateAharnessMeta: stateful meta 'clearOnEntry.cwd' must be string or function`,
     );
   }
-  if (clear.model !== undefined && typeof clear.model !== 'string') {
-    throw new Error(`validateAharnessMeta: stateful meta 'clearOnEntry.model' must be string`);
+}
+
+function validateStateModel(value: unknown): void {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(
+      `validateAharnessMeta: stateful meta 'model' must be an object with at least one supported key: name, effort`,
+    );
+  }
+  const model = value as {
+    readonly name?: unknown;
+    readonly effort?: unknown;
+  };
+  if (model.name === undefined && model.effort === undefined) {
+    throw new Error(
+      `validateAharnessMeta: stateful meta 'model' object must include at least one supported key: name, effort`,
+    );
+  }
+  if (model.name !== undefined && (typeof model.name !== 'string' || model.name.length === 0)) {
+    throw new Error(`validateAharnessMeta: stateful meta 'model.name' must be a non-empty string`);
   }
   if (
-    clear.reasoningEffort !== undefined &&
-    (typeof clear.reasoningEffort !== 'string' ||
-      !clearOnEntryReasoningEfforts.has(clear.reasoningEffort))
+    model.effort !== undefined &&
+    (typeof model.effort !== 'string' || !stateModelEfforts.has(model.effort as StateModelEffort))
   ) {
     throw new Error(
-      `validateAharnessMeta: stateful meta 'clearOnEntry.reasoningEffort' must be one of: none, minimal, low, medium, high, xhigh`,
+      `validateAharnessMeta: stateful meta 'model.effort' must be one of: none, minimal, low, medium, high, xhigh`,
     );
   }
 }
@@ -81,6 +113,9 @@ export function validateAharnessMeta(value: unknown): AharnessMeta | undefined {
     }
     if (Object.prototype.hasOwnProperty.call(v, 'clearOnEntry')) {
       validateClearOnEntry(v['clearOnEntry']);
+    }
+    if (Object.prototype.hasOwnProperty.call(v, 'model')) {
+      validateStateModel(v['model']);
     }
     return value as AharnessMeta;
   }

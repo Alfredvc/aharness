@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
 
-import type { ClearOnEntryMeta, ClearOnEntryReasoningEffort } from '../state/exits.js';
+import type { ClearOnEntryMeta, StateModelEffort, StateModelMeta } from '../state/exits.js';
 import type { RunCtx } from '../types.js';
 
 export interface ResolveClearOnEntryOptionsOpts {
@@ -13,18 +13,20 @@ export interface ResolveClearOnEntryOptionsOpts {
 
 export interface ClearOnEntryRuntimeOptions {
   readonly cwd: string;
-  readonly model?: string;
-  readonly reasoningEffort?: ClearOnEntryReasoningEffort;
 }
 
-const clearOnEntryReasoningEfforts = new Set<ClearOnEntryReasoningEffort>([
-  'none',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-]);
+export interface StateModelRuntimeOptions {
+  readonly model?: string;
+  readonly effort?: StateModelEffort;
+}
+
+export function resolveStateModelOptions(model?: StateModelMeta): StateModelRuntimeOptions {
+  if (model === undefined) return {};
+  return {
+    ...(model.name !== undefined ? { model: model.name } : {}),
+    ...(model.effort !== undefined ? { effort: model.effort } : {}),
+  };
+}
 
 export function resolveClearOnEntryOptions(
   opts: ResolveClearOnEntryOptionsOpts,
@@ -37,32 +39,19 @@ export function resolveClearOnEntryOptions(
 
   if (clearOnEntry === null || typeof clearOnEntry !== 'object' || Array.isArray(clearOnEntry)) {
     throw new TypeError(
-      `state "${stateId}" clearOnEntry must be true or an object with at least one of cwd, model, or reasoningEffort`,
+      `state "${stateId}" clearOnEntry must be true or an object with at least one of cwd`,
     );
   }
 
   const cwdValue = clearOnEntry.cwd;
-  const model = clearOnEntry.model;
-  const reasoningEffort = clearOnEntry.reasoningEffort;
 
-  if (cwdValue === undefined && model === undefined && reasoningEffort === undefined) {
+  if (cwdValue === undefined) {
     throw new TypeError(
-      `state "${stateId}" clearOnEntry object must include at least one supported key: cwd, model, reasoningEffort`,
+      `state "${stateId}" clearOnEntry object must include at least one supported key: cwd`,
     );
   }
   if (cwdValue !== undefined && typeof cwdValue !== 'string' && typeof cwdValue !== 'function') {
     throw new TypeError(`state "${stateId}" clearOnEntry.cwd must be a string or function`);
-  }
-  if (model !== undefined && typeof model !== 'string') {
-    throw new TypeError(`state "${stateId}" clearOnEntry.model must be a string`);
-  }
-  if (
-    reasoningEffort !== undefined &&
-    (typeof reasoningEffort !== 'string' || !clearOnEntryReasoningEfforts.has(reasoningEffort))
-  ) {
-    throw new TypeError(
-      `state "${stateId}" clearOnEntry.reasoningEffort must be one of: none, minimal, low, medium, high, xhigh`,
-    );
   }
 
   if (typeof cwdValue === 'function') {
@@ -77,8 +66,6 @@ export function resolveClearOnEntryOptions(
     }
     return {
       cwd: validateCwd(resolved, stateId, 'clearOnEntry.cwd'),
-      ...(model !== undefined ? { model } : {}),
-      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
     };
   }
 
@@ -87,8 +74,6 @@ export function resolveClearOnEntryOptions(
       cwdValue === undefined
         ? validateCwd(defaultCwd, stateId, 'default cwd for clearOnEntry')
         : validateCwd(cwdValue, stateId, 'clearOnEntry.cwd'),
-    ...(model !== undefined ? { model } : {}),
-    ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
   };
 }
 

@@ -106,11 +106,13 @@ export default fsm.machine({
 - Do not write `SUBMIT__*` or `AWAIT__*` handlers by hand.
 - Do not use owner input as an implicit transition. Use `ask` plus typed submit, or use exactly one `fsm.await`.
 - Prefer `fsm.submit`, `fsm.await`, and built-in hook events over custom events unless the workflow genuinely has another typed runtime input.
-- Use `clearOnEntry` only on a live, non-initial state where stale model context is a real workflow risk.
-- Use `clearOnEntry: true` to start with fresh model context in the original aharness launch working directory.
-- Use object form with any non-empty combination of `cwd`, `model`, and `reasoningEffort`: `{ model: 'gpt-5.1-codex' }`, `{ reasoningEffort: 'high' }`, `{ model: 'gpt-5.1-codex', reasoningEffort: 'high' }`, or `{ cwd: '/absolute/path', model: 'gpt-5.1-codex', reasoningEffort: 'high' }`.
-- Use `clearOnEntry: { cwd: '/absolute/path' }` or `clearOnEntry: { cwd: (data) => data.worktreePath }` when a worktree or multi-project workflow needs fresh model context in a specific working directory. The resolved `cwd` must be a non-empty absolute path for an existing directory; run artifacts remain anchored to the original launch directory.
-- Keep `model` and `reasoningEffort` static strings. Allowed efforts are `none`, `minimal`, `low`, `medium`, `high`, and `xhigh`. Effort can omit `model`; aharness resolves the effective model through Codex `config/read` and the `model/list` default/first fallback, with function-form `cwd` possibly deferring effort checks to runtime preflight.
+- Use `model` on a state whenever you need to set Codex model and/or effort.
+- `model` syntax is `{ name?: string, effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' }`.
+- Use `clearOnEntry` only on a live, non-initial state where stale history should be discarded; it is freshness-only.
+- Use `clearOnEntry: true` to start in a fresh thread in the original aharness launch working directory.
+- Use `clearOnEntry: { cwd: '/absolute/path' }` or `clearOnEntry: { cwd: (data) => data.worktreePath }` when a worktree or multi-project workflow needs fresh context in a specific directory; the resolved `cwd` must be a non-empty existing absolute path.
+- You can pair state-level `model` with `clearOnEntry` in the same state to run the fresh thread under a specific model/effort.
+- `model` declarations are sticky for non-clear states: when `model` is omitted, aharness keeps the prior model/effort settings.
 - Use `fsm.final({ artifacts })` for final reports. Artifact renderers must be synchronous.
 - Keep raw `xstate` usage explicit and local. Prefer canonical fields when they express the behavior.
 

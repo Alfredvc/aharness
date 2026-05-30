@@ -90,7 +90,7 @@ client_request_definitions! {
     },
 }
 `,
-    'codex-rs/app-server-protocol/src/protocol/v2.rs': `
+    'codex-rs/app-server-protocol/src/protocol/v2/thread.rs': `
 pub struct ThreadStartParams {
     pub model: Option<String>,
     pub cwd: Option<String>,
@@ -98,7 +98,8 @@ pub struct ThreadStartParams {
 }
 
 pub struct MockExperimentalMethodParams {}
-
+`,
+    'codex-rs/app-server-protocol/src/protocol/v2/config.rs': `
 pub struct Config {
     pub model: Option<String>,
     pub model_reasoning_effort: Option<ReasoningEffort>,
@@ -117,6 +118,8 @@ pub struct ConfigReadResponse {
 
 pub struct ConfigRequirements {}
 
+`,
+    'codex-rs/app-server-protocol/src/protocol/v2/model.rs': `
 pub struct ModelListParams {
     pub include_hidden: Option<bool>,
 }
@@ -127,7 +130,6 @@ pub struct Model {
     pub default_reasoning_effort: ReasoningEffort,
     pub is_default: bool,
 }
-
 pub struct ReasoningEffortOption {
     pub reasoning_effort: ReasoningEffort,
 }
@@ -270,7 +272,7 @@ describe('runNamedChecks', () => {
   it('reports drift in the clearOnEntry model contract', async () => {
     const fixture = await createFixtureRepo(
       modelContractFixtureFiles({
-        'codex-rs/app-server-protocol/src/protocol/v2.rs': `
+        'codex-rs/app-server-protocol/src/protocol/v2/thread.rs': `
 pub struct ThreadStartParams {
     pub model: Option<String>,
     pub cwd: Option<String>,
@@ -278,7 +280,8 @@ pub struct ThreadStartParams {
 }
 
 pub struct MockExperimentalMethodParams {}
-
+`,
+        'codex-rs/app-server-protocol/src/protocol/v2/config.rs': `
 pub struct Config {
     pub model: Option<String>,
     pub model_reasoning_effort: Option<ReasoningEffort>,
@@ -296,7 +299,8 @@ pub struct ConfigReadResponse {
 }
 
 pub struct ConfigRequirements {}
-
+`,
+        'codex-rs/app-server-protocol/src/protocol/v2/model.rs': `
 pub struct ModelListParams {
     pub include_hidden: Option<bool>,
 }

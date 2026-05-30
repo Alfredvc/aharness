@@ -20,6 +20,7 @@ export interface NotificationRouterOpts {
   readonly client: JsonRpcClient;
   readonly activeThreadBinding: ActiveThreadBinding;
   readonly onTurnCompleted: (params?: unknown) => void | Promise<void>;
+  readonly onTurnCompletedError?: (error: Error) => void;
   readonly onTurnStarted?: (turnId: string | null, params?: unknown) => void;
   readonly onItemStarted: (item: unknown, turnId: string | null, params?: unknown) => void;
   readonly onItemCompleted: (item: unknown, turnId: string | null, params?: unknown) => void;
@@ -150,7 +151,14 @@ export function startNotificationRouter(o: NotificationRouterOpts): Notification
       return;
     }
     currentTurnId = null;
-    void o.onTurnCompleted(params);
+    void Promise.resolve(o.onTurnCompleted(params)).catch((error: unknown) => {
+      const err = error instanceof Error ? error : new Error(String(error));
+      if (o.onTurnCompletedError !== undefined) {
+        o.onTurnCompletedError(err);
+        return;
+      }
+      process.stderr.write(`[notificationRouter] turn/completed handler failed: ${err.message}\n`);
+    });
   });
   const off3 = o.client.onNotification(METHOD.itemStarted, (params) => {
     if (!isFromParent(params)) {

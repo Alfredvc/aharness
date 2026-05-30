@@ -115,6 +115,11 @@ export interface CreateSubmitDispatcherOpts {
    */
   readonly onTerminal?: (terminalStateId: string, meta?: ServerRequestMeta) => void;
   /**
+   * Optional hook to apply pending state-level model settings before
+   * issuing the post-submit `turn/start` for a cross-state transition.
+   */
+  readonly applyStateModel?: () => Promise<void>;
+  /**
    * Stdout-UI transition log hook (Phase 1b Task 12). Invoked
    * synchronously after commit + flush, before the reply returns, on
    * any successful transition.
@@ -139,6 +144,7 @@ export interface CreateSubmitDispatcherOpts {
     readonly turnId: string;
     readonly callId: string;
     readonly orientationText: string;
+    readonly applyStateModel?: () => Promise<void>;
   }) => void;
   /**
    * Slice 4 fresh-clear scheduling: when a committed non-self submit
@@ -467,12 +473,22 @@ async function dispatch(
     if (!o.scheduleCrossStateDance) {
       throw new Error('crossStateDance not wired');
     }
-    o.scheduleCrossStateDance({
+    const crossStateArgs: {
+      threadId: string;
+      turnId: string;
+      callId: string;
+      orientationText: string;
+      applyStateModel?: () => Promise<void>;
+    } = {
       threadId: params.threadId,
       turnId: params.turnId,
       callId: params.callId,
       orientationText: nudge,
-    });
+    };
+    if (o.applyStateModel !== undefined) {
+      crossStateArgs.applyStateModel = o.applyStateModel;
+    }
+    o.scheduleCrossStateDance(crossStateArgs);
   }
 
   // Step 6f: build the success reply. Terminal preserves the legacy

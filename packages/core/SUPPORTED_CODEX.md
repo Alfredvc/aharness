@@ -8,7 +8,7 @@ The latest compatibility check in this repository validated
 `0.133.0` is an observed-compatible version, not a new floor.
 
 The offline protocol drift checker still targets `codex-rs` commit
-**`127434cd8b968ca3d830ea78106dcb1506bcd843`** (short: `127434cd8b96`).
+**`7d47056ea42636271ac020b86347fbbef49490aa`** (short: `7d47056ea426`).
 
 Source-path references and JSON-RPC method names recorded in this package's
 code and docs are valid at this commit. Earlier versions may lack
@@ -36,9 +36,9 @@ real Codex E2E release checks, and the pinned commit contains the upstream
 surfaces this package depends on: `dynamic_tools`, the
 `default_mode_request_user_input` feature flag, required
 `request_user_input` question options, clear-on-entry model/effort
-selection surfaces, and the JSON-RPC methods `item/tool/call`,
-`item/tool/requestUserInput`, `thread/inject_items`, `config/read`, and
-`model/list`.
+selection surfaces, thread-settings updates, and the JSON-RPC methods
+`item/tool/call`, `item/tool/requestUserInput`, `thread/inject_items`,
+`thread/settings/update`, `config/read`, and `model/list`.
 The `0.133.0` validation rechecked those runtime surfaces with the installed
 CLI, including owner-yield `request_user_input` and app-server command
 approval E2E paths.
@@ -63,7 +63,7 @@ pnpm --dir packages/core run verify:codex-bump -- --checkout /path/to/codex
 ```
 
 The checker is offline and commit-addressed: it uses `git show
-127434cd8b968ca3d830ea78106dcb1506bcd843:<path>` and `git cat-file`
+7d47056ea42636271ac020b86347fbbef49490aa:<path>` and `git cat-file`
 against the local checkout. It does not fetch, read a remote branch, or
 trust the checkout's mutable worktree `HEAD`.
 
@@ -73,6 +73,8 @@ Current check families:
   notification macro table.
 - `request_user_input` source shape, including the
   `default_mode_request_user_input` feature gate and handler path.
+- `thread/settings/update` contract and empty acknowledgement semantics:
+  `ThreadSettingsUpdateParams.model` and `ThreadSettingsUpdateParams.effort`.
 - Approval and permission enum spellings used by Phase 4:
   `on-request`, approval decisions, permission grant scopes, and
   `sandbox_permissions: "require_escalated"`.
@@ -83,36 +85,45 @@ Current check families:
   supported efforts, and lowercase `ReasoningEffort` values.
 - The aharness `DAEMON_PROBE_CLIENT_NAME` constant
   `codex_app_server_daemon`.
-- Clear-on-entry model and reasoning-effort surfaces:
+- State-level model and reasoning-effort surfaces:
   `thread/start.config`, `config/read`, `model/list`,
-  `ReasoningEffort`, and model-specific supported efforts.
+  `thread/settings/update`, `ReasoningEffort`, and model-specific supported
+  efforts.
 
 Root `pnpm run verify` and `pnpm run verify:release` run this package-local
 check. It requires a local Codex checkout containing the pinned commit, either
 at `/Users/alfredvc/src/codex` or at `CODEX_CHECKOUT=/path/to/codex`.
 
-## ClearOnEntry model and effort contract
+## State model and effort contract
 
-`clearOnEntry` replacement threads may request a Codex model and reasoning
-effort. Aharness relies on the following pinned source surfaces at
-`127434cd8b96`:
+State-level `model: { name, effort }` declarations may request a Codex model
+and reasoning effort. Aharness relies on the following pinned source surfaces
+at `7d47056ea426`:
 
-- `codex-rs/app-server-protocol/src/protocol/v2.rs` declares
+- `codex-rs/app-server-protocol/src/protocol/v2/thread.rs` declares
   `ThreadStartParams { model, cwd, config, ... }`; aharness sends the requested
-  model through `thread/start.model`.
+  model through `thread/start.model` for clear-state replacement threads.
 - The correct effort channel is `thread/start.config.model_reasoning_effort`.
   Codex exposes `ThreadStartParams.config: Option<HashMap<String, JsonValue>>`
   in the same `ThreadStartParams` struct, and its `Config` type declares
   `model_reasoning_effort: Option<ReasoningEffort>`.
 - `codex-rs/app-server-protocol/src/protocol/common.rs` declares
+  `ThreadSettingsUpdate => "thread/settings/update"`, and
+  `codex-rs/app-server-protocol/src/protocol/v2/thread.rs` declares
+  `ThreadSettingsUpdateParams { thread_id, model, effort, ... }`. Aharness uses
+  this queued settings update before the next aharness-owned turn for non-clear
+  states.
+- `codex-rs/app-server-protocol/src/protocol/common.rs` declares
   `ConfigRead => "config/read"` with `ConfigReadParams` and
   `ConfigReadResponse`. `ConfigReadParams` has `include_layers` and optional
   `cwd`; `ConfigReadResponse.config` is the effective config source aharness
-  uses to resolve the target model when only `reasoningEffort` is declared.
+  uses to resolve the target model for clear states when only
+  `model.effort` is declared.
 - The same `common.rs` table declares `ModelList => "model/list"` with
   `ModelListParams` and `ModelListResponse`. Aharness calls
   `model/list({ includeHidden: true })` for catalog validation.
-- `v2.rs` declares `Model.supported_reasoning_efforts`,
+- `codex-rs/app-server-protocol/src/protocol/v2/model.rs` declares
+  `Model.supported_reasoning_efforts`,
   `Model.default_reasoning_effort`, `Model.is_default`, and
   `ReasoningEffortOption.reasoning_effort`. The supported-efforts list is the
   model-specific signal aharness uses for verify-time and runtime preflight
@@ -120,10 +131,16 @@ effort. Aharness relies on the following pinned source surfaces at
 - `codex-rs/protocol/src/openai_models.rs` declares `ReasoningEffort` with
   lowercase serde spellings: `none`, `minimal`, `low`, `medium`, `high`, and
   `xhigh`.
+- `codex-rs/app-server-protocol/src/protocol/v2/thread.rs` declares
+  `ThreadSettingsUpdateParams` and `ThreadSettingsUpdateResponse`.
+
+  `thread/settings/update` returns an acknowledgement-style empty response;
+  Codex queues the update request before the next `turn/start` in the
+  shared submission flow.
 
 The offline drift checker validates these method literals and source spans at
 the pinned commit. Do not weaken the check to rely on mutable Codex `HEAD`; if a
-future feature needs a source surface absent from `127434cd8b96`, bump the
+future feature needs a source surface absent from `7d47056ea426`, bump the
 documented pin deliberately.
 
 ## Aharness hook override shape
@@ -273,7 +290,7 @@ config override `approval_policy = "on-request"` by passing
 `-c approval_policy="on-request"` on every spawn. This is an internal
 runtime default, not a public aharness CLI flag.
 
-Source verification at pinned Codex commit `127434cd8b96`:
+Source verification at pinned Codex commit `7d47056ea426`:
 
 - `cli/src/main.rs:833-850` passes root `CliConfigOverrides` into
   `codex_app_server::run_main_with_transport(...)` for
@@ -319,14 +336,15 @@ Approval notification audit:
 
 ---
 
-## Clear-on-entry model and reasoning-effort contract
+## Clear replacement `thread/start` source contract
 
-The clear-on-entry model/effort feature depends on Codex app-server
-surfaces that are present at the pinned commit `127434cd8b96`.
+The clear-state lowering of state-level `model: { name, effort }`
+declarations depends on Codex app-server surfaces that are present at the
+pinned commit `7d47056ea426`.
 
 Source verification at the pinned commit:
 
-- `app-server-protocol/src/protocol/v2.rs:3548-3618` declares
+- `app-server-protocol/src/protocol/v2/thread.rs:95-157` declares
   `ThreadStartParams`. The aharness sends explicit clear replacement
   model selection through `thread/start.model`, and effort selection
   through `thread/start.config.model_reasoning_effort`; the required
@@ -335,30 +353,30 @@ Source verification at the pinned commit:
 - `app-server-protocol/src/protocol/common.rs:904-907` declares
   `ConfigRead => "config/read"` with `params: v2::ConfigReadParams`
   and `response: v2::ConfigReadResponse`.
-- `app-server-protocol/src/protocol/v2.rs:926-934` declares
+- `app-server-protocol/src/protocol/v2/config.rs:331-335` declares
   `ConfigReadParams`, including optional `cwd`, so the aharness can
   ask Codex for the effective config from a clear replacement working
   directory.
-- `app-server-protocol/src/protocol/v2.rs:939-945` declares
+- `app-server-protocol/src/protocol/v2/config.rs:344-350` declares
   `ConfigReadResponse { config: Config, ... }`. The effective config
   includes `model` and `model_reasoning_effort`; the aharness reads
-  `model` for effort-only declarations and writes
+  `model` for clear-state effort-only declarations and writes
   `model_reasoning_effort` under `thread/start.config` for replacement
   startup.
 - `app-server-protocol/src/protocol/common.rs:770-773` declares
   `ModelList => "model/list"` with `params: v2::ModelListParams` and
   `response: v2::ModelListResponse`.
-- `app-server-protocol/src/protocol/v2.rs:2485-2495` declares
+- `app-server-protocol/src/protocol/v2/model.rs:39-57` declares
   `ModelListParams`, including `include_hidden`. The aharness uses
   `includeHidden: true` so explicit model declarations are checked
   against the full catalog.
-- `app-server-protocol/src/protocol/v2.rs:2515-2534` declares the
+- `app-server-protocol/src/protocol/v2/model.rs:81-90` declares the
   model catalog entry. The aharness relies on `model`,
   `supported_reasoning_efforts`, `default_reasoning_effort`, and
   `is_default`.
-- `app-server-protocol/src/protocol/v2.rs:2549-2552` declares
+- `app-server-protocol/src/protocol/v2/model.rs:119-122` declares
   `ReasoningEffortOption { reasoning_effort, description }`.
-- `app-server-protocol/src/protocol/v2.rs:2557-2562` declares
+- `app-server-protocol/src/protocol/v2/model.rs:129-133` declares
   `ModelListResponse { data, next_cursor }`; the aharness follows
   pagination until `nextCursor` is absent.
 - `protocol/src/openai_models.rs:43-51` declares `ReasoningEffort`
@@ -526,7 +544,7 @@ re-verify.
 
 ### `turn/interrupt` wire literal and params struct
 
-Verified at pinned commit `127434cd8b96`:
+Verified at pinned commit `7d47056ea426`:
 
 - Wire literal: `"turn/interrupt"` at
   `app-server-protocol/src/protocol/common.rs:729`

@@ -6,7 +6,7 @@
  * bump can update every site by editing one file.
  *
  * Verification: every literal below was confirmed against codex-rs at
- * pinned commit `127434cd8b96` (see `SUPPORTED_CODEX.md` §R18). Source
+ * pinned commit `7d47056ea426` (see `SUPPORTED_CODEX.md` §R18). Source
  * paths are recorded inline. The verification grep was:
  *
  *   git grep -nE '"(thread|tool|turn|item|hook|response|user_input|userInput|initialize)/[a-zA-Z_/]*"' \
@@ -36,6 +36,8 @@ export const METHOD = {
   threadStart: 'thread/start',
   // app-server-protocol/src/protocol/common.rs:440
   threadResume: 'thread/resume',
+  // app-server-protocol/src/protocol/common.rs:517
+  threadSettingsUpdate: 'thread/settings/update',
   // docs/specs/2026-05-12-headless-architecture-design.md records the
   // pinned upstream `thread/rollback` paths.
   threadRollback: 'thread/rollback',

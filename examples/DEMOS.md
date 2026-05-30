@@ -83,7 +83,9 @@ owner-yield, one model-only state, one yes/no gate, one final state.
 
 **File:** `examples/ops-clear-demo.fsm.ts`
 **States:** `say` → `forget` → `done`
-**Mechanism:** the **fastest** way to verify `clearOnEntry` end-to-end.
+**Mechanism:** the **fastest** way to verify a replacement-thread boundary end-to-end.
+`clearOnEntry` is used here only for thread freshness; model/effort is now set
+using per-state `model` in the API docs.
 Two states, two short typed replies, one fresh model thread between them.
 
 ### Walkthrough

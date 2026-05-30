@@ -215,7 +215,16 @@ const sidecarCrossState: SchemaSidecar = {
   },
 };
 
-function buildCrossStateClearOnEntryMachine(clearOnEntry: ClearOnEntryMeta = true) {
+function buildCrossStateClearOnEntryMachine(
+  options: {
+    readonly clearOnEntry?: ClearOnEntryMeta;
+    readonly model?: {
+      readonly name?: string;
+      readonly effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+    };
+  } = {},
+) {
+  const { clearOnEntry = true, model } = options;
   return aharness.machine({
     id: 'm',
     initial: 'a',
@@ -227,6 +236,7 @@ function buildCrossStateClearOnEntryMachine(clearOnEntry: ClearOnEntryMeta = tru
       }),
       b: state({
         exits: { back: exit<{}>({ to: 'a' }) },
+        model,
         entryPrompt: 'in b',
         clearOnEntry,
       }),
@@ -1168,7 +1178,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
   });
 
   it('cross-state submit into clearOnEntry cwd object schedules fresh clear', async () => {
-    const machine = buildCrossStateClearOnEntryMachine({ cwd: '/abs/worktree' });
+    const machine = buildCrossStateClearOnEntryMachine({ clearOnEntry: { cwd: '/abs/worktree' } });
     const host = new ActorHost(machine, undefined);
     host.start();
     const scheduleFreshClear = vi.fn();
@@ -1203,10 +1213,12 @@ describe('createSubmitDispatcher — Phase 1', () => {
     expect(scheduleCrossStateDance).not.toHaveBeenCalled();
   });
 
-  it('cross-state submit into clearOnEntry model object schedules fresh clear', async () => {
+  it('cross-state submit into state-level model object schedules fresh clear', async () => {
     const machine = buildCrossStateClearOnEntryMachine({
-      model: 'gpt-5.1-codex',
-      reasoningEffort: 'high',
+      model: {
+        name: 'gpt-5.1-codex',
+        effort: 'high',
+      },
     });
     const host = new ActorHost(machine, undefined);
     host.start();
@@ -1304,12 +1316,39 @@ describe('createSubmitDispatcher — Phase 1', () => {
       arguments: JSON.stringify({ state: 'a', exit: 'go', data: {} }),
     });
     expect(scheduleCrossStateDance).toHaveBeenCalledTimes(1);
-    expect(scheduleCrossStateDance).toHaveBeenCalledWith({
-      threadId: 'thr-1',
-      turnId: 'tur-1',
-      callId: 'cid-1',
-      orientationText: composedNudge,
+    expect(scheduleCrossStateDance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thr-1',
+        turnId: 'tur-1',
+        callId: 'cid-1',
+        orientationText: composedNudge,
+      }),
+    );
+  });
+
+  it('cross-state submit passes applyStateModel callback through to scheduleCrossStateDance', async () => {
+    const machine = buildCrossStateMachine();
+    const host = new ActorHost(machine, undefined);
+    host.start();
+    const composeActiveStateNudge = vi.fn(() => 'nudge-text');
+    const applyStateModel = vi.fn(async () => undefined);
+    const scheduleCrossStateDance = vi.fn();
+    const dispatch = createSubmitDispatcher({
+      host,
+      machine,
+      sidecar: sidecarCrossState,
+      flushSnapshot: vi.fn(),
+      composeActiveStateNudge,
+      applyStateModel,
+      scheduleCrossStateDance,
     });
+    await dispatch(call(JSON.stringify({ state: 'a', exit: 'go', data: {} })));
+    expect(scheduleCrossStateDance).toHaveBeenCalledTimes(1);
+    const arg = scheduleCrossStateDance.mock.calls[0]![0] as {
+      applyStateModel?: () => Promise<void>;
+    };
+    expect(arg.applyStateModel).toBeDefined();
+    expect(arg.applyStateModel).toEqual(expect.any(Function));
   });
 
   it('cross-state submit without scheduleCrossStateDance opt throws "crossStateDance not wired"', async () => {

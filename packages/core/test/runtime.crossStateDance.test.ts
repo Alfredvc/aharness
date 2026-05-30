@@ -265,6 +265,44 @@ describe('scheduleCrossStateDance (Phase 2a)', () => {
     expect(requests.map((r) => r.method)).toEqual(['turn/interrupt', 'turn/start']);
   });
 
+  it('awaits applyStateModel between turn/interrupt and turn/start', async () => {
+    const sequence: string[] = [];
+    const { registry, resolveMatch } = makeControlledRegistry();
+    const requests: RecordedRequest[] = [];
+    const client = {
+      request: async (method: string, params: unknown): Promise<unknown> => {
+        requests.push({ method, params });
+        if (method === 'turn/interrupt') sequence.push('interrupt');
+        if (method === 'turn/start') sequence.push('turn/start');
+        return {};
+      },
+    } as unknown as JsonRpcClient;
+
+    const applyStateModel = vi.fn(async () => {
+      sequence.push('apply-start');
+      await Promise.resolve();
+      sequence.push('apply-end');
+    });
+
+    scheduleCrossStateDance({
+      client,
+      watcherRegistry: registry,
+      activeThreadBinding: activeThread('t'),
+      turnId: 'turn-1',
+      callId: 'call-1',
+      orientationText: 'nudge',
+      markSubmittedThisTurn: () => {},
+      applyStateModel,
+    });
+
+    resolveMatch('call-1');
+    await flushMicrotasks();
+    await flushMicrotasks();
+    await flushMicrotasks();
+
+    expect(sequence).toEqual(['interrupt', 'apply-start', 'apply-end', 'turn/start']);
+  });
+
   it("turn/start carries input=[{type:'text', text: <orientationText>}]", async () => {
     const { registry, resolveMatch } = makeControlledRegistry();
     const { client, requests } = makeFakeClient();
@@ -475,5 +513,49 @@ describe('scheduleCrossStateDance (Phase 2a)', () => {
     expect(clearMark).toHaveBeenCalledTimes(1);
     expect(requestDriveForwardSalvage).toHaveBeenCalledTimes(1);
     expect(sequence).toEqual(['clear', 'onError', 'salvage']);
+  });
+
+  it('settings-update failure skips requestDriveForwardSalvage after clear + onError', async () => {
+    const { registry, resolveMatch } = makeControlledRegistry();
+    const { client, requests } = makeFakeClient();
+    const clearMark = vi.fn();
+    const onError = vi.fn();
+    const onStateModelFailure = vi.fn();
+    const requestDriveForwardSalvage = vi.fn();
+
+    scheduleCrossStateDance({
+      client,
+      watcherRegistry: registry,
+      activeThreadBinding: activeThread('t'),
+      turnId: 'turn-1',
+      callId: 'call-1',
+      orientationText: 'nudge',
+      markSubmittedThisTurn: () => {},
+      clearSubmittedThisTurn: clearMark,
+      onError,
+      onStateModelFailure,
+      applyStateModel: vi.fn(async () => {
+        throw new Error('thread/settings/update failed');
+      }),
+      requestDriveForwardSalvage,
+    });
+
+    resolveMatch('call-1');
+    await flushMicrotasks();
+
+    expect(requests).toEqual([
+      {
+        method: 'turn/interrupt',
+        params: { threadId: 't', turnId: 'turn-1' },
+      },
+    ]);
+    expect(clearMark).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onStateModelFailure).toHaveBeenCalledTimes(1);
+    expect((onStateModelFailure.mock.calls[0][0] as Error).message).toBe(
+      'thread/settings/update failed',
+    );
+    expect(requestDriveForwardSalvage).not.toHaveBeenCalled();
+    expect(requests.some((request) => request.method === 'turn/start')).toBe(false);
   });
 });

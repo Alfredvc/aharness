@@ -71,6 +71,29 @@ describe('notification router (Phase 1)', () => {
     expect(onTurnCompleted).toHaveBeenCalledTimes(1); // sub-thread ignored
   });
 
+  it('reports rejected async turn/completed callbacks', async () => {
+    const c = makeStubClient();
+    const activeThreadBinding = createActiveThreadBinding('parent-1');
+    const error = new Error('drive-forward failed');
+    const onTurnCompletedError = vi.fn();
+    startNotificationRouter({
+      client: c as unknown as JsonRpcClient,
+      activeThreadBinding,
+      onTurnCompleted: async () => {
+        throw error;
+      },
+      onTurnCompletedError,
+      onItemStarted: () => {},
+      onItemCompleted: () => {},
+    });
+
+    c.fire('turn/completed', { threadId: 'parent-1' });
+    await Promise.resolve();
+
+    expect(onTurnCompletedError).toHaveBeenCalledTimes(1);
+    expect(onTurnCompletedError).toHaveBeenCalledWith(error);
+  });
+
   it('reports received sub-thread notifications without forwarding them to parent callbacks', () => {
     const c = makeStubClient();
     const activeThreadBinding = createActiveThreadBinding('parent-1');

@@ -40,7 +40,7 @@ Normal public API:
 
 - `createFsm<Data>()`
 - `fsm.machine({ id, input?, data?, initial, states })`
-- `fsm.state({ mode?, main?, prompt, ask?, on?, entry?, clearOnEntry?, guidance?, skills?, xstate? })`
+- `fsm.state({ mode?, main?, prompt, ask?, on?, entry?, model?, clearOnEntry?, guidance?, skills?, xstate? })`
 - `fsm.submit<TPayload>({ to, effect?, reduce?, actions? })`
 - `fsm.submit<TPayload>({ route: [...] })`
 - `fsm.await({ ask, to, effect?, reduce? })`
@@ -197,32 +197,31 @@ Reducers receive mutable draft data. They must be synchronous. They may mutate `
 
 Effects receive read-only data and payload plus `ops`. They are for external work that must complete before commit. There is no fire-and-forget effect API.
 
-`AharnessOps` is currently a reserved empty facade. Fresh model context is declarative via `clearOnEntry`, not `ops.clear()`.
+`AharnessOps` is currently a reserved empty facade. Fresh context controls are
+declarative via `model` and `clearOnEntry`, not `ops.clear()`.
 
-Use `clearOnEntry` on a live, non-initial state when entering that state should
-discard prior model context. Boolean form keeps the working directory at the
-original aharness launch CWD:
+Use `model` to declare per-state model and effort overrides:
 
 ```ts
 implement: fsm.state({
-  clearOnEntry: true,
+  model: { name: 'gpt-5.1-codex', effort: 'high' },
   prompt: 'Implement the approved change and submit test evidence.',
   on: {
     implemented: fsm.submit<{ summary: string }>({ to: 'verify' }),
   },
 });
-```
 
-Object form starts the fresh model context in a specific working directory,
-model, reasoning effort, or any non-empty combination of those options:
-
-```ts
-reviewWorktree: fsm.state({
-  clearOnEntry: {
-    cwd: '/absolute/path/to/worktree',
-    model: 'gpt-5.1-codex',
-    reasoningEffort: 'high',
+highEffort: fsm.state({
+  model: { effort: 'high' },
+  prompt: 'Review with higher reasoning effort.',
+  on: {
+    reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
   },
+});
+
+reviewWorktree: fsm.state({
+  clearOnEntry: { cwd: '/absolute/path/to/worktree' },
+  model: { name: 'gpt-5.1-codex', effort: 'high' },
   prompt: 'Review this worktree and submit findings.',
   on: {
     reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
@@ -230,12 +229,22 @@ reviewWorktree: fsm.state({
 });
 ```
 
-Model-only, effort-only, and model-plus-effort forms are valid:
+`model` can include `name`, `effort`, or both. Omit `model` on a non-clear state
+to keep the previously effective settings.
+
+Use `clearOnEntry` on a live, non-initial state when entering should discard prior
+thread context. Boolean form keeps the working directory at the original launch
+CWD:
 
 ```ts
-clearOnEntry: { model: 'gpt-5.1-codex' }
-clearOnEntry: { reasoningEffort: 'high' }
-clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' }
+freshStart: fsm.state({
+  clearOnEntry: true,
+  model: { name: 'gpt-5.1-codex' },
+  prompt: 'Start this phase from a replacement thread.',
+  on: {
+    started: fsm.submit<{ summary: string }>({ to: 'done' }),
+  },
+});
 ```
 
 Use function-form `cwd` for worktree and multi-project workflows where the
@@ -253,15 +262,9 @@ packageWork: fsm.state({
 
 `cwd` must resolve to a non-empty absolute path for an existing directory. The
 aharness run directory, snapshots, event logs, and artifacts remain anchored to
-the original launch directory. `model` and `reasoningEffort` must be static
-strings. Allowed efforts are `none`, `minimal`, `low`, `medium`, `high`, and
+the original launch directory. `model.name` and `model.effort` must be static
+declarations. Allowed efforts are `none`, `minimal`, `low`, `medium`, `high`, and
 `xhigh`.
-
-`reasoningEffort` can omit `model`. aharness resolves the target model from
-Codex effective config for the clear CWD, then Codex's catalog default. Static
-declarations are checked by `aharness verify` through Codex `config/read` and
-`model/list`; function-form `cwd` may defer effort support checks to runtime
-preflight.
 
 Use final artifacts for run reports:
 

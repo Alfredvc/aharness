@@ -65,6 +65,70 @@ describe('performFreshClear', () => {
     expect(abandonedDuringCleanup).toEqual([true, true]);
   });
 
+  it('waits for pending model settings update before thread/start orientation', async () => {
+    const binding = createActiveThreadBinding('thread-old');
+    let release: (() => void) | null = null;
+    const waitForSettled = async (): Promise<void> =>
+      new Promise((resolve) => {
+        release = resolve;
+      });
+
+    const client = createClient((method) => {
+      if (method === METHOD.threadStart) return { thread: { id: 'thread-new', ephemeral: false } };
+      if (method === METHOD.turnStart) return { turn: { id: 'turn-new' } };
+      return {};
+    });
+
+    const clearPromise = performFreshClear({
+      client,
+      activeThreadBinding: binding,
+      oldTurnId: 'turn-old',
+      cwd: '/repo',
+      dynamicTools,
+      waitForSettled,
+      composeActiveStateNudge: () => 'state orientation',
+      onCleanupError: vi.fn(),
+    });
+
+    // Let the function progress through cleanup and thread replacement;
+    // no `turn/start` should happen until `waitForSettled` resolves.
+    await Promise.resolve();
+    await Promise.resolve();
+    const methodsBeforeSettle = client.calls.map((call) => call.method);
+    expect(methodsBeforeSettle).toEqual([
+      METHOD.turnInterrupt,
+      METHOD.threadUnsubscribe,
+      METHOD.threadStart,
+    ]);
+    expect(client.calls.filter((call) => call.method === METHOD.turnStart)).toEqual([]);
+    await vi.waitFor(() => expect(release).toBeDefined());
+    expect(release).not.toBeUndefined();
+    release?.();
+    await clearPromise;
+    expect(client.calls).toEqual([
+      {
+        method: METHOD.turnInterrupt,
+        params: { threadId: 'thread-old', turnId: 'turn-old' },
+      },
+      { method: METHOD.threadUnsubscribe, params: { threadId: 'thread-old' } },
+      {
+        method: METHOD.threadStart,
+        params: {
+          cwd: '/repo',
+          dynamicTools,
+          sessionStartSource: 'clear',
+        },
+      },
+      {
+        method: METHOD.turnStart,
+        params: {
+          threadId: 'thread-new',
+          input: [{ type: 'text', text: 'state orientation' }],
+        },
+      },
+    ]);
+  });
+
   it('interrupts and unsubscribes the old thread before starting and orienting a replacement', async () => {
     const binding = createActiveThreadBinding('thread-old');
     const bindingDuringTurnStart: string[] = [];

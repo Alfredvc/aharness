@@ -53,75 +53,74 @@ describe('state() new shape', () => {
     expect(falseClear.meta.aharness).not.toHaveProperty('clearOnEntry');
   });
 
-  it('accepts clearOnEntry model and reasoning effort object forms', () => {
+  it('accepts state-level model declarations', () => {
     const modelOnly = state({
       entryPrompt: 'do thing',
       exits: { submit: exit<{ x: number }>({ to: 'next' }) },
-      clearOnEntry: { model: 'gpt-5.1-codex' },
+      model: { name: 'gpt-5.1-codex' },
     });
     const effortOnly = state({
       entryPrompt: 'do thing',
       exits: { submit: exit<{ x: number }>({ to: 'next' }) },
-      clearOnEntry: { reasoningEffort: 'high' },
+      model: { effort: 'high' },
     });
     const modelAndEffort = state({
       entryPrompt: 'do thing',
       exits: { submit: exit<{ x: number }>({ to: 'next' }) },
-      clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' },
+      model: { name: 'gpt-5.1-codex', effort: 'high' },
     });
-    const cwdModelAndEffort = state({
+    const modelOnlyWithCwd = state({
       entryPrompt: 'do thing',
       exits: { submit: exit<{ x: number }>({ to: 'next' }) },
-      clearOnEntry: {
-        cwd: '/abs/path',
-        model: 'gpt-5.1-codex',
-        reasoningEffort: 'minimal',
-      },
+      model: { name: 'gpt-5.1-codex', effort: 'minimal' },
     });
 
-    expect(modelOnly).toHaveProperty('meta.aharness.clearOnEntry', {
-      model: 'gpt-5.1-codex',
+    expect(modelOnly).toHaveProperty('meta.aharness.model', {
+      name: 'gpt-5.1-codex',
     });
-    expect(effortOnly).toHaveProperty('meta.aharness.clearOnEntry', {
-      reasoningEffort: 'high',
+    expect(effortOnly).toHaveProperty('meta.aharness.model', {
+      effort: 'high',
     });
-    expect(modelAndEffort).toHaveProperty('meta.aharness.clearOnEntry', {
-      model: 'gpt-5.1-codex',
-      reasoningEffort: 'high',
+    expect(modelAndEffort).toHaveProperty('meta.aharness.model', {
+      name: 'gpt-5.1-codex',
+      effort: 'high',
     });
-    expect(cwdModelAndEffort).toHaveProperty('meta.aharness.clearOnEntry', {
-      cwd: '/abs/path',
-      model: 'gpt-5.1-codex',
-      reasoningEffort: 'minimal',
+    expect(modelOnlyWithCwd).toHaveProperty('meta.aharness.model', {
+      name: 'gpt-5.1-codex',
+      effort: 'minimal',
     });
   });
 
-  it('rejects malformed clearOnEntry model and reasoning effort object forms', () => {
+  it('rejects legacy clearOnEntry model declarations and malformed model metadata', () => {
     const base = {
       entryPrompt: 'do thing',
       exits: { submit: exit<{ x: number }>({ to: 'next' }) },
     };
 
-    expect(() => state({ ...base, clearOnEntry: {} })).toThrow(/cwd, model, reasoningEffort/);
+    expect(() => state({ ...base, clearOnEntry: {} })).toThrow(/supported key: cwd/);
     expect(() =>
-      state({ ...base, clearOnEntry: { model: 5 } as unknown as { model: string } }),
-    ).toThrow(/clearOnEntry\.model/);
+      state({ ...base, clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' } }),
+    ).toThrow(/move.*state-level/i);
+    expect(() => state({ ...base, clearOnEntry: { model: 'gpt-5.1-codex' } })).toThrow(
+      /move.*state-level/i,
+    );
+    expect(() => state({ ...base, clearOnEntry: { reasoningEffort: 'high' } })).toThrow(
+      /state-level/i,
+    );
+    expect(() => state({ ...base, model: {} })).toThrow(/model object/);
     expect(() =>
       state({
         ...base,
-        clearOnEntry: { reasoningEffort: true } as unknown as {
-          reasoningEffort: 'high';
-        },
+        model: { effort: true } as unknown as { effort: string },
       }),
-    ).toThrow(/clearOnEntry\.reasoningEffort/);
-    expect(() =>
-      state({
-        ...base,
-        clearOnEntry: { reasoningEffort: 'extreme' } as unknown as {
-          reasoningEffort: 'high';
-        },
-      }),
-    ).toThrow(/clearOnEntry\.reasoningEffort.*none, minimal, low, medium, high, xhigh/);
+    ).toThrow(/model\.effort/);
+    expect(() => state({ ...base, model: { effort: 'extreme' } })).toThrow(/model\.effort/);
+    expect(() => state({ ...base, model: { name: 5 } as unknown as { name: string } })).toThrow(
+      /model\.name/,
+    );
+    expect(() => state({ ...base, model: { name: '' } as { name: string } })).toThrow(
+      /model\.name/,
+    );
   });
 
   it('defaults kind:"submit" on exit declarations omitting kind', () => {
@@ -346,57 +345,84 @@ describe('createFsm() canonical authoring surface', () => {
     expect(functionCwd.meta.aharness.clearOnEntry).toEqual({ cwd: expect.any(Function) });
   });
 
-  it('accepts canonical clearOnEntry model and reasoning effort object forms', () => {
+  it('accepts canonical state-level model declarations', () => {
     const fsm = createFsm<CanonicalDemoData>();
 
     const modelOnly = fsm.state({
       prompt: 'Use a requested model.',
-      clearOnEntry: { model: 'gpt-5.1-codex' },
+      model: { name: 'gpt-5.1-codex' },
       on: {
         submit: fsm.submit<{ ok: boolean }>({ to: 'done' }),
       },
     });
     const effortOnly = fsm.state({
       prompt: 'Use a requested effort.',
-      clearOnEntry: { reasoningEffort: 'high' },
+      model: { effort: 'high' },
       on: {
         submit: fsm.submit<{ ok: boolean }>({ to: 'done' }),
       },
     });
     const modelAndEffort = fsm.state({
       prompt: 'Use a requested model.',
-      clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' },
+      model: { name: 'gpt-5.1-codex', effort: 'high' },
       on: {
         submit: fsm.submit<{ ok: boolean }>({ to: 'done' }),
       },
     });
-    const cwdModelAndEffort = fsm.state({
-      prompt: 'Use an absolute CWD and requested model.',
-      clearOnEntry: {
-        cwd: '/abs/path',
-        model: 'gpt-5.1-codex',
-        reasoningEffort: 'low',
-      },
+    const modelOnlyWithEffort = fsm.state({
+      prompt: 'Use both model and effort.',
+      model: { name: 'gpt-5.1-codex', effort: 'low' },
       on: {
         submit: fsm.submit<{ ok: boolean }>({ to: 'done' }),
       },
     });
 
-    expect(modelOnly).toHaveProperty('meta.aharness.clearOnEntry', {
-      model: 'gpt-5.1-codex',
+    expect(modelOnly).toHaveProperty('meta.aharness.model', {
+      name: 'gpt-5.1-codex',
     });
-    expect(effortOnly).toHaveProperty('meta.aharness.clearOnEntry', {
-      reasoningEffort: 'high',
+    expect(effortOnly).toHaveProperty('meta.aharness.model', {
+      effort: 'high',
     });
-    expect(modelAndEffort).toHaveProperty('meta.aharness.clearOnEntry', {
-      model: 'gpt-5.1-codex',
-      reasoningEffort: 'high',
+    expect(modelAndEffort).toHaveProperty('meta.aharness.model', {
+      name: 'gpt-5.1-codex',
+      effort: 'high',
     });
-    expect(cwdModelAndEffort).toHaveProperty('meta.aharness.clearOnEntry', {
-      cwd: '/abs/path',
-      model: 'gpt-5.1-codex',
-      reasoningEffort: 'low',
+    expect(modelOnlyWithEffort).toHaveProperty('meta.aharness.model', {
+      name: 'gpt-5.1-codex',
+      effort: 'low',
     });
+  });
+
+  it('rejects canonical clearOnEntry model and reasoningEffort declarations', () => {
+    const fsm = createFsm<CanonicalDemoData>();
+
+    expect(() =>
+      fsm.state({
+        prompt: 'Legacy model and effort on clearOnEntry.',
+        clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' },
+        on: {
+          submit: fsm.submit<{ ok: boolean }>({ to: 'done' }),
+        },
+      }),
+    ).toThrow(/move.*state-level/i);
+    expect(() =>
+      fsm.state({
+        prompt: 'Legacy model on clearOnEntry.',
+        clearOnEntry: { model: 'gpt-5.1-codex' },
+        on: {
+          submit: fsm.submit<{ ok: boolean }>({ to: 'done' }),
+        },
+      }),
+    ).toThrow(/move.*state-level/i);
+    expect(() =>
+      fsm.state({
+        prompt: 'Legacy effort on clearOnEntry.',
+        clearOnEntry: { reasoningEffort: 'high' },
+        on: {
+          submit: fsm.submit<{ ok: boolean }>({ to: 'done' }),
+        },
+      }),
+    ).toThrow(/state-level/i);
   });
 
   it('validates canonical passive main metadata before lowering', () => {

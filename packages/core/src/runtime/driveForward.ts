@@ -63,6 +63,11 @@ export interface CreateDriveForwardOpts {
    * next turn). The flag auto-clears on the next `turn/started`.
    */
   readonly submittedThisTurn?: () => boolean;
+  /**
+   * Shared wait gate for state model settings. Awaited immediately before
+   * each aharness-owned `turn/start`.
+   */
+  readonly waitForSettled?: () => Promise<void>;
 }
 
 export interface DriveForwardHandle {
@@ -91,6 +96,7 @@ export function createDriveForward(o: CreateDriveForwardOpts): DriveForwardHandl
    */
   async function issueDefaultTurnStart(): Promise<void> {
     const nudge = o.composeActiveStateNudge();
+    await o.waitForSettled?.();
     await o.client.request<TurnStartResponse>(METHOD.turnStart, {
       threadId: o.activeThreadBinding.require(),
       input: [{ type: 'text', text: nudge }],
