@@ -318,9 +318,9 @@ export type OnEntryFn<TContext = unknown> = (
 
 type ClearOnEntryCwd = string | ((ctx: Readonly<RunCtx>) => string);
 
-export type ClearOnEntryReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type StateModelEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
-const clearOnEntryReasoningEfforts = new Set<ClearOnEntryReasoningEffort>([
+const stateModelEfforts = new Set<StateModelEffort>([
   'none',
   'minimal',
   'low',
@@ -329,20 +329,28 @@ const clearOnEntryReasoningEfforts = new Set<ClearOnEntryReasoningEffort>([
   'xhigh',
 ]);
 
+export interface StateModelMeta {
+  readonly name?: string;
+  readonly effort?: StateModelEffort;
+}
+
+type StateModelOption<_TContext extends MachineContext> = {
+  readonly name?: string;
+  readonly effort?: StateModelEffort;
+};
+
+export type ClearOnEntryReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
 export type ClearOnEntryMeta =
   | true
   | {
       readonly cwd?: ClearOnEntryCwd;
-      readonly model?: string;
-      readonly reasoningEffort?: ClearOnEntryReasoningEffort;
     };
 
 type ClearOnEntryOption<TContext extends MachineContext> =
   | boolean
   | {
       readonly cwd?: string | ((ctx: Readonly<TContext & RunCtx>) => string);
-      readonly model?: string;
-      readonly reasoningEffort?: ClearOnEntryReasoningEffort;
     };
 
 export interface AharnessStateMeta {
@@ -356,6 +364,7 @@ export interface AharnessStateMeta {
   readonly awaitsOwnerText?: AwaitsOwnerTextDecl;
   readonly onEntry?: OnEntryFn;
   readonly clearOnEntry?: ClearOnEntryMeta;
+  readonly model?: StateModelMeta;
   readonly hooks?: StateHooks<unknown>;
   readonly canonicalEvents?: Readonly<Record<string, CanonicalEventMeta>>;
   /**
@@ -399,6 +408,7 @@ export interface StateOptions<TContext extends MachineContext = MachineContext> 
   readonly awaitsOwnerText?: AwaitsOwnerTextDecl<TContext>;
   readonly onEntry?: OnEntryFn<TContext>;
   readonly clearOnEntry?: ClearOnEntryOption<TContext>;
+  readonly model?: StateModelOption<TContext>;
   readonly hooks?: StateHooks<TContext>;
   readonly canonicalEvents?: Readonly<Record<string, CanonicalEventMeta<TContext>>>;
   readonly skills?: ReadonlyArray<SkillRef>;
@@ -415,38 +425,59 @@ function normalizeClearOnEntry<TContext extends MachineContext>(
   if (value === true) return true;
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     throw new TypeError(
-      'state(): clearOnEntry must be true, false, or an object with at least one of cwd, model, or reasoningEffort when provided',
+      'state(): clearOnEntry must be true, false, or an object with at least one supported key: cwd',
     );
   }
   const cwd = (value as { readonly cwd?: unknown }).cwd;
-  const model = (value as { readonly model?: unknown }).model;
-  const reasoningEffort = (value as { readonly reasoningEffort?: unknown }).reasoningEffort;
-  if (cwd === undefined && model === undefined && reasoningEffort === undefined) {
+  if (
+    Object.prototype.hasOwnProperty.call(value, 'model') ||
+    Object.prototype.hasOwnProperty.call(value, 'reasoningEffort')
+  ) {
     throw new TypeError(
-      'state(): clearOnEntry object must include at least one supported key: cwd, model, reasoningEffort',
+      'state(): clearOnEntry no longer accepts model or reasoningEffort. Move these settings to state-level `model: { name, effort }`.',
+    );
+  }
+  if (cwd === undefined) {
+    throw new TypeError(
+      'state(): clearOnEntry object must include at least one supported key: cwd',
     );
   }
   if (cwd !== undefined && typeof cwd !== 'string' && typeof cwd !== 'function') {
     throw new TypeError('state(): clearOnEntry.cwd must be a string or function');
   }
-  if (model !== undefined && typeof model !== 'string') {
-    throw new TypeError('state(): clearOnEntry.model must be a string');
+  return { cwd: cwd as ClearOnEntryCwd };
+}
+
+function normalizeStateModel<TContext extends MachineContext>(
+  value: StateModelOption<TContext> | undefined,
+): StateModelMeta | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(
+      'state(): model must be an object with at least one supported key: name, effort',
+    );
+  }
+  const name = (value as { readonly name?: unknown }).name;
+  const effort = (value as { readonly effort?: unknown }).effort;
+  if (name === undefined && effort === undefined) {
+    throw new TypeError(
+      'state(): model object must include at least one supported key: name, effort',
+    );
+  }
+  if (name !== undefined && (typeof name !== 'string' || name.length === 0)) {
+    throw new TypeError('state(): model.name must be a non-empty string');
   }
   if (
-    reasoningEffort !== undefined &&
-    (typeof reasoningEffort !== 'string' ||
-      !clearOnEntryReasoningEfforts.has(reasoningEffort as ClearOnEntryReasoningEffort))
+    effort !== undefined &&
+    (typeof effort !== 'string' || !stateModelEfforts.has(effort as StateModelEffort))
   ) {
     throw new TypeError(
-      'state(): clearOnEntry.reasoningEffort must be one of: none, minimal, low, medium, high, xhigh',
+      'state(): model.effort must be one of: none, minimal, low, medium, high, xhigh',
     );
   }
   return {
-    ...(cwd !== undefined ? { cwd: cwd as ClearOnEntryCwd } : {}),
-    ...(model !== undefined ? { model } : {}),
-    ...(reasoningEffort !== undefined
-      ? { reasoningEffort: reasoningEffort as ClearOnEntryReasoningEffort }
-      : {}),
+    ...(name !== undefined ? { name } : {}),
+    ...(effort !== undefined ? { effort: effort as StateModelEffort } : {}),
   };
 }
 
@@ -516,6 +547,7 @@ export function state<TContext extends MachineContext = MachineContext>(
     throw new TypeError('state(): onEntry must be a function');
   }
   const clearOnEntry = normalizeClearOnEntry(opts.clearOnEntry);
+  const model = normalizeStateModel(opts.model);
   if (opts.main !== undefined && typeof opts.main !== 'boolean') {
     throw new TypeError('state(): main must be a boolean when provided');
   }
@@ -549,6 +581,7 @@ export function state<TContext extends MachineContext = MachineContext>(
       : {}),
     ...(opts.onEntry !== undefined ? { onEntry: opts.onEntry as OnEntryFn } : {}),
     ...(clearOnEntry !== undefined ? { clearOnEntry } : {}),
+    ...(model !== undefined ? { model } : {}),
     ...(opts.hooks !== undefined ? { hooks: opts.hooks as StateHooks<unknown> } : {}),
     ...(opts.canonicalEvents !== undefined
       ? { canonicalEvents: opts.canonicalEvents as Readonly<Record<string, CanonicalEventMeta>> }

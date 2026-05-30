@@ -6,31 +6,29 @@ import type {
   ModelListParams,
   ModelListResponse,
 } from '../protocol/types.js';
-import type { ClearOnEntryReasoningEffort } from '../state/exits.js';
+import type { StateModelEffort } from '../state/exits.js';
 import {
-  validateClearOnEntryModelCatalogSelection,
+  validateStateModelCatalogSelection,
   type CodexConfigModelProvider,
 } from '../verify/clearOnEntryModelCatalog.js';
 
-export interface PreflightClearOnEntryModelOpts {
+export interface PreflightStateModelOpts {
   readonly client: Pick<JsonRpcClient, 'request'>;
   readonly stateId: string;
   readonly cwd: string;
   readonly model?: string;
-  readonly reasoningEffort?: ClearOnEntryReasoningEffort;
+  readonly effort?: StateModelEffort;
 }
 
-export async function preflightClearOnEntryModel(
-  opts: PreflightClearOnEntryModelOpts,
-): Promise<void> {
-  if (opts.model === undefined && opts.reasoningEffort === undefined) return;
+export async function preflightStateModel(opts: PreflightStateModelOpts): Promise<void> {
+  if (opts.model === undefined && opts.effort === undefined) return;
 
-  const issues = await validateClearOnEntryModelCatalogSelection({
+  const issues = await validateStateModelCatalogSelection({
     provider: createRuntimeCodexConfigModelProvider(opts.client),
     stateId: opts.stateId,
     cwd: opts.cwd,
     ...(opts.model !== undefined ? { model: opts.model } : {}),
-    ...(opts.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
+    ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
   });
   if (issues.length === 0) return;
 

@@ -54,6 +54,8 @@ import type {
   ThreadNameSetResponse,
   ThreadRollbackParams,
   ThreadRollbackResponse,
+  ThreadSettingsUpdateParams,
+  ThreadSettingsUpdateResponse,
   ThreadResumeParams,
   ThreadResumeResponse,
   ThreadSnapshot,
@@ -179,6 +181,22 @@ describe('protocol request/response types', () => {
       numTurns: number;
     }>();
     expectTypeOf<ThreadRollbackResponse>().toEqualTypeOf<Record<string, never>>();
+  });
+
+  it('thread/settings/update params + response', () => {
+    expectTypeOf<ThreadSettingsUpdateParams>().toMatchTypeOf<{
+      threadId: string;
+      model?: string;
+      effort?: CodexReasoningEffort;
+    }>();
+    expectTypeOf<ThreadSettingsUpdateResponse>().toEqualTypeOf<Record<string, never>>();
+    const update: ThreadSettingsUpdateParams = {
+      threadId: 'thread-1',
+      model: 'gpt-5.1-codex',
+      effort: 'low',
+    };
+    expect(update.threadId).toBe('thread-1');
+    expect(update.effort).toBe('low');
   });
 
   it('ThreadNameSet params + response', () => {

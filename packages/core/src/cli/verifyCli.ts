@@ -4,7 +4,7 @@
  * CI use: loads the FSM via `loadFsm` (re-exported from `@aharness/core`;
  * substrate-agnostic per migration plan §0 author surface reuse rule), runs
  * the pure codex-side verifier (`@aharness/core/src/verify`), then probes
- * Codex config/model catalog only when static `clearOnEntry` model/effort
+ * Codex config/model catalog only when explicit state-level model declarations
  * declarations require it. The command performs no run directory writes and
  * returns an exit code:
  *   - `0` when the verifier returns `ok: true`. Warnings are reported via
@@ -23,7 +23,7 @@ import { loadFsm } from '../loader/index.js';
 import { verify } from '../verify/index.js';
 import {
   createCodexConfigModelProvider,
-  verifyClearOnEntryModelCatalog,
+  verifyStateModelCatalog,
   type CodexConfigModelProvider,
   type CodexConfigModelProviderFactory,
 } from '../verify/clearOnEntryModelCatalog.js';
@@ -39,7 +39,7 @@ export interface RunVerifyCliOpts {
   readonly repoRoot?: string;
   /** Sink for status / issue lines. Tests pass `vi.fn()` to capture output. */
   readonly log: (line: string) => void;
-  /** Test seam for clearOnEntry model/effort catalog verification. */
+  /** Test seam for state-level model catalog verification. */
   readonly modelCatalogProvider?: CodexConfigModelProvider;
   /** Test seam for catalog-provider startup failures. */
   readonly modelCatalogProviderFactory?: CodexConfigModelProviderFactory;
@@ -57,7 +57,7 @@ export async function runVerifyCli(opts: RunVerifyCliOpts): Promise<RunVerifyCli
     skillEnv: { fsmFileDir, repoRoot },
   });
   if (result.ok) {
-    const catalogIssues = await verifyClearOnEntryModelCatalog({
+    const catalogIssues = await verifyStateModelCatalog({
       machine: loaded.machine,
       defaultCwd: repoRoot,
       providerFactory:

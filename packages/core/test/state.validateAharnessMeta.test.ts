@@ -22,7 +22,7 @@ describe('validateAharnessMeta — embedded compound shape', () => {
   });
 });
 
-describe('validateAharnessMeta — clearOnEntry metadata', () => {
+describe('validateAharnessMeta — stateful metadata', () => {
   const baseStatefulMeta = {
     kind: 'stateful',
     open: false,
@@ -30,7 +30,7 @@ describe('validateAharnessMeta — clearOnEntry metadata', () => {
     exits: {},
   };
 
-  it('accepts true and object-form clearOnEntry metadata', () => {
+  it('accepts valid clearOnEntry and state-level model metadata', () => {
     const fn = () => '/abs/path';
 
     expect(validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: true })).toEqual({
@@ -47,77 +47,74 @@ describe('validateAharnessMeta — clearOnEntry metadata', () => {
       ...baseStatefulMeta,
       clearOnEntry: { cwd: fn },
     });
-    expect(
-      validateAharnessMeta({
+    expect(validateAharnessMeta({ ...baseStatefulMeta, model: { name: 'gpt-5.1-codex' } })).toEqual(
+      {
         ...baseStatefulMeta,
-        clearOnEntry: { model: 'gpt-5.1-codex' },
-      }),
-    ).toEqual({
-      ...baseStatefulMeta,
-      clearOnEntry: { model: 'gpt-5.1-codex' },
-    });
-    expect(
-      validateAharnessMeta({
-        ...baseStatefulMeta,
-        clearOnEntry: { reasoningEffort: 'high' },
-      }),
-    ).toEqual({
-      ...baseStatefulMeta,
-      clearOnEntry: { reasoningEffort: 'high' },
-    });
-    expect(
-      validateAharnessMeta({
-        ...baseStatefulMeta,
-        clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' },
-      }),
-    ).toEqual({
-      ...baseStatefulMeta,
-      clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' },
-    });
-    expect(
-      validateAharnessMeta({
-        ...baseStatefulMeta,
-        clearOnEntry: {
-          cwd: '/abs/path',
-          model: 'gpt-5.1-codex',
-          reasoningEffort: 'minimal',
-        },
-      }),
-    ).toEqual({
-      ...baseStatefulMeta,
-      clearOnEntry: {
-        cwd: '/abs/path',
-        model: 'gpt-5.1-codex',
-        reasoningEffort: 'minimal',
+        model: { name: 'gpt-5.1-codex' },
       },
+    );
+    expect(validateAharnessMeta({ ...baseStatefulMeta, model: { effort: 'high' } })).toEqual({
+      ...baseStatefulMeta,
+      model: { effort: 'high' },
+    });
+    expect(
+      validateAharnessMeta({
+        ...baseStatefulMeta,
+        model: { name: 'gpt-5.1-codex', effort: 'high' },
+      }),
+    ).toEqual({
+      ...baseStatefulMeta,
+      model: { name: 'gpt-5.1-codex', effort: 'high' },
     });
   });
 
-  it('rejects malformed clearOnEntry metadata', () => {
+  it('rejects malformed clearOnEntry and state-level model metadata', () => {
     expect(() => validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: false })).toThrow(
       /clearOnEntry/,
     );
     expect(() => validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: {} })).toThrow(
-      /cwd, model, reasoningEffort/,
+      /clearOnEntry.*supported key: cwd/,
     );
     expect(() =>
       validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: { cwd: undefined } }),
-    ).toThrow(/cwd, model, reasoningEffort/);
+    ).toThrow(/supported key: cwd/);
     expect(() => validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: { cwd: 5 } })).toThrow(
       /clearOnEntry\.cwd/,
     );
-    expect(() => validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: { model: 5 } })).toThrow(
-      /clearOnEntry\.model/,
-    );
     expect(() =>
-      validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: { reasoningEffort: true } }),
-    ).toThrow(/clearOnEntry\.reasoningEffort/);
+      validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: { model: 'gpt-5.1-codex' } }),
+    ).toThrow(/state-level/);
     expect(() =>
       validateAharnessMeta({
         ...baseStatefulMeta,
-        clearOnEntry: { reasoningEffort: 'extreme' },
+        clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' },
       }),
-    ).toThrow(/none, minimal, low, medium, high, xhigh/);
+    ).toThrow(/state-level/);
+    expect(() =>
+      validateAharnessMeta({
+        ...baseStatefulMeta,
+        clearOnEntry: { reasoningEffort: 'high' },
+      }),
+    ).toThrow(/state-level/);
+    expect(() => validateAharnessMeta({ ...baseStatefulMeta, model: {} })).toThrow(
+      /at least one supported key: name, effort/,
+    );
+    const nonStringEffort = { effort: true } as const;
+    expect(() =>
+      validateAharnessMeta({
+        ...baseStatefulMeta,
+        model: nonStringEffort as unknown as { effort: string },
+      }),
+    ).toThrow(/model\.effort/);
+    expect(() =>
+      validateAharnessMeta({ ...baseStatefulMeta, model: { effort: 'extreme' } }),
+    ).toThrow(/model\.effort/);
+    expect(() =>
+      validateAharnessMeta({ ...baseStatefulMeta, model: { name: 5 } as { name: string } }),
+    ).toThrow(/model\.name/);
+    expect(() =>
+      validateAharnessMeta({ ...baseStatefulMeta, model: { name: '' } as { name: string } }),
+    ).toThrow(/model\.name/);
     expect(() => validateAharnessMeta({ ...baseStatefulMeta, clearOnEntry: undefined })).toThrow(
       /clearOnEntry/,
     );

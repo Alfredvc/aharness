@@ -3,7 +3,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { resolveClearOnEntryOptions } from '../src/runtime/clearOnEntryCwd.js';
+import {
+  resolveClearOnEntryOptions,
+  resolveStateModelOptions,
+} from '../src/runtime/clearOnEntryCwd.js';
 
 const tempRoots: string[] = [];
 
@@ -60,52 +63,16 @@ describe('resolveClearOnEntryOptions', () => {
     ).toEqual({ cwd });
   });
 
-  it('resolves model and reasoning effort options against the default cwd', () => {
+  it('resolves clearOnEntry cwd against the default launch cwd', () => {
     const defaultCwd = makeTempDir();
-
     expect(
       resolveClearOnEntryOptions({
-        clearOnEntry: { model: 'gpt-5.1-codex' },
+        clearOnEntry: { cwd: defaultCwd },
         context: {},
         defaultCwd,
         stateId: 'fresh',
       }),
-    ).toEqual({ cwd: defaultCwd, model: 'gpt-5.1-codex' });
-
-    expect(
-      resolveClearOnEntryOptions({
-        clearOnEntry: { reasoningEffort: 'high' },
-        context: {},
-        defaultCwd,
-        stateId: 'fresh',
-      }),
-    ).toEqual({ cwd: defaultCwd, reasoningEffort: 'high' });
-
-    expect(
-      resolveClearOnEntryOptions({
-        clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'minimal' },
-        context: {},
-        defaultCwd,
-        stateId: 'fresh',
-      }),
-    ).toEqual({
-      cwd: defaultCwd,
-      model: 'gpt-5.1-codex',
-      reasoningEffort: 'minimal',
-    });
-  });
-
-  it('resolves cwd, model, and reasoning effort together', () => {
-    const cwd = makeTempDir();
-
-    expect(
-      resolveClearOnEntryOptions({
-        clearOnEntry: { cwd, model: 'gpt-5.1-codex', reasoningEffort: 'low' },
-        context: {},
-        defaultCwd: makeTempDir(),
-        stateId: 'fresh',
-      }),
-    ).toEqual({ cwd, model: 'gpt-5.1-codex', reasoningEffort: 'low' });
+    ).toEqual({ cwd: defaultCwd });
   });
 
   it('rejects object-form clearOnEntry without supported options', () => {
@@ -116,29 +83,7 @@ describe('resolveClearOnEntryOptions', () => {
         defaultCwd: makeTempDir(),
         stateId: 'fresh',
       }),
-    ).toThrow(/state "fresh".*cwd, model, reasoningEffort/);
-  });
-
-  it('rejects malformed model and reasoning effort metadata defensively', () => {
-    expect(() =>
-      resolveClearOnEntryOptions({
-        clearOnEntry: { model: 5 } as never,
-        context: {},
-        defaultCwd: makeTempDir(),
-        stateId: 'fresh',
-      }),
-    ).toThrow(/state "fresh".*clearOnEntry\.model.*string/);
-
-    expect(() =>
-      resolveClearOnEntryOptions({
-        clearOnEntry: { reasoningEffort: 'extreme' } as never,
-        context: {},
-        defaultCwd: makeTempDir(),
-        stateId: 'fresh',
-      }),
-    ).toThrow(
-      /state "fresh".*clearOnEntry\.reasoningEffort.*none, minimal, low, medium, high, xhigh/,
-    );
+    ).toThrow(/state "fresh".*supported key: cwd/);
   });
 
   it('rejects function cwd errors with state and field details', () => {
@@ -215,5 +160,19 @@ describe('resolveClearOnEntryOptions', () => {
         stateId: 'fresh',
       }),
     ).toThrow(/state "fresh".*clearOnEntry\.cwd.*directory/);
+  });
+
+  it('resolves a state-level model declaration', () => {
+    expect(resolveStateModelOptions(undefined)).toEqual({});
+    expect(resolveStateModelOptions({ name: 'gpt-5.1-codex' })).toEqual({
+      model: 'gpt-5.1-codex',
+    });
+    expect(resolveStateModelOptions({ effort: 'high' })).toEqual({
+      effort: 'high',
+    });
+    expect(resolveStateModelOptions({ name: 'gpt-5.1-codex', effort: 'minimal' })).toEqual({
+      model: 'gpt-5.1-codex',
+      effort: 'minimal',
+    });
   });
 });

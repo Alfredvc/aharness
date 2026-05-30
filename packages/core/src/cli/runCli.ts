@@ -122,10 +122,14 @@ import { createDriveForward, type DriveForwardHandle } from '../runtime/driveFor
 import { createSubmitDispatcher } from '../runtime/dispatchSubmit.js';
 import { makeSerializeDispatch } from '../runtime/serializeDispatch.js';
 import { scheduleCrossStateDance } from '../runtime/crossStateDance.js';
+import { createStateModelSettings } from '../runtime/stateModelSettings.js';
 import { PHASE1_OPT_OUT_METHODS } from '../runtime/optOutNotificationMethods.js';
 import { performFreshClear } from '../runtime/freshClear.js';
-import { resolveClearOnEntryOptions } from '../runtime/clearOnEntryCwd.js';
-import { preflightClearOnEntryModel } from '../runtime/clearOnEntryModelPreflight.js';
+import {
+  resolveClearOnEntryOptions,
+  resolveStateModelOptions,
+} from '../runtime/clearOnEntryCwd.js';
+import { preflightStateModel } from '../runtime/clearOnEntryModelPreflight.js';
 import { discoverDeclaredHookKinds } from '../state/discoverHooks.js';
 import {
   payloadWithCanonicalCommit,
@@ -526,7 +530,46 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     terminalResolve = res;
   });
   const shutdownAfterTerminal: { current?: () => Promise<void> } = {};
+  let fatalShutdownRequested = false;
+  const failRunAndShutdown = (message: string): void => {
+    if (fatalShutdownRequested) return;
+    fatalShutdownRequested = true;
+    publishRunFailedOnce(message);
+    const shutdown = shutdownAfterTerminal.current;
+    void Promise.resolve(shutdown?.())
+      .catch((error: unknown) => {
+        const err = error instanceof Error ? error : new Error(String(error));
+        o.stderr.write(`aharness: shutdown after run failure failed: ${err.message}\n`);
+      })
+      .finally(() => {
+        terminalResolve({ exitCode: 1 });
+      });
+  };
+  let stateModelFailureReported = false;
+  let stateModelFailureError: Error | undefined;
+  const reportStateModelError = (error: Error): void => {
+    stateModelFailureError = error;
+    if (!stateModelFailureReported) {
+      stateModelFailureReported = true;
+      o.stderr.write(`aharness: state model settings failure: ${error.message}\n`);
+    }
+  };
+  const failRunForStateModelError = (error: Error): void => {
+    reportStateModelError(error);
+    failRunAndShutdown('state-model update failed; shutting down');
+  };
   const serializeDispatch = makeSerializeDispatch();
+  const stateModelSettings = createStateModelSettings({
+    client: {
+      request: <T>(method: string, params: unknown) => {
+        if (!client) throw new Error('internal: client unbound for state-model settings');
+        const p = client.request<T>(method, params);
+        return p;
+      },
+    },
+    activeThreadBinding,
+    onFatal: reportStateModelError,
+  });
   const writeActiveFinalArtifacts = async (
     terminalStateId: string,
     context?: Record<string, unknown>,
@@ -617,6 +660,13 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       const threadId = activeThreadBinding.current();
       if (!client || threadId === undefined) {
         throw new Error('browser reply path is not ready');
+      }
+      try {
+        await stateModelSettings.waitForSettled();
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        failRunForStateModelError(err);
+        throw err;
       }
       await client.request(METHOD.turnStart, {
         threadId,
@@ -785,6 +835,32 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     submittedThisTurnFlag = false;
     publishPostureChange({ submittedThisTurn: false });
   };
+  const prepareStateModelApplyForActiveState = ():
+    | ReturnType<typeof stateModelSettings.prepareApplyForActiveState>
+    | undefined => {
+    const meta = host.currentMeta();
+    if (
+      meta === undefined ||
+      meta.kind !== 'stateful' ||
+      Object.prototype.hasOwnProperty.call(meta, 'clearOnEntry')
+    ) {
+      return undefined;
+    }
+
+    const stateModel = resolveStateModelOptions(meta.model);
+    if (stateModel.model === undefined && stateModel.effort === undefined) {
+      return undefined;
+    }
+
+    return stateModelSettings.prepareApplyForActiveState({
+      stateId: host.currentStateId(),
+      ...(stateModel.model !== undefined ? { model: stateModel.model } : {}),
+      ...(stateModel.effort !== undefined ? { effort: stateModel.effort } : {}),
+    });
+  };
+  const applyStateModelForActiveState = async (): Promise<void> => {
+    await prepareStateModelApplyForActiveState()?.apply();
+  };
   function scheduleFreshClearAfterTransition(info: {
     readonly from: string;
     readonly to: string;
@@ -795,11 +871,31 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     if (info.from === info.to) return;
     const meta = host.currentMeta();
     if (meta?.kind !== 'stateful' || !Object.prototype.hasOwnProperty.call(meta, 'clearOnEntry')) {
+      const pending = prepareStateModelApplyForActiveState();
+      if (pending !== undefined) {
+        const applyPending = async (): Promise<void> => {
+          try {
+            await pending.apply();
+          } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            failRunForStateModelError(err);
+          }
+        };
+        const scheduleApply = (): void => {
+          void serializeDispatch(applyPending);
+        };
+        if (info.afterReply !== undefined) {
+          info.afterReply(scheduleApply);
+        } else {
+          scheduleApply();
+        }
+      }
       return;
     }
     const targetStateId = host.currentStateId();
     const postTransitionContext = host.currentContext() as RunCtx;
     const clearOnEntry = meta.clearOnEntry as ClearOnEntryMeta;
+    const stateModel = resolveStateModelOptions(meta.model);
     const oldThreadId = info.oldThreadId ?? activeThreadBinding.current();
     if (oldThreadId !== undefined) {
       pendingFreshClearThreadIds.add(oldThreadId);
@@ -813,32 +909,37 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       });
     register(() => {
       const c = client;
-      if (!c) throw new Error('internal: client unbound at fresh-clear time');
-      return serializeDispatch(async () => {
+      if (!c) {
+        const message = 'fresh clear failed: internal: client unbound at fresh-clear time';
+        o.stderr.write(`aharness: ${message}\n`);
+        publishRunFailedOnce(message);
+        void shutdownAfterTerminal.current?.().finally(() => {
+          terminalResolve({ exitCode: 1 });
+        });
+        return;
+      }
+      void serializeDispatch(async () => {
         const clearOptions = resolveClearOnEntryOptions({
           clearOnEntry,
           context: postTransitionContext,
           defaultCwd: repoRoot,
           stateId: targetStateId,
         });
-        await preflightClearOnEntryModel({
+        await preflightStateModel({
           client: c,
           stateId: targetStateId,
           cwd: clearOptions.cwd,
-          ...(clearOptions.model !== undefined ? { model: clearOptions.model } : {}),
-          ...(clearOptions.reasoningEffort !== undefined
-            ? { reasoningEffort: clearOptions.reasoningEffort }
-            : {}),
+          ...(stateModel.model !== undefined ? { model: stateModel.model } : {}),
+          ...(stateModel.effort !== undefined ? { effort: stateModel.effort } : {}),
         });
         const boundary = await performFreshClear({
           client: c,
           activeThreadBinding,
           ...(info.oldTurnId !== undefined ? { oldTurnId: info.oldTurnId } : {}),
           cwd: clearOptions.cwd,
-          ...(clearOptions.model !== undefined ? { model: clearOptions.model } : {}),
-          ...(clearOptions.reasoningEffort !== undefined
-            ? { reasoningEffort: clearOptions.reasoningEffort }
-            : {}),
+          ...(stateModel.model !== undefined ? { model: stateModel.model } : {}),
+          ...(stateModel.effort !== undefined ? { reasoningEffort: stateModel.effort } : {}),
+          waitForSettled: () => stateModelSettings.waitForSettled(),
           dynamicTools: buildDynamicToolsRegistration(),
           composeActiveStateNudge: () => {
             const orientation = composeActiveStateNudge(host, sidecar);
@@ -920,6 +1021,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     host,
     machine,
     sidecar,
+    applyStateModel: applyStateModelForActiveState,
     onTerminal: (_terminalStateId, meta) => signalTerminalCompletion(meta),
     onTransition: (info) => {
       o.stdout.write(`\n[transition] ${info.from} --${info.exit}--> ${info.to}\n`);
@@ -950,11 +1052,16 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       publishOrientationNote(a.orientationText);
       scheduleCrossStateDance({
         ...a,
+        applyStateModel: applyStateModelForActiveState,
         client,
         activeThreadBinding,
         watcherRegistry,
         markSubmittedThisTurn,
         clearSubmittedThisTurn,
+        onError: (error) => {
+          o.stderr.write(`aharness: cross-state dance failed: ${error.message}\n`);
+        },
+        onStateModelFailure: failRunForStateModelError,
         // F1 salvage: when the dance's outer catch fires (watcher
         // timeout, unknown `turn/interrupt` error, `turn/start` error),
         // re-enter drive-forward's default branch so the run issues a
@@ -1378,6 +1485,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     submittedThisTurn: () => submittedThisTurnFlag,
     isAwaiting,
     isOpen: () => isOpenState(host),
+    waitForSettled: () => stateModelSettings.waitForSettled(),
   });
   const driveForwardHandle = driveForward;
   const router = startNotificationRouter({
@@ -1404,6 +1512,14 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       );
     },
     onTurnCompleted: () => driveForwardHandle.onTurnCompleted(),
+    onTurnCompletedError: (error) => {
+      if (error === stateModelFailureError) {
+        failRunForStateModelError(error);
+        return;
+      }
+      o.stderr.write(`aharness: drive-forward failed: ${error.message}\n`);
+      failRunAndShutdown('drive-forward failed; shutting down');
+    },
     onItemStarted: (item, itemTurnId, params) => {
       if (itemTurnId) {
         approvalDispatcher.fileChangeTracker.noteThreadItem({
@@ -1460,6 +1576,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   //     a TUI-visible "user message".
   try {
     await runActiveOnEntry();
+    await applyStateModelForActiveState();
     const orientation = composeActiveStateNudge(host, sidecar);
     publishOrientationNote(orientation);
     await ws.request(METHOD.turnStart, {

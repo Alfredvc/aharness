@@ -62,7 +62,7 @@ describe('runVerifyCli', () => {
     expect(provider.readConfig).not.toHaveBeenCalled();
   });
 
-  it('does not probe the catalog when no clearOnEntry model or effort is declared', async () => {
+  it('does not probe the catalog when no state-level model is declared', async () => {
     const provider = fakeCatalogProvider();
     const log = vi.fn();
     const r = await runVerifyCli({
@@ -76,8 +76,8 @@ describe('runVerifyCli', () => {
     expect(provider.readConfig).not.toHaveBeenCalled();
   });
 
-  it('passes when a declared clearOnEntry model is present in model/list', async () => {
-    const fsmPath = await writeClearOnEntryFixture(`{ model: 'gpt-5.1-codex' }`);
+  it('passes when a declared state model name is present in model/list', async () => {
+    const fsmPath = await writeStateModelFixture(`{ name: 'gpt-5.1-codex' }`);
     const provider = fakeCatalogProvider({
       models: [
         {
@@ -96,8 +96,8 @@ describe('runVerifyCli', () => {
     await fs.rm(dirname(fsmPath), { recursive: true, force: true });
   });
 
-  it('rejects a declared clearOnEntry model absent from model/list', async () => {
-    const fsmPath = await writeClearOnEntryFixture(`{ model: 'missing-model' }`);
+  it('rejects a declared state model name absent from model/list', async () => {
+    const fsmPath = await writeStateModelFixture(`{ name: 'missing-model' }`);
     const provider = fakeCatalogProvider({
       models: [
         {
@@ -112,13 +112,13 @@ describe('runVerifyCli', () => {
     const r = await runVerifyCli({ fsmPath, repoRoot, log, modelCatalogProvider: provider });
     expect(r.exitCode).toBe(1);
     const lines = log.mock.calls.map((c) => String(c[0]));
-    expect(lines).toContainEqual(expect.stringContaining('clearOnEntry-model-available (clear):'));
+    expect(lines).toContainEqual(expect.stringContaining('state-model-available (clear):'));
     expect(lines).toContainEqual(expect.stringContaining('"missing-model" is not available'));
     await fs.rm(dirname(fsmPath), { recursive: true, force: true });
   });
 
   it('returns a verifier issue when the catalog provider cannot start', async () => {
-    const fsmPath = await writeClearOnEntryFixture(`{ model: 'gpt-5.1-codex' }`);
+    const fsmPath = await writeStateModelFixture(`{ name: 'gpt-5.1-codex' }`);
     const log = vi.fn();
     const r = await runVerifyCli({
       fsmPath,
@@ -130,32 +130,26 @@ describe('runVerifyCli', () => {
     });
     expect(r.exitCode).toBe(1);
     const lines = log.mock.calls.map((c) => String(c[0]));
-    expect(lines).toContainEqual(
-      expect.stringContaining('clearOnEntry-model-catalog-probe (clear):'),
-    );
+    expect(lines).toContainEqual(expect.stringContaining('state-model-catalog-probe (clear):'));
     expect(lines).toContainEqual(expect.stringContaining('spawn unavailable'));
     await fs.rm(dirname(fsmPath), { recursive: true, force: true });
   });
 
   it('returns a verifier issue when model/list fails', async () => {
-    const fsmPath = await writeClearOnEntryFixture(`{ model: 'gpt-5.1-codex' }`);
+    const fsmPath = await writeStateModelFixture(`{ name: 'gpt-5.1-codex' }`);
     const provider = fakeCatalogProvider({ listModelsError: new Error('rpc model/list failed') });
     const log = vi.fn();
     const r = await runVerifyCli({ fsmPath, repoRoot, log, modelCatalogProvider: provider });
     expect(r.exitCode).toBe(1);
     const lines = log.mock.calls.map((c) => String(c[0]));
-    expect(lines).toContainEqual(
-      expect.stringContaining('clearOnEntry-model-catalog-probe (clear):'),
-    );
+    expect(lines).toContainEqual(expect.stringContaining('state-model-catalog-probe (clear):'));
     expect(lines).toContainEqual(expect.stringContaining('could not read Codex model/list'));
     expect(lines).toContainEqual(expect.stringContaining('rpc model/list failed'));
     await fs.rm(dirname(fsmPath), { recursive: true, force: true });
   });
 
   it('rejects unsupported reasoning effort for a declared model', async () => {
-    const fsmPath = await writeClearOnEntryFixture(
-      `{ model: 'gpt-5.1-codex', reasoningEffort: 'xhigh' }`,
-    );
+    const fsmPath = await writeStateModelFixture(`{ name: 'gpt-5.1-codex', effort: 'xhigh' }`);
     const provider = fakeCatalogProvider({
       models: [
         {
@@ -170,16 +164,14 @@ describe('runVerifyCli', () => {
     const r = await runVerifyCli({ fsmPath, repoRoot, log, modelCatalogProvider: provider });
     expect(r.exitCode).toBe(1);
     const lines = log.mock.calls.map((c) => String(c[0]));
-    expect(lines).toContainEqual(
-      expect.stringContaining('clearOnEntry-reasoning-effort-supported (clear):'),
-    );
+    expect(lines).toContainEqual(expect.stringContaining('state-model-effort-supported (clear):'));
     expect(lines).toContainEqual(expect.stringContaining('model "gpt-5.1-codex"'));
     expect(lines).toContainEqual(expect.stringContaining('supported values: low'));
     await fs.rm(dirname(fsmPath), { recursive: true, force: true });
   });
 
-  it('validates effort-only declarations against config/read model for the static cwd', async () => {
-    const fsmPath = await writeClearOnEntryFixture(`{ reasoningEffort: 'high' }`);
+  it('does not over-validate effort-only declarations at verify time', async () => {
+    const fsmPath = await writeStateModelFixture(`{ effort: 'high' }`);
     const provider = fakeCatalogProvider({
       configModel: 'configured-model',
       models: [
@@ -194,12 +186,13 @@ describe('runVerifyCli', () => {
     const log = vi.fn();
     const r = await runVerifyCli({ fsmPath, repoRoot, log, modelCatalogProvider: provider });
     expect(r.exitCode).toBe(0);
-    expect(provider.readConfig).toHaveBeenCalledWith({ cwd: repoRoot });
+    expect(provider.readConfig).not.toHaveBeenCalled();
+    expect(provider.listModels).not.toHaveBeenCalled();
     await fs.rm(dirname(fsmPath), { recursive: true, force: true });
   });
 
-  it('uses model/list default when config/read does not name a model', async () => {
-    const fsmPath = await writeClearOnEntryFixture(`{ reasoningEffort: 'minimal' }`);
+  it('does not validate effort-only declarations when config/read cannot infer a model', async () => {
+    const fsmPath = await writeStateModelFixture(`{ effort: 'minimal' }`);
     const provider = fakeCatalogProvider({
       configModel: null,
       models: [
@@ -220,13 +213,13 @@ describe('runVerifyCli', () => {
     const log = vi.fn();
     const r = await runVerifyCli({ fsmPath, repoRoot, log, modelCatalogProvider: provider });
     expect(r.exitCode).toBe(0);
+    expect(provider.readConfig).not.toHaveBeenCalled();
+    expect(provider.listModels).not.toHaveBeenCalled();
     await fs.rm(dirname(fsmPath), { recursive: true, force: true });
   });
 
   it('defers effort-only validation when cwd is data-dependent', async () => {
-    const fsmPath = await writeClearOnEntryFixture(
-      `{ cwd: () => process.cwd(), reasoningEffort: 'high' }`,
-    );
+    const fsmPath = await writeStateModelFixture(`{ effort: 'high' }`);
     const provider = fakeCatalogProvider();
     const log = vi.fn();
     const r = await runVerifyCli({ fsmPath, repoRoot, log, modelCatalogProvider: provider });
@@ -237,7 +230,7 @@ describe('runVerifyCli', () => {
   });
 
   it('reads paginated model/list results with includeHidden', async () => {
-    const fsmPath = await writeClearOnEntryFixture(`{ model: 'second-page-model' }`);
+    const fsmPath = await writeStateModelFixture(`{ name: 'second-page-model' }`);
     const provider = fakeCatalogProvider({
       pages: [
         {
@@ -346,7 +339,7 @@ export default machine;
   });
 });
 
-async function writeClearOnEntryFixture(clearOnEntry: string): Promise<string> {
+async function writeStateModelFixture(stateModel: string): Promise<string> {
   const tmpFsmDir = await fs.mkdtemp(join(tmpdir(), 'codex-verify-cli-clear-'));
   const tmpFsmPath = join(tmpFsmDir, 'clear.fsm.ts');
   const source = `import { aharness, state, terminal, exit } from '@aharness/core';
@@ -362,7 +355,7 @@ export const machine = aharness.machine({
     }),
     clear: state({
       entryPrompt: 'Clear.',
-      clearOnEntry: ${clearOnEntry},
+      model: ${stateModel},
       exits: { done: exit<P>({ to: 'done' }) },
     }),
     done: terminal('success'),

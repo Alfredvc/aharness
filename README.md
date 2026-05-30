@@ -177,17 +177,19 @@ Then use the mechanism demos as references:
 - [`examples/README.md`](examples/README.md) gives the recommended examples
   path.
 - [`examples/DEMOS.md`](examples/DEMOS.md) catalogs await exits, approval
-  hooks, composition, skill loading, branching, fresh model context, and final
+  hooks, composition, skill loading, branching, state model settings, and final
   artifacts.
 
-## Fresh Model Context
+## State Model Settings
 
-Use `clearOnEntry` on a non-initial state when the next phase should start with
-fresh model context:
+Use `model` on a state to control model and effort:
 
 ```ts
 implementation: fsm.state({
-  clearOnEntry: true,
+  model: {
+    name: 'gpt-5.1-codex',
+    effort: 'high',
+  },
   prompt: 'Implement the approved plan and submit test evidence.',
   on: {
     implemented: fsm.submit<{ testsPassed: boolean }>({ to: 'review' }),
@@ -195,52 +197,88 @@ implementation: fsm.state({
 });
 ```
 
-By default, the working directory is the original aharness launch CWD. Use
-object form to choose a working directory, Codex model, reasoning effort, or
-any non-empty combination of those options:
+Either `name` or `effort` (or both) is required:
+
+```ts
+modelOnly: fsm.state({
+  model: { name: 'gpt-5.1-codex' },
+  prompt: 'Review the change with the selected model.',
+});
+
+effortOnly: fsm.state({
+  model: { effort: 'high' },
+  prompt: 'Review the change with higher reasoning effort.',
+});
+```
+
+Use `model` declarations to route non-clear state transitions through sticky thread
+settings. A non-clear state that omits `model` keeps the previous effective
+model and effort:
+
+```ts
+lowModelStep: fsm.state({
+  model: { effort: 'minimal' },
+  prompt: 'Read and summarize the codebase with low effort.',
+  on: {
+    summarized: fsm.submit<{ summary: string }>({ to: 'normalModelStep' }),
+  },
+});
+
+normalModelStep: fsm.state({
+  // No model => still uses minimal reasoning effort from lowModelStep.
+  prompt: 'Continue with normal workflow from the current model state.',
+  on: {
+    continued: fsm.submit<{ finished: boolean }>({ to: 'review' }),
+  },
+});
+```
+
+Set a state-level model override on a clear-fresh transition by pairing it with
+`clearOnEntry`:
 
 ```ts
 worktreeReview: fsm.state({
-  clearOnEntry: {
-    cwd: '/absolute/path/to/worktree',
-    model: 'gpt-5.1-codex',
-    reasoningEffort: 'high',
-  },
-  prompt: 'Review the worktree and submit findings.',
+  clearOnEntry: { cwd: '/absolute/path/to/worktree' },
+  model: { name: 'gpt-5.1-codex', effort: 'high' },
+  prompt: 'Review this worktree and submit findings.',
   on: {
     reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
   },
 });
 ```
 
-Model-only and effort-only forms are also valid:
+Effort-only with clear fresh-fresh behavior:
 
 ```ts
-clearOnEntry: { model: 'gpt-5.1-codex' }
-clearOnEntry: { reasoningEffort: 'high' }
-clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' }
+worktreeReview: fsm.state({
+  clearOnEntry: true,
+  model: { effort: 'high' },
+  prompt: 'Review and summarize before the next phase.',
+  on: {
+    reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
+  },
+});
 ```
 
-`cwd` may also be a function of machine data, and it must resolve to a non-empty
-absolute path for an existing directory. `model` and `reasoningEffort` are
-static strings; callbacks are not supported for those fields.
+`clearOnEntry` is now freshness-only:
 
-Allowed reasoning efforts are `none`, `minimal`, `low`, `medium`, `high`, and
-`xhigh`. Effort can be used without an explicit model; aharness resolves the
-target model from Codex effective config for the clear CWD, then Codex's catalog
-default. `aharness verify` checks static declarations through Codex
-`config/read` and `model/list`. Function-form `cwd` can defer effort support
-checks to runtime preflight. Run directories and artifacts stay anchored under
-the original launch directory.
+- `clearOnEntry: true` starts the target state in a replacement thread with the
+  launch CWD.
+- `clearOnEntry: { cwd: '/absolute/path' }` starts in a replacement thread at that
+  path.
+- `clearOnEntry: { cwd: (data) => data.packageDir }` resolves CWD from context.
 
-`reasoningEffort` values are exactly `none`, `minimal`, `low`, `medium`,
-`high`, and `xhigh`. `reasoningEffort` can be used without `model`; aharness
-resolves the target model from Codex `config/read({ cwd })`, then from the
-`model/list` default entry or first fallback. Static declarations are checked
-by `aharness verify` against Codex `config/read` and
-`model/list({ includeHidden: true })`; if `cwd` is data-dependent, effort
-support may be checked by runtime preflight after the CWD resolves. Dynamic
-`model` and `reasoningEffort` callbacks are not supported.
+`clearOnEntry` and `model` are each independently validated by the verifier:
+
+- `clearOnEntry` checks validate `cwd` shape and existence.
+- `model.name` values are checked against Codex `model/list` and
+  `model/list({ includeHidden: true })` where possible.
+- `model.effort` must be one of `none`, `minimal`, `low`, `medium`, `high`, or
+  `xhigh`; it is validated by runtime when model lookup depends on active state.
+
+`clearOnEntry` only controls thread replacement and working directory; it does
+not clear sticky model/effort settings. If a later non-clear state omits `model`,
+the previous effective model/effort remains active.
 
 ## CLI
 

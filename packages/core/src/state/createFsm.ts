@@ -18,12 +18,12 @@ import {
   type CanonicalEventKind,
   type CanonicalEventMeta,
   type CanonicalSubmitBranchMeta,
-  type ClearOnEntryReasoningEffort,
   type ExitDef,
   type FinalConfig,
   type FinalOutputFn,
   type StateConfig,
   type SubmitBranch,
+  type StateModelEffort,
 } from './exits.js';
 import {
   applyCanonicalAwaitCommitOrReduce,
@@ -69,9 +69,12 @@ type CanonicalClearOnEntry<Data> =
   | boolean
   | {
       readonly cwd?: string | ((data: Readonly<Data>) => string);
-      readonly model?: string;
-      readonly reasoningEffort?: ClearOnEntryReasoningEffort;
     };
+
+type CanonicalModel = {
+  readonly name?: string;
+  readonly effort?: StateModelEffort;
+};
 
 type CanonicalReducer<Data, Payload> = (draft: Data, payload: Payload) => void | Partial<Data>;
 
@@ -363,9 +366,81 @@ interface CanonicalStateOptions<Data, Events extends EventCatalog> {
   readonly on?: CanonicalOn<Data, Events>;
   readonly entry?: (data: Readonly<Data>, ops: AharnessOps) => void | Promise<void>;
   readonly clearOnEntry?: CanonicalClearOnEntry<Data>;
+  readonly model?: CanonicalModel;
   readonly guidance?: CanonicalText<Data>;
   readonly skills?: ReadonlyArray<SkillRef>;
   readonly xstate?: Record<string, unknown>;
+}
+
+const canonicalStateModelEfforts = new Set<StateModelEffort>([
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+]);
+
+function normalizeClearOnEntry<Data>(
+  value: CanonicalClearOnEntry<Data> | undefined,
+): CanonicalClearOnEntry<Data> | undefined {
+  if (value === undefined || value === false) return undefined;
+  if (value === true) return true;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(
+      'fsm.state(): clearOnEntry must be true, false, or an object with at least one supported key: cwd',
+    );
+  }
+  const cwd = (value as { readonly cwd?: unknown }).cwd;
+  if (
+    Object.prototype.hasOwnProperty.call(value, 'model') ||
+    Object.prototype.hasOwnProperty.call(value, 'reasoningEffort')
+  ) {
+    throw new TypeError(
+      'fsm.state(): clearOnEntry no longer accepts model or reasoningEffort. Move these settings to state-level `model: { name, effort }`.',
+    );
+  }
+  if (cwd === undefined) {
+    throw new TypeError(
+      'fsm.state(): clearOnEntry object must include at least one supported key: cwd',
+    );
+  }
+  if (cwd !== undefined && typeof cwd !== 'string' && typeof cwd !== 'function') {
+    throw new TypeError('fsm.state(): clearOnEntry.cwd must be a string or function');
+  }
+  return { cwd: cwd as string | ((data: Readonly<Data>) => string) };
+}
+
+function normalizeStateModel(value: CanonicalModel | undefined): CanonicalModel | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new TypeError(
+      'fsm.state(): model must be an object with at least one supported key: name, effort',
+    );
+  }
+  const name = (value as { readonly name?: unknown }).name;
+  const effort = (value as { readonly effort?: unknown }).effort;
+  if (name === undefined && effort === undefined) {
+    throw new TypeError(
+      'fsm.state(): model object must include at least one supported key: name, effort',
+    );
+  }
+  if (name !== undefined && (typeof name !== 'string' || name.length === 0)) {
+    throw new TypeError('fsm.state(): model.name must be a non-empty string');
+  }
+  const effortValue = effort;
+  if (
+    effort !== undefined &&
+    (typeof effort !== 'string' || !canonicalStateModelEfforts.has(effort as StateModelEffort))
+  ) {
+    throw new TypeError(
+      'fsm.state(): model.effort must be one of: none, minimal, low, medium, high, xhigh',
+    );
+  }
+  return {
+    ...(name !== undefined ? { name } : {}),
+    ...(effortValue !== undefined ? { effort: effortValue as StateModelEffort } : {}),
+  };
 }
 
 type DataFactoryArgs<TInput> = {
@@ -621,6 +696,8 @@ function lowerStateOptions<Data, Events extends EventCatalog>(
 ): StateConfig {
   const exits: Record<string, ExitDef> = {};
   const canonicalEvents: Record<string, CanonicalEventMeta> = {};
+  const clearOnEntry = normalizeClearOnEntry(opts.clearOnEntry);
+  const model = normalizeStateModel(opts.model);
   let awaitExitName: string | null = null;
   for (const [name, transition] of Object.entries((opts.on ?? {}) as Record<string, unknown>)) {
     if (isCanonicalTransition(transition)) {
@@ -710,7 +787,8 @@ function lowerStateOptions<Data, Events extends EventCatalog>(
     };
   }
   if (opts.entry !== undefined) stateOpts['onEntry'] = opts.entry;
-  if (opts.clearOnEntry !== undefined) stateOpts['clearOnEntry'] = opts.clearOnEntry;
+  if (clearOnEntry !== undefined) stateOpts['clearOnEntry'] = clearOnEntry;
+  if (model !== undefined) stateOpts['model'] = model;
   if (opts.skills !== undefined) stateOpts['skills'] = opts.skills;
   const base = state(stateOpts as unknown as Parameters<typeof state>[0]);
   const xstateMeta = asRecord(opts.xstate?.['meta']);

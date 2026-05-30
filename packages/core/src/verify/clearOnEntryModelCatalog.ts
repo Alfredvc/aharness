@@ -16,16 +16,16 @@ import type {
 } from '../protocol/types.js';
 import { DAEMON_PROBE_CLIENT_NAME } from '../protocol/types.js';
 import { getAharnessMeta, iterStates, stateKeyPath } from '../state.js';
-import type { ClearOnEntryMeta, ClearOnEntryReasoningEffort } from '../state/exits.js';
+import type { StateModelEffort } from '../state/exits.js';
 import { connectHeadlessWs } from '../transport/wsClient.js';
 
-export type ClearOnEntryCatalogIssueCheck =
-  | 'clearOnEntry-model-available'
-  | 'clearOnEntry-reasoning-effort-supported'
-  | 'clearOnEntry-model-catalog-probe';
+export type StateModelCatalogIssueCheck =
+  | 'state-model-available'
+  | 'state-model-effort-supported'
+  | 'state-model-catalog-probe';
 
-export interface ClearOnEntryCatalogIssue {
-  readonly check: ClearOnEntryCatalogIssueCheck;
+export interface StateModelCatalogIssue {
+  readonly check: StateModelCatalogIssueCheck;
   readonly stateId: string;
   readonly severity: 'error';
   readonly message: string;
@@ -39,35 +39,35 @@ export interface CodexConfigModelProvider {
 
 export type CodexConfigModelProviderFactory = () => Promise<CodexConfigModelProvider>;
 
-export interface VerifyClearOnEntryModelCatalogOpts {
+export interface VerifyStateModelCatalogOpts {
   readonly machine: AnyStateMachine;
-  readonly defaultCwd: string;
+  readonly defaultCwd?: string;
   readonly providerFactory: CodexConfigModelProviderFactory;
 }
 
-export interface ClearOnEntryModelCatalogSelection {
+export interface StateModelCatalogSelection {
   readonly stateId: string;
-  readonly cwd?: string;
   readonly model?: string;
-  readonly reasoningEffort?: ClearOnEntryReasoningEffort;
+  readonly effort?: StateModelEffort;
+  readonly cwd?: string;
 }
 
-export interface ValidateClearOnEntryModelCatalogSelectionOpts extends ClearOnEntryModelCatalogSelection {
+export interface ValidateStateModelCatalogSelectionOpts extends StateModelCatalogSelection {
   readonly provider: CodexConfigModelProvider;
   readonly models?: ReadonlyArray<ModelCatalogEntry>;
+  readonly mode?: 'verify' | 'preflight';
 }
 
-interface CatalogDeclaration {
+interface StateModelCatalogDeclaration {
   readonly stateId: string;
   readonly model?: string;
-  readonly reasoningEffort?: ClearOnEntryReasoningEffort;
-  readonly cwd: { readonly kind: 'static'; readonly value: string } | { readonly kind: 'dynamic' };
+  readonly effort?: StateModelEffort;
 }
 
-export async function verifyClearOnEntryModelCatalog(
-  opts: VerifyClearOnEntryModelCatalogOpts,
-): Promise<ReadonlyArray<ClearOnEntryCatalogIssue>> {
-  const declarations = collectCatalogDeclarations(opts.machine, opts.defaultCwd);
+export async function verifyStateModelCatalog(
+  opts: VerifyStateModelCatalogOpts,
+): Promise<ReadonlyArray<StateModelCatalogIssue>> {
+  const declarations = collectStateModelDeclarations(opts.machine);
   const checks = declarations.filter((decl) => requiresVerifyTimeCatalogCheck(decl));
   if (checks.length === 0) return [];
 
@@ -77,9 +77,7 @@ export async function verifyClearOnEntryModelCatalog(
   } catch (error) {
     return catalogProbeIssues(
       checks,
-      `clearOnEntry model catalog could not start Codex model catalog probe: ${formatErrorMessage(
-        error,
-      )}`,
+      `state-model catalog could not start Codex model catalog probe: ${formatErrorMessage(error)}`,
     );
   }
 
@@ -90,20 +88,20 @@ export async function verifyClearOnEntryModelCatalog(
     } catch (error) {
       return catalogProbeIssues(
         checks,
-        `clearOnEntry model catalog could not read Codex model/list: ${formatErrorMessage(error)}`,
+        `state-model catalog could not read Codex model/list: ${formatErrorMessage(error)}`,
       );
     }
-    const issues: ClearOnEntryCatalogIssue[] = [];
+    const issues: StateModelCatalogIssue[] = [];
 
     for (const decl of checks) {
       issues.push(
-        ...(await validateClearOnEntryModelCatalogSelection({
+        ...(await validateStateModelCatalogSelection({
           provider,
           models,
+          mode: 'verify',
           stateId: decl.stateId,
-          ...(decl.cwd.kind === 'static' ? { cwd: decl.cwd.value } : {}),
           ...(decl.model !== undefined ? { model: decl.model } : {}),
-          ...(decl.reasoningEffort !== undefined ? { reasoningEffort: decl.reasoningEffort } : {}),
+          ...(decl.effort !== undefined ? { effort: decl.effort } : {}),
         })),
       );
     }
@@ -159,10 +157,11 @@ export async function createCodexConfigModelProvider(): Promise<CodexConfigModel
   };
 }
 
-export async function validateClearOnEntryModelCatalogSelection(
-  opts: ValidateClearOnEntryModelCatalogSelectionOpts,
-): Promise<ReadonlyArray<ClearOnEntryCatalogIssue>> {
-  if (opts.model === undefined && opts.reasoningEffort === undefined) return [];
+export async function validateStateModelCatalogSelection(
+  opts: ValidateStateModelCatalogSelectionOpts,
+): Promise<ReadonlyArray<StateModelCatalogIssue>> {
+  if (opts.model === undefined && opts.effort === undefined) return [];
+  const effort = opts.effort;
 
   if (opts.model !== undefined) {
     const models = opts.models ?? (await readAllModels(opts.provider));
@@ -170,42 +169,42 @@ export async function validateClearOnEntryModelCatalogSelection(
     if (model === undefined) {
       return [
         {
-          check: 'clearOnEntry-model-available',
+          check: 'state-model-available',
           severity: 'error',
           stateId: opts.stateId,
-          message: `clearOnEntry.model "${opts.model}" is not available in Codex model/list`,
+          message: `state.model name "${opts.model}" is not available in Codex model/list`,
         },
       ];
     }
-    return validateReasoningEffort(
+    return validateEffort(
       {
         stateId: opts.stateId,
         model: opts.model,
-        ...(opts.reasoningEffort !== undefined ? { reasoningEffort: opts.reasoningEffort } : {}),
-        cwd: opts.cwd !== undefined ? { kind: 'static', value: opts.cwd } : { kind: 'dynamic' },
+        ...(effort !== undefined ? { effort } : {}),
       },
       model,
     );
   }
 
-  if (opts.reasoningEffort === undefined) return [];
-  if (opts.cwd === undefined) {
+  if (opts.mode === 'verify') return [];
+  if (effort === undefined) return [];
+
+  const cwd = opts.cwd;
+  if (cwd === undefined) {
     return [
       {
-        check: 'clearOnEntry-model-catalog-probe',
+        check: 'state-model-catalog-probe',
         severity: 'error',
         stateId: opts.stateId,
-        message:
-          `clearOnEntry.reasoningEffort "${opts.reasoningEffort}" cannot be validated ` +
-          'because clearOnEntry.cwd is data-dependent',
+        message: `state.model.effort "${effort}" cannot be validated because cwd is data-dependent`,
       },
     ];
   }
 
   const config = await readConfigIssueSafe(opts.provider, {
     stateId: opts.stateId,
-    cwd: opts.cwd,
-    reasoningEffort: opts.reasoningEffort,
+    cwd,
+    effort,
   });
   if ('issue' in config) return [config.issue];
 
@@ -214,85 +213,70 @@ export async function validateClearOnEntryModelCatalogSelection(
   if (targetModel === undefined) {
     return [
       {
-        check: 'clearOnEntry-model-catalog-probe',
+        check: 'state-model-catalog-probe',
         severity: 'error',
         stateId: opts.stateId,
         message:
-          `clearOnEntry.reasoningEffort "${opts.reasoningEffort}" cannot be validated ` +
+          `state.model.effort "${effort}" cannot be validated ` +
           'because Codex config/read did not return a model and model/list returned no default',
       },
     ];
   }
+
   const model = models.find((entry) => entry.model === targetModel);
   if (model === undefined) {
     return [
       {
-        check: 'clearOnEntry-model-available',
+        check: 'state-model-available',
         severity: 'error',
         stateId: opts.stateId,
         message:
-          `clearOnEntry.reasoningEffort "${opts.reasoningEffort}" resolved model ` +
+          `state.model.effort "${effort}" resolved model ` +
           `"${targetModel}", but that model is not available in Codex model/list`,
       },
     ];
   }
-  return validateReasoningEffort(
+
+  return validateEffort(
     {
       stateId: opts.stateId,
       model: targetModel,
-      reasoningEffort: opts.reasoningEffort,
-      cwd: { kind: 'static', value: opts.cwd },
+      effort,
     },
     model,
   );
 }
 
-function collectCatalogDeclarations(
+function collectStateModelDeclarations(
   machine: AnyStateMachine,
-  defaultCwd: string,
-): ReadonlyArray<CatalogDeclaration> {
-  const declarations: CatalogDeclaration[] = [];
+): ReadonlyArray<StateModelCatalogDeclaration> {
+  const declarations: StateModelCatalogDeclaration[] = [];
   for (const node of iterStates(machine)) {
     const meta = getAharnessMeta(node);
-    if (!meta || meta.kind !== 'stateful') continue;
-    const clearOnEntry = meta.clearOnEntry;
-    if (clearOnEntry === undefined || clearOnEntry === true) continue;
-    const model = clearOnEntry.model;
-    const reasoningEffort = clearOnEntry.reasoningEffort;
-    if (model === undefined && reasoningEffort === undefined) continue;
+    if (!meta || meta.kind !== 'stateful' || meta.model === undefined) continue;
+    const model = meta.model;
+    const modelName = model.name;
+    const modelEffort = model.effort;
+    if (modelName === undefined && modelEffort === undefined) continue;
     declarations.push({
       stateId: stateKeyPath(node),
-      ...(model !== undefined ? { model } : {}),
-      ...(reasoningEffort !== undefined ? { reasoningEffort } : {}),
-      cwd: resolveStaticCwd(clearOnEntry, defaultCwd),
+      ...(modelName !== undefined ? { model: modelName } : {}),
+      ...(modelEffort !== undefined ? { effort: modelEffort } : {}),
     });
   }
   return declarations;
 }
 
-function resolveStaticCwd(
-  clearOnEntry: Exclude<ClearOnEntryMeta, true>,
-  defaultCwd: string,
-): CatalogDeclaration['cwd'] {
-  if (!Object.prototype.hasOwnProperty.call(clearOnEntry, 'cwd')) {
-    return { kind: 'static', value: defaultCwd };
-  }
-  const cwd = clearOnEntry.cwd;
-  if (typeof cwd === 'function') return { kind: 'dynamic' };
-  return { kind: 'static', value: cwd ?? defaultCwd };
-}
-
-function requiresVerifyTimeCatalogCheck(decl: CatalogDeclaration): boolean {
-  if (decl.model !== undefined) return true;
-  return decl.reasoningEffort !== undefined && decl.cwd.kind === 'static';
+function requiresVerifyTimeCatalogCheck(decl: StateModelCatalogDeclaration): boolean {
+  return decl.model !== undefined;
 }
 
 function catalogProbeIssues(
-  declarations: ReadonlyArray<CatalogDeclaration>,
+  declarations: ReadonlyArray<StateModelCatalogDeclaration>,
   message: string,
-): ReadonlyArray<ClearOnEntryCatalogIssue> {
+): ReadonlyArray<StateModelCatalogIssue> {
   return declarations.map((decl) => ({
-    check: 'clearOnEntry-model-catalog-probe',
+    check: 'state-model-catalog-probe',
     severity: 'error',
     stateId: decl.stateId,
     message,
@@ -320,11 +304,9 @@ async function readConfigIssueSafe(
   decl: {
     readonly stateId: string;
     readonly cwd: string;
-    readonly reasoningEffort?: ClearOnEntryReasoningEffort;
+    readonly effort: StateModelEffort;
   },
-): Promise<
-  { readonly response: ConfigReadResponse } | { readonly issue: ClearOnEntryCatalogIssue }
-> {
+): Promise<{ readonly response: ConfigReadResponse } | { readonly issue: StateModelCatalogIssue }> {
   try {
     return {
       response: await provider.readConfig({
@@ -334,11 +316,11 @@ async function readConfigIssueSafe(
   } catch (error) {
     return {
       issue: {
-        check: 'clearOnEntry-model-catalog-probe',
+        check: 'state-model-catalog-probe',
         severity: 'error',
         stateId: decl.stateId,
         message:
-          `clearOnEntry.reasoningEffort "${decl.reasoningEffort}" could not read ` +
+          `state.model.effort "${decl.effort}" could not read ` +
           `Codex config for cwd "${decl.cwd}": ${formatErrorMessage(error)}`,
       },
     };
@@ -356,20 +338,24 @@ function resolveEffectiveModel(
   return models.find((model) => model.isDefault)?.model ?? models[0]?.model;
 }
 
-function validateReasoningEffort(
-  decl: CatalogDeclaration & { readonly model: string },
+function validateEffort(
+  decl: {
+    readonly stateId: string;
+    readonly model: string;
+    readonly effort?: StateModelEffort;
+  },
   model: ModelCatalogEntry,
-): ReadonlyArray<ClearOnEntryCatalogIssue> {
-  if (decl.reasoningEffort === undefined) return [];
+): ReadonlyArray<StateModelCatalogIssue> {
+  if (decl.effort === undefined) return [];
   const supported = model.supportedReasoningEfforts.map((option) => option.reasoningEffort);
-  if (supported.includes(decl.reasoningEffort)) return [];
+  if (supported.includes(decl.effort)) return [];
   return [
     {
-      check: 'clearOnEntry-reasoning-effort-supported',
+      check: 'state-model-effort-supported',
       severity: 'error',
       stateId: decl.stateId,
       message:
-        `clearOnEntry.reasoningEffort "${decl.reasoningEffort}" is not supported by model ` +
+        `state.model.effort "${decl.effort}" is not supported by model ` +
         `"${decl.model}"; supported values: ${formatSupportedEfforts(supported)}`,
     },
   ];

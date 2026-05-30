@@ -1993,7 +1993,14 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
       handle.replyTo(METHOD.threadStart, {
         thread: { id: replacementThreadId, ephemeral: false },
       });
-      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      await waitForOutbound(
+        handle,
+        (m) =>
+          m.method === METHOD.turnStart &&
+          typeof m.params === 'object' &&
+          m.params !== null &&
+          (m.params as { threadId?: unknown }).threadId === replacementThreadId,
+      );
       handle.replyTo(METHOD.turnStart, {});
 
       handle.push({

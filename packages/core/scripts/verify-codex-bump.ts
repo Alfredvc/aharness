@@ -8,13 +8,18 @@ import { fileURLToPath } from 'node:url';
 import { METHOD } from '../src/protocol/methodNames.js';
 import { DAEMON_PROBE_CLIENT_NAME } from '../src/protocol/types.js';
 
-export const PINNED_CODEX_COMMIT = '127434cd8b968ca3d830ea78106dcb1506bcd843';
+export const PINNED_CODEX_COMMIT = '7d47056ea42636271ac020b86347fbbef49490aa';
 export const DEFAULT_CODEX_CHECKOUT = '/Users/alfredvc/src/codex';
 export const CODEX_CHECKOUT_ENV = 'CODEX_CHECKOUT';
 
 const CODEX_PATHS = {
   commonProtocol: 'codex-rs/app-server-protocol/src/protocol/common.rs',
-  v2Protocol: 'codex-rs/app-server-protocol/src/protocol/v2.rs',
+  v2ThreadProtocol: 'codex-rs/app-server-protocol/src/protocol/v2/thread.rs',
+  v2ModelProtocol: 'codex-rs/app-server-protocol/src/protocol/v2/model.rs',
+  v2ConfigProtocol: 'codex-rs/app-server-protocol/src/protocol/v2/config.rs',
+  v2ItemProtocol: 'codex-rs/app-server-protocol/src/protocol/v2/item.rs',
+  v2PermissionsProtocol: 'codex-rs/app-server-protocol/src/protocol/v2/permissions.rs',
+  v2SharedProtocol: 'codex-rs/app-server-protocol/src/protocol/v2/shared.rs',
   askForApprovalTs: 'codex-rs/app-server-protocol/schema/typescript/v2/AskForApproval.ts',
   permissionGrantScopeTs:
     'codex-rs/app-server-protocol/schema/typescript/v2/PermissionGrantScope.ts',
@@ -27,7 +32,7 @@ const CODEX_PATHS = {
   openaiModels: 'codex-rs/protocol/src/openai_models.rs',
   requestUserInputProtocol: 'codex-rs/protocol/src/request_user_input.rs',
   requestUserInputHandler: 'codex-rs/core/src/tools/handlers/request_user_input.rs',
-  requestUserInputTool: 'codex-rs/tools/src/request_user_input_tool.rs',
+  requestUserInputTool: 'codex-rs/tools/src/tool_config.rs',
   exec: 'codex-rs/core/src/exec.rs',
   onRequestApprovalPrompt:
     'codex-rs/core/src/context/prompts/permissions/approval_policy/on_request.md',
@@ -42,6 +47,7 @@ const METHOD_LITERAL_SOURCES: ReadonlyArray<{
 }> = [
   { key: 'threadStart', variant: 'ThreadStart' },
   { key: 'threadResume', variant: 'ThreadResume' },
+  { key: 'threadSettingsUpdate', variant: 'ThreadSettingsUpdate' },
   { key: 'threadRollback', variant: 'ThreadRollback' },
   { key: 'threadInjectItems', variant: 'ThreadInjectItems' },
   { key: 'threadNameSet', variant: 'ThreadSetName' },
@@ -324,7 +330,6 @@ export function createRequestUserInputSourceCheck(): CodexBumpCheck {
           CODEX_PATHS.requestUserInputTool,
           toolSource,
           [
-            'pub const REQUEST_USER_INPUT_TOOL_NAME: &str = "request_user_input";',
             'pub fn request_user_input_available_modes(features: &Features) -> Vec<ModeKind>',
             'Feature::DefaultModeRequestUserInput',
             'mode.allows_request_user_input()',
@@ -336,7 +341,8 @@ export function createRequestUserInputSourceCheck(): CodexBumpCheck {
           handlerSource,
           [
             'pub struct RequestUserInputHandler',
-            'impl ToolHandler for RequestUserInputHandler',
+            'impl ToolExecutor<ToolInvocation> for RequestUserInputHandler',
+            'impl CoreToolRuntime for RequestUserInputHandler',
             'request_user_input_unavailable_message',
             '.request_user_input(turn.as_ref(), call_id, args)',
           ],
@@ -356,7 +362,9 @@ export function createApprovalSandboxEnumCheck(): CodexBumpCheck {
         permissionGrantScopeTs,
         commandDecisionTs,
         fileDecisionTs,
-        v2Source,
+        sharedSource,
+        itemSource,
+        permissionsSource,
         coreProtocolSource,
         modelSource,
         execSource,
@@ -366,7 +374,9 @@ export function createApprovalSandboxEnumCheck(): CodexBumpCheck {
         context.readFile(CODEX_PATHS.permissionGrantScopeTs),
         context.readFile(CODEX_PATHS.commandExecutionApprovalDecisionTs),
         context.readFile(CODEX_PATHS.fileChangeApprovalDecisionTs),
-        context.readFile(CODEX_PATHS.v2Protocol),
+        context.readFile(CODEX_PATHS.v2SharedProtocol),
+        context.readFile(CODEX_PATHS.v2ItemProtocol),
+        context.readFile(CODEX_PATHS.v2PermissionsProtocol),
         context.readFile(CODEX_PATHS.coreProtocol),
         context.readFile(CODEX_PATHS.protocolModels),
         context.readFile(CODEX_PATHS.exec),
@@ -399,16 +409,21 @@ export function createApprovalSandboxEnumCheck(): CodexBumpCheck {
           context.pinnedCommit,
         ),
         ...missingSnippetMessages(
-          CODEX_PATHS.v2Protocol,
-          v2Source,
-          [
-            '#[serde(rename_all = "kebab-case")]',
-            'pub enum AskForApproval',
-            'OnRequest',
-            'pub enum CommandExecutionApprovalDecision',
-            'pub enum FileChangeApprovalDecision',
-            'pub enum PermissionGrantScope from CorePermissionGrantScope',
-          ],
+          CODEX_PATHS.v2SharedProtocol,
+          sharedSource,
+          ['#[serde(rename_all = "kebab-case")]', 'pub enum AskForApproval', 'OnRequest'],
+          context.pinnedCommit,
+        ),
+        ...missingSnippetMessages(
+          CODEX_PATHS.v2ItemProtocol,
+          itemSource,
+          ['pub enum CommandExecutionApprovalDecision', 'pub enum FileChangeApprovalDecision'],
+          context.pinnedCommit,
+        ),
+        ...missingSnippetMessages(
+          CODEX_PATHS.v2PermissionsProtocol,
+          permissionsSource,
+          ['pub enum PermissionGrantScope from CorePermissionGrantScope'],
           context.pinnedCommit,
         ),
         ...missingSnippetMessages(
@@ -495,11 +510,14 @@ export function createClearOnEntryModelContractCheck(): CodexBumpCheck {
   return {
     name: 'clear-on-entry-model-contract',
     async run(context) {
-      const [commonSource, v2Source, openaiModelsSource] = await Promise.all([
-        context.readFile(CODEX_PATHS.commonProtocol),
-        context.readFile(CODEX_PATHS.v2Protocol),
-        context.readFile(CODEX_PATHS.openaiModels),
-      ]);
+      const [commonSource, threadSource, modelSource, configSource, openaiModelsSource] =
+        await Promise.all([
+          context.readFile(CODEX_PATHS.commonProtocol),
+          context.readFile(CODEX_PATHS.v2ThreadProtocol),
+          context.readFile(CODEX_PATHS.v2ModelProtocol),
+          context.readFile(CODEX_PATHS.v2ConfigProtocol),
+          context.readFile(CODEX_PATHS.openaiModels),
+        ]);
 
       return [
         ...missingSnippetMessages(
@@ -516,8 +534,8 @@ export function createClearOnEntryModelContractCheck(): CodexBumpCheck {
           context.pinnedCommit,
         ),
         ...missingSpanSnippetMessages(
-          CODEX_PATHS.v2Protocol,
-          v2Source,
+          CODEX_PATHS.v2ThreadProtocol,
+          threadSource,
           'pub struct ThreadStartParams {',
           'pub struct MockExperimentalMethodParams {',
           [
@@ -528,16 +546,16 @@ export function createClearOnEntryModelContractCheck(): CodexBumpCheck {
           context.pinnedCommit,
         ),
         ...missingSpanSnippetMessages(
-          CODEX_PATHS.v2Protocol,
-          v2Source,
+          CODEX_PATHS.v2ConfigProtocol,
+          configSource,
           'pub struct Config {',
           'pub struct ConfigLayerMetadata {',
           ['pub model: Option<String>', 'pub model_reasoning_effort: Option<ReasoningEffort>'],
           context.pinnedCommit,
         ),
         ...missingSpanSnippetMessages(
-          CODEX_PATHS.v2Protocol,
-          v2Source,
+          CODEX_PATHS.v2ConfigProtocol,
+          configSource,
           'pub struct ConfigReadParams {',
           'pub struct ConfigRequirements {',
           [
@@ -548,11 +566,9 @@ export function createClearOnEntryModelContractCheck(): CodexBumpCheck {
           ],
           context.pinnedCommit,
         ),
-        ...missingSpanSnippetMessages(
-          CODEX_PATHS.v2Protocol,
-          v2Source,
-          'pub struct ModelListParams {',
-          'pub struct CollaborationModeListParams',
+        ...missingSnippetMessages(
+          CODEX_PATHS.v2ModelProtocol,
+          modelSource,
           [
             'pub include_hidden: Option<bool>',
             'pub struct Model',
@@ -589,6 +605,51 @@ export function createClearOnEntryModelContractCheck(): CodexBumpCheck {
   };
 }
 
+export function createThreadSettingsUpdateContractCheck(): CodexBumpCheck {
+  return {
+    name: 'thread-settings-update-contract',
+    async run(context) {
+      const [commonSource, threadSource] = await Promise.all([
+        context.readFile(CODEX_PATHS.commonProtocol),
+        context.readFile(CODEX_PATHS.v2ThreadProtocol),
+      ]);
+
+      return [
+        ...missingSpanSnippetMessages(
+          CODEX_PATHS.commonProtocol,
+          commonSource,
+          'ThreadSettingsUpdate',
+          'ThreadMemoryModeSet',
+          [
+            'ThreadSettingsUpdate => "thread/settings/update"',
+            'params: v2::ThreadSettingsUpdateParams',
+            'response: v2::ThreadSettingsUpdateResponse',
+          ],
+          context.pinnedCommit,
+        ),
+        ...missingSpanSnippetMessages(
+          CODEX_PATHS.v2ThreadProtocol,
+          threadSource,
+          'pub struct ThreadSettingsUpdateParams {',
+          'pub struct ThreadSettings {',
+          [
+            'pub thread_id: String',
+            'pub model: Option<String>',
+            'pub effort: Option<ReasoningEffort>',
+          ],
+          context.pinnedCommit,
+        ),
+        ...missingSnippetMessages(
+          CODEX_PATHS.v2ThreadProtocol,
+          threadSource,
+          ['pub struct ThreadSettingsUpdateResponse {}'],
+          context.pinnedCommit,
+        ),
+      ];
+    },
+  };
+}
+
 export function createDaemonProbeClientNameCheck(): CodexBumpCheck {
   return {
     name: 'daemon-probe-client-name',
@@ -617,6 +678,7 @@ export const DEFAULT_CHECKS: readonly CodexBumpCheck[] = [
   createApprovalSandboxEnumCheck(),
   createAppServerCliSurfaceCheck(),
   createClearOnEntryModelContractCheck(),
+  createThreadSettingsUpdateContractCheck(),
   createDaemonProbeClientNameCheck(),
 ];
 

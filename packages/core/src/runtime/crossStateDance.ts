@@ -61,6 +61,12 @@ export interface ScheduleCrossStateDanceOpts {
    */
   readonly markSubmittedThisTurn: () => void;
   /**
+   * Apply pending state-model settings before the post-submit `turn/start`.
+   * Intended for non-clear states where the next thread settings must be
+   * pushed via `thread/settings/update`.
+   */
+  readonly applyStateModel?: () => Promise<void>;
+  /**
    * Defensive cleanup if the dance throws unexpectedly. The dance owns
    * the lifecycle of the flag for this turn; the flag is also
    * auto-cleared on the next `turn/started`.
@@ -68,6 +74,12 @@ export interface ScheduleCrossStateDanceOpts {
   readonly clearSubmittedThisTurn?: () => void;
   /** Non-fatal logging hook; default: write to stderr. */
   readonly onError?: (e: Error) => void;
+  /**
+   * Fatal state-model application failure hook. Settings update failures
+   * deliberately suppress drive-forward salvage because issuing the next
+   * aharness-owned turn would violate the target state's model contract.
+   */
+  readonly onStateModelFailure?: (e: Error) => void;
   /**
    * F1 salvage entry point. Invoked from the outer catch AFTER
    * `clearSubmittedThisTurn?.()` and AFTER `onError?.(err)` so the run
@@ -108,6 +120,10 @@ function defaultErrorSink(e: Error): void {
   process.stderr.write(`[crossStateDance] ${e.message}\n`);
 }
 
+function asError(e: unknown): Error {
+  return e instanceof Error ? e : new Error(String(e));
+}
+
 export function scheduleCrossStateDance(o: ScheduleCrossStateDanceOpts): void {
   // Register the watcher synchronously BEFORE the dispatcher returns its
   // reply. The watcher's own contract (see itemCompletedWatcher.ts)
@@ -118,6 +134,8 @@ export function scheduleCrossStateDance(o: ScheduleCrossStateDanceOpts): void {
   o.markSubmittedThisTurn();
 
   void (async () => {
+    let suppressSalvage = false;
+    let stateModelError: Error | undefined;
     try {
       await matched;
       try {
@@ -133,6 +151,15 @@ export function scheduleCrossStateDance(o: ScheduleCrossStateDanceOpts): void {
         // swallowed silently — the surfaced error path is reserved for
         // unexpected failures (timeouts, other JSON-RPC errors).
       }
+      if (o.applyStateModel !== undefined) {
+        try {
+          await o.applyStateModel();
+        } catch (e) {
+          stateModelError = asError(e);
+          suppressSalvage = true;
+          throw stateModelError;
+        }
+      }
       await o.client.request<TurnStartResponse>(METHOD.turnStart, {
         threadId: o.activeThreadBinding.require(),
         input: [{ type: 'text', text: o.orientationText }],
@@ -143,9 +170,15 @@ export function scheduleCrossStateDance(o: ScheduleCrossStateDanceOpts): void {
       //      is reachable on the salvage re-entry,
       //   2) surface the original failure to the error sink,
       //   3) ask drive-forward to issue a recovery `turn/start`.
+      const err = asError(e);
       o.clearSubmittedThisTurn?.();
-      (o.onError ?? defaultErrorSink)(e as Error);
-      o.requestDriveForwardSalvage?.();
+      (o.onError ?? defaultErrorSink)(err);
+      if (stateModelError !== undefined) {
+        o.onStateModelFailure?.(stateModelError);
+      }
+      if (!suppressSalvage) {
+        o.requestDriveForwardSalvage?.();
+      }
     }
   })();
 }

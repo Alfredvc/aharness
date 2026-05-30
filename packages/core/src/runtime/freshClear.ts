@@ -23,6 +23,7 @@ export interface PerformFreshClearOpts {
   readonly model?: string;
   readonly reasoningEffort?: CodexReasoningEffort;
   readonly dynamicTools: ReadonlyArray<DynamicToolDef>;
+  readonly waitForSettled?: () => Promise<void>;
   readonly composeActiveStateNudge: () => string;
   readonly onCleanupError?: (error: Error) => void;
 }
@@ -71,6 +72,7 @@ export async function performFreshClear(
 
   opts.activeThreadBinding.set(replacement.thread.id);
   const orientationText = opts.composeActiveStateNudge();
+  await opts.waitForSettled?.();
   await opts.client.request<TurnStartResponse>(METHOD.turnStart, {
     threadId: replacement.thread.id,
     input: [{ type: 'text', text: orientationText }],

@@ -1,6 +1,6 @@
 /**
  * JSON-RPC types for the Codex `app-server` surface that `@aharness/core`
- * consumes. Pinned to codex-rs commit `127434cd8b96` (see
+ * consumes. Pinned to codex-rs commit `7d47056ea426` (see
  * `SUPPORTED_CODEX.md`).
  *
  * Wire convention: every codex `app-server` request/response struct uses
@@ -86,6 +86,25 @@ export interface ThreadStartParams {
 }
 
 export type ThreadStartSource = 'startup' | 'clear';
+
+/**
+ * `thread/settings/update` request params. Matches
+ * `app-server-protocol/src/protocol/common.rs:517` and
+ * `app-server-protocol/src/protocol/v2/thread.rs` (for the writable fields
+ * aharness sends).
+ *
+ * This is intentionally narrow: aharness writes and validates only `model`
+ * and `effort`; other optional fields from the upstream API are deliberately
+ * omitted.
+ */
+export interface ThreadSettingsUpdateParams {
+  threadId: string;
+  model?: string;
+  effort?: CodexReasoningEffort;
+}
+
+/** Empty success body for `thread/settings/update`. */
+export type ThreadSettingsUpdateResponse = Record<string, never>;
 
 /**
  * Narrowed `Thread` payload returned by `thread/start` and present on

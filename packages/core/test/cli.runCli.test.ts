@@ -2046,6 +2046,12 @@ describe('runCliForTest — pre-spawn gates', () => {
       }) => boolean,
       timeoutMs = 2_000,
     ): Promise<{ id?: number; method?: string; params?: unknown; result?: unknown }> => {
+      const describeOutbound = () =>
+        outbound
+          .map(
+            (message) => `${message.id ?? '<no-id>'}:${message.method ?? `response:${message.id}`}`,
+          )
+          .join(', ');
       const start = Date.now();
       while (Date.now() - start < timeoutMs) {
         for (let i = outbound.length - 1; i >= 0; i--) {
@@ -2992,7 +2998,8 @@ describe('runCliForTest — pre-spawn gates', () => {
         }),
         b: state({
           entryPrompt: 'state b active',
-          clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' },
+          model: { name: 'gpt-5.1-codex', effort: 'high' },
+          clearOnEntry: true,
           exits: { done: exit<Payload>({ to: 'done' }) },
         }),
         done: terminal('success'),
@@ -3141,6 +3148,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sessionStartSource: 'clear',
         }),
       );
+      expect(outbound.some((msg) => msg.method === METHOD.threadSettingsUpdate)).toBe(false);
       transport.onMessage?.({
         jsonrpc: '2.0',
         id: replacementThreadStart.id,
@@ -3221,6 +3229,599 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(r.exitCode).toBe(0);
   });
 
+  it('applies initial-state model via thread/settings/update before first turn/start', async () => {
+    interface Payload {
+      ok: boolean;
+    }
+
+    const fsmPath = makeFsmFile(repoRoot, 'initial-model-thread-settings-update.fsm.ts');
+    const m = aharness.machine({
+      id: 'initial-model-thread-settings-update',
+      initial: 'a',
+      states: {
+        a: state({
+          model: { name: 'gpt-5.1-codex' },
+          entryPrompt: 'state a active',
+          exits: { go: exit<Payload>({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const sidecar = {
+      a: { go: { jsonSchema: { type: 'object' }, validate: () => ({ ok: true }) } },
+    };
+
+    const outbound: Array<{ id?: number; method?: string; params?: unknown; result?: unknown }> =
+      [];
+    let transport!: Transport;
+    const startupThreadId = 'thread-initial-model-startup';
+
+    const waitForOutbound = async (
+      predicate: (envelope: {
+        method?: string;
+        id?: number;
+        params?: unknown;
+        result?: unknown;
+      }) => boolean,
+      timeoutMs = 2_000,
+    ): Promise<{ id?: number; method?: string; params?: unknown; result?: unknown }> => {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        for (let i = outbound.length - 1; i >= 0; i--) {
+          const envelope = outbound[i];
+          if (envelope && predicate(envelope)) return envelope;
+        }
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      throw new Error(
+        `timeout waiting for outbound: saw ${outbound
+          .map((message) => message.method ?? `response:${message.id}`)
+          .join(', ')}`,
+      );
+    };
+
+    const connectStub = async (opts: ConnectHeadlessWsOptions) => {
+      transport = {
+        send(msg: unknown) {
+          const envelope = msg as {
+            id?: number;
+            method?: string;
+            params?: unknown;
+            result?: unknown;
+          };
+          outbound.push(envelope);
+          if (envelope.method === METHOD.initialize) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+              }),
+            );
+          }
+        },
+        async close() {
+          /* no-op */
+        },
+      };
+      const client = new JsonRpcClient(transport);
+      opts.registerHandlers?.(client);
+      await client.request(METHOD.initialize, {
+        clientInfo: opts.clientInfo,
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      });
+      return {
+        client,
+        close: async () => {
+          await client.close();
+        },
+      };
+    };
+
+    const driver = async (): Promise<void> => {
+      const initialThreadStart = await waitForOutbound((msg) => msg.method === METHOD.threadStart);
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: initialThreadStart.id,
+        result: { thread: { id: startupThreadId, ephemeral: false } },
+      });
+
+      const modelUpdate = await waitForOutbound(
+        (msg) => msg.method === METHOD.threadSettingsUpdate,
+      );
+      expect(modelUpdate.params).toEqual({
+        threadId: startupThreadId,
+        model: 'gpt-5.1-codex',
+      });
+      transport.onMessage?.({ jsonrpc: '2.0', id: modelUpdate.id, result: {} });
+
+      const kickoff = await waitForOutbound(
+        (msg) =>
+          msg.method === METHOD.turnStart &&
+          typeof msg.params === 'object' &&
+          msg.params !== null &&
+          (msg.params as { threadId?: unknown }).threadId === startupThreadId,
+      );
+      expect(kickoff.params).toEqual(
+        expect.objectContaining({ threadId: startupThreadId, input: expect.any(Array) }),
+      );
+      transport.onMessage?.({ jsonrpc: '2.0', id: kickoff.id, result: {} });
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: 1000,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-start',
+          callId: 'call-go',
+          tool: 'aharness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'go', data: { ok: true } }),
+        },
+      });
+      const submitReply = await waitForOutbound(
+        (msg) => msg.id === 1000 && msg.result !== undefined,
+      );
+      expect(submitReply.result).toEqual({
+        success: true,
+        contentItems: [{ type: 'inputText', text: 'Run complete. Terminal: success.' }],
+      });
+    };
+
+    const driverPromise = driver();
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        loadFsmImpl: (async () => ({
+          machine: m,
+          sidecar,
+          modulePath: '/tmp/initial-model-thread-settings-update.mjs',
+          issues: [],
+          cacheHit: false,
+          hash: 'initial-model-thread-settings-update',
+        })) as unknown as RunCliTestHooks['loadFsmImpl'],
+        spawnAppServer: (async () =>
+          makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+        connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+        startUiServerImpl: async () => ({
+          url: 'http://127.0.0.1:45678',
+          close: vi.fn(async () => undefined),
+        }),
+      },
+    });
+    const r = await runCliForTest(opts);
+    await driverPromise;
+
+    expect(r.exitCode).toBe(0);
+    const kickoffIndex = outbound.findIndex(
+      (msg) =>
+        msg.method === METHOD.turnStart &&
+        typeof msg.params === 'object' &&
+        msg.params !== null &&
+        (msg.params as { threadId?: unknown }).threadId === startupThreadId,
+    );
+    const modelUpdateIndex = outbound.findIndex(
+      (msg) => msg.method === METHOD.threadSettingsUpdate,
+    );
+    expect(modelUpdateIndex).toBeGreaterThanOrEqual(0);
+    expect(modelUpdateIndex).toBeLessThan(kickoffIndex);
+  });
+
+  it('cross-state submit into non-clear model state sends thread/settings/update before next aharness turn/start', async () => {
+    interface Payload {
+      ok: boolean;
+    }
+
+    const fsmPath = makeFsmFile(repoRoot, 'cross-state-model-update.fsm.ts');
+    const m = aharness.machine({
+      id: 'cross-state-model-update',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'state a active',
+          exits: { go: exit<Payload>({ to: 'b' }) },
+        }),
+        b: state({
+          entryPrompt: 'state b active',
+          model: { name: 'gpt-5.1-codex' },
+          exits: { done: exit<Payload>({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const sidecar = {
+      a: { go: { jsonSchema: { type: 'object' }, validate: () => ({ ok: true }) } },
+      b: { done: { jsonSchema: { type: 'object' }, validate: () => ({ ok: true }) } },
+    };
+
+    const outbound: Array<{ id?: number; method?: string; params?: unknown; result?: unknown }> =
+      [];
+    let transport!: Transport;
+    const startupThreadId = 'thread-cross-state-model-startup';
+    const waitForOutbound = async (
+      predicate: (envelope: {
+        method?: string;
+        id?: number;
+        params?: unknown;
+        result?: unknown;
+      }) => boolean,
+      timeoutMs = 2_000,
+    ): Promise<{ id?: number; method?: string; params?: unknown; result?: unknown }> => {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        for (let i = outbound.length - 1; i >= 0; i--) {
+          const envelope = outbound[i];
+          if (envelope && predicate(envelope)) return envelope;
+        }
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      const summary = outbound
+        .map(
+          (message) => `${message.id ?? '<no-id>'}:${message.method ?? `response:${message.id}`}`,
+        )
+        .join(', ');
+      throw new Error(`timeout waiting for outbound in cross-state model test; saw ${summary}`);
+    };
+
+    const connectStub = async (opts: ConnectHeadlessWsOptions) => {
+      transport = {
+        send(msg: unknown) {
+          const envelope = msg as {
+            id?: number;
+            method?: string;
+            params?: unknown;
+            result?: unknown;
+          };
+          outbound.push(envelope);
+          if (envelope.method === METHOD.initialize) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+              }),
+            );
+          }
+        },
+        async close() {
+          /* no-op */
+        },
+      };
+      const client = new JsonRpcClient(transport);
+      opts.registerHandlers?.(client);
+      await client.request(METHOD.initialize, {
+        clientInfo: opts.clientInfo,
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      });
+      return {
+        client,
+        close: async () => {
+          await client.close();
+        },
+      };
+    };
+
+    const driver = async (): Promise<void> => {
+      const initialThreadStart = await waitForOutbound((msg) => msg.method === METHOD.threadStart);
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: initialThreadStart.id,
+        result: { thread: { id: startupThreadId, ephemeral: false } },
+      });
+      const kickoff = await waitForOutbound((msg) => msg.method === METHOD.turnStart);
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: kickoff.id,
+        result: {},
+      });
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: 2000,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old',
+          callId: 'call-go',
+          tool: 'aharness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'go', data: { ok: true } }),
+        },
+      });
+      await waitForOutbound((msg) => msg.id === 2000 && msg.result !== undefined);
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old',
+          item: { type: 'dynamicToolCall', id: 'call-go' },
+        },
+      });
+
+      const interrupt = await waitForOutbound((msg) => msg.method === METHOD.turnInterrupt);
+      transport.onMessage?.({ jsonrpc: '2.0', id: interrupt.id, result: {} });
+      const modelUpdate = await waitForOutbound(
+        (msg) => msg.method === METHOD.threadSettingsUpdate,
+      );
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: modelUpdate.id,
+        result: {},
+      });
+      const orientation = await waitForOutbound(
+        (msg) =>
+          msg.method === METHOD.turnStart &&
+          typeof msg.id === 'number' &&
+          msg.id > (interrupt.id as number),
+      );
+      expect(modelUpdate.params).toEqual({
+        threadId: startupThreadId,
+        model: 'gpt-5.1-codex',
+      });
+      const modelIndex = outbound.findIndex((msg) => msg.method === METHOD.threadSettingsUpdate);
+      const turnStartIndex = outbound.findIndex(
+        (msg, i) =>
+          msg.method === METHOD.turnStart &&
+          i > modelIndex &&
+          typeof msg.params === 'object' &&
+          msg.params !== null &&
+          (msg.params as { threadId?: unknown }).threadId === startupThreadId,
+      );
+      expect(modelIndex).toBeGreaterThan(0);
+      expect(turnStartIndex).toBeGreaterThan(modelIndex);
+
+      transport.onMessage?.({ jsonrpc: '2.0', id: orientation.id, result: {} });
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: 2002,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-b',
+          callId: 'call-done',
+          tool: 'aharness_submit',
+          arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
+        },
+      });
+      await waitForOutbound((msg) => msg.id === 2002 && msg.result !== undefined);
+    };
+
+    const driverPromise = driver();
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        loadFsmImpl: (async () => ({
+          machine: m,
+          sidecar,
+          modulePath: '/tmp/cross-state-model-update.mjs',
+          issues: [],
+          cacheHit: false,
+          hash: 'cross-state-model-update',
+        })) as unknown as RunCliTestHooks['loadFsmImpl'],
+        spawnAppServer: (async () =>
+          makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+        connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+        startUiServerImpl: async () => ({
+          url: 'http://127.0.0.1:45678',
+          close: vi.fn(async () => undefined),
+        }),
+      },
+    });
+    const r = await runCliForTest(opts);
+    await driverPromise;
+
+    expect(r.exitCode).toBe(0);
+    expect(outbound.some((msg) => msg.method === METHOD.threadSettingsUpdate)).toBe(true);
+    expect(
+      outbound.some(
+        (msg) =>
+          msg.method === METHOD.clearOnEntry &&
+          typeof msg.params === 'object' &&
+          msg.params !== null &&
+          (msg.params as { clearOnEntry?: unknown }).clearOnEntry === true,
+      ),
+    ).toBe(false);
+  });
+
+  it('thread/settings/update failure in cross-state path fails the run', async () => {
+    interface Payload {
+      ok: boolean;
+    }
+
+    const fsmPath = makeFsmFile(repoRoot, 'cross-state-model-update-failure.fsm.ts');
+    const m = aharness.machine({
+      id: 'cross-state-model-update-failure',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'state a active',
+          exits: { go: exit<Payload>({ to: 'b' }) },
+        }),
+        b: state({
+          entryPrompt: 'state b active',
+          model: { name: 'gpt-5.1-codex' },
+          exits: { done: exit<Payload>({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const sidecar = {
+      a: { go: { jsonSchema: { type: 'object' }, validate: () => ({ ok: true }) } },
+      b: { done: { jsonSchema: { type: 'object' }, validate: () => ({ ok: true }) } },
+    };
+
+    const outbound: Array<{ id?: number; method?: string; params?: unknown; result?: unknown }> =
+      [];
+    let transport!: Transport;
+    const startupThreadId = 'thread-cross-state-model-failure';
+    const waitForOutbound = async (
+      predicate: (envelope: {
+        method?: string;
+        id?: number;
+        params?: unknown;
+        result?: unknown;
+      }) => boolean,
+      timeoutMs = 2_000,
+    ): Promise<{ id?: number; method?: string; params?: unknown; result?: unknown }> => {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        for (let i = outbound.length - 1; i >= 0; i--) {
+          const envelope = outbound[i];
+          if (envelope && predicate(envelope)) return envelope;
+        }
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      const summary = outbound
+        .map(
+          (message) => `${message.id ?? '<no-id>'}:${message.method ?? `response:${message.id}`}`,
+        )
+        .join(', ');
+      throw new Error(`timeout waiting for outbound in settings failure test; saw ${summary}`);
+    };
+
+    const connectStub = async (opts: ConnectHeadlessWsOptions) => {
+      transport = {
+        send(msg: unknown) {
+          const envelope = msg as {
+            id?: number;
+            method?: string;
+            params?: unknown;
+            result?: unknown;
+          };
+          outbound.push(envelope);
+          if (envelope.method === METHOD.initialize) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+              }),
+            );
+          }
+        },
+        async close() {
+          /* no-op */
+        },
+      };
+      const client = new JsonRpcClient(transport);
+      opts.registerHandlers?.(client);
+      await client.request(METHOD.initialize, {
+        clientInfo: opts.clientInfo,
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      });
+      return {
+        client,
+        close: async () => {
+          await client.close();
+        },
+      };
+    };
+
+    const driver = async (): Promise<void> => {
+      const initialThreadStart = await waitForOutbound((msg) => msg.method === METHOD.threadStart);
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: initialThreadStart.id,
+        result: { thread: { id: startupThreadId, ephemeral: false } },
+      });
+      const kickoff = await waitForOutbound((msg) => msg.method === METHOD.turnStart);
+      transport.onMessage?.({ jsonrpc: '2.0', id: kickoff.id, result: {} });
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: 2100,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old',
+          callId: 'call-go',
+          tool: 'aharness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'go', data: { ok: true } }),
+        },
+      });
+      await waitForOutbound((msg) => msg.id === 2100 && msg.result !== undefined);
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old',
+          item: { type: 'dynamicToolCall', id: 'call-go' },
+        },
+      });
+
+      const interrupt = await waitForOutbound((msg) => msg.method === METHOD.turnInterrupt);
+      transport.onMessage?.({ jsonrpc: '2.0', id: interrupt.id, result: {} });
+      const modelUpdate = await waitForOutbound(
+        (msg) => msg.method === METHOD.threadSettingsUpdate,
+      );
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: modelUpdate.id,
+        error: { code: -32603, message: 'settings backend exploded' },
+      });
+    };
+
+    const driverPromise = driver();
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        loadFsmImpl: (async () => ({
+          machine: m,
+          sidecar,
+          modulePath: '/tmp/cross-state-model-update-failure.mjs',
+          issues: [],
+          cacheHit: false,
+          hash: 'cross-state-model-update-failure',
+        })) as unknown as RunCliTestHooks['loadFsmImpl'],
+        spawnAppServer: (async () =>
+          makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+        connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+        startUiServerImpl: async () => ({
+          url: 'http://127.0.0.1:45678',
+          close: vi.fn(async () => undefined),
+        }),
+      },
+    });
+    opts.stderr = stderrSink;
+
+    const runPromise = runCliForTest(opts);
+    const r = await Promise.race([
+      runPromise,
+      new Promise<never>((_resolve, reject) => {
+        setTimeout(() => reject(new Error('run did not fail after settings update error')), 500);
+      }),
+    ]);
+    await driverPromise;
+
+    expect(r.exitCode).toBe(1);
+    expect(stderrBuf.join('')).toContain('state model settings failure');
+    expect(stderrBuf.join('')).toContain('settings backend exploded');
+    const eventEntries = expectCanonicalRunEventStream(repoRoot);
+    expect(eventEntries.at(-1)).toEqual(
+      expect.objectContaining({
+        type: 'run.failed',
+        data: expect.objectContaining({
+          status: 'failed',
+          message: 'state-model update failed; shutting down',
+        }),
+      }),
+    );
+    const modelUpdateIndex = outbound.findIndex(
+      (msg) => msg.method === METHOD.threadSettingsUpdate,
+    );
+    expect(modelUpdateIndex).toBeGreaterThanOrEqual(0);
+    expect(
+      outbound.slice(modelUpdateIndex + 1).some((msg) => msg.method === METHOD.turnStart),
+    ).toBe(false);
+  });
+
   it('uses resolved fresh clear cwd for replacement threads while run files stay under the launch root', async () => {
     interface Ctx {
       currentWorktreeDir: string;
@@ -3244,8 +3845,8 @@ describe('runCliForTest — pre-spawn gates', () => {
         name: 'post-transition-function-effort-only',
         clearOnEntry: () => ({
           cwd: (data: Readonly<Ctx>) => data.currentWorktreeDir,
-          reasoningEffort: 'high' as const,
         }),
+        model: { effort: 'high' as const },
         expectReasoningEffort: 'high' as const,
       },
     ] as const;
@@ -3273,6 +3874,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           }),
           b: state<Ctx>({
             entryPrompt: 'state b active',
+            model: scenario.model,
             clearOnEntry: scenario.clearOnEntry(worktreeDir),
             exits: { done: exit<Payload>({ to: 'done' }) },
           }),
@@ -3534,9 +4136,9 @@ describe('runCliForTest — pre-spawn gates', () => {
         }),
         b: state<Ctx>({
           entryPrompt: 'state b active',
+          model: { effort: 'xhigh' },
           clearOnEntry: {
             cwd: (data: Readonly<Ctx>) => data.currentWorktreeDir,
-            reasoningEffort: 'xhigh',
           },
           exits: { done: exit<Payload>({ to: 'done' }) },
         }),
@@ -3918,6 +4520,218 @@ describe('runCliForTest — pre-spawn gates', () => {
           issues: [],
           cacheHit: false,
           hash: 'fresh-clear-await',
+        })) as unknown as RunCliTestHooks['loadFsmImpl'],
+        spawnAppServer: (async () =>
+          makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+        connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+        startUiServerImpl: async () => ({
+          url: 'http://127.0.0.1:45678',
+          close: vi.fn(async () => undefined),
+        }),
+      },
+    });
+    opts.stderr = stderrSink;
+
+    const r = await runCliForTest(opts);
+    await driverPromise;
+
+    expect(r.exitCode).toBe(0);
+  });
+
+  it('await-resolution into non-clear model state gates immediate drive-forward turn/start', async () => {
+    interface Payload {
+      ok: boolean;
+    }
+
+    const fsmPath = makeFsmFile(repoRoot, 'await-model-gate.fsm.ts');
+    const m = aharness.machine({
+      id: 'await-model-gate',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'state a awaiting owner',
+          exits: { ownerReply: { kind: 'await', to: 'b' } },
+        }),
+        b: state({
+          entryPrompt: 'state b active',
+          model: { name: 'gpt-5.1-codex' },
+          exits: { done: exit<Payload>({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const validator = {
+      jsonSchema: { type: 'object' },
+      validate: (input: unknown) => ({ ok: true as const, data: input }),
+    };
+    const sidecar = { b: { done: validator } };
+
+    const outbound: Array<{ id?: number; method?: string; params?: unknown; result?: unknown }> =
+      [];
+    let transport!: Transport;
+    const startupThreadId = 'thread-await-model-gate';
+
+    const waitForOutbound = async (
+      predicate: (envelope: {
+        method?: string;
+        id?: number;
+        params?: unknown;
+        result?: unknown;
+      }) => boolean,
+      timeoutMs = 2_000,
+    ): Promise<{ id?: number; method?: string; params?: unknown; result?: unknown }> => {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        for (let i = outbound.length - 1; i >= 0; i--) {
+          const envelope = outbound[i];
+          if (envelope && predicate(envelope)) return envelope;
+        }
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      throw new Error(
+        `timeout waiting for outbound; saw ${outbound
+          .map((message) => message.method ?? `response:${message.id}`)
+          .join(', ')}`,
+      );
+    };
+
+    const connectStub = async (opts: ConnectHeadlessWsOptions) => {
+      transport = {
+        send(msg: unknown) {
+          const envelope = msg as {
+            id?: number;
+            method?: string;
+            params?: unknown;
+            result?: unknown;
+          };
+          outbound.push(envelope);
+          if (envelope.method === METHOD.initialize) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+              }),
+            );
+          }
+        },
+        async close() {
+          /* no-op */
+        },
+      };
+      const client = new JsonRpcClient(transport);
+      opts.registerHandlers?.(client);
+      await client.request(METHOD.initialize, {
+        clientInfo: opts.clientInfo,
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      });
+      return {
+        client,
+        close: async () => {
+          await client.close();
+        },
+      };
+    };
+
+    const driver = async (): Promise<void> => {
+      const initialThreadStart = await waitForOutbound((msg) => msg.method === METHOD.threadStart);
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: initialThreadStart.id,
+        result: { thread: { id: startupThreadId, ephemeral: false } },
+      });
+
+      const kickoff = await waitForOutbound((msg) => msg.method === METHOD.turnStart);
+      const kickoffIndex = outbound.indexOf(kickoff);
+      transport.onMessage?.({ jsonrpc: '2.0', id: kickoff.id, result: {} });
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.rawResponseItemCompleted,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old',
+          item: {
+            type: 'function_call',
+            call_id: 'call-await',
+            name: 'request_user_input',
+            arguments: JSON.stringify({
+              questions: [{ id: 'owner', question: 'answer?', isOther: false, isSecret: false }],
+            }),
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.rawResponseItemCompleted,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old',
+          item: {
+            type: 'function_call_output',
+            call_id: 'call-await',
+            output: JSON.stringify({ answers: { owner: { answers: ['owner text'] } } }),
+          },
+        },
+      });
+
+      await Promise.resolve();
+      await Promise.resolve();
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.turnCompleted,
+        params: { threadId: startupThreadId, turn: { id: 'turn-old' } },
+      });
+
+      const modelUpdate = await waitForOutbound(
+        (msg) => msg.method === METHOD.threadSettingsUpdate,
+      );
+      const modelUpdateIndex = outbound.indexOf(modelUpdate);
+      expect(modelUpdate.params).toEqual({
+        threadId: startupThreadId,
+        model: 'gpt-5.1-codex',
+      });
+      expect(
+        outbound
+          .slice(kickoffIndex + 1, modelUpdateIndex)
+          .some((msg) => msg.method === METHOD.turnStart),
+      ).toBe(false);
+
+      transport.onMessage?.({ jsonrpc: '2.0', id: modelUpdate.id, result: {} });
+      const nextTurnStart = await waitForOutbound((msg) => {
+        if (msg.method !== METHOD.turnStart) return false;
+        const index = outbound.indexOf(msg);
+        return index > modelUpdateIndex;
+      });
+      transport.onMessage?.({ jsonrpc: '2.0', id: nextTurnStart.id, result: {} });
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: 9930,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-b',
+          callId: 'call-done',
+          tool: 'aharness_submit',
+          arguments: JSON.stringify({ state: 'b', exit: 'done', data: { ok: true } }),
+        },
+      });
+      await waitForOutbound((msg) => msg.id === 9930 && msg.result !== undefined);
+    };
+
+    const driverPromise = driver();
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        loadFsmImpl: (async () => ({
+          machine: m,
+          sidecar,
+          modulePath: '/tmp/await-model-gate.mjs',
+          issues: [],
+          cacheHit: false,
+          hash: 'await-model-gate',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
         spawnAppServer: (async () =>
           makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
