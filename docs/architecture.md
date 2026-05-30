@@ -117,10 +117,16 @@ stores compact normalized event data plus full raw runtime payloads inline,
 including secret-marked owner input, browser replies, tool arguments/results,
 command output, file diffs, approval/permission/elicitation payloads, and token
 usage notifications, plus parent-visible sub-thread notifications. Run
-directories should therefore be handled as sensitive material. The browser
-compatibility surface remains the flat `/api/state`, `/api/stream`, and
-`/api/reply` API in this slice, and `snapshot.json` remains written for current
-inspection state until the later source-of-truth cutover.
+directories should therefore be handled as sensitive material.
+
+The loopback UI server has two API surfaces during the JSONL source-of-truth
+transition. Run-scoped routes under `/api/runs/:runId/` serve compact
+JSONL-backed projections for bootstrap state, visit rows, recent rows,
+diagnostic event pages, canonical run-event SSE, and replies. These HTTP/SSE
+responses omit raw payloads; raw evidence remains in `events.jsonl`. The current
+React browser remains on the flat `/api/state`, `/api/stream`, and `/api/reply`
+compatibility routes until Slice 4, and `snapshot.json` remains written for
+current inspection state until the later source-of-truth cutover.
 
 ## Package Boundaries
 

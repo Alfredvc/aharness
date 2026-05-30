@@ -3,8 +3,10 @@ import type { AppEvent, FrameworkNote, ReplayableAppEvent, RunMeta } from '../ui
 import type { UiEventLog } from '../ui/sse.js';
 import { appEventToRunEventAppendInput } from './adapter.js';
 import { appendRunEvent, type RunEventRecorder } from './recorder.js';
-import type { RunEventAppendInput, RunEventEnvelope } from './types.js';
+import type { RunEventAppendInput, RunEventEnvelope, RunEventWithOffset } from './types.js';
 import type { RunEventAppendResult, RunEventWriterWarning } from './writer.js';
+
+export type LiveRunEventCanonicalAppendHook = (entry: RunEventWithOffset) => void | Promise<void>;
 
 export interface LiveRunEventPublisherOptions {
   readonly runDir: RunDir;
@@ -12,6 +14,7 @@ export interface LiveRunEventPublisherOptions {
   readonly uiEventLog: UiEventLog;
   readonly stderr: NodeJS.WritableStream;
   readonly onUiEvent?: (event: ReplayableAppEvent) => void;
+  readonly onCanonicalAppend?: LiveRunEventCanonicalAppendHook;
   readonly recorder?: RunEventRecorder;
 }
 
@@ -31,6 +34,11 @@ export interface LiveRunEventPublisher {
 
 function warningMessage(warning: RunEventWriterWarning): string {
   return `aharness: events.jsonl append failed (${warning.code}) for ${warning.envelope.type}: ${warning.message}\n`;
+}
+
+function hookFailureMessage(entry: RunEventWithOffset, err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  return `aharness: live run-event hook failed for ${entry.event.type}: ${message}\n`;
 }
 
 function appendWithRecorder(
@@ -63,6 +71,31 @@ function warningNote(envelope: RunEventEnvelope, warningSeq: number): FrameworkN
   };
 }
 
+function notifyCanonicalAppend(
+  options: LiveRunEventPublisherOptions,
+  result: Extract<RunEventAppendResult, { readonly ok: true }>,
+): void {
+  const hook = options.onCanonicalAppend;
+  if (hook === undefined) return;
+
+  const entry: RunEventWithOffset = {
+    event: result.envelope,
+    offset: result.offset,
+    lineBytes: result.lineBytes,
+  };
+
+  try {
+    const maybePromise = hook(entry);
+    if (maybePromise !== undefined) {
+      void Promise.resolve(maybePromise).catch((err: unknown) => {
+        options.stderr.write(hookFailureMessage(entry, err));
+      });
+    }
+  } catch (err) {
+    options.stderr.write(hookFailureMessage(entry, err));
+  }
+}
+
 export function createLiveRunEventPublisher(
   options: LiveRunEventPublisherOptions,
 ): LiveRunEventPublisher {
@@ -82,6 +115,9 @@ export function createLiveRunEventPublisher(
     });
     if (!result.ok && !reported) {
       reportWarning(result.warning);
+    }
+    if (result.ok) {
+      notifyCanonicalAppend(options, result);
     }
   }
 

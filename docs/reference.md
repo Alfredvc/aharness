@@ -237,9 +237,25 @@ Run artifacts are written under `.aharness/runs/<runId>/`. For new runs,
 payloads by default: secret-marked owner input, browser replies, tool
 arguments/results, command output, file diffs, approval/permission/elicitation
 data, token usage payloads, and parent-visible sub-thread notifications. Treat
-it as sensitive. The current browser API remains the flat `/api/state`,
-`/api/stream`, and `/api/reply` surface, and `snapshot.json` remains present for
-current inspection state until the later JSONL source-of-truth cutover.
+it as sensitive.
+
+The local UI server accepts a per-run token and exposes run-scoped APIs for the
+active run:
+
+- `GET /api/runs/:runId/bootstrap`
+- `GET /api/runs/:runId/visits/:visitId/rows?cursor=...&limit=...`
+- `GET /api/runs/:runId/rows/recent?cursor=...&limit=...`
+- `GET /api/runs/:runId/events?after=...&limit=...`
+- `GET /api/runs/:runId/stream?after=...`
+- `POST /api/runs/:runId/reply`
+
+These routes return compact JSONL-backed projections and canonical run-event
+SSE frames for bootstrap, row, diagnostic event, stream, and reply workflows.
+API and SSE responses omit raw payloads; use the sensitive `events.jsonl` file
+only when raw runtime evidence is needed. The current React browser still uses
+the flat `/api/state`, `/api/stream`, and `/api/reply` compatibility surface
+until Slice 4, and `snapshot.json` remains present for current inspection state
+until the later JSONL source-of-truth cutover.
 
 `aharness install <source>` delegates package-spec handling to npm inside the
 aharness managed npm project. The source may be any package spec npm accepts.

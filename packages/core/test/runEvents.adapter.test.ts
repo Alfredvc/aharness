@@ -9,6 +9,7 @@ import {
   appEventToEnrichedRunEventAppendInput,
   appEventToRunEventAppendInput,
   createLiveRunEventPublisher,
+  createRunEventQueryService,
   legacyEventInputToRunEventAppendInput,
 } from '../src/runEvents/index.js';
 import { createUiEventLog } from '../src/ui/sse.js';
@@ -544,9 +545,60 @@ describe('live run event publisher', () => {
     );
   });
 
+  it('notifies the live index hook with only event, offset, and lineBytes after successful appends', () => {
+    const runDir = tempRunDir('run-live-hook');
+    const uiEventLog = createUiEventLog({ run: { ...runMeta, runId: runDir.runId } });
+    const observed: unknown[] = [];
+    const publisher = createLiveRunEventPublisher({
+      runDir,
+      runMeta: { ...runMeta, runId: runDir.runId },
+      uiEventLog,
+      onCanonicalAppend: (entry) => observed.push(entry),
+      stderr: { write: () => true } as unknown as NodeJS.WritableStream,
+    });
+
+    publisher.publishRunStarted();
+    publisher.publish({
+      kind: 'StateChange',
+      from: null,
+      to: fsmState.path,
+      cause: 'boot',
+      newState: fsmState,
+    });
+
+    expect(observed).toHaveLength(2);
+    expect(Object.keys(observed[0] as Record<string, unknown>)).toEqual([
+      'event',
+      'offset',
+      'lineBytes',
+    ]);
+    expect(observed[0]).toEqual({
+      event: expect.objectContaining({
+        id: `${runDir.runId}:1`,
+        type: 'run.started',
+      }),
+      offset: 0,
+      lineBytes: expect.any(Number),
+    });
+    expect(observed[0]).not.toHaveProperty('envelope');
+    expect(observed[0]).not.toHaveProperty('ok');
+    expect(observed[1]).toEqual({
+      event: expect.objectContaining({
+        id: `${runDir.runId}:2`,
+        type: 'state.changed',
+      }),
+      offset: expect.any(Number),
+      lineBytes: expect.any(Number),
+    });
+  });
+
   it('warns without blocking UI publication when canonical append fails', () => {
     const runDir = tempRunDir('run-warning');
     const uiEventLog = createUiEventLog({ run: { ...runMeta, runId: runDir.runId } });
+    const queryService = createRunEventQueryService({
+      runId: runDir.runId,
+      eventsPath: runDir.eventsPath,
+    });
     const stderr: string[] = [];
     const publisher = createLiveRunEventPublisher({
       runDir,
@@ -572,6 +624,9 @@ describe('live run event publisher', () => {
         }),
         nextSeq: () => 1,
         offset: () => 0,
+      },
+      onCanonicalAppend: (entry) => {
+        queryService.acceptAppend(entry);
       },
       stderr: {
         write(chunk: string | Uint8Array) {
@@ -609,6 +664,56 @@ describe('live run event publisher', () => {
       }),
     ]);
     expect(stderr.join('')).toContain('events.jsonl append failed');
+    expect(queryService.getEventPage()).toEqual({
+      ok: true,
+      events: [],
+      nextCursor: null,
+      diagnostics: [],
+    });
+  });
+
+  it('isolates throwing and rejecting hook failures from flat UI publication', async () => {
+    const runDir = tempRunDir('run-hook-failure');
+    const uiEventLog = createUiEventLog({ run: { ...runMeta, runId: runDir.runId } });
+    const observed: unknown[] = [];
+    const stderr: string[] = [];
+    const publisher = createLiveRunEventPublisher({
+      runDir,
+      runMeta: { ...runMeta, runId: runDir.runId },
+      uiEventLog,
+      onUiEvent: (event) => observed.push(event),
+      onCanonicalAppend: (entry) => {
+        if (entry.event.type === 'run.started') {
+          throw new Error('sync hook exploded');
+        }
+        return Promise.reject(new Error('async hook exploded'));
+      },
+      stderr: {
+        write(chunk: string | Uint8Array) {
+          stderr.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+          return true;
+        },
+      } as unknown as NodeJS.WritableStream,
+    });
+
+    publisher.publishRunStarted();
+    publisher.publish({
+      kind: 'StateChange',
+      from: null,
+      to: fsmState.path,
+      cause: 'boot',
+      newState: fsmState,
+    });
+    await Promise.resolve();
+
+    expect(uiEventLog.snapshot().state.currentState).toEqual(fsmState);
+    expect(observed).toEqual([
+      expect.objectContaining({
+        event: expect.objectContaining({ kind: 'StateChange' }),
+      }),
+    ]);
+    expect(stderr.join('')).toContain('sync hook exploded');
+    expect(stderr.join('')).toContain('async hook exploded');
   });
 
   it('warns without blocking UI publication when recorder initialization fails', () => {

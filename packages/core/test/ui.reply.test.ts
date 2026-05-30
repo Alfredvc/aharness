@@ -316,19 +316,22 @@ describe('createBrowserReplyController', () => {
     expect(sendUserPrompt).not.toHaveBeenCalled();
   });
 
-  it('keeps approval replies unavailable until the runtime wires a handler', async () => {
-    const controller = createBrowserReplyController({
-      isOpen: () => true,
-      sendUserPrompt: vi.fn(),
-    });
+  it.each([
+    [{ kind: 'approval', requestId: 'approval-1', decision: 'accept' }],
+    [{ kind: 'permission', requestId: 'permission-1', decision: 'accept' }],
+    [{ kind: 'elicitation', requestId: 'elicitation-1', action: 'accept', values: {} }],
+  ])(
+    'keeps reserved reply kinds unavailable until the runtime wires a handler: %o',
+    async (payload) => {
+      const controller = createBrowserReplyController({
+        isOpen: () => true,
+        sendUserPrompt: vi.fn(),
+      });
 
-    const result = await controller.handleReply({
-      kind: 'approval',
-      requestId: 'approval-1',
-      decision: 'accept',
-    });
+      const result = await controller.handleReply(payload);
 
-    expect(result.status).toBe(501);
-    expect(result.body).toEqual({ error: 'reply-kind-unavailable' });
-  });
+      expect(result.status).toBe(501);
+      expect(result.body).toEqual({ error: 'reply-kind-unavailable' });
+    },
+  );
 });

@@ -93,6 +93,7 @@ import {
   appEventToEnrichedRunEventAppendInput,
   compactRunEventPayload,
   createLiveRunEventPublisher,
+  createRunEventQueryService,
   type RunEventAppendInput,
   type RunEventPayload,
   type RunEventRecorder,
@@ -309,6 +310,10 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   const repoRoot = o.cwd;
   const runId = deriveRunId(fsmAbs);
   const finalRunDir = ensureRunDir(runId, repoRoot);
+  const runEventQueryService = createRunEventQueryService({
+    runId: finalRunDir.runId,
+    eventsPath: finalRunDir.eventsPath,
+  });
 
   // 4. Load FSM (machine + sidecar + inputSchema / inputFlags).
   const loadFsmFn = o.loadFsmImpl ?? loadFsm;
@@ -405,15 +410,24 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   });
   const pendingFreshClearThreadIds = new Set<string>();
   o._testOnActiveThreadBinding?.(activeThreadBinding);
+  const topology = extractUiTopology(machine, { sidecar });
   const uiEventLog = createUiEventLog({
     run: runMeta,
-    topology: extractUiTopology(machine, { sidecar }),
+    topology,
   });
   const livePublisher = createLiveRunEventPublisher({
     runDir: finalRunDir,
     runMeta,
     uiEventLog,
     stderr: o.stderr,
+    onCanonicalAppend: (entry) => {
+      const result = runEventQueryService.acceptAppend(entry);
+      if (!result.ok) {
+        o.stderr.write(
+          `aharness: live run-event index rejected ${entry.event.id}: ${result.diagnostic.code}: ${result.diagnostic.message}\n`,
+        );
+      }
+    },
     ...(o._testOnUiEvent !== undefined ? { onUiEvent: o._testOnUiEvent } : {}),
     ...(o._testRunEventRecorder !== undefined ? { recorder: o._testRunEventRecorder } : {}),
   });
@@ -735,6 +749,12 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       uiToken,
       eventLog: uiEventLog,
       replyHandler: (payload) => browserReplyController.handleReply(payload),
+      runScoped: {
+        activeRunId: finalRunDir.runId,
+        service: runEventQueryService,
+        getRunMeta: () => ({ ...runMeta }),
+        topology,
+      },
     });
     o.stdout.write(`aharness: browser UI available at ${urlWithUiToken(uiServer.url, uiToken)}\n`);
   } catch (e) {

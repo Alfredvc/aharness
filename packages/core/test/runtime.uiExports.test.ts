@@ -38,6 +38,7 @@ describe('runtime UI exports', () => {
     const _serverOptions: StartUiServerOptions = {
       host: '127.0.0.1',
       port: 0,
+      uiToken: 'test-ui-token',
       eventLog: log,
     };
     const _serverHandle: UiServerHandle | null = null;

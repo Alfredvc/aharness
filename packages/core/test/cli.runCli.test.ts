@@ -48,7 +48,7 @@ import {
 } from '../src/runEvents/index.js';
 import type { ActiveThreadBinding } from '../src/runtime/activeThreadBinding.js';
 import type { ReplayableAppEvent, UiSnapshot } from '../src/ui/events.js';
-import type { StartUiServerOptions } from '../src/ui/server.js';
+import { startUiServer, type StartUiServerOptions, type UiServerHandle } from '../src/ui/server.js';
 import type { ConnectHeadlessWsOptions } from '../src/transport/wsClient.js';
 
 const APPROVAL_POLICY_OVERRIDE = ['approval_policy', '"on-request"'] as const;
@@ -1079,9 +1079,270 @@ describe('runCliForTest — pre-spawn gates', () => {
     });
   });
 
+  it('wires run-scoped JSONL endpoints to live canonical runtime events and topology', async () => {
+    interface FinishPayload {
+      ok: boolean;
+    }
+
+    const fsmPath = makeFsmFile(repoRoot, 'run-scoped-live.fsm.ts');
+    const m = aharness.machine({
+      id: 'runScopedLive',
+      initial: 'greet',
+      states: {
+        greet: state({
+          entryPrompt: 'ask owner',
+          exits: { finish: exit<FinishPayload>({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const sidecar = {
+      greet: {
+        finish: {
+          jsonSchema: { type: 'object' },
+          validate: (input: unknown) => ({ ok: true as const, data: input }),
+        },
+      },
+    };
+    const outbound: Array<{ id?: number; method?: string; params?: unknown; result?: unknown }> =
+      [];
+    let transport!: Transport;
+    let uiHandle: UiServerHandle | undefined;
+    let uiUrl: string | undefined;
+    let uiToken: string | undefined;
+    let runId: string | undefined;
+
+    const waitForOutbound = async (
+      predicate: (envelope: {
+        method?: string;
+        id?: number;
+        params?: unknown;
+        result?: unknown;
+      }) => boolean,
+      timeoutMs = 2_000,
+    ): Promise<{ id?: number; method?: string; params?: unknown; result?: unknown }> => {
+      const start = Date.now();
+      while (Date.now() - start < timeoutMs) {
+        for (let i = outbound.length - 1; i >= 0; i--) {
+          const envelope = outbound[i];
+          if (envelope && predicate(envelope)) return envelope;
+        }
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      throw new Error(
+        `timeout waiting for outbound; saw ${outbound
+          .map((message) => message.method ?? `response:${message.id}`)
+          .join(', ')}`,
+      );
+    };
+
+    const readRunScopedJson = async (path: string): Promise<unknown> => {
+      if (uiUrl === undefined || uiToken === undefined || runId === undefined) {
+        throw new Error('UI server was not captured');
+      }
+      const separator = path.includes('?') ? '&' : '?';
+      const response = await fetch(`${uiUrl}/api/runs/${runId}${path}${separator}token=${uiToken}`);
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+
+    const connectStub = async (opts: ConnectHeadlessWsOptions) => {
+      transport = {
+        send(msg: unknown) {
+          const envelope = msg as {
+            id?: number;
+            method?: string;
+            params?: unknown;
+            result?: unknown;
+          };
+          outbound.push(envelope);
+          if (envelope.method === METHOD.initialize) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+              }),
+            );
+          }
+        },
+        async close() {
+          /* no-op */
+        },
+      };
+      const client = new JsonRpcClient(transport);
+      opts.registerHandlers?.(client);
+      await client.request(METHOD.initialize, {
+        clientInfo: opts.clientInfo,
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      });
+      return {
+        client,
+        close: async () => {
+          await client.close();
+        },
+      };
+    };
+
+    const driver = async (): Promise<void> => {
+      const threadId = 'thread-run-scoped-live';
+      const threadStart = await waitForOutbound((msg) => msg.method === METHOD.threadStart);
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: threadStart.id,
+        result: { thread: { id: threadId, ephemeral: false } },
+      });
+
+      const kickoff = await waitForOutbound((msg) => msg.method === METHOD.turnStart);
+      transport.onMessage?.({ jsonrpc: '2.0', id: kickoff.id, result: {} });
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: 9100,
+        method: METHOD.toolRequestUserInput,
+        params: {
+          threadId,
+          turnId: 'turn-owner',
+          itemId: 'owner-live-1',
+          questions: [
+            {
+              id: 'owner',
+              header: 'Owner',
+              question: 'What next?',
+              isOther: false,
+              isSecret: false,
+            },
+          ],
+        },
+      });
+
+      await vi.waitFor(async () => {
+        const bootstrap = (await readRunScopedJson('/bootstrap')) as {
+          run: { threadId?: string };
+          topology: unknown;
+          latestEventId: string;
+          currentStateVisit: { id: string; path: string } | null;
+          recentRows: ReadonlyArray<{ eventId: string; kind: string }>;
+          pending: ReadonlyArray<{ requestId: string; status: string }>;
+          aggregateStats: { turnCount: number };
+        };
+        expect(bootstrap.run.threadId).toBe(threadId);
+        expect(bootstrap.topology).toEqual(
+          expect.objectContaining({
+            machineId: 'runScopedLive',
+            initial: 'greet',
+            nodes: expect.arrayContaining([
+              expect.objectContaining({ id: 'greet', kind: 'stateful' }),
+              expect.objectContaining({ id: 'done', kind: 'terminal' }),
+            ]),
+          }),
+        );
+        expect(bootstrap.latestEventId).toMatch(new RegExp(`^${runId}:\\d+$`));
+        expect(bootstrap.currentStateVisit).toEqual(
+          expect.objectContaining({ id: 'greet#1', path: 'greet' }),
+        );
+        expect(bootstrap.recentRows).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({ kind: 'state_change' }),
+            expect.objectContaining({ kind: 'request' }),
+          ]),
+        );
+        expect(bootstrap.pending).toEqual([
+          expect.objectContaining({ requestId: 'owner-live-1', status: 'pending' }),
+        ]);
+        expect(bootstrap.aggregateStats).toEqual(expect.objectContaining({ turnCount: 0 }));
+      });
+
+      const events = (await readRunScopedJson(`/events?after=${runId}:1&limit=10`)) as {
+        events: ReadonlyArray<{ id: string; type: string; requestId?: string }>;
+        nextCursor: string | null;
+      };
+      expect(events.events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ id: `${runId}:2`, type: 'state.changed' }),
+          expect.objectContaining({
+            type: 'request.created',
+            requestId: 'owner-live-1',
+          }),
+        ]),
+      );
+      expect(events.events.slice(0, 2)).toEqual([
+        expect.objectContaining({ id: `${runId}:2`, type: 'state.changed' }),
+        expect.objectContaining({ id: `${runId}:3` }),
+      ]);
+
+      if (uiUrl === undefined || uiToken === undefined || runId === undefined) {
+        throw new Error('UI server was not captured');
+      }
+      const replyResponse = await fetch(`${uiUrl}/api/runs/${runId}/reply`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'X-Aharness-Ui-Token': uiToken },
+        body: JSON.stringify({
+          kind: 'owner-input',
+          requestId: 'owner-live-1',
+          answers: { owner: 'continue' },
+        }),
+      });
+      expect(replyResponse.status).toBe(200);
+      await waitForOutbound((msg) => msg.id === 9100 && msg.result !== undefined);
+
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: 9200,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 'turn-finish',
+          callId: 'call-finish',
+          tool: 'aharness_submit',
+          arguments: JSON.stringify({ state: 'greet', exit: 'finish', data: { ok: true } }),
+        },
+      });
+      await waitForOutbound((msg) => msg.id === 9200 && msg.result !== undefined);
+    };
+
+    const driverPromise = driver();
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        loadFsmImpl: (async () => ({
+          machine: m,
+          sidecar,
+          modulePath: '/tmp/run-scoped-live.mjs',
+          issues: [],
+          cacheHit: false,
+          hash: 'run-scoped-live',
+        })) as unknown as RunCliTestHooks['loadFsmImpl'],
+        spawnAppServer: (async () =>
+          makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+        connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+        startUiServerImpl: async (options) => {
+          expect(options.runScoped).toBeDefined();
+          expect(options.runScoped?.topology).toBe(options.eventLog.snapshot().state.topology);
+          runId = options.runScoped?.activeRunId;
+          uiToken = options.uiToken;
+          uiHandle = await startUiServer(options);
+          uiUrl = uiHandle.url;
+          return uiHandle;
+        },
+      },
+    });
+    opts.stderr = stderrSink;
+
+    try {
+      const r = await runCliForTest(opts);
+      await driverPromise;
+      expect(r.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+    } finally {
+      await uiHandle?.close().catch(() => undefined);
+    }
+  }, 10_000);
+
   it('keeps the browser useful when canonical runtime append fails', async () => {
     const fsmPath = makeFsmFile(repoRoot, 'ui-append-warning.fsm.ts');
     const published: ReplayableAppEvent[] = [];
+    let capturedRunScoped: StartUiServerOptions['runScoped'];
     const spawnAppServer = vi.fn(async () => {
       throw new Error('test-abort-after-spawn-args-captured');
     });
@@ -1091,6 +1352,13 @@ describe('runCliForTest — pre-spawn gates', () => {
       hooks: {
         _testRunEventRecorder: failingRunEventRecorder(),
         _testOnUiEvent: (event) => published.push(event),
+        startUiServerImpl: async (options) => {
+          capturedRunScoped = options.runScoped;
+          return {
+            url: 'http://127.0.0.1:45678',
+            close: vi.fn(async () => undefined),
+          };
+        },
         spawnAppServer: spawnAppServer as unknown as RunCliTestHooks['spawnAppServer'],
       },
     });
@@ -1116,6 +1384,12 @@ describe('runCliForTest — pre-spawn gates', () => {
         }),
       ]),
     );
+    expect(capturedRunScoped?.service.getEventPage()).toEqual({
+      ok: true,
+      events: [],
+      nextCursor: null,
+      diagnostics: [],
+    });
   });
 
   it('case 12: closes the UI server when app-server spawn fails', async () => {

@@ -1,5 +1,22 @@
+import { EventEmitter } from 'node:events';
+import type http from 'node:http';
+
 import { describe, expect, it } from 'vitest';
+import {
+  RUN_EVENT_SCHEMA,
+  type ApiSafeRunEvent,
+  type RunEventQueryService,
+  type RunEventWithOffset,
+} from '../src/runEvents/index.js';
 import type { FsmState, RunMeta, Topology } from '../src/ui/events.js';
+import {
+  RUN_SCOPED_SSE_FALLBACK_EVENT_NAME,
+  RUN_SCOPED_SSE_RESYNC_EVENT_NAME,
+  drainRunScopedSseEvents,
+  readRunScopedSseCursor,
+  serializeRunScopedSseEvent,
+  streamRunScopedSseEvents,
+} from '../src/ui/runScopedSse.js';
 import { createUiEventLog, serializeSseEvent } from '../src/ui/sse.js';
 
 const runMeta: RunMeta = {
@@ -536,5 +553,258 @@ describe('serializeSseEvent', () => {
         'data:   "delta": "line 1\\nline 2"\n' +
         'data: }\n\n',
     );
+  });
+});
+
+function apiSafeRunEvent(
+  seq: number,
+  type: string,
+  overrides: Partial<ApiSafeRunEvent> = {},
+): ApiSafeRunEvent {
+  return {
+    schema: RUN_EVENT_SCHEMA,
+    runId: runMeta.runId,
+    seq,
+    id: `${runMeta.runId}:${seq}`,
+    time: `2026-05-29T00:00:${String(seq).padStart(2, '0')}.000Z`,
+    type,
+    offset: seq * 100,
+    lineBytes: 90,
+    ...overrides,
+  };
+}
+
+function fakeRunEventQueryService(options: {
+  readonly runId?: string;
+  readonly latestEventId?: string | null;
+  readonly eventsAfter?: RunEventQueryService['eventsAfter'];
+  readonly subscribe?: RunEventQueryService['subscribe'];
+}): RunEventQueryService {
+  return {
+    runId: options.runId ?? runMeta.runId,
+    available: true,
+    subscribe: options.subscribe ?? (() => () => undefined),
+    acceptAppend: () => ({
+      ok: false,
+      diagnostic: {
+        severity: 'corruption',
+        code: 'invalid-json-object',
+        message: 'fake query service does not accept appends',
+        offset: 0,
+      },
+    }),
+    getLatestEventId: () => options.latestEventId ?? null,
+    getDiagnostics: () => [],
+    getBootstrap: () => ({ ok: false, error: 'run-event-log-unavailable', diagnostics: [] }),
+    getStateVisitRows: () => ({ ok: true, rows: [], nextCursor: null }),
+    getRecentRows: () => ({ ok: true, rows: [], nextCursor: null }),
+    getEventPage: () => ({ ok: true, events: [], nextCursor: null, diagnostics: [] }),
+    eventsAfter: options.eventsAfter ?? (() => ({ ok: true, events: [] })),
+  };
+}
+
+describe('run-scoped SSE helpers', () => {
+  it('reads run-scoped cursors from Last-Event-ID before after query params', () => {
+    const request = new EventEmitter() as http.IncomingMessage;
+    request.headers = { 'last-event-id': `${runMeta.runId}:4` };
+
+    expect(
+      readRunScopedSseCursor(
+        request,
+        new URL(`http://127.0.0.1/api/runs/run-1/stream?after=${runMeta.runId}:2`),
+      ),
+    ).toBe(`${runMeta.runId}:4`);
+
+    request.headers = {};
+    expect(
+      readRunScopedSseCursor(
+        request,
+        new URL(`http://127.0.0.1/api/runs/run-1/stream?after=${runMeta.runId}:2`),
+      ),
+    ).toBe(`${runMeta.runId}:2`);
+  });
+
+  it('serializes API-safe canonical run events with canonical ids and safe event labels', () => {
+    const frame = serializeRunScopedSseEvent(
+      apiSafeRunEvent(1, 'model.message\nunsafe', {
+        data: { text: 'line 1\nline 2' },
+      }),
+    );
+
+    expect(frame).toContain(`id: ${runMeta.runId}:1\n`);
+    expect(frame).toContain(`event: ${RUN_SCOPED_SSE_FALLBACK_EVENT_NAME}\n`);
+    expect(frame).toContain('data:   "type": "model.message\\nunsafe",');
+    expect(frame).toContain('data:     "text": "line 1\\nline 2"');
+    expect(frame).not.toContain('raw');
+    expect(frame.split('\n').filter((line) => line.startsWith('event: '))).toEqual([
+      `event: ${RUN_SCOPED_SSE_FALLBACK_EVENT_NAME}`,
+    ]);
+  });
+
+  it.each([
+    ['malformed', 'not-a-cursor', 'invalid-event-cursor'],
+    ['wrong run', 'other-run:1', 'wrong-run-event-cursor'],
+    ['zero', `${runMeta.runId}:0`, 'invalid-event-cursor'],
+    ['negative', `${runMeta.runId}:-1`, 'invalid-event-cursor'],
+    ['non-integer', `${runMeta.runId}:1.5`, 'invalid-event-cursor'],
+  ] as const)(
+    'emits a non-persisted resync control frame for %s cursors',
+    (_name, cursor, reason) => {
+      const frames: string[] = [];
+      const result = drainRunScopedSseEvents({
+        queryService: fakeRunEventQueryService({ latestEventId: `${runMeta.runId}:2` }),
+        afterEventId: cursor,
+        write: (frame) => frames.push(frame),
+      });
+
+      expect(result).toEqual({
+        lastSentId: `${runMeta.runId}:2`,
+        framesWritten: 1,
+        resync: {
+          kind: 'RunScopedResyncRequired',
+          control: true,
+          requestedEventId: cursor,
+          latestEventId: `${runMeta.runId}:2`,
+          reason,
+        },
+      });
+      expect(frames[0]).toContain(`id: ${runMeta.runId}:2\n`);
+      expect(frames[0]).toContain(`event: ${RUN_SCOPED_SSE_RESYNC_EVENT_NAME}\n`);
+      expect(frames[0]).toContain(`data:   "requestedEventId": "${cursor}",`);
+      expect(frames[0]).toContain(`data:   "reason": "${reason}"`);
+    },
+  );
+
+  it('emits a resync control frame for future cursors without advancing ids', () => {
+    const frames: string[] = [];
+    const result = drainRunScopedSseEvents({
+      queryService: fakeRunEventQueryService({
+        latestEventId: `${runMeta.runId}:3`,
+        eventsAfter: () => ({
+          ok: false,
+          error: 'event-cursor-out-of-range',
+          latestEventId: `${runMeta.runId}:3`,
+        }),
+      }),
+      afterEventId: `${runMeta.runId}:99`,
+      write: (frame) => frames.push(frame),
+    });
+
+    expect(result.resync).toEqual({
+      kind: 'RunScopedResyncRequired',
+      control: true,
+      requestedEventId: `${runMeta.runId}:99`,
+      latestEventId: `${runMeta.runId}:3`,
+      reason: 'future-event-cursor',
+    });
+    expect(result.lastSentId).toBe(`${runMeta.runId}:3`);
+    expect(frames[0]).toContain(`id: ${runMeta.runId}:3\n`);
+    expect(frames[0]).toContain(`event: ${RUN_SCOPED_SSE_RESYNC_EVENT_NAME}\n`);
+  });
+
+  it('streams by subscribing before the initial drain and then draining after notifications', () => {
+    const calls: string[] = [];
+    let listener: ((entry: RunEventWithOffset) => void) | null = null;
+    let availableEvents = [apiSafeRunEvent(1, 'run.started')];
+    const request = new EventEmitter() as http.IncomingMessage;
+    request.headers = {};
+    const written: string[] = [];
+    const response = {
+      destroyed: false,
+      writableEnded: false,
+      writeHead: () => undefined,
+      flushHeaders: () => undefined,
+      write: (frame: string) => {
+        written.push(frame);
+        return true;
+      },
+      end: () => undefined,
+    } as unknown as http.ServerResponse;
+
+    const cleanup = streamRunScopedSseEvents({
+      queryService: fakeRunEventQueryService({
+        latestEventId: `${runMeta.runId}:1`,
+        subscribe: (nextListener) => {
+          calls.push('subscribe');
+          listener = nextListener;
+          return () => {
+            calls.push('unsubscribe');
+          };
+        },
+        eventsAfter: (afterEventId) => {
+          calls.push(`eventsAfter:${afterEventId ?? 'null'}`);
+          const afterSeq = afterEventId === null ? 0 : Number(afterEventId.split(':').at(-1));
+          return {
+            ok: true,
+            events: availableEvents.filter((event) => event.seq > afterSeq),
+          };
+        },
+      }),
+      request,
+      response,
+      url: new URL('http://127.0.0.1/api/runs/run-1/stream'),
+    });
+
+    expect(calls.slice(0, 2)).toEqual(['subscribe', 'eventsAfter:null']);
+    expect(written).toHaveLength(1);
+    expect(written[0]).toContain(`id: ${runMeta.runId}:1\n`);
+    expect(written[0]).toContain('event: run.started\n');
+
+    availableEvents = [...availableEvents, apiSafeRunEvent(2, 'turn.started')];
+    listener?.({
+      event: {
+        schema: RUN_EVENT_SCHEMA,
+        runId: runMeta.runId,
+        seq: 2,
+        id: `${runMeta.runId}:2`,
+        time: '2026-05-29T00:00:02.000Z',
+        type: 'turn.started',
+      },
+      offset: 200,
+      lineBytes: 90,
+    });
+
+    expect(calls.at(-1)).toBe(`eventsAfter:${runMeta.runId}:1`);
+    expect(written).toHaveLength(2);
+    expect(written[1]).toContain(`id: ${runMeta.runId}:2\n`);
+
+    cleanup();
+    expect(calls.at(-1)).toBe('unsubscribe');
+  });
+
+  it('removes request listeners and active stream cleanup hooks on close', () => {
+    const request = new EventEmitter() as http.IncomingMessage;
+    request.headers = {};
+    const response = {
+      destroyed: false,
+      writableEnded: false,
+      writeHead: () => undefined,
+      flushHeaders: () => undefined,
+      write: () => true,
+      end: () => undefined,
+    } as unknown as http.ServerResponse;
+    const activeStreams = new Set<() => void>();
+    let unsubscribed = false;
+
+    streamRunScopedSseEvents({
+      queryService: fakeRunEventQueryService({
+        subscribe: () => () => {
+          unsubscribed = true;
+        },
+      }),
+      request,
+      response,
+      url: new URL('http://127.0.0.1/api/runs/run-1/stream'),
+      activeStreams,
+    });
+
+    expect(activeStreams.size).toBe(1);
+    expect(request.listenerCount('close')).toBe(1);
+
+    request.emit('close');
+
+    expect(unsubscribed).toBe(true);
+    expect(activeStreams.size).toBe(0);
+    expect(request.listenerCount('close')).toBe(0);
   });
 });

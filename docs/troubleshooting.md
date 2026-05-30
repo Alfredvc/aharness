@@ -116,6 +116,13 @@ full raw runtime payloads by default. That can include secret-marked owner
 input, browser replies, tool arguments/results, command output, file diffs,
 approval/permission/elicitation data, token usage payloads, and parent-visible
 sub-thread notifications. Treat the run directory as sensitive when sharing
-debugging evidence. The browser still uses flat `/api/state`, `/api/stream`,
-and `/api/reply` routes, and `snapshot.json` still exists for current
-inspection state.
+debugging evidence.
+
+If you inspect the loopback UI API directly, run-scoped endpoints under
+`/api/runs/:runId/` provide compact JSONL-backed bootstrap, row, event-page,
+SSE, and reply projections for the active run. Those API/SSE responses omit raw
+payload expansion, so missing raw request or tool details usually means you need
+the sensitive `events.jsonl` file rather than an API response. The current React
+browser still uses flat `/api/state`, `/api/stream`, and `/api/reply`
+compatibility routes until Slice 4, and `snapshot.json` still exists for
+current inspection state.

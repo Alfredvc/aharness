@@ -5,7 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { FsmState, RunMeta } from '../src/ui/events.js';
 import type { BrowserReplyResult } from '../src/ui/reply.js';
-import { startUiServer, type UiServerHandle } from '../src/ui/server.js';
+import { startUiServer, type StartUiServerOptions, type UiServerHandle } from '../src/ui/server.js';
 import { createUiEventLog, type UiEventLog } from '../src/ui/sse.js';
 import { RUN_EVENT_SCHEMA, createLiveRunEventPublisher } from '../src/runEvents/index.js';
 import type { RunDir } from '../src/types.js';
@@ -55,6 +55,7 @@ function tempRunDir(): RunDir {
 async function startTestServer(
   eventLog: UiEventLog,
   replyHandler?: TestReplyHandler,
+  runScoped?: StartUiServerOptions['runScoped'],
 ): Promise<UiServerHandle> {
   const handle = await startUiServer({
     host: '127.0.0.1',
@@ -62,6 +63,7 @@ async function startTestServer(
     uiToken: TEST_UI_TOKEN,
     eventLog,
     replyHandler,
+    ...(runScoped === undefined ? {} : { runScoped }),
   });
   handles.push(handle);
   return handle;
@@ -453,6 +455,57 @@ describe('startUiServer', () => {
     expect(body).not.toContain('already seen');
   });
 
+  it('keeps flat routes independent when a run-scoped route service is installed', async () => {
+    const eventLog = createUiEventLog({ capacity: 8, run: runMeta });
+    eventLog.publish({
+      kind: 'FrameworkNote',
+      id: 'note-1',
+      text: 'flat route remains decimal',
+      variant: 'info',
+    });
+    const replyHandler = vi.fn<TestReplyHandler>().mockResolvedValue({
+      status: 200,
+      body: { ok: true },
+    });
+    const runScoped: StartUiServerOptions['runScoped'] = {
+      activeRunId: 'run-1',
+      service: {
+        runId: 'run-1',
+        subscribe: () => () => undefined,
+        getLatestEventId: () => 'run-1:1',
+        getBootstrap: () => ({ ok: true, bootstrap: {} }),
+        getStateVisitRows: () => ({ ok: true, rows: [], nextCursor: null }),
+        getRecentRows: () => ({ ok: true, rows: [], nextCursor: null }),
+        getEventPage: () => ({ ok: true, events: [], nextCursor: null, diagnostics: [] }),
+        eventsAfter: () => ({ ok: true, events: [] }),
+      },
+      getRunMeta: () => runMeta,
+    };
+
+    const handle = await startTestServer(eventLog, replyHandler, runScoped);
+    const stateResponse = await fetch(`${handle.url}/api/state?token=${TEST_UI_TOKEN}`);
+    const stateBody = await stateResponse.json();
+    const streamResponse = await fetch(`${handle.url}/api/stream?token=${TEST_UI_TOKEN}`);
+    const streamBody = await readSseUntil(streamResponse, 'FrameworkNote');
+    const replyResponse = await fetch(`${handle.url}/api/reply`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-Aharness-Ui-Token': TEST_UI_TOKEN },
+      body: JSON.stringify({ kind: 'user-prompt', text: 'continue' }),
+    });
+
+    expect(stateResponse.status).toBe(200);
+    expect(stateBody.latestEventId).toBe('1');
+    expect(streamResponse.status).toBe(200);
+    expect(streamBody).toContain('id: 1\n');
+    expect(streamBody).toContain('event: FrameworkNote\n');
+    expect(streamBody).not.toContain('run-1:1');
+    expect(replyResponse.status).toBe(200);
+    expect(replyHandler).toHaveBeenCalledExactlyOnceWith({
+      kind: 'user-prompt',
+      text: 'continue',
+    });
+  });
+
   it('preserves /api/state and /api/stream when events pass through the live canonical publisher', async () => {
     const eventLog = createUiEventLog({ capacity: 8, run: runMeta });
     const runDir = tempRunDir();
@@ -530,6 +583,60 @@ describe('startUiServer', () => {
       'request.resolved',
     ]);
     expect(envelopes.every((entry) => entry['type'] !== 'ResyncRequired')).toBe(true);
+  });
+
+  it('keeps /api/state live when the canonical append hook throws or rejects', async () => {
+    const eventLog = createUiEventLog({ capacity: 8, run: runMeta });
+    const runDir = tempRunDir();
+    const observed: unknown[] = [];
+    const stderr: string[] = [];
+    const publisher = createLiveRunEventPublisher({
+      runDir,
+      runMeta,
+      uiEventLog: eventLog,
+      onUiEvent: (event) => observed.push(event),
+      onCanonicalAppend: (entry) => {
+        if (entry.event.type === 'run.started') {
+          throw new Error('sync live-index failure');
+        }
+        return Promise.reject(new Error('async live-index failure'));
+      },
+      stderr: {
+        write(chunk: string | Uint8Array) {
+          stderr.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+          return true;
+        },
+      } as unknown as NodeJS.WritableStream,
+    });
+
+    publisher.publishRunStarted();
+    publisher.publish({
+      kind: 'StateChange',
+      from: null,
+      to: 'root.working',
+      cause: 'boot',
+      newState: state,
+    });
+    await Promise.resolve();
+
+    const handle = await startTestServer(eventLog);
+    const response = await fetch(`${handle.url}/api/state?token=${TEST_UI_TOKEN}`);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual(
+      expect.objectContaining({
+        latestEventId: '1',
+        state: expect.objectContaining({
+          currentState: state,
+        }),
+      }),
+    );
+    expect(observed).toEqual([
+      expect.objectContaining({ event: expect.objectContaining({ kind: 'StateChange' }) }),
+    ]);
+    expect(stderr.join('')).toContain('sync live-index failure');
+    expect(stderr.join('')).toContain('async live-index failure');
   });
 
   it('uses the after query cursor when Last-Event-ID is absent', async () => {

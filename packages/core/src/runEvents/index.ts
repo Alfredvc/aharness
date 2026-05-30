@@ -68,3 +68,19 @@ export {
   type LiveRunEventPublisherOptions,
   type RunTerminalInput,
 } from './livePublisher.js';
+export {
+  createRunEventQueryService,
+  type ApiRunBootstrap,
+  type ApiRunBootstrapResult,
+  type ApiRunCurrentState,
+  type ApiRunCurrentStateExit,
+  type ApiRunEventPageResult,
+  type ApiRunEventsAfterResult,
+  type ApiRunRowPageResult,
+  type ApiSafeRunEvent,
+  type CreateRunEventQueryServiceOptions,
+  type RunEventQueryService,
+  type RunEventQueryServiceListener,
+  type RunEventQueryServiceUnavailable,
+  type RunEventQueryServiceUpdateResult,
+} from './queryService.js';
