@@ -67,6 +67,7 @@ function findLastStreamingOrPending(transcript: TranscriptItem[]): TranscriptIte
     const it = transcript[i];
     if (!it) continue;
     if (it.type === 'tool_call' && it.status === 'pending' && !it.reserved) return it;
+    if (it.type === 'tool_call' && it.status !== 'pending') return null;
     if (it.type === 'agent_message' && it.streaming) return it;
     if (it.type === 'reasoning' && it.streaming) return it;
     // Stop scanning past completed message/tool boundaries.

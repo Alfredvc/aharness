@@ -84,6 +84,9 @@ export type TranscriptItem =
       reserved: boolean;
       elapsedMs?: number;
       category?: 'tool' | 'subagent';
+      output?: string;
+      ok?: boolean;
+      resultId?: string;
     })
   | (TranscriptBase & {
       id: string;
@@ -1542,12 +1545,63 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
  * inspector instead.
  */
 export function visibleItems(items: TranscriptItem[], devMode: boolean): TranscriptItem[] {
-  return items.filter((i) => {
+  return foldToolResults(items).filter((i) => {
     if (i.type === 'framework_note' && i.variant === 'orientation') return false;
     if (i.type === 'reasoning' && i.text.trim().length === 0) return false;
     if (devMode) return true;
     return isVisibleTranscriptItem(i);
   });
+}
+
+function foldToolResults(items: ReadonlyArray<TranscriptItem>): TranscriptItem[] {
+  const folded: TranscriptItem[] = [];
+  for (const item of items) {
+    if (item.type !== 'tool_result') {
+      folded.push(item);
+      continue;
+    }
+
+    const idSuffix = ':output';
+    const outputCallId = item.id.endsWith(idSuffix) ? item.id.slice(0, -idSuffix.length) : null;
+    let callIdx =
+      outputCallId === null
+        ? -1
+        : folded.findIndex(
+            (candidate) =>
+              candidate.type === 'tool_call' &&
+              candidate.id === outputCallId &&
+              candidate.resultId === undefined,
+          );
+
+    if (callIdx < 0) {
+      for (let i = folded.length - 1; i >= 0; i--) {
+        const candidate = folded[i];
+        if (
+          candidate?.type === 'tool_call' &&
+          candidate.name === item.name &&
+          candidate.status === 'pending'
+        ) {
+          callIdx = i;
+          break;
+        }
+      }
+    }
+
+    if (callIdx < 0) {
+      folded.push(item);
+      continue;
+    }
+
+    const prev = folded[callIdx] as Extract<TranscriptItem, { type: 'tool_call' }>;
+    folded[callIdx] = {
+      ...prev,
+      status: item.ok ? 'completed' : 'failed',
+      output: item.output,
+      ok: item.ok,
+      resultId: item.id,
+    };
+  }
+  return folded;
 }
 
 function isVisibleTranscriptItem(i: TranscriptItem): boolean {

@@ -1191,6 +1191,147 @@ describe('headless production store helpers', () => {
     );
   });
 
+  it('folds matching tool results into the existing visible tool call row', () => {
+    const initial = hydrateFromSnapshot(snapshot());
+    const withCall = applyAppEvent(initial, {
+      kind: 'ItemStarted',
+      id: 'call-bash-1',
+      type: 'function_call',
+      name: 'bash',
+      arguments: '{"command":"pnpm test","cwd":"/repo"}',
+    });
+    const withResult = applyAppEvent(withCall, {
+      kind: 'ItemStarted',
+      id: 'call-bash-1:output',
+      type: 'function_call_output',
+      name: 'bash',
+      output: 'completed',
+      ok: true,
+    });
+
+    const visible = visibleItems(withResult.transcript, false);
+
+    expect(visible).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'call-bash-1',
+          type: 'tool_call',
+          name: 'bash',
+          status: 'completed',
+          output: 'completed',
+          ok: true,
+        }),
+      ]),
+    );
+    expect(visible).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'call-bash-1:output',
+          type: 'tool_result',
+        }),
+      ]),
+    );
+  });
+
+  it('keeps orphan tool results as standalone result rows', () => {
+    const initial = hydrateFromSnapshot(snapshot());
+    const state = applyAppEvent(initial, {
+      kind: 'ItemStarted',
+      id: 'orphan-output-1',
+      type: 'function_call_output',
+      name: 'bash',
+      output: 'orphaned output',
+      ok: false,
+    });
+
+    expect(visibleItems(state.transcript, false)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'orphan-output-1',
+          type: 'tool_result',
+          name: 'bash',
+          output: 'orphaned output',
+          ok: false,
+        }),
+      ]),
+    );
+  });
+
+  it('matches function-call outputs by call id before falling back to tool name', () => {
+    const initial = hydrateFromSnapshot(snapshot());
+    const withFirstCall = applyAppEvent(initial, {
+      kind: 'ItemStarted',
+      id: 'call-bash-1',
+      type: 'function_call',
+      name: 'bash',
+      arguments: '{"command":"first"}',
+    });
+    const withSecondCall = applyAppEvent(withFirstCall, {
+      kind: 'ItemStarted',
+      id: 'call-bash-2',
+      type: 'function_call',
+      name: 'bash',
+      arguments: '{"command":"second"}',
+    });
+    const withFirstResult = applyAppEvent(withSecondCall, {
+      kind: 'ItemStarted',
+      id: 'call-bash-1:output',
+      type: 'function_call_output',
+      name: 'bash',
+      output: 'first completed',
+      ok: true,
+    });
+
+    const visible = visibleItems(withFirstResult.transcript, false);
+
+    expect(visible).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'call-bash-1',
+          type: 'tool_call',
+          status: 'completed',
+          output: 'first completed',
+          resultId: 'call-bash-1:output',
+        }),
+        expect.objectContaining({
+          id: 'call-bash-2',
+          type: 'tool_call',
+          status: 'pending',
+        }),
+      ]),
+    );
+  });
+
+  it('treats completed folded tool calls as activity scan boundaries', () => {
+    const initial = hydrateFromSnapshot(snapshot());
+    const withStreamingMessage = applyAppEvent(initial, {
+      kind: 'ItemStarted',
+      id: 'agent-stream-1',
+      type: 'agent_message',
+      text: 'old streaming message',
+    });
+    const withCall = {
+      ...withStreamingMessage,
+      transcript: [
+        ...withStreamingMessage.transcript,
+        {
+          id: 'call-bash-1',
+          type: 'tool_call' as const,
+          name: 'bash',
+          preview: '{"command":"pnpm test"}',
+          status: 'completed' as const,
+          reserved: false,
+          stateVisitId: withStreamingMessage.activeVisitId ?? '__boot',
+          output: 'completed',
+          ok: true,
+          resultId: 'call-bash-1:output',
+        },
+      ],
+    };
+
+    expect(deriveActivity(withCall).kind).not.toBe('streaming.message');
+  });
+
   it('hides runtime orientation user messages and empty reasoning rows from visible transcript rows', () => {
     const initial = hydrateFromSnapshot(snapshot());
     const withRuntimeOrientation = applyAppEvent(initial, {
