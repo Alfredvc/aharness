@@ -101,9 +101,11 @@ JSONL-backed endpoints for the active run: `/api/runs/:runId/bootstrap`,
 `/api/runs/:runId/events`, `/api/runs/:runId/stream`, and
 `/api/runs/:runId/reply`. These API/SSE projections are compact and omit raw
 payload expansion; inspect `events.jsonl` directly only when that sensitive raw
-evidence is needed. The current React browser UI still uses the flat
-`/api/state`, `/api/stream`, and `/api/reply` compatibility routes until Slice
-4, and `snapshot.json` still exists for current inspection state.
+evidence is needed. The React browser now boots, streams rows/events, and sends
+replies through those run-scoped endpoints. The flat `/api/state`,
+`/api/stream`, and `/api/reply` routes remain compatibility/internal routes
+until a later cleanup, not the production browser source. `snapshot.json` still
+exists for current inspection state.
 
 ## Write A Workflow
 

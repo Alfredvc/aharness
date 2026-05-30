@@ -126,6 +126,77 @@ export interface RunEventRange {
   readonly eventIds: ReadonlyArray<string>;
 }
 
+export interface RunEventOwnerInputPendingCardQuestion {
+  readonly id: string;
+  readonly header: string;
+  readonly question: string;
+  readonly isOther: boolean;
+  readonly isSecret: boolean;
+  readonly choices?: ReadonlyArray<string>;
+}
+
+export type RunEventPendingCard =
+  | {
+      readonly kind: 'owner-input';
+      readonly id: string;
+      readonly requestId: string;
+      readonly method: 'item/tool/requestUserInput';
+      readonly questions: ReadonlyArray<RunEventOwnerInputPendingCardQuestion>;
+    }
+  | {
+      readonly kind: 'file-approval';
+      readonly id: string;
+      readonly requestId: string;
+      readonly method: 'item/fileChange/requestApproval';
+      readonly threadId: string;
+      readonly turnId: string;
+      readonly itemId: string;
+      readonly reason?: string;
+      readonly grantRoot?: string;
+      readonly changes: ReadonlyArray<unknown>;
+    }
+  | {
+      readonly kind: 'command-approval';
+      readonly id: string;
+      readonly requestId: string;
+      readonly method: 'item/commandExecution/requestApproval';
+      readonly threadId: string;
+      readonly turnId: string;
+      readonly itemId: string;
+      readonly approvalId?: string;
+      readonly command?: string;
+      readonly cwd?: string;
+      readonly reason?: string;
+      readonly commandActions?: ReadonlyArray<unknown>;
+      readonly networkApprovalContext?: unknown;
+    }
+  | {
+      readonly kind: 'permission-approval';
+      readonly id: string;
+      readonly requestId: string;
+      readonly method: 'item/permissions/requestApproval';
+      readonly threadId: string;
+      readonly turnId: string;
+      readonly itemId: string;
+      readonly cwd: string;
+      readonly permissions: unknown;
+      readonly reason?: string;
+    }
+  | {
+      readonly kind: 'elicitation';
+      readonly id: string;
+      readonly requestId: string;
+      readonly method: 'mcpServer/elicitation/request';
+      readonly threadId: string;
+      readonly turnId: string | null;
+      readonly serverName: string;
+      readonly mode: 'form' | 'url';
+      readonly message: string;
+      readonly requestedSchema?: unknown;
+      readonly url?: string;
+      readonly elicitationId?: string;
+    };
+
 export interface RunEventPendingRequestSummary {
   readonly requestId: string;
   readonly status: 'pending' | 'submitted';
@@ -137,6 +208,7 @@ export interface RunEventPendingRequestSummary {
   readonly turnId?: string;
   readonly itemId?: string;
   readonly lastEventId: string;
+  readonly pendingCard?: RunEventPendingCard;
 }
 
 export interface RunEventAggregateStats {
@@ -151,6 +223,13 @@ export interface RunEventAggregateStats {
   readonly outputTokens?: number;
   readonly reasoningOutputTokens?: number;
   readonly modelContextWindow?: number;
+}
+
+export interface RunEventPosture {
+  readonly isTerminal: boolean;
+  readonly isAwaiting: boolean;
+  readonly submittedThisTurn: boolean;
+  readonly open: boolean;
 }
 
 export interface RunEventPage {

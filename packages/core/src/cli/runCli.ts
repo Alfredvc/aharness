@@ -244,7 +244,7 @@ export interface RunCliTestHooks {
   readonly _testMockModelBaseUrl?: string;
   /**
    * Owner-yield provider test seam. Production callers leave this unset
-   * and use the browser `/api/reply` path via `createBrowserOwnerInputProvider()`;
+   * and use the run-scoped browser reply path via `createBrowserOwnerInputProvider()`;
    * tests pass a `MockOwnerInputProvider` (or a stub) so the
    * `item/tool/requestUserInput` ServerRequest handler is observable
    * without a browser round trip.
@@ -756,7 +756,11 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         topology,
       },
     });
-    o.stdout.write(`aharness: browser UI available at ${urlWithUiToken(uiServer.url, uiToken)}\n`);
+    const browserUrl = urlWithUiBootParams(uiServer.url, {
+      token: uiToken,
+      runId: finalRunDir.runId,
+    });
+    o.stdout.write(`aharness: browser UI available at ${browserUrl}\n`);
   } catch (e) {
     const message = `UI server failed: ${(e as Error).message}`;
     o.stderr.write(`aharness: ${message}\n`);
@@ -770,7 +774,12 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   // resolves. Without this, the user stares at an empty terminal for
   // several seconds before the browser window even appears.
   if (o.launchBrowserImpl) {
-    const launchResult = o.launchBrowserImpl(urlWithUiToken(uiServer.url, uiToken));
+    const launchResult = o.launchBrowserImpl(
+      urlWithUiBootParams(uiServer.url, {
+        token: uiToken,
+        runId: finalRunDir.runId,
+      }),
+    );
     if (!launchResult.ok) {
       o.stderr.write(`aharness: failed to launch browser: ${launchResult.message}\n`);
     }
@@ -2273,9 +2282,20 @@ function displayFsmPath(fsmPath: string): string {
   return isAbsolute(fsmPath) ? basename(fsmPath) : fsmPath;
 }
 
-function urlWithUiToken(url: string, token: string): string {
+function urlWithUiBootParams(
+  url: string,
+  params: {
+    readonly token: string;
+    readonly runId: string;
+    readonly mode?: 'inspect';
+  },
+): string {
   const parsed = new URL(url);
-  parsed.searchParams.set('token', token);
+  parsed.searchParams.set('token', params.token);
+  parsed.searchParams.set('runId', params.runId);
+  if (params.mode !== undefined) {
+    parsed.searchParams.set('mode', params.mode);
+  }
   return parsed.toString();
 }
 

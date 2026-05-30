@@ -252,10 +252,12 @@ active run:
 These routes return compact JSONL-backed projections and canonical run-event
 SSE frames for bootstrap, row, diagnostic event, stream, and reply workflows.
 API and SSE responses omit raw payloads; use the sensitive `events.jsonl` file
-only when raw runtime evidence is needed. The current React browser still uses
-the flat `/api/state`, `/api/stream`, and `/api/reply` compatibility surface
-until Slice 4, and `snapshot.json` remains present for current inspection state
-until the later JSONL source-of-truth cutover.
+only when raw runtime evidence is needed. The React browser now uses the
+run-scoped bootstrap, row, stream, and reply surface. The flat `/api/state`,
+`/api/stream`, and `/api/reply` routes remain compatibility/internal routes
+until later cleanup, not the production browser source. `snapshot.json` remains
+present for current inspection state until the later JSONL source-of-truth
+cutover.
 
 `aharness install <source>` delegates package-spec handling to npm inside the
 aharness managed npm project. The source may be any package spec npm accepts.

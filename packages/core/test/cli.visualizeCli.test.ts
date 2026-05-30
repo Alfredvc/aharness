@@ -61,13 +61,15 @@ describe('runVisualizeCliForTest', () => {
     rmSync(repoRoot, { recursive: true, force: true });
   });
 
-  it('serves an inspect-mode UI snapshot without starting a Codex run', async () => {
+  it('serves an inspect-mode run-scoped bootstrap without starting a Codex run', async () => {
     const fsmPath = join(repoRoot, 'visualize-demo.fsm.ts');
     writeFileSync(fsmPath, '// loaded through test hook\n');
     let capturedSnapshot: UiSnapshot | undefined;
+    let capturedRunScoped: StartUiServerOptions['runScoped'] | undefined;
     const close = vi.fn(async () => undefined);
     const startUiServerImpl = vi.fn(async (options: StartUiServerOptions) => {
       capturedSnapshot = options.eventLog.snapshot();
+      capturedRunScoped = options.runScoped;
       return {
         url: 'http://127.0.0.1:56789',
         close,
@@ -95,7 +97,38 @@ describe('runVisualizeCliForTest', () => {
     expect(stderr.text()).toBe('');
     expect(stdout.text()).toContain('aharness: FSM visualization available at');
     expect(startUiServerImpl).toHaveBeenCalledOnce();
-    expect(launchBrowserImpl).toHaveBeenCalledWith(expect.stringContaining('token='));
+    const launchedUrl = new URL(launchBrowserImpl.mock.calls[0]?.[0] ?? '');
+    expect(stdout.text()).toContain('token=');
+    expect(stdout.text()).toContain('mode=inspect');
+    expect(stdout.text()).toContain(`runId=inspect-`);
+    expect(launchedUrl.searchParams.get('token')).toBeTruthy();
+    expect(launchedUrl.searchParams.get('runId')).toMatch(/^inspect-[a-f0-9]{6}$/);
+    expect(launchedUrl.searchParams.get('mode')).toBe('inspect');
+    expect(capturedRunScoped?.activeRunId).toBe(launchedUrl.searchParams.get('runId'));
+    expect(capturedRunScoped?.service.runId).toBe(launchedUrl.searchParams.get('runId'));
+    const bootstrap = capturedRunScoped?.service.getBootstrap({
+      getRunMeta: () => capturedSnapshot?.state.run ?? {},
+      topology: capturedSnapshot?.state.topology,
+    });
+    expect(bootstrap).toMatchObject({
+      ok: true,
+      bootstrap: {
+        mode: 'inspect',
+        run: expect.objectContaining({
+          codexPin: 'not started',
+          threadId: '',
+        }),
+        currentState: expect.objectContaining({
+          path: 'plan',
+          leaf: 'plan',
+          kind: 'stateful',
+        }),
+        recentRows: [expect.objectContaining({ summary: 'Inspecting plan' })],
+        aggregateStats: { turnCount: 0 },
+        pending: [],
+        diagnostics: [],
+      },
+    });
     expect(waitForExit).toHaveBeenCalledOnce();
     expect(close).toHaveBeenCalledOnce();
     expect(capturedSnapshot?.state.mode).toBe('inspect');

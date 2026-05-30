@@ -1,8 +1,13 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
   ApiClientError,
-  fetchSnapshot,
+  fetchBootstrap,
+  fetchRecentRows,
+  fetchVisitRows,
   postReply,
+  readBootMode,
+  readBootRunId,
   resyncAndReconnect,
   retainStateAfterReplyFailure,
   subscribeToEvents,
@@ -10,56 +15,114 @@ import {
   type FetchLike,
   type StreamMessageEvent,
 } from './client.js';
-import { applyAppEvent, createConnectingUiState, hydrateFromSnapshot } from '../state/store.js';
-import type { AppEvent, FsmState, Posture, UiSnapshot } from '../types/events.js';
+import type {
+  RunScopedApiEvent,
+  RunScopedBootstrap,
+  RunScopedRowPage,
+  RunScopedResyncRequired,
+} from '../types/events.js';
+import {
+  isRunScopedApiEvent,
+  isRunScopedEventPage,
+  isRunScopedResyncRequired,
+  isRunScopedRowPage,
+} from '../types/events.js';
+import type { UiState } from '../state/store.js';
 
-const posture: Posture = {
-  isTerminal: false,
-  isAwaiting: false,
-  submittedThisTurn: false,
-  open: true,
-};
-
-const currentState: FsmState = {
-  path: 'workflow.collect',
-  leaf: 'collect',
-  kind: 'stateful',
-  exits: [{ name: 'continue', kind: 'submit' }],
-  visitCount: 1,
-};
-
-const nextState: FsmState = {
-  path: 'workflow.review',
-  leaf: 'review',
-  kind: 'stateful',
-  exits: [{ name: 'approve', kind: 'submit' }],
-  visitCount: 1,
-};
 const UI_TOKEN = 'ui-token';
+const RUN_ID = 'run-1';
 
-function snapshot(overrides: Partial<UiSnapshot> = {}): UiSnapshot {
+function bootstrap(overrides: Partial<RunScopedBootstrap> = {}): RunScopedBootstrap {
   return {
-    latestEventId: 'event-1',
-    state: {
-      run: {
-        runId: 'run-1',
-        threadId: 'thread-1',
-        repoRoot: '/repo',
-        fsmFile: 'workflow.ts',
-        fsmHash6: 'abc123',
-        codexPin: 'pin-1',
-        startedAt: '2026-05-13T00:00:00.000Z',
-      },
-      posture,
-      currentState,
-      transcript: [],
-      frameworkNotes: [],
-      diagnostics: [],
-      completedTurns: [],
-      pending: {
-        ownerInput: null,
-      },
+    run: {
+      runId: RUN_ID,
+      threadId: 'thread-1',
+      repoRoot: '/repo',
+      fsmFile: 'workflow.ts',
+      fsmHash6: 'abc123',
+      codexPin: 'pin-1',
+      startedAt: '2026-05-29T00:00:00.000Z',
     },
+    topology: null,
+    latestEventId: 'run-1:4',
+    currentState: {
+      path: 'workflow.collect',
+      leaf: 'collect',
+      kind: 'stateful',
+      exits: [{ name: 'continue', kind: 'submit' }],
+      visitCount: 1,
+    },
+    posture: {
+      isTerminal: false,
+      isAwaiting: false,
+      submittedThisTurn: false,
+      open: true,
+    },
+    currentStateVisit: {
+      id: 'workflow.collect#1',
+      path: 'workflow.collect',
+      seq: 1,
+      time: '2026-05-29T00:00:00.000Z',
+      from: null,
+      to: 'workflow.collect',
+      cause: 'boot',
+    },
+    stateVisits: [],
+    statePathVisits: {},
+    pending: [],
+    aggregateStats: {
+      status: 'running',
+      turnCount: 1,
+      activeTurnId: 'turn-1',
+    },
+    recentRows: [],
+    diagnostics: [],
+    ...overrides,
+  };
+}
+
+function rowPage(overrides: Partial<RunScopedRowPage> = {}): RunScopedRowPage {
+  return {
+    rows: [
+      {
+        id: 'row-1',
+        eventId: 'run-1:4',
+        seq: 4,
+        time: '2026-05-29T00:00:04.000Z',
+        type: 'model.delta',
+        stateVisitId: 'root.plan#1',
+        kind: 'message',
+        text: 'hello',
+      },
+    ],
+    nextCursor: null,
+    ...overrides,
+  };
+}
+
+function apiEvent(overrides: Partial<RunScopedApiEvent> = {}): RunScopedApiEvent {
+  const type = overrides.type ?? 'state.changed';
+  return {
+    schema: 'aharness.event.v1',
+    runId: RUN_ID,
+    seq: 4,
+    id: 'run-1:4',
+    time: '2026-05-29T00:00:04.000Z',
+    type,
+    data: { row: { kind: 'state_change' } },
+    offset: 128,
+    lineBytes: 96,
+    ...overrides,
+  };
+}
+
+function resyncFrame(overrides: Partial<RunScopedResyncRequired> = {}): RunScopedResyncRequired {
+  return {
+    kind: 'RunScopedResyncRequired',
+    control: true,
+    requestedEventId: 'run-1:99',
+    latestEventId: 'run-1:4',
+    reason: 'future-event-cursor',
     ...overrides,
   };
 }
@@ -91,7 +154,7 @@ class FakeEventSource implements EventSourceLike {
     this.listeners.delete(type);
   }
 
-  emit(type: string, data: AppEvent, lastEventId?: string): void {
+  emit(type: string, data: unknown, lastEventId?: string): void {
     const event: StreamMessageEvent = { data: JSON.stringify(data) };
     if (lastEventId !== undefined) {
       event.lastEventId = lastEventId;
@@ -99,282 +162,301 @@ class FakeEventSource implements EventSourceLike {
     this.listeners.get(type)?.(event);
   }
 
+  emitRaw(type: string, data: string): void {
+    this.listeners.get(type)?.({ data });
+  }
+
   emitError(): void {
     this.onerror?.({} as ErrorEvent);
   }
 }
 
-describe('production API client', () => {
-  it('fetchSnapshot GETs /api/state and validates the minimal UiSnapshot envelope', async () => {
-    const fetch = vi.fn<FetchLike>(() => okJson(snapshot()));
+describe('run-scoped API client', () => {
+  it('keeps Task 2 row-page guard coverage for valid and malformed compact rows', () => {
+    expect(isRunScopedRowPage(rowPage())).toBe(true);
+    expect(isRunScopedRowPage({ rows: {}, nextCursor: null })).toBe(false);
+  });
 
-    await expect(fetchSnapshot({ fetch, uiToken: UI_TOKEN })).resolves.toEqual(snapshot());
-    expect(fetch).toHaveBeenCalledWith('/api/state', {
+  it('keeps Task 2 API event-page guard coverage for canonical ids and raw rejection', () => {
+    const event = apiEvent();
+
+    expect(isRunScopedApiEvent(event)).toBe(true);
+    expect(isRunScopedEventPage({ events: [event], nextCursor: 'run-1:4', diagnostics: [] })).toBe(
+      true,
+    );
+    expect(isRunScopedApiEvent({ ...event, id: 1 })).toBe(false);
+    expect(isRunScopedApiEvent({ ...event, raw: { secret: true } })).toBe(false);
+  });
+
+  it('keeps Task 2 resync guard coverage for run-scoped control frames', () => {
+    expect(isRunScopedResyncRequired(resyncFrame())).toBe(true);
+    expect(
+      isRunScopedResyncRequired({
+        kind: 'ResyncRequired',
+        requestedLastEventId: '4',
+      }),
+    ).toBe(false);
+  });
+
+  it('reads boot run id and inspect mode from URL search params', () => {
+    expect(readBootRunId('?token=t&runId=run%2Fencoded&mode=inspect')).toBe('run/encoded');
+    expect(readBootMode('?token=t&runId=run-1&mode=inspect')).toBe('inspect');
+    expect(readBootMode('?token=t&runId=run-1')).toBe('run');
+    expect(() => readBootRunId('?token=t')).toThrow(ApiClientError);
+  });
+
+  it('fetchBootstrap GETs the encoded run-scoped bootstrap URL with header token auth', async () => {
+    const fetch = vi.fn<FetchLike>(() => okJson(bootstrap({ run: { runId: 'run/one' } })));
+
+    await expect(
+      fetchBootstrap({ runId: 'run/one', fetch, uiToken: UI_TOKEN }),
+    ).resolves.toMatchObject({ run: { runId: 'run/one' }, latestEventId: 'run-1:4' });
+    expect(fetch).toHaveBeenCalledWith('/api/runs/run%2Fone/bootstrap', {
       headers: { 'X-Aharness-Ui-Token': UI_TOKEN },
     });
   });
 
-  it('fetchSnapshot rejects malformed snapshot JSON with a typed client error', async () => {
-    const fetch = vi.fn<FetchLike>(() => okJson({ latestEventId: 'event-1', state: {} }));
+  it('fetchBootstrap rejects malformed bootstrap JSON with a typed client error', async () => {
+    const fetch = vi.fn<FetchLike>(() => okJson({ latestEventId: 'run-1:4' }));
 
-    await expect(fetchSnapshot({ fetch, uiToken: UI_TOKEN })).rejects.toBeInstanceOf(
-      ApiClientError,
-    );
-    expect(fetch).toHaveBeenCalledWith('/api/state', {
+    await expect(
+      fetchBootstrap({ runId: RUN_ID, fetch, uiToken: UI_TOKEN }),
+    ).rejects.toBeInstanceOf(ApiClientError);
+    expect(fetch).toHaveBeenCalledWith('/api/runs/run-1/bootstrap', {
       headers: { 'X-Aharness-Ui-Token': UI_TOKEN },
     });
   });
 
-  it('subscribeToEvents opens /api/stream and dispatches parsed payloads by SSE event type', () => {
-    const dispatch = vi.fn();
-    const onResyncRequired = vi.fn();
-    const onConnectionLost = vi.fn();
+  it('fetchBootstrap wraps malformed JSON parse failures as ApiClientError', async () => {
+    const fetch = vi.fn<FetchLike>(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new Error('not json')),
+      }),
+    );
 
-    subscribeToEvents({
-      uiToken: UI_TOKEN,
-      EventSourceCtor: FakeEventSource,
-      dispatch,
-      onResyncRequired,
-      onConnectionLost,
-    });
-
-    expect(FakeEventSource.instances.at(-1)?.url).toBe('/api/stream?token=ui-token');
-    FakeEventSource.instances.at(-1)?.emit('StateChange', {
-      kind: 'StateChange',
-      from: 'workflow.collect',
-      to: 'workflow.review',
-      cause: 'submit',
-      newState: nextState,
-    });
-
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'StateChange', to: 'workflow.review' }),
+    await expect(fetchBootstrap({ runId: RUN_ID, fetch, uiToken: UI_TOKEN })).rejects.toThrow(
+      /Malformed JSON response/,
     );
   });
 
-  it('subscribeToEvents dispatches owner-input ServerRequest events', () => {
-    const dispatch = vi.fn();
+  it('fetchVisitRows keeps # in visit ids as encoded path data and validates row pages', async () => {
+    const fetch = vi.fn<FetchLike>(() => okJson(rowPage()));
+
+    await expect(
+      fetchVisitRows({
+        runId: RUN_ID,
+        visitId: 'root.plan#1',
+        cursor: 'run-1:4',
+        limit: 25,
+        fetch,
+        uiToken: UI_TOKEN,
+      }),
+    ).resolves.toMatchObject({ rows: [expect.objectContaining({ stateVisitId: 'root.plan#1' })] });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/runs/run-1/visits/root.plan%231/rows?cursor=run-1%3A4&limit=25',
+      { headers: { 'X-Aharness-Ui-Token': UI_TOKEN } },
+    );
+  });
+
+  it('fetchRecentRows GETs recent compact rows with optional cursor and limit', async () => {
+    const fetch = vi.fn<FetchLike>(() => okJson(rowPage({ nextCursor: 'run-1:9' })));
+
+    await expect(
+      fetchRecentRows({
+        runId: 'run/two',
+        cursor: 'run/two:4',
+        limit: 10,
+        fetch,
+        uiToken: UI_TOKEN,
+      }),
+    ).resolves.toMatchObject({ nextCursor: 'run-1:9' });
+    expect(fetch).toHaveBeenCalledWith(
+      '/api/runs/run%2Ftwo/rows/recent?cursor=run%2Ftwo%3A4&limit=10',
+      { headers: { 'X-Aharness-Ui-Token': UI_TOKEN } },
+    );
+  });
+
+  it('subscribeToEvents opens the run-scoped stream and dispatches canonical run events', () => {
+    const onRunEvent = vi.fn();
 
     subscribeToEvents({
+      runId: 'run/one',
       uiToken: UI_TOKEN,
       EventSourceCtor: FakeEventSource,
-      dispatch,
+      afterEventId: 'run/one:4',
+      onRunEvent,
       onResyncRequired: vi.fn(),
       onConnectionLost: vi.fn(),
     });
 
-    FakeEventSource.instances.at(-1)?.emit('ServerRequest', {
-      kind: 'ServerRequest',
-      id: 'owner-1',
-      method: 'item/tool/requestUserInput',
-      questions: [
-        {
-          id: 'q1',
-          header: 'Next',
-          question: 'What now?',
-          isOther: false,
-          isSecret: false,
-        },
-      ],
-    });
+    expect(FakeEventSource.instances.at(-1)?.url).toBe(
+      '/api/runs/run%2Fone/stream?token=ui-token&after=run%2Fone%3A4',
+    );
+    FakeEventSource.instances
+      .at(-1)
+      ?.emit(
+        'state.changed',
+        apiEvent({ runId: 'run/one', id: 'run/one:5', type: 'state.changed' }),
+        'run/one:5',
+      );
 
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'ServerRequest', id: 'owner-1' }),
+    expect(onRunEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'run/one:5', type: 'state.changed' }),
     );
   });
 
-  it('subscribeToEvents dispatches OwnerInputResolved events', () => {
-    const dispatch = vi.fn();
+  it('uses canonical event id equality for setup-race dedupe without decimal parsing', () => {
+    const onRunEvent = vi.fn();
 
     subscribeToEvents({
+      runId: RUN_ID,
       uiToken: UI_TOKEN,
       EventSourceCtor: FakeEventSource,
-      dispatch,
-      onResyncRequired: vi.fn(),
-      onConnectionLost: vi.fn(),
-    });
-
-    FakeEventSource.instances.at(-1)?.emit('OwnerInputResolved', {
-      kind: 'OwnerInputResolved',
-      id: 'owner-1',
-    });
-
-    expect(dispatch).toHaveBeenCalledWith({
-      kind: 'OwnerInputResolved',
-      id: 'owner-1',
-    });
-  });
-
-  it('skips replayed stream events already covered by the latest /api/state snapshot', () => {
-    const dispatch = vi.fn();
-
-    subscribeToEvents({
-      uiToken: UI_TOKEN,
-      EventSourceCtor: FakeEventSource,
-      skipThroughEventId: '2',
-      dispatch,
-      onResyncRequired: vi.fn(),
-      onConnectionLost: vi.fn(),
-    });
-
-    expect(FakeEventSource.instances.at(-1)?.url).toBe('/api/stream?token=ui-token&after=2');
-    FakeEventSource.instances.at(-1)?.emit(
-      'AgentMessageDelta',
-      {
-        kind: 'AgentMessageDelta',
-        id: 'agent-1',
-        delta: 'already snapshotted',
-      },
-      '2',
-    );
-    FakeEventSource.instances.at(-1)?.emit(
-      'AgentMessageDelta',
-      {
-        kind: 'AgentMessageDelta',
-        id: 'agent-2',
-        delta: 'new text',
-      },
-      '3',
-    );
-
-    expect(dispatch).toHaveBeenCalledTimes(1);
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'AgentMessageDelta', id: 'agent-2' }),
-    );
-  });
-
-  it('subscribeToEvents dispatches approval update and resolution events', () => {
-    const dispatch = vi.fn();
-
-    subscribeToEvents({
-      uiToken: UI_TOKEN,
-      EventSourceCtor: FakeEventSource,
-      dispatch,
-      onResyncRequired: vi.fn(),
-      onConnectionLost: vi.fn(),
-    });
-
-    FakeEventSource.instances.at(-1)?.emit('FileApprovalUpdated', {
-      kind: 'FileApprovalUpdated',
-      id: 'approval-1',
-      requestId: 'approval-1',
-      threadId: 'thread-1',
-      turnId: 'turn-1',
-      itemId: 'item-1',
-      changes: [],
-    });
-    FakeEventSource.instances.at(-1)?.emit('ApprovalRequestResolved', {
-      kind: 'ApprovalRequestResolved',
-      id: 'approval-1',
-      requestId: 'approval-1',
-    });
-
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ kind: 'FileApprovalUpdated' }));
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'ApprovalRequestResolved' }),
-    );
-  });
-
-  it('subscribeToEvents dispatches fresh-clear boundary and abandoned diagnostics', () => {
-    const dispatch = vi.fn();
-
-    subscribeToEvents({
-      uiToken: UI_TOKEN,
-      EventSourceCtor: FakeEventSource,
-      dispatch,
-      onResyncRequired: vi.fn(),
-      onConnectionLost: vi.fn(),
-    });
-
-    FakeEventSource.instances.at(-1)?.emit('FreshClearBoundary', {
-      kind: 'FreshClearBoundary',
-      id: 'fresh-1',
-      reason: 'clearOnEntry',
-      previousThreadId: 'thread-old',
-      nextThreadId: 'thread-new',
-      statePath: 'workflow.review',
-    });
-    FakeEventSource.instances.at(-1)?.emit('AbandonedThreadDiagnostic', {
-      kind: 'AbandonedThreadDiagnostic',
-      id: 'diag-1',
-      threadId: 'thread-old',
-      source: 'turnCompleted',
-      message: 'ignored old turn',
-    });
-
-    expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ kind: 'FreshClearBoundary' }));
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'AbandonedThreadDiagnostic' }),
-    );
-  });
-
-  it('subscribeToEvents dispatches connection lost on EventSource error', () => {
-    const onConnectionLost = vi.fn();
-
-    subscribeToEvents({
-      uiToken: UI_TOKEN,
-      EventSourceCtor: FakeEventSource,
-      dispatch: vi.fn(),
-      onResyncRequired: vi.fn(),
-      onConnectionLost,
-    });
-
-    FakeEventSource.instances.at(-1)?.onerror?.({} as ErrorEvent);
-    expect(onConnectionLost).toHaveBeenCalledOnce();
-  });
-
-  it('does not close the EventSource solely because onerror fired', () => {
-    subscribeToEvents({
-      uiToken: UI_TOKEN,
-      EventSourceCtor: FakeEventSource,
-      dispatch: vi.fn(),
+      afterEventId: 'run-1:4',
+      onRunEvent,
       onResyncRequired: vi.fn(),
       onConnectionLost: vi.fn(),
     });
 
     const source = FakeEventSource.instances.at(-1);
-    source?.emitError();
+    source?.emit('model.delta', apiEvent({ type: 'model.delta', id: 'run-1:4' }), 'run-1:4');
+    source?.emit('model.delta', apiEvent({ type: 'model.delta', id: 'run-1:5' }), 'run-1:5');
 
-    expect(source?.close).not.toHaveBeenCalled();
+    expect(onRunEvent).toHaveBeenCalledTimes(1);
+    expect(onRunEvent).toHaveBeenCalledWith(expect.objectContaining({ id: 'run-1:5' }));
   });
 
-  it('subscribeToEvents dispatches live turn and item lifecycle events', () => {
-    const dispatch = vi.fn();
+  it('handles fallback runEvent payloads for unsafe canonical event names', () => {
+    const onRunEvent = vi.fn();
 
     subscribeToEvents({
+      runId: RUN_ID,
       uiToken: UI_TOKEN,
       EventSourceCtor: FakeEventSource,
-      dispatch,
+      onRunEvent,
       onResyncRequired: vi.fn(),
       onConnectionLost: vi.fn(),
     });
 
-    FakeEventSource.instances.at(-1)?.emit('TurnStarted', {
-      kind: 'TurnStarted',
-      turnId: 'turn-1',
-    });
-    FakeEventSource.instances.at(-1)?.emit('ItemStarted', {
-      kind: 'ItemStarted',
-      id: 'tool-1',
-      type: 'function_call',
-      name: 'mcp:github/create_issue',
-      arguments: '{}',
-    });
+    FakeEventSource.instances
+      .at(-1)
+      ?.emit('runEvent', apiEvent({ type: 'subthread/worker-started', id: 'run-1:6', seq: 6 }));
 
-    expect(dispatch).toHaveBeenCalledWith({ kind: 'TurnStarted', turnId: 'turn-1' });
-    expect(dispatch).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'ItemStarted', id: 'tool-1' }),
+    expect(onRunEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'subthread/worker-started', id: 'run-1:6' }),
     );
   });
 
-  it('signals the connection live when a valid stream event arrives after an error', () => {
+  it('dispatches exact safe subthread event names without relying on fallback', () => {
+    const onRunEvent = vi.fn();
+
+    subscribeToEvents({
+      runId: RUN_ID,
+      uiToken: UI_TOKEN,
+      EventSourceCtor: FakeEventSource,
+      onRunEvent,
+      onResyncRequired: vi.fn(),
+      onConnectionLost: vi.fn(),
+    });
+
+    FakeEventSource.instances
+      .at(-1)
+      ?.emit(
+        'subthread.item.started',
+        apiEvent({ type: 'subthread.item.started', id: 'run-1:7', seq: 7 }),
+      );
+
+    expect(onRunEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'subthread.item.started', id: 'run-1:7' }),
+    );
+  });
+
+  it('invokes onResyncRequired for run-scoped resync control frames', async () => {
+    const onResyncRequired = vi.fn();
+
+    subscribeToEvents({
+      runId: RUN_ID,
+      uiToken: UI_TOKEN,
+      EventSourceCtor: FakeEventSource,
+      onRunEvent: vi.fn(),
+      onResyncRequired,
+      onConnectionLost: vi.fn(),
+    });
+
+    FakeEventSource.instances.at(-1)?.emit('runEvent.resyncRequired', resyncFrame(), 'run-1:4');
+    await vi.waitFor(() => expect(onResyncRequired).toHaveBeenCalledOnce());
+    expect(onResyncRequired).toHaveBeenCalledWith(
+      expect.objectContaining({ requestedEventId: 'run-1:99', latestEventId: 'run-1:4' }),
+    );
+  });
+
+  it('closes the current stream, refetches bootstrap, hydrates, then reopens after resync', async () => {
+    const calls: string[] = [];
+    const reopen = vi.fn(() => calls.push('reopen'));
+
+    await resyncAndReconnect({
+      closeCurrent: () => calls.push('close'),
+      fetchBootstrap: () => {
+        calls.push('fetch');
+        return Promise.resolve(bootstrap({ latestEventId: 'run-1:9' }));
+      },
+      hydrate: (next) => calls.push(`hydrate:${next.latestEventId}`),
+      reopen,
+    });
+
+    expect(calls).toEqual(['close', 'fetch', 'hydrate:run-1:9', 'reopen']);
+    expect(reopen).toHaveBeenCalledWith('run-1:9');
+  });
+
+  it('marks connection lost on stream JSON parse failures or malformed run events', () => {
+    const onConnectionLost = vi.fn();
+
+    subscribeToEvents({
+      runId: RUN_ID,
+      uiToken: UI_TOKEN,
+      EventSourceCtor: FakeEventSource,
+      onRunEvent: vi.fn(),
+      onResyncRequired: vi.fn(),
+      onConnectionLost,
+    });
+
+    const source = FakeEventSource.instances.at(-1);
+    source?.emitRaw('state.changed', '{');
+    source?.emit('state.changed', { kind: 'StateChange' });
+
+    expect(onConnectionLost).toHaveBeenCalledTimes(2);
+  });
+
+  it('marks connection lost on EventSource errors without closing solely because onerror fired', () => {
+    const onConnectionLost = vi.fn();
+
+    subscribeToEvents({
+      runId: RUN_ID,
+      uiToken: UI_TOKEN,
+      EventSourceCtor: FakeEventSource,
+      onRunEvent: vi.fn(),
+      onResyncRequired: vi.fn(),
+      onConnectionLost,
+    });
+
+    const source = FakeEventSource.instances.at(-1);
+    source?.emitError();
+
+    expect(onConnectionLost).toHaveBeenCalledOnce();
+    expect(source?.close).not.toHaveBeenCalled();
+  });
+
+  it('signals the connection live when a valid run event arrives after an error', () => {
     const onConnectionLost = vi.fn();
     const onConnectionLive = vi.fn();
 
     subscribeToEvents({
+      runId: RUN_ID,
       uiToken: UI_TOKEN,
       EventSourceCtor: FakeEventSource,
-      dispatch: vi.fn(),
+      onRunEvent: vi.fn(),
       onResyncRequired: vi.fn(),
       onConnectionLost,
       onConnectionLive,
@@ -382,85 +464,10 @@ describe('production API client', () => {
 
     const source = FakeEventSource.instances.at(-1);
     source?.emitError();
-    source?.emit('PostureChange', {
-      kind: 'PostureChange',
-      posture: { open: true },
-    });
+    source?.emit('posture.changed', apiEvent({ type: 'posture.changed' }));
 
     expect(onConnectionLost).toHaveBeenCalledOnce();
     expect(onConnectionLive).toHaveBeenCalledOnce();
-  });
-
-  it('closes the current stream, refetches /api/state, hydrates, then reopens after ResyncRequired', async () => {
-    const calls: string[] = [];
-    const reopen = vi.fn(() => calls.push('reopen'));
-
-    await resyncAndReconnect({
-      closeCurrent: () => calls.push('close'),
-      fetchSnapshot: () => {
-        calls.push('fetch');
-        return Promise.resolve(snapshot({ latestEventId: 'event-2' }));
-      },
-      hydrate: (next) => calls.push(`hydrate:${next.latestEventId}`),
-      reopen,
-    });
-
-    expect(calls).toEqual(['close', 'fetch', 'hydrate:event-2', 'reopen']);
-    expect(reopen).toHaveBeenCalledWith('event-2');
-  });
-
-  it('handles ResyncRequired by closing, hydrating, and reopening with the new skip-through event id', async () => {
-    const dispatch = vi.fn();
-    const hydrated: UiSnapshot[] = [];
-    const closeCurrent = vi.fn();
-    const reopen = vi.fn();
-    const fetch = vi.fn<FetchLike>(() => okJson(snapshot({ latestEventId: '9' })));
-    const fetchState = () => fetchSnapshot({ fetch, uiToken: UI_TOKEN });
-
-    subscribeToEvents({
-      uiToken: UI_TOKEN,
-      EventSourceCtor: FakeEventSource,
-      skipThroughEventId: '4',
-      dispatch,
-      onConnectionLost: vi.fn(),
-      onResyncRequired: () =>
-        resyncAndReconnect({
-          closeCurrent,
-          fetchSnapshot: fetchState,
-          hydrate: (next) => hydrated.push(next),
-          reopen,
-        }),
-    });
-
-    FakeEventSource.instances.at(-1)?.emit(
-      'ResyncRequired',
-      {
-        kind: 'ResyncRequired',
-        reason: 'event-buffer-overflow',
-        requestedLastEventId: '4',
-      },
-      '12',
-    );
-    await vi.waitFor(() => expect(hydrated).toHaveLength(1));
-
-    expect(fetch).toHaveBeenCalledWith('/api/state', {
-      headers: { 'X-Aharness-Ui-Token': UI_TOKEN },
-    });
-    expect(closeCurrent).toHaveBeenCalledOnce();
-    expect(hydrated).toEqual([expect.objectContaining({ latestEventId: '9' })]);
-    expect(reopen).toHaveBeenCalledWith('9');
-
-    FakeEventSource.instances.at(-1)?.emit(
-      'AgentMessageDelta',
-      {
-        kind: 'AgentMessageDelta',
-        id: 'agent-replayed',
-        delta: 'already covered',
-      },
-      '4',
-    );
-
-    expect(dispatch).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -472,18 +479,20 @@ describe('production API client', () => {
         answers: { q1: 'continue' },
       },
     ],
-  ])('postReply POSTs accepted reply payloads to /api/reply', async (payload) => {
+  ])('postReply POSTs accepted reply payloads to the run-scoped reply URL', async (payload) => {
     const fetch = vi.fn<FetchLike>(() => okJson({ ok: true }));
 
-    await expect(postReply(payload, { fetch, uiToken: UI_TOKEN })).resolves.toBeUndefined();
-    expect(fetch).toHaveBeenCalledWith('/api/reply', {
+    await expect(
+      postReply(payload, { runId: 'run/one', fetch, uiToken: UI_TOKEN }),
+    ).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledWith('/api/runs/run%2Fone/reply', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'X-Aharness-Ui-Token': UI_TOKEN },
       body: JSON.stringify(payload),
     });
   });
 
-  it('postReply rejects non-2xx server responses', async () => {
+  it('postReply rejects non-2xx server responses and keeps pending state retention behavior separate', async () => {
     const fetch = vi.fn<FetchLike>(() =>
       Promise.resolve({
         ok: false,
@@ -492,59 +501,27 @@ describe('production API client', () => {
         json: () => Promise.resolve({ error: 'reply rejected' }),
       }),
     );
+    const state = { replyError: null } as UiState;
 
     await expect(
-      postReply({ kind: 'user-prompt', text: 'continue' }, { fetch, uiToken: UI_TOKEN }),
+      postReply(
+        { kind: 'user-prompt', text: 'continue' },
+        { runId: RUN_ID, fetch, uiToken: UI_TOKEN },
+      ),
     ).rejects.toBeInstanceOf(ApiClientError);
-    expect(fetch).toHaveBeenCalledWith('/api/reply', {
+    expect(fetch).toHaveBeenCalledWith('/api/runs/run-1/reply', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'X-Aharness-Ui-Token': UI_TOKEN },
       body: JSON.stringify({ kind: 'user-prompt', text: 'continue' }),
     });
+    expect(retainStateAfterReplyFailure(state)).toBe(state);
   });
 
-  it('retains pending approvals, owner input, and open-state draft ownership after reply failure', () => {
-    const hydrated = hydrateFromSnapshot(snapshot());
-    const withApproval = applyAppEvent(hydrated, {
-      kind: 'ServerRequest',
-      id: 'approval-1',
-      requestId: 'approval-1',
-      method: 'item/fileChange/requestApproval',
-      threadId: 'thread-1',
-      turnId: 'turn-1',
-      itemId: 'call-1',
-      changes: [{ path: 'src/file.ts', kind: { type: 'update', move_path: null }, diff: '@@' }],
-    });
-    const withOwnerInput = applyAppEvent(withApproval, {
-      kind: 'ServerRequest',
-      id: 'owner-1',
-      method: 'item/tool/requestUserInput',
-      questions: [
-        {
-          id: 'q1',
-          header: 'Next',
-          question: 'What now?',
-          isOther: false,
-          isSecret: false,
-        },
-      ],
-    });
+  it('does not retain production references to the flat browser endpoints', () => {
+    const source = readFileSync(new URL('./client.ts', import.meta.url), 'utf8');
 
-    const retained = retainStateAfterReplyFailure(withOwnerInput);
-
-    expect(retained.pending.fileApprovals).toHaveLength(1);
-    expect(retained.pending.ownerInput?.id).toBe('owner-1');
-    expect(retained.posture.isAwaiting).toBe(true);
-    expect(retained.posture.open).toBe(true);
-  });
-
-  it('keeps posture updates independent from connection state', () => {
-    const state = createConnectingUiState();
-    const lost = applyAppEvent(state, {
-      kind: 'PostureChange',
-      posture: { open: true },
-    });
-
-    expect(lost.posture.open).toBe(true);
+    expect(source).not.toContain('/api/state');
+    expect(source).not.toContain('/api/stream');
+    expect(source).not.toContain('/api/reply');
   });
 });

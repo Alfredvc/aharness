@@ -122,7 +122,8 @@ If you inspect the loopback UI API directly, run-scoped endpoints under
 `/api/runs/:runId/` provide compact JSONL-backed bootstrap, row, event-page,
 SSE, and reply projections for the active run. Those API/SSE responses omit raw
 payload expansion, so missing raw request or tool details usually means you need
-the sensitive `events.jsonl` file rather than an API response. The current React
-browser still uses flat `/api/state`, `/api/stream`, and `/api/reply`
-compatibility routes until Slice 4, and `snapshot.json` still exists for
-current inspection state.
+the sensitive `events.jsonl` file rather than an API response. The React
+browser now uses the run-scoped bootstrap, row, stream, and reply endpoints. The
+flat `/api/state`, `/api/stream`, and `/api/reply` routes remain
+compatibility/internal routes until later cleanup, not the production browser
+source. `snapshot.json` still exists for current inspection state.

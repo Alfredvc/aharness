@@ -112,8 +112,27 @@ function fixtureEvents(): RunEventEnvelope[] {
       turnId: 'turn-1',
       itemId: 'request-1',
       requestId: 'request-1',
-      data: { kind: 'owner-input', summary: 'Approve from data?' },
-      raw: { summary: 'raw request must not be served' },
+      data: {
+        kind: 'owner-input',
+        summary: 'Approve from data?',
+        pendingCard: {
+          kind: 'owner-input',
+          id: 'request-1',
+          requestId: 'request-1',
+          method: 'item/tool/requestUserInput',
+          questions: [
+            {
+              id: 'q1',
+              header: 'Approval',
+              question: 'Approve from normalized data?',
+              isOther: false,
+              isSecret: false,
+              choices: ['yes', 'no'],
+            },
+          ],
+        },
+      },
+      raw: { summary: 'raw request must not be served', answer: 'raw answer must not be served' },
     }),
   ];
 }
@@ -230,8 +249,36 @@ describe('run-scoped UI server routes', () => {
       expect.objectContaining({ eventId: 'run-server:3', summary: 'Entered root.plan' }),
       expect.objectContaining({ eventId: 'run-server:4', text: 'Hello from JSONL data' }),
     ]);
+    expect(bootstrap.pending).toEqual([
+      expect.objectContaining({
+        requestId: 'request-1',
+        pendingCard: {
+          kind: 'owner-input',
+          id: 'request-1',
+          requestId: 'request-1',
+          method: 'item/tool/requestUserInput',
+          questions: [
+            {
+              id: 'q1',
+              header: 'Approval',
+              question: 'Approve from normalized data?',
+              isOther: false,
+              isSecret: false,
+              choices: ['yes', 'no'],
+            },
+          ],
+        },
+      }),
+    ]);
+    expect(bootstrap.posture).toEqual({
+      isTerminal: false,
+      isAwaiting: true,
+      submittedThisTurn: false,
+      open: false,
+    });
     expect(JSON.stringify(bootstrap)).not.toContain('raw');
     expect(JSON.stringify(bootstrap)).not.toContain('raw prompt must not be served');
+    expect(JSON.stringify(bootstrap)).not.toContain('raw answer must not be served');
 
     const visitRowsResponse = await fetch(
       `${handle.url}/api/runs/${RUN_ID}/visits/root.plan%231/rows?limit=1&token=${TEST_UI_TOKEN}`,

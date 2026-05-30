@@ -4382,14 +4382,16 @@ describe('runCliForTest — pre-spawn gates', () => {
     await driverPromise;
 
     expect(r.exitCode).toBe(0);
-    expect(stdout.text()).toContain('aharness: browser UI available at http://127.0.0.1:45678');
-    expect(launchBrowserImpl).toHaveBeenCalledWith(
-      expect.stringMatching(/^http:\/\/127\.0\.0\.1:45678\/\?token=/),
+    expect(stdout.text()).toMatch(
+      /aharness: browser UI available at http:\/\/127\.0\.0\.1:45678\/\?token=[^&\s]+&runId=[^&\s]+/,
     );
+    const launchedUrl = new URL(launchBrowserImpl.mock.calls[0]?.[0] ?? '');
+    expect(launchedUrl.searchParams.get('token')).toBeTruthy();
+    expect(launchedUrl.searchParams.get('runId')).toBeTruthy();
     expect(order).toEqual([
       'ui-server',
       'url-print',
-      expect.stringMatching(/^launch:http:\/\/127\.0\.0\.1:45678\/\?token=/),
+      expect.stringMatching(/^launch:http:\/\/127\.0\.0\.1:45678\/\?token=[^&]+&runId=/),
       'app-server',
       'ws-connect',
       'thread-start-request',

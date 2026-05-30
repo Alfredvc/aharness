@@ -93,10 +93,32 @@ function fixtureEvents(): RunEventEnvelope[] {
       turnId: 'turn-1',
       itemId: 'request-1',
       requestId: 'request-1',
-      data: { kind: 'owner-input', summary: 'Approve from data?' },
-      raw: { kind: 'raw-kind', summary: 'Approve from raw?' },
+      data: {
+        kind: 'owner-input',
+        summary: 'Approve from data?',
+        pendingCard: {
+          kind: 'owner-input',
+          id: 'request-1',
+          requestId: 'request-1',
+          method: 'item/tool/requestUserInput',
+          questions: [
+            {
+              id: 'q1',
+              header: 'Approval',
+              question: 'Approve from normalized data?',
+              isOther: false,
+              isSecret: false,
+              choices: ['accept', 'decline'],
+            },
+          ],
+        },
+      },
+      raw: { kind: 'raw-kind', summary: 'Approve from raw?', answer: 'raw answer sentinel' },
     }),
-    event(6, 'token.updated', {
+    event(6, 'posture.changed', {
+      data: { posture: { open: true } },
+    }),
+    event(7, 'token.updated', {
       data: {
         total: {
           totalTokens: 15,
@@ -109,7 +131,7 @@ function fixtureEvents(): RunEventEnvelope[] {
       },
       raw: { total: { totalTokens: 999 } },
     }),
-    event(7, 'state.changed', {
+    event(8, 'state.changed', {
       stateVisitId: 'root.work#2',
       data: {
         from: 'root.plan',
@@ -157,7 +179,7 @@ describe('run event query service', () => {
       nodes: [],
       edges: [],
     });
-    expect(bootstrap.bootstrap.latestEventId).toBe('run-query:7');
+    expect(bootstrap.bootstrap.latestEventId).toBe('run-query:8');
     expect(bootstrap.bootstrap.currentState).toEqual({
       path: 'root.work',
       leaf: 'work',
@@ -181,8 +203,30 @@ describe('run event query service', () => {
         requestId: 'request-1',
         kind: 'owner-input',
         summary: 'Approve from data?',
+        pendingCard: {
+          kind: 'owner-input',
+          id: 'request-1',
+          requestId: 'request-1',
+          method: 'item/tool/requestUserInput',
+          questions: [
+            {
+              id: 'q1',
+              header: 'Approval',
+              question: 'Approve from normalized data?',
+              isOther: false,
+              isSecret: false,
+              choices: ['accept', 'decline'],
+            },
+          ],
+        },
       }),
     ]);
+    expect(bootstrap.bootstrap.posture).toEqual({
+      isTerminal: false,
+      isAwaiting: true,
+      submittedThisTurn: false,
+      open: true,
+    });
     expect(bootstrap.bootstrap.aggregateStats).toEqual(
       expect.objectContaining({
         status: 'running',
@@ -197,6 +241,7 @@ describe('run event query service', () => {
     ]);
     expect(JSON.stringify(bootstrap.bootstrap)).not.toContain('raw row must not render');
     expect(JSON.stringify(bootstrap.bootstrap)).not.toContain('resolved prompt must stay raw');
+    expect(JSON.stringify(bootstrap.bootstrap)).not.toContain('raw answer sentinel');
 
     threadId = 'thread-after-start';
     const changed = service.getBootstrap({ getRunMeta: () => ({ runId: RUN_ID, threadId }) });
@@ -336,7 +381,7 @@ describe('run event query service', () => {
     expect(service.getEventPage({ after: 'run-query:99' })).toEqual({
       ok: false,
       error: 'event-cursor-out-of-range',
-      latestEventId: 'run-query:7',
+      latestEventId: 'run-query:8',
     });
   });
 
@@ -430,6 +475,7 @@ describe('run event query service', () => {
       'run-query:5',
       'run-query:6',
       'run-query:7',
+      'run-query:8',
     ]);
   });
 });

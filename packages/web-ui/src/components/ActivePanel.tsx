@@ -14,6 +14,13 @@ import { InteractionSlot } from './InteractionSlot';
 import { canAcceptElicitation } from './elicitationActions';
 
 type Props = { session: UiState & UiActions };
+type VisitGroup = {
+  visitId: string;
+  visit: number;
+  rowCount: number;
+  items: TranscriptItem[];
+  loadStatus: UiState['rowLoadStatus'][string] | undefined;
+};
 
 function leafOf(path: string): string {
   return path.split('.').pop() ?? path;
@@ -21,6 +28,20 @@ function leafOf(path: string): string {
 
 function breadcrumbOf(path: string): string[] {
   return path.split('.').slice(0, -1);
+}
+
+function visitNumber(visitId: string): number {
+  const raw = visitId.split('#').pop();
+  const parsed = raw === undefined ? Number.NaN : Number(raw);
+  return Number.isFinite(parsed) ? parsed : 1;
+}
+
+function emptyVisitMessage(group: VisitGroup): string {
+  if (group.rowCount > 0) return 'activity hidden in this view';
+  if (group.loadStatus?.loading) return 'loading activity for this visit…';
+  if (group.loadStatus?.error) return 'could not load activity for this visit';
+  if (group.loadStatus?.loaded) return 'no activity in this visit';
+  return 'activity not loaded yet';
 }
 
 function submitReply(onReply: UiActions['reply'], payload: ReplyPayload) {
@@ -37,8 +58,13 @@ export function ActivePanel({ session }: Props) {
       : null
     : session.scopedPath;
 
+  useEffect(() => {
+    if (isFollowing || !scopePath || !session.requestRowsForStatePath) return;
+    void session.requestRowsForStatePath(scopePath).catch(() => undefined);
+  }, [isFollowing, scopePath, session.requestRowsForStatePath]);
+
   const groups = useMemo(() => {
-    if (!scopePath) return [] as Array<{ visitId: string; visit: number; items: TranscriptItem[] }>;
+    if (!scopePath) return [] as VisitGroup[];
     const filter = isFollowing
       ? (vid: string) => vid === session.activeVisitId
       : (vid: string) => vid.startsWith(`${scopePath}#`);
@@ -49,15 +75,30 @@ export function ActivePanel({ session }: Props) {
       if (bucket) bucket.push(it);
       else buckets.set(it.stateVisitId, [it]);
     }
-    const ordered = Array.from(buckets.entries()).sort(
-      ([a], [b]) => Number(a.split('#')[1] ?? '1') - Number(b.split('#')[1] ?? '1'),
-    );
-    return ordered.map(([visitId, raw]) => ({
+    const visitIds = isFollowing
+      ? Array.from(buckets.keys()).sort((a, b) => visitNumber(a) - visitNumber(b))
+      : [
+          ...(session.statePathVisits[scopePath] ?? []),
+          ...Array.from(buckets.keys()).filter(
+            (visitId) => !(session.statePathVisits[scopePath] ?? []).includes(visitId),
+          ),
+        ];
+    return visitIds.map((visitId) => ({
       visitId,
-      visit: Number(visitId.split('#')[1] ?? '1'),
-      items: visibleItems(raw, session.devMode),
+      visit: visitNumber(visitId),
+      rowCount: buckets.get(visitId)?.length ?? 0,
+      items: visibleItems(buckets.get(visitId) ?? [], session.devMode),
+      loadStatus: session.rowLoadStatus[visitId],
     }));
-  }, [session.transcript, scopePath, isFollowing, session.activeVisitId, session.devMode]);
+  }, [
+    session.transcript,
+    session.statePathVisits,
+    session.rowLoadStatus,
+    scopePath,
+    isFollowing,
+    session.activeVisitId,
+    session.devMode,
+  ]);
 
   const entryByVisit = useMemo(() => {
     const m = new Map<string, (typeof session.history)[number]>();
@@ -188,7 +229,9 @@ export function ActivePanel({ session }: Props) {
         ) : isFollowing && session.turns.length === 0 && !hasVisibleContent(session.transcript) ? (
           <AwaitingCodexPlaceholder />
         ) : groups.length === 0 ? (
-          <div className="ap-empty quiet">no activity yet in this visit</div>
+          <div className="ap-empty quiet">
+            {isFollowing ? 'no activity yet in this visit' : 'activity not loaded yet'}
+          </div>
         ) : (
           groups.map((g, gi) => {
             const h = entryByVisit.get(g.visitId);
@@ -219,7 +262,7 @@ export function ActivePanel({ session }: Props) {
                   </div>
                 ) : null}
                 {g.items.length === 0 ? (
-                  <div className="ap-empty quiet">no activity in this visit</div>
+                  <div className="ap-empty quiet">{emptyVisitMessage(g)}</div>
                 ) : (
                   g.items.map((it) => <ActivePanelRow key={it.id} item={it} />)
                 )}
@@ -758,7 +801,7 @@ function OpenStateComposer({ onReply }: { onReply: UiActions['reply'] }) {
       </div>
       {error ? <div className="slot-error">{error}</div> : null}
       <div className="slot-hint">
-        <kbd>⌘</kbd>+<kbd>↵</kbd> send · routes through <code>POST /api/reply</code>
+        <kbd>⌘</kbd>+<kbd>↵</kbd> send · routes through <code>POST /api/runs/:runId/reply</code>
       </div>
     </div>
   );

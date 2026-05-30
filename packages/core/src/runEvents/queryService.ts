@@ -6,6 +6,7 @@ import type {
   RunEventEnvelope,
   RunEventPendingRequestSummary,
   RunEventPayload,
+  RunEventPosture,
   RunEventReplayDiagnostic,
   RunEventStateVisit,
   RunEventWithOffset,
@@ -59,6 +60,7 @@ export interface ApiRunBootstrap<
   readonly topology: TTopology | null;
   readonly latestEventId: string | null;
   readonly currentState: ApiRunCurrentState | null;
+  readonly posture: RunEventPosture;
   readonly currentStateVisit: RunEventStateVisit | null;
   readonly stateVisits: ReadonlyArray<RunEventStateVisit>;
   readonly statePathVisits: Readonly<Record<string, ReadonlyArray<string>>>;
@@ -376,6 +378,7 @@ export function createRunEventQueryService(
           topology: bootstrapOptions.topology ?? null,
           latestEventId: latestEventId(events),
           currentState: currentStateFromEvents(events),
+          posture: index.posture,
           currentStateVisit: index.currentState,
           stateVisits: index.stateVisits,
           statePathVisits: statePathVisits(index.stateVisits),

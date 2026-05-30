@@ -12,7 +12,9 @@ import type {
   RunEventCompactRow,
   RunEventEnvelope,
   RunEventPage,
+  RunEventPendingCard,
   RunEventPendingRequestSummary,
+  RunEventPosture,
   RunEventRange,
   RunEventRowPage,
   RunEventStateVisit,
@@ -26,6 +28,7 @@ export interface BuildRunEventIndexOptions {
 export interface RunEventIndex {
   readonly events: ReadonlyArray<RunEventWithOffset>;
   readonly currentState: RunEventStateVisit | null;
+  readonly posture: RunEventPosture;
   readonly stateVisits: ReadonlyArray<RunEventStateVisit>;
   readonly aggregateStats: RunEventAggregateStats;
   readonly getEventPage: (query?: EventPageQuery) => RunEventPage;
@@ -79,6 +82,14 @@ type MutablePending = {
   turnId?: string;
   itemId?: string;
   lastEventId: string;
+  pendingCard?: RunEventPendingCard;
+};
+
+type MutablePosture = {
+  isTerminal: boolean;
+  isAwaiting: boolean;
+  submittedThisTurn: boolean;
+  open: boolean;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -96,6 +107,10 @@ function readNullableString(value: unknown): string | null | undefined {
 
 function readNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function readBoolean(value: unknown): boolean | undefined {
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 function dataOf(event: RunEventEnvelope): Record<string, unknown> {
@@ -116,6 +131,11 @@ function readItemId(event: RunEventEnvelope): string | undefined {
 
 function readStateVisitId(event: RunEventEnvelope): string | undefined {
   return event.stateVisitId ?? readString(dataOf(event)['stateVisitId']);
+}
+
+function readPendingCard(event: RunEventEnvelope): RunEventPendingCard | undefined {
+  const card = dataOf(event)['pendingCard'];
+  return isRecord(card) ? (card as unknown as RunEventPendingCard) : undefined;
 }
 
 function rangeFromMutable(range: MutableRange | undefined): RunEventRange | null {
@@ -267,6 +287,7 @@ function upsertPending(
   const stateVisitId = readStateVisitId(event);
   const turnId = readTurnId(event);
   const itemId = readItemId(event);
+  const pendingCard = readPendingCard(event);
 
   if (existing === undefined) {
     pending.set(requestId, {
@@ -280,6 +301,7 @@ function upsertPending(
       ...(stateVisitId !== undefined ? { stateVisitId } : {}),
       ...(turnId !== undefined ? { turnId } : {}),
       ...(itemId !== undefined ? { itemId } : {}),
+      ...(pendingCard !== undefined ? { pendingCard } : {}),
     });
     return;
   }
@@ -292,6 +314,23 @@ function upsertPending(
   if (stateVisitId !== undefined) existing.stateVisitId = stateVisitId;
   if (turnId !== undefined) existing.turnId = turnId;
   if (itemId !== undefined) existing.itemId = itemId;
+  if (pendingCard !== undefined) {
+    existing.pendingCard = mergePendingCard(existing.pendingCard, pendingCard);
+  }
+}
+
+function mergePendingCard(
+  existing: RunEventPendingCard | undefined,
+  incoming: RunEventPendingCard,
+): RunEventPendingCard {
+  if (
+    existing === undefined ||
+    existing.kind !== incoming.kind ||
+    existing.requestId !== incoming.requestId
+  ) {
+    return incoming;
+  }
+  return { ...existing, ...incoming } as RunEventPendingCard;
 }
 
 function isResolutionEvent(type: string): boolean {
@@ -313,7 +352,7 @@ function isAcceptedReplyResolution(event: RunEventEnvelope): boolean {
 function observePending(pending: Map<string, MutablePending>, event: RunEventEnvelope): void {
   const requestId = readRequestId(event);
   if (requestId === undefined) return;
-  if (event.type === 'request.created') {
+  if (event.type === 'request.created' || event.type === 'request.updated') {
     upsertPending(pending, event, requestId, 'pending');
     return;
   }
@@ -337,6 +376,80 @@ function observePending(pending: Map<string, MutablePending>, event: RunEventEnv
   }
   if (isAcceptedReplyResolution(event)) {
     pending.delete(requestId);
+  }
+}
+
+function readPosturePatch(event: RunEventEnvelope): Partial<RunEventPosture> | null {
+  if (event.type !== 'posture.changed') return null;
+  const data = dataOf(event);
+  const source = isRecord(data['posture']) ? data['posture'] : data;
+  const isTerminal = readBoolean(source['isTerminal']);
+  const isAwaiting = readBoolean(source['isAwaiting']);
+  const submittedThisTurn = readBoolean(source['submittedThisTurn']);
+  const open = readBoolean(source['open']);
+  return {
+    ...(isTerminal !== undefined ? { isTerminal } : {}),
+    ...(isAwaiting !== undefined ? { isAwaiting } : {}),
+    ...(submittedThisTurn !== undefined ? { submittedThisTurn } : {}),
+    ...(open !== undefined ? { open } : {}),
+  };
+}
+
+function isTerminalStateChange(event: RunEventEnvelope): boolean {
+  if (event.type !== 'state.changed') return false;
+  const data = dataOf(event);
+  const kind = readString(data['kind']);
+  return kind === 'terminal' || kind === 'final';
+}
+
+function applyPendingPosture(posture: MutablePosture, pending: Map<string, MutablePending>): void {
+  if (posture.isTerminal) {
+    posture.isAwaiting = false;
+    posture.submittedThisTurn = false;
+    posture.open = false;
+    return;
+  }
+
+  const pendingRequests = [...pending.values()];
+  posture.isAwaiting = pendingRequests.length > 0;
+  posture.submittedThisTurn = pendingRequests.some((request) => request.status === 'submitted');
+}
+
+function observePosture(
+  posture: MutablePosture,
+  pending: Map<string, MutablePending>,
+  event: RunEventEnvelope,
+): void {
+  const patch = readPosturePatch(event);
+  if (patch !== null) {
+    Object.assign(posture, patch);
+    return;
+  }
+
+  if (event.type === 'run.completed' || event.type === 'run.failed') {
+    posture.isTerminal = true;
+    posture.isAwaiting = false;
+    posture.submittedThisTurn = false;
+    posture.open = false;
+    return;
+  }
+
+  if (isTerminalStateChange(event)) {
+    posture.isTerminal = true;
+    posture.isAwaiting = false;
+    posture.submittedThisTurn = false;
+    posture.open = false;
+    return;
+  }
+
+  if (
+    event.type === 'request.created' ||
+    event.type === 'request.updated' ||
+    event.type === 'reply.submitted' ||
+    event.type === 'reply.resolved' ||
+    isResolutionEvent(event.type)
+  ) {
+    applyPendingPosture(posture, pending);
   }
 }
 
@@ -406,6 +519,10 @@ function freezePending(pending: Map<string, MutablePending>): RunEventPendingReq
   return [...pending.values()].map((request) => ({ ...request }));
 }
 
+function freezePosture(posture: MutablePosture): RunEventPosture {
+  return { ...posture };
+}
+
 export function buildRunEventIndex(options: BuildRunEventIndexOptions): RunEventIndex {
   const indexedEvents = [...options.events];
   const turnRanges = new Map<string, MutableRange>();
@@ -417,6 +534,12 @@ export function buildRunEventIndex(options: BuildRunEventIndexOptions): RunEvent
   const recentRows: RunEventCompactRow[] = [];
   const pending = new Map<string, MutablePending>();
   const aggregate: MutableAggregateStats = { turnCount: 0 };
+  const posture: MutablePosture = {
+    isTerminal: false,
+    isAwaiting: false,
+    submittedThisTurn: false,
+    open: false,
+  };
   let currentState: RunEventStateVisit | null = null;
 
   for (const entry of indexedEvents) {
@@ -451,12 +574,14 @@ export function buildRunEventIndex(options: BuildRunEventIndexOptions): RunEvent
     }
 
     observePending(pending, event);
+    observePosture(posture, pending, event);
     observeAggregate(aggregate, event);
   }
 
   return {
     events: indexedEvents,
     currentState,
+    posture: freezePosture(posture),
     stateVisits,
     aggregateStats: freezeAggregate(aggregate),
     getEventPage(query) {

@@ -84,7 +84,7 @@ export function OwnerInputComposer({ session }: { session: UiState & UiActions }
       </div>
       {error ? <div className="slot-error">{error}</div> : null}
       <div className="hint">
-        <kbd>⌘</kbd>+<kbd>↵</kbd> to send · routes through <code>POST /api/reply</code>
+        <kbd>⌘</kbd>+<kbd>↵</kbd> to send · routes through <code>POST /api/runs/:runId/reply</code>
       </div>
     </div>
   );

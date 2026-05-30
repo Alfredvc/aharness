@@ -1,4 +1,14 @@
-import type { AppEvent, UiSnapshot } from '../types/events.js';
+import {
+  isRunScopedApiEvent,
+  isRunScopedBootstrap,
+  isRunScopedResyncRequired,
+  isRunScopedRowPage,
+  type RunScopedApiEvent,
+  type RunScopedBootstrap,
+  type RunScopedResyncRequired,
+  type RunScopedRowPage,
+  type UiMode,
+} from '../types/events.js';
 import type { ReplyPayload, UiState } from '../state/store.js';
 
 export class ApiClientError extends Error {
@@ -40,79 +50,56 @@ export type EventSourceLike = {
 export type EventSourceConstructorLike = new (url: string) => EventSourceLike;
 
 export type SubscribeOptions = {
+  runId: string;
   uiToken: string;
   EventSourceCtor?: EventSourceConstructorLike;
-  skipThroughEventId?: string | null;
-  dispatch: (event: AppEvent) => void;
-  onResyncRequired: (event: Extract<AppEvent, { kind: 'ResyncRequired' }>) => void | Promise<void>;
+  afterEventId?: string | null;
+  onRunEvent: (event: RunScopedApiEvent) => void;
+  onResyncRequired: (event: RunScopedResyncRequired) => void | Promise<void>;
   onConnectionLost: () => void;
   onConnectionLive?: () => void;
 };
 
 export type ResyncOptions = {
   closeCurrent: () => void;
-  fetchSnapshot: () => Promise<UiSnapshot>;
-  hydrate: (snapshot: UiSnapshot) => void;
-  reopen: (skipThroughEventId: string | null) => void;
+  fetchBootstrap: () => Promise<RunScopedBootstrap>;
+  hydrate: (bootstrap: RunScopedBootstrap) => void;
+  reopen: (afterEventId: string | null) => void;
 };
 
-const STREAM_EVENT_TYPES = [
-  'AgentMessageDelta',
-  'ItemStarted',
-  'TurnStarted',
-  'ServerRequest',
-  'OwnerInputResolved',
-  'FileApprovalUpdated',
-  'ApprovalRequestResolved',
-  'StateChange',
-  'FreshClearBoundary',
-  'AbandonedThreadDiagnostic',
-  'FrameworkNote',
-  'TurnCompleted',
-  'PostureChange',
-  'ResyncRequired',
-] as const satisfies ReadonlyArray<AppEvent['kind']>;
-
-function parseEventId(eventId: string | null | undefined): number | null {
-  if (eventId === undefined || eventId === null || !/^[1-9]\d*$/.test(eventId)) {
-    return null;
-  }
-
-  const parsed = Number(eventId);
-  return Number.isSafeInteger(parsed) ? parsed : null;
-}
-
-function shouldSkipReplayedEvent(
-  lastEventId: string | undefined,
-  skipThroughEventId: string | null | undefined,
-): boolean {
-  const eventId = parseEventId(lastEventId);
-  const skipThrough = parseEventId(skipThroughEventId);
-  return eventId !== null && skipThrough !== null && eventId <= skipThrough;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function isUiSnapshot(value: unknown): value is UiSnapshot {
-  if (!isRecord(value)) return false;
-  if (!(typeof value['latestEventId'] === 'string' || value['latestEventId'] === null)) {
-    return false;
-  }
-  if (!isRecord(value['state'])) return false;
-  const state = value['state'];
-  return (
-    (isRecord(state['run']) || state['run'] === null) &&
-    isRecord(state['posture']) &&
-    (isRecord(state['currentState']) || state['currentState'] === null) &&
-    Array.isArray(state['transcript']) &&
-    Array.isArray(state['frameworkNotes']) &&
-    Array.isArray(state['diagnostics']) &&
-    Array.isArray(state['completedTurns']) &&
-    (state['pending'] === undefined || isRecord(state['pending']))
-  );
-}
+const RUN_EVENT_TYPES = [
+  'run.started',
+  'run.completed',
+  'run.failed',
+  'state.changed',
+  'posture.changed',
+  'turn.started',
+  'turn.completed',
+  'model.delta',
+  'item.started',
+  'item.completed',
+  'raw_response_item.completed',
+  'request.created',
+  'request.updated',
+  'request.resolved',
+  'reply.submitted',
+  'reply.resolved',
+  'framework.note',
+  'fresh_clear.boundary',
+  'diagnostic.abandoned_thread',
+  'token.updated',
+  'subthread.turn.started',
+  'subthread.turn.completed',
+  'subthread.item.started',
+  'subthread.item.completed',
+  'subthread.token.updated',
+  'artifact.written',
+  'submit.recorded',
+  'transition.recorded',
+  'hook.observed',
+  'runEvent',
+  'runEvent.resyncRequired',
+] as const;
 
 function defaultFetch(): FetchLike {
   if (typeof globalThis.fetch !== 'function') {
@@ -128,6 +115,13 @@ function defaultEventSourceCtor(): EventSourceConstructorLike {
   return globalThis.EventSource;
 }
 
+function requireNonEmpty(value: string, label: string): string {
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new ApiClientError(`${label} is unavailable`);
+  }
+  return value;
+}
+
 async function readJson(response: Awaited<ReturnType<FetchLike>>): Promise<unknown> {
   try {
     return await response.json();
@@ -141,54 +135,129 @@ async function readJson(response: Awaited<ReturnType<FetchLike>>): Promise<unkno
   }
 }
 
-export async function fetchSnapshot(options: {
+export function readBootRunId(
+  search = typeof window === 'undefined' ? '' : window.location.search,
+): string {
+  const runId = new URLSearchParams(search).get('runId');
+  if (!runId) {
+    throw new ApiClientError('runId is unavailable');
+  }
+  return runId;
+}
+
+export function readBootMode(
+  search = typeof window === 'undefined' ? '' : window.location.search,
+): UiMode {
+  return new URLSearchParams(search).get('mode') === 'inspect' ? 'inspect' : 'run';
+}
+
+export async function fetchBootstrap(options: {
+  runId: string;
   uiToken: string;
   fetch?: FetchLike;
-}): Promise<UiSnapshot> {
-  if (!('uiToken' in options) || typeof options.uiToken !== 'string' || options.uiToken === '') {
-    throw new ApiClientError('UI token is unavailable');
-  }
+}): Promise<RunScopedBootstrap> {
+  const runId = requireNonEmpty(options.runId, 'runId');
+  const uiToken = requireNonEmpty(options.uiToken, 'UI token');
   const fetch = options.fetch ?? defaultFetch();
-  const response = await fetch('/api/state', {
-    headers: { 'X-Aharness-Ui-Token': options.uiToken },
+  const url = runPath(runId, 'bootstrap');
+  const response = await fetch(url, {
+    headers: { 'X-Aharness-Ui-Token': uiToken },
   });
   if (!response.ok) {
     throw new ApiClientError(
-      `GET /api/state failed with ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`,
+      `GET ${url} failed with ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`,
       response.status,
     );
   }
   const json = await readJson(response);
-  if (!isUiSnapshot(json)) {
-    throw new ApiClientError('GET /api/state returned a malformed UiSnapshot', response.status);
+  if (!isRunScopedBootstrap(json)) {
+    throw new ApiClientError(`GET ${url} returned a malformed RunScopedBootstrap`, response.status);
+  }
+  return json;
+}
+
+export async function fetchVisitRows(options: {
+  runId: string;
+  visitId: string;
+  uiToken: string;
+  cursor?: string | null;
+  limit?: number;
+  fetch?: FetchLike;
+}): Promise<RunScopedRowPage> {
+  const runId = requireNonEmpty(options.runId, 'runId');
+  const visitId = requireNonEmpty(options.visitId, 'visitId');
+  const uiToken = requireNonEmpty(options.uiToken, 'UI token');
+  const fetch = options.fetch ?? defaultFetch();
+  const url = withRowQuery(
+    `/api/runs/${encodeURIComponent(runId)}/visits/${encodeURIComponent(visitId)}/rows`,
+    options,
+  );
+  const response = await fetch(url, {
+    headers: { 'X-Aharness-Ui-Token': uiToken },
+  });
+  if (!response.ok) {
+    throw new ApiClientError(
+      `GET ${url} failed with ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`,
+      response.status,
+    );
+  }
+  const json = await readJson(response);
+  if (!isRunScopedRowPage(json)) {
+    throw new ApiClientError(`GET ${url} returned malformed run-scoped rows`, response.status);
+  }
+  return json;
+}
+
+export async function fetchRecentRows(options: {
+  runId: string;
+  uiToken: string;
+  cursor?: string | null;
+  limit?: number;
+  fetch?: FetchLike;
+}): Promise<RunScopedRowPage> {
+  const runId = requireNonEmpty(options.runId, 'runId');
+  const uiToken = requireNonEmpty(options.uiToken, 'UI token');
+  const fetch = options.fetch ?? defaultFetch();
+  const url = withRowQuery(`/api/runs/${encodeURIComponent(runId)}/rows/recent`, options);
+  const response = await fetch(url, {
+    headers: { 'X-Aharness-Ui-Token': uiToken },
+  });
+  if (!response.ok) {
+    throw new ApiClientError(
+      `GET ${url} failed with ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`,
+      response.status,
+    );
+  }
+  const json = await readJson(response);
+  if (!isRunScopedRowPage(json)) {
+    throw new ApiClientError(`GET ${url} returned malformed recent rows`, response.status);
   }
   return json;
 }
 
 export function subscribeToEvents(options: SubscribeOptions): () => void {
+  const runId = requireNonEmpty(options.runId, 'runId');
+  const uiToken = requireNonEmpty(options.uiToken, 'UI token');
   const EventSourceCtor = options.EventSourceCtor ?? defaultEventSourceCtor();
-  const source = new EventSourceCtor(streamUrl(options.uiToken, options.skipThroughEventId));
+  const source = new EventSourceCtor(streamUrl(runId, uiToken, options.afterEventId));
   const listeners = new Map<string, (event: StreamMessageEvent) => void>();
   let closed = false;
 
-  for (const type of STREAM_EVENT_TYPES) {
+  for (const type of RUN_EVENT_TYPES) {
     const listener = (message: StreamMessageEvent) => {
       try {
-        if (shouldSkipReplayedEvent(message.lastEventId, options.skipThroughEventId)) {
+        if (message.lastEventId !== undefined && message.lastEventId === options.afterEventId) {
           return;
         }
-        const event = JSON.parse(message.data) as AppEvent;
-        if (!isRecord(event) || event.kind !== type) {
-          throw new ApiClientError(`SSE ${type} payload kind mismatch`);
-        }
-        if (event.kind === 'ResyncRequired') {
+        const event = parseStreamPayload(type, message.data);
+        if (isRunScopedResyncRequired(event)) {
           void Promise.resolve(options.onResyncRequired(event)).catch(() => {
             if (!closed) options.onConnectionLost();
           });
           return;
         }
         options.onConnectionLive?.();
-        options.dispatch(event);
+        options.onRunEvent(event);
       } catch {
         if (!closed) options.onConnectionLost();
       }
@@ -213,35 +282,78 @@ export function subscribeToEvents(options: SubscribeOptions): () => void {
 
 export async function resyncAndReconnect(options: ResyncOptions): Promise<void> {
   options.closeCurrent();
-  const snapshot = await options.fetchSnapshot();
-  options.hydrate(snapshot);
-  options.reopen(snapshot.latestEventId);
+  const bootstrap = await options.fetchBootstrap();
+  options.hydrate(bootstrap);
+  options.reopen(bootstrap.latestEventId);
 }
 
 export async function postReply(
   payload: ReplyPayload,
-  options: { uiToken: string; fetch?: FetchLike },
+  options: { runId: string; uiToken: string; fetch?: FetchLike },
 ): Promise<void> {
+  const runId = requireNonEmpty(options.runId, 'runId');
+  const uiToken = requireNonEmpty(options.uiToken, 'UI token');
   const fetch = options.fetch ?? defaultFetch();
-  const response = await fetch('/api/reply', {
+  const url = runPath(runId, 'reply');
+  const response = await fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'X-Aharness-Ui-Token': options.uiToken },
+    headers: { 'content-type': 'application/json', 'X-Aharness-Ui-Token': uiToken },
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
     throw new ApiClientError(
-      `POST /api/reply failed with ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`,
+      `POST ${url} failed with ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`,
       response.status,
     );
   }
 }
 
-function streamUrl(uiToken: string, skipThroughEventId: string | null | undefined): string {
-  const params = new URLSearchParams({ token: uiToken });
-  if (skipThroughEventId !== undefined && skipThroughEventId !== null) {
-    params.set('after', skipThroughEventId);
+function parseStreamPayload(
+  listenerType: (typeof RUN_EVENT_TYPES)[number],
+  data: string,
+): RunScopedApiEvent | RunScopedResyncRequired {
+  const parsed = JSON.parse(data) as unknown;
+  if (listenerType === 'runEvent.resyncRequired') {
+    if (!isRunScopedResyncRequired(parsed)) {
+      throw new ApiClientError('SSE resync payload was malformed');
+    }
+    return parsed;
   }
-  return `/api/stream?${params.toString()}`;
+  if (!isRunScopedApiEvent(parsed)) {
+    throw new ApiClientError('SSE run event payload was malformed');
+  }
+  if (listenerType !== 'runEvent' && parsed.type !== listenerType) {
+    throw new ApiClientError(`SSE ${listenerType} payload type mismatch`);
+  }
+  return parsed;
+}
+
+function runPath(runId: string, leaf: 'bootstrap' | 'reply'): string {
+  return `/api/runs/${encodeURIComponent(runId)}/${leaf}`;
+}
+
+function streamUrl(
+  runId: string,
+  uiToken: string,
+  afterEventId: string | null | undefined,
+): string {
+  const params = new URLSearchParams({ token: uiToken });
+  if (afterEventId !== undefined && afterEventId !== null) {
+    params.set('after', afterEventId);
+  }
+  return `/api/runs/${encodeURIComponent(runId)}/stream?${params.toString()}`;
+}
+
+function withRowQuery(path: string, options: { cursor?: string | null; limit?: number }): string {
+  const params = new URLSearchParams();
+  if (options.cursor !== undefined && options.cursor !== null) {
+    params.set('cursor', options.cursor);
+  }
+  if (options.limit !== undefined) {
+    params.set('limit', String(options.limit));
+  }
+  const query = params.toString();
+  return query.length === 0 ? path : `${path}?${query}`;
 }
 
 export function retainStateAfterReplyFailure(state: UiState): UiState {

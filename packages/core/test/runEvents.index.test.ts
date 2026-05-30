@@ -55,7 +55,25 @@ function fixtureEvents(): RunEventWithOffset[] {
       turnId: 'turn-1',
       itemId: 'item-request-1',
       requestId: 'request-1',
-      data: { kind: 'owner-input', summary: 'Approve the plan?' },
+      data: {
+        kind: 'owner-input',
+        summary: 'Approve the plan?',
+        pendingCard: {
+          kind: 'owner-input',
+          id: 'request-1',
+          requestId: 'request-1',
+          method: 'item/tool/requestUserInput',
+          questions: [
+            {
+              id: 'q1',
+              header: 'Approval',
+              question: 'Approve the plan?',
+              isOther: false,
+              isSecret: false,
+            },
+          ],
+        },
+      },
       raw: { question: { isSecret: true, text: 'secret prompt' } },
     }),
     event(6, 'reply.submitted', {
@@ -216,6 +234,21 @@ describe('canonical run event index', () => {
         turnId: 'turn-1',
         itemId: 'item-request-1',
         lastEventId: 'run-index:6',
+        pendingCard: {
+          kind: 'owner-input',
+          id: 'request-1',
+          requestId: 'request-1',
+          method: 'item/tool/requestUserInput',
+          questions: [
+            {
+              id: 'q1',
+              header: 'Approval',
+              question: 'Approve the plan?',
+              isOther: false,
+              isSecret: false,
+            },
+          ],
+        },
       },
     ]);
 
@@ -224,11 +257,26 @@ describe('canonical run event index', () => {
   });
 
   it('keeps pending requests after failed reply resolution attempts', () => {
+    const pendingCard = {
+      kind: 'owner-input',
+      id: 'request-1',
+      requestId: 'request-1',
+      method: 'item/tool/requestUserInput',
+      questions: [
+        {
+          id: 'q1',
+          header: 'Approval',
+          question: 'Approve the plan?',
+          isOther: false,
+          isSecret: false,
+        },
+      ],
+    };
     const index = buildRunEventIndex({
       events: withOffsets([
         event(1, 'request.created', {
           requestId: 'request-1',
-          data: { kind: 'owner-input', summary: 'Approve the plan?' },
+          data: { kind: 'owner-input', summary: 'Approve the plan?', pendingCard },
         }),
         event(2, 'reply.submitted', {
           requestId: 'request-1',
@@ -254,8 +302,168 @@ describe('canonical run event index', () => {
         kind: 'owner-input',
         summary: 'Approve the plan?',
         lastEventId: 'run-index:3',
+        pendingCard,
       }),
     ]);
+  });
+
+  it('updates pending-card data on request updates and removes it after accepted resolution', () => {
+    const index = buildRunEventIndex({
+      events: withOffsets([
+        event(1, 'request.created', {
+          requestId: 'file-1',
+          data: {
+            kind: 'file-approval',
+            summary: '1 change',
+            pendingCard: {
+              kind: 'file-approval',
+              id: 'file-1',
+              requestId: 'file-1',
+              method: 'item/fileChange/requestApproval',
+              threadId: 'thread-1',
+              turnId: 'turn-1',
+              itemId: 'item-file',
+              reason: 'initial reason',
+              grantRoot: '/repo',
+              changes: [{ path: 'old.ts', kind: { type: 'add' } }],
+            },
+          },
+        }),
+        event(2, 'request.updated', {
+          requestId: 'file-1',
+          data: {
+            kind: 'file-approval',
+            summary: '2 changes',
+            pendingCard: {
+              kind: 'file-approval',
+              id: 'file-1',
+              requestId: 'file-1',
+              method: 'item/fileChange/requestApproval',
+              threadId: 'thread-1',
+              turnId: 'turn-1',
+              itemId: 'item-file',
+              changes: [
+                { path: 'new.ts', kind: { type: 'add' } },
+                { path: 'old.ts', kind: { type: 'delete' } },
+              ],
+            },
+          },
+        }),
+        event(3, 'reply.submitted', {
+          requestId: 'file-1',
+          data: { kind: 'approval', status: 'submitted' },
+        }),
+        event(4, 'reply.resolved', {
+          requestId: 'file-1',
+          data: { kind: 'approval', status: 'failed', ok: false },
+        }),
+      ]),
+    });
+
+    expect(index.getPendingRequests()).toEqual([
+      expect.objectContaining({
+        requestId: 'file-1',
+        status: 'pending',
+        summary: '2 changes',
+        pendingCard: expect.objectContaining({
+          kind: 'file-approval',
+          reason: 'initial reason',
+          grantRoot: '/repo',
+          changes: [
+            { path: 'new.ts', kind: { type: 'add' } },
+            { path: 'old.ts', kind: { type: 'delete' } },
+          ],
+        }),
+      }),
+    ]);
+
+    const resolvedIndex = buildRunEventIndex({
+      events: withOffsets([
+        event(1, 'request.created', {
+          requestId: 'file-1',
+          data: {
+            kind: 'file-approval',
+            pendingCard: {
+              kind: 'file-approval',
+              id: 'file-1',
+              requestId: 'file-1',
+              method: 'item/fileChange/requestApproval',
+              threadId: 'thread-1',
+              turnId: 'turn-1',
+              itemId: 'item-file',
+              changes: [],
+            },
+          },
+        }),
+        event(2, 'reply.resolved', {
+          requestId: 'file-1',
+          data: { kind: 'approval', status: 'accepted', ok: true },
+        }),
+      ]),
+    });
+    expect(resolvedIndex.getPendingRequests()).toEqual([]);
+  });
+
+  it('folds latest posture from posture, request, reply, state, and terminal events', () => {
+    const pendingIndex = buildRunEventIndex({
+      events: withOffsets([
+        event(1, 'posture.changed', { data: { posture: { open: true } } }),
+        event(2, 'request.created', {
+          requestId: 'request-1',
+          data: { kind: 'owner-input', summary: 'question' },
+        }),
+        event(3, 'reply.submitted', {
+          requestId: 'request-1',
+          data: { kind: 'owner-input', status: 'submitted' },
+        }),
+      ]),
+    });
+    expect(pendingIndex.posture).toEqual({
+      isTerminal: false,
+      isAwaiting: true,
+      submittedThisTurn: true,
+      open: true,
+    });
+
+    const failedReplyIndex = buildRunEventIndex({
+      events: withOffsets([
+        event(1, 'request.created', {
+          requestId: 'request-1',
+          data: { kind: 'owner-input', summary: 'question' },
+        }),
+        event(2, 'reply.submitted', {
+          requestId: 'request-1',
+          data: { kind: 'owner-input', status: 'submitted' },
+        }),
+        event(3, 'reply.resolved', {
+          requestId: 'request-1',
+          data: { kind: 'owner-input', status: 'failed', ok: false },
+        }),
+      ]),
+    });
+    expect(failedReplyIndex.posture).toEqual({
+      isTerminal: false,
+      isAwaiting: true,
+      submittedThisTurn: false,
+      open: false,
+    });
+
+    const terminalIndex = buildRunEventIndex({
+      events: withOffsets([
+        event(1, 'posture.changed', {
+          data: { posture: { open: true, isAwaiting: true, submittedThisTurn: true } },
+        }),
+        event(2, 'state.changed', {
+          data: { path: 'done', to: 'done', kind: 'final' },
+        }),
+      ]),
+    });
+    expect(terminalIndex.posture).toEqual({
+      isTerminal: true,
+      isAwaiting: false,
+      submittedThisTurn: false,
+      open: false,
+    });
   });
 
   it('does not create pending requests from failed replies for unknown request ids', () => {

@@ -13,7 +13,7 @@ import type { RunCtx } from '../types.js';
 import { getAharnessMeta, iterStates, stateKeyPath } from '../state.js';
 import type { StateNode } from 'xstate';
 import { createUiEventLog } from '../ui/sse.js';
-import { startUiServer, type UiServerHandle } from '../ui/server.js';
+import { startUiServer, type UiRunScopedRouteService, type UiServerHandle } from '../ui/server.js';
 import { extractUiTopology } from '../ui/topology.js';
 import { launchBrowser } from '../ui/browserLauncher.js';
 import type { FsmState, RunMeta, VizNode } from '../ui/events.js';
@@ -112,13 +112,27 @@ export async function runVisualizeCliForTest(
       port: 0,
       uiToken,
       eventLog,
+      runScoped: {
+        activeRunId: runMeta.runId,
+        service: createInspectRunScopedRouteService({
+          runId: runMeta.runId,
+          initialState,
+          topology,
+        }),
+        getRunMeta: () => ({ ...runMeta }),
+        topology,
+      },
     });
   } catch (e) {
     o.stderr.write(`aharness visualize: UI server failed: ${(e as Error).message}\n`);
     return { exitCode: 1 };
   }
 
-  const url = urlWithUiToken(uiServer.url, uiToken);
+  const url = urlWithUiBootParams(uiServer.url, {
+    token: uiToken,
+    runId: runMeta.runId,
+    mode: 'inspect',
+  });
   o.stdout.write(`aharness: FSM visualization available at ${url}\n`);
   if (o.launchBrowserImpl) {
     const launchResult = o.launchBrowserImpl(url);
@@ -209,9 +223,91 @@ function leafFromStatePath(path: string): string {
   return parts[parts.length - 1] ?? path;
 }
 
-function urlWithUiToken(url: string, token: string): string {
+function createInspectRunScopedRouteService(options: {
+  readonly runId: string;
+  readonly initialState: FsmState;
+  readonly topology: unknown;
+}): UiRunScopedRouteService {
+  const stateVisitId = `${options.initialState.path}#${options.initialState.visitCount}`;
+  const bootTime = new Date().toISOString();
+  const stateVisit = {
+    id: stateVisitId,
+    path: options.initialState.path,
+    seq: 1,
+    time: bootTime,
+    from: null,
+    to: options.initialState.path,
+    cause: 'inspect',
+  };
+  const row = {
+    id: `${options.runId}:inspect-state`,
+    eventId: `${options.runId}:inspect`,
+    seq: 1,
+    time: bootTime,
+    type: 'state.changed',
+    stateVisitId,
+    kind: 'state_change',
+    label: options.initialState.path,
+    status: 'inspect',
+    summary: `Inspecting ${options.initialState.path}`,
+  };
+
+  return {
+    runId: options.runId,
+    subscribe: () => () => undefined,
+    getLatestEventId: () => null,
+    getBootstrap: ({ getRunMeta, topology }) => ({
+      ok: true,
+      bootstrap: {
+        mode: 'inspect',
+        run: getRunMeta(),
+        topology: topology ?? options.topology,
+        latestEventId: null,
+        currentState: {
+          path: options.initialState.path,
+          leaf: options.initialState.leaf,
+          kind: options.initialState.kind,
+          visitCount: options.initialState.visitCount,
+          exits: options.initialState.exits,
+        },
+        posture: {
+          isTerminal: options.initialState.kind === 'terminal',
+          isAwaiting: Boolean(options.initialState.awaitsOwnerText),
+          submittedThisTurn: false,
+          open: false,
+        },
+        currentStateVisit: stateVisit,
+        stateVisits: [stateVisit],
+        statePathVisits: { [options.initialState.path]: [stateVisitId] },
+        pending: [],
+        aggregateStats: { turnCount: 0 },
+        recentRows: [row],
+        diagnostics: [],
+      },
+    }),
+    getStateVisitRows: (stateVisitId) => ({
+      ok: true,
+      rows: stateVisitId === stateVisit.id ? [row] : [],
+      nextCursor: null,
+    }),
+    getRecentRows: () => ({ ok: true, rows: [row], nextCursor: null }),
+    getEventPage: () => ({ ok: true, events: [], nextCursor: null, diagnostics: [] }),
+    eventsAfter: () => ({ ok: true, events: [] }),
+  };
+}
+
+function urlWithUiBootParams(
+  url: string,
+  params: {
+    readonly token: string;
+    readonly runId: string;
+    readonly mode: 'inspect';
+  },
+): string {
   const parsed = new URL(url);
-  parsed.searchParams.set('token', token);
+  parsed.searchParams.set('token', params.token);
+  parsed.searchParams.set('runId', params.runId);
+  parsed.searchParams.set('mode', params.mode);
   return parsed.toString();
 }
 

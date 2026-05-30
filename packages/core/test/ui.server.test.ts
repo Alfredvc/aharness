@@ -133,7 +133,7 @@ describe('startUiServer', () => {
     }
   });
 
-  it('serves built JavaScript and CSS assets with correct content types', async () => {
+  it('serves built assets with run-scoped production endpoints and correct content types', async () => {
     const handle = await startTestServer(createUiEventLog({ run: runMeta }));
 
     const jsResponse = await fetch(`${handle.url}${builtAssetPath('js')}`);
@@ -143,7 +143,10 @@ describe('startUiServer', () => {
 
     expect(jsResponse.status).toBe(200);
     expect(jsResponse.headers.get('content-type')).toMatch(/(?:application|text)\/javascript/);
-    expect(jsBody).toContain('/api/state');
+    expect(jsBody).toContain('/api/runs/');
+    expect(jsBody).not.toContain('/api/state');
+    expect(jsBody).not.toContain('/api/stream');
+    expect(jsBody).not.toContain('/api/reply');
     expect(cssResponse.status).toBe(200);
     expect(cssResponse.headers.get('content-type')).toContain('text/css');
     expect(cssBody).toContain('font-family');

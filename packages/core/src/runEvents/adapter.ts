@@ -9,7 +9,7 @@ import type {
   OwnerInputRequest,
   PermissionApprovalRequest,
 } from '../ui/events.js';
-import type { RunEventAppendInput, RunEventPayload } from './types.js';
+import type { RunEventAppendInput, RunEventPayload, RunEventPendingCard } from './types.js';
 
 const ABANDONED_THREAD_RESIDUE_SOURCE_MAX_BYTES = 128;
 const ABANDONED_THREAD_RESIDUE_MESSAGE_MAX_BYTES = 512;
@@ -112,6 +112,22 @@ function stateIdentity(state: FsmState): RunEventPayload {
 function ownerInputRequestData(event: OwnerInputRequest): RunEventPayload {
   const secretQuestionCount = event.questions.filter((question) => question.isSecret).length;
   const otherQuestionCount = event.questions.filter((question) => question.isOther).length;
+  const pendingCard: RunEventPendingCard = {
+    kind: 'owner-input',
+    id: event.id,
+    requestId: event.id,
+    method: event.method,
+    questions: event.questions.map((question) => {
+      return {
+        id: question.id,
+        header: question.header,
+        question: question.question,
+        isOther: question.isOther,
+        isSecret: question.isSecret,
+        ...(question.choices !== undefined ? { choices: question.choices } : {}),
+      };
+    }),
+  };
   return compactRecord({
     requestId: event.id,
     itemId: event.id,
@@ -121,6 +137,7 @@ function ownerInputRequestData(event: OwnerInputRequest): RunEventPayload {
     questionCount: event.questions.length,
     secretQuestionCount,
     otherQuestionCount,
+    pendingCard,
     row: {
       kind: 'request',
       label: 'owner input',
@@ -131,12 +148,25 @@ function ownerInputRequestData(event: OwnerInputRequest): RunEventPayload {
 }
 
 function fileApprovalRequestData(event: FileChangeApprovalRequest): RunEventPayload {
+  const pendingCard: RunEventPendingCard = {
+    kind: 'file-approval',
+    id: event.id,
+    requestId: event.requestId,
+    method: event.method,
+    threadId: event.threadId,
+    turnId: event.turnId,
+    itemId: event.itemId,
+    changes: event.changes,
+    ...(event.reason !== undefined ? { reason: event.reason } : {}),
+    ...(event.grantRoot !== undefined ? { grantRoot: event.grantRoot } : {}),
+  };
   return compactRecord({
     requestId: event.requestId,
     method: event.method,
     kind: 'file-approval',
     status: 'pending',
     changeCount: event.changes.length,
+    pendingCard,
     row: {
       kind: 'request',
       label: 'file approval',
@@ -147,6 +177,23 @@ function fileApprovalRequestData(event: FileChangeApprovalRequest): RunEventPayl
 }
 
 function commandApprovalRequestData(event: CommandApprovalRequest): RunEventPayload {
+  const pendingCard: RunEventPendingCard = {
+    kind: 'command-approval',
+    id: event.id,
+    requestId: event.requestId,
+    method: event.method,
+    threadId: event.threadId,
+    turnId: event.turnId,
+    itemId: event.itemId,
+    ...(event.approvalId !== undefined ? { approvalId: event.approvalId } : {}),
+    ...(event.command !== undefined ? { command: event.command } : {}),
+    ...(event.cwd !== undefined ? { cwd: event.cwd } : {}),
+    ...(event.reason !== undefined ? { reason: event.reason } : {}),
+    ...(event.commandActions !== undefined ? { commandActions: event.commandActions } : {}),
+    ...(event.networkApprovalContext !== undefined
+      ? { networkApprovalContext: event.networkApprovalContext }
+      : {}),
+  };
   return compactRecord({
     requestId: event.requestId,
     method: event.method,
@@ -156,6 +203,7 @@ function commandApprovalRequestData(event: CommandApprovalRequest): RunEventPayl
     hasCommand: event.command !== undefined,
     hasCwd: event.cwd !== undefined,
     actionCount: event.commandActions?.length,
+    pendingCard,
     row: {
       kind: 'request',
       label: 'command approval',
@@ -166,11 +214,24 @@ function commandApprovalRequestData(event: CommandApprovalRequest): RunEventPayl
 }
 
 function permissionApprovalRequestData(event: PermissionApprovalRequest): RunEventPayload {
+  const pendingCard: RunEventPendingCard = {
+    kind: 'permission-approval',
+    id: event.id,
+    requestId: event.requestId,
+    method: event.method,
+    threadId: event.threadId,
+    turnId: event.turnId,
+    itemId: event.itemId,
+    cwd: event.cwd,
+    permissions: event.permissions,
+    ...(event.reason !== undefined ? { reason: event.reason } : {}),
+  };
   return compactRecord({
     requestId: event.requestId,
     method: event.method,
     kind: 'permission-approval',
     status: 'pending',
+    pendingCard,
     row: {
       kind: 'request',
       label: 'permission approval',
@@ -181,6 +242,20 @@ function permissionApprovalRequestData(event: PermissionApprovalRequest): RunEve
 }
 
 function elicitationRequestData(event: ElicitationRequest): RunEventPayload {
+  const pendingCard: RunEventPendingCard = {
+    kind: 'elicitation',
+    id: event.id,
+    requestId: event.requestId,
+    method: event.method,
+    threadId: event.threadId,
+    turnId: event.turnId,
+    serverName: event.serverName,
+    mode: event.mode,
+    message: event.message,
+    ...(event.requestedSchema !== undefined ? { requestedSchema: event.requestedSchema } : {}),
+    ...(event.url !== undefined ? { url: event.url } : {}),
+    ...(event.elicitationId !== undefined ? { elicitationId: event.elicitationId } : {}),
+  };
   return compactRecord({
     requestId: event.requestId,
     method: event.method,
@@ -190,6 +265,7 @@ function elicitationRequestData(event: ElicitationRequest): RunEventPayload {
     mode: event.mode,
     hasSchema: event.requestedSchema !== undefined,
     hasUrl: event.url !== undefined,
+    pendingCard,
     row: {
       kind: 'request',
       label: 'elicitation',
@@ -421,6 +497,16 @@ export function appEventToRunEventAppendInput(event: AppEvent): RunEventAppendIn
           kind: 'file-approval',
           status: 'pending',
           changeCount: event.changes.length,
+          pendingCard: compactRecord({
+            kind: 'file-approval',
+            id: event.id,
+            requestId: event.requestId,
+            method: 'item/fileChange/requestApproval',
+            threadId: event.threadId,
+            turnId: event.turnId,
+            itemId: event.itemId,
+            changes: event.changes,
+          }),
         },
       };
     case 'ApprovalRequestResolved':

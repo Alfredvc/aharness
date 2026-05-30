@@ -62,21 +62,10 @@ function expectNoSensitivePayload(value: unknown): void {
   for (const forbidden of [
     'tool arguments must stay out',
     'tool output must stay out',
-    'rm -rf /secret',
-    '/secret/cwd',
-    'command-action-secret',
-    'network-context-secret',
     'secret owner-facing prompt',
     'state context must stay out',
     'resolved prompt must stay out',
-    'question text must stay out',
-    'choice-secret',
-    'permission-profile-secret',
-    'diff --secret',
-    'elicitation schema secret',
-    'https://secret.example.test',
     'submitted elicitation value',
-    'raw request payload',
   ]) {
     expect(text).not.toContain(forbidden);
   }
@@ -329,6 +318,104 @@ describe('run event adapter', () => {
         requestedLastEventId: '999',
       }),
     ).toBeNull();
+  });
+
+  it('stores UI-safe interactive pending-card fields in normalized request data', () => {
+    const ownerInput = appEventToRunEventAppendInput({
+      kind: 'ServerRequest',
+      id: 'owner-1',
+      method: 'item/tool/requestUserInput',
+      questions: [
+        {
+          id: 'q1',
+          header: 'Next step',
+          question: 'What should happen next?',
+          isOther: true,
+          isSecret: false,
+          choices: ['continue', 'pause'],
+        },
+      ],
+    });
+    const commandApproval = appEventToRunEventAppendInput({
+      kind: 'ServerRequest',
+      id: 'cmd-1',
+      requestId: 'cmd-1',
+      method: 'item/commandExecution/requestApproval',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'item-cmd',
+      approvalId: 'approval-1',
+      command: 'pnpm test',
+      cwd: '/repo',
+      reason: 'verify changes',
+      commandActions: [{ action: 'execute' }],
+      networkApprovalContext: { reason: 'none' },
+    });
+    const fileUpdate = appEventToRunEventAppendInput({
+      kind: 'FileApprovalUpdated',
+      id: 'file-1',
+      requestId: 'file-1',
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      itemId: 'item-file',
+      changes: [{ path: 'src/file.ts', kind: { type: 'update', move_path: null }, diff: 'diff' }],
+    });
+
+    expect(ownerInput?.data).toEqual(
+      expect.objectContaining({
+        pendingCard: {
+          kind: 'owner-input',
+          id: 'owner-1',
+          requestId: 'owner-1',
+          method: 'item/tool/requestUserInput',
+          questions: [
+            {
+              id: 'q1',
+              header: 'Next step',
+              question: 'What should happen next?',
+              isOther: true,
+              isSecret: false,
+              choices: ['continue', 'pause'],
+            },
+          ],
+        },
+      }),
+    );
+    expect(commandApproval?.data).toEqual(
+      expect.objectContaining({
+        pendingCard: expect.objectContaining({
+          kind: 'command-approval',
+          id: 'cmd-1',
+          requestId: 'cmd-1',
+          method: 'item/commandExecution/requestApproval',
+          threadId: 'thread-1',
+          turnId: 'turn-1',
+          itemId: 'item-cmd',
+          approvalId: 'approval-1',
+          command: 'pnpm test',
+          cwd: '/repo',
+          reason: 'verify changes',
+          commandActions: [{ action: 'execute' }],
+          networkApprovalContext: { reason: 'none' },
+        }),
+      }),
+    );
+    expect(fileUpdate?.data).toEqual(
+      expect.objectContaining({
+        pendingCard: expect.objectContaining({
+          kind: 'file-approval',
+          id: 'file-1',
+          requestId: 'file-1',
+          method: 'item/fileChange/requestApproval',
+          changes: [
+            { path: 'src/file.ts', kind: { type: 'update', move_path: null }, diff: 'diff' },
+          ],
+        }),
+      }),
+    );
+    expect(ownerInput).not.toHaveProperty('raw');
+    expect(commandApproval).not.toHaveProperty('raw');
+    expect(fileUpdate).not.toHaveProperty('raw');
   });
 
   it('can enrich sanitized AppEvent mappings with raw and meta payloads', () => {

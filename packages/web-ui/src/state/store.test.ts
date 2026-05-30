@@ -3,13 +3,25 @@ import { dirname, join, normalize, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   applyAppEvent,
+  applyRunEvent,
+  applyVisitRowPage,
   createConnectingUiState,
+  hydrateFromBootstrap,
   hydrateFromSnapshot,
   markConnectionLost,
   visibleItems,
 } from './store.js';
 import { deriveActivity } from './activity.js';
-import type { FsmState, Posture, UiSnapshot } from '../types/events.js';
+import {
+  isRunScopedBootstrap,
+  type RunScopedApiEvent,
+  type FsmState,
+  type Posture,
+  type RunScopedBootstrap,
+  type RunScopedCompactRow,
+  type RunScopedRowPage,
+  type UiSnapshot,
+} from '../types/events.js';
 import type { Topology } from '../types/topology.js';
 
 const posture: Posture = {
@@ -93,7 +105,594 @@ function snapshot(): UiSnapshot {
   };
 }
 
+function runScopedBootstrap(): RunScopedBootstrap {
+  return {
+    mode: 'inspect',
+    run: {
+      runId: 'run-1',
+      threadId: 'thread-1',
+      repoRoot: '/repo',
+      fsmFile: 'workflow.ts',
+      fsmHash6: 'abc123',
+      codexPin: 'pin-1',
+      startedAt: '2026-05-13T00:00:00.000Z',
+    },
+    topology,
+    latestEventId: 'run-1:4',
+    currentState: {
+      path: 'workflow.collect',
+      kind: 'stateful',
+      visitCount: 2,
+      exits: [{ name: 'continue', kind: 'submit' }],
+    },
+    posture,
+    currentStateVisit: {
+      id: 'workflow.collect#2',
+      path: 'workflow.collect',
+      seq: 3,
+      time: '2026-05-29T00:00:03.000Z',
+      from: null,
+      to: 'workflow.collect',
+      cause: 'boot',
+    },
+    stateVisits: [
+      {
+        id: 'workflow.collect#1',
+        path: 'workflow.collect',
+        seq: 1,
+        time: '2026-05-29T00:00:01.000Z',
+        to: 'workflow.collect',
+      },
+      {
+        id: 'workflow.collect#2',
+        path: 'workflow.collect',
+        seq: 3,
+        time: '2026-05-29T00:00:03.000Z',
+        from: null,
+        to: 'workflow.collect',
+        cause: 'boot',
+      },
+    ],
+    statePathVisits: {
+      'workflow.collect': ['workflow.collect#1', 'workflow.collect#2'],
+    },
+    pending: [
+      {
+        requestId: 'owner-1',
+        status: 'pending',
+        kind: 'owner-input',
+        summary: 'answer one question',
+        createdAt: '2026-05-29T00:00:04.000Z',
+        updatedAt: '2026-05-29T00:00:04.000Z',
+        lastEventId: 'run-1:4',
+        pendingCard: {
+          kind: 'owner-input',
+          id: 'owner-1',
+          requestId: 'owner-1',
+          method: 'item/tool/requestUserInput',
+          questions: [
+            {
+              id: 'q1',
+              header: 'Next',
+              question: 'What now?',
+              isOther: false,
+              isSecret: false,
+              choices: ['continue'],
+            },
+          ],
+        },
+      },
+    ],
+    aggregateStats: {
+      turnCount: 1,
+      activeTurnId: 'turn-1',
+    },
+    recentRows: [
+      {
+        id: 'row-1',
+        eventId: 'run-1:3',
+        seq: 3,
+        time: '2026-05-29T00:00:03.000Z',
+        type: 'state.changed',
+        stateVisitId: 'workflow.collect#2',
+        kind: 'state_change',
+        summary: 'Entered workflow.collect',
+      },
+    ],
+    diagnostics: [],
+  };
+}
+
+function apiEvent(overrides: Partial<RunScopedApiEvent> = {}): RunScopedApiEvent {
+  const type = overrides.type ?? 'model.delta';
+  return {
+    schema: 'aharness.event.v1',
+    runId: 'run-1',
+    seq: 5,
+    id: 'run-1:5',
+    time: '2026-05-29T00:00:05.000Z',
+    type,
+    offset: 512,
+    lineBytes: 128,
+    ...overrides,
+  };
+}
+
+function row(
+  overrides: Partial<RunScopedCompactRow> & Pick<RunScopedCompactRow, 'id' | 'eventId' | 'seq'>,
+): RunScopedCompactRow {
+  return {
+    time: '2026-05-29T00:00:05.000Z',
+    type: 'model.delta',
+    kind: 'message',
+    text: 'row text',
+    ...overrides,
+  };
+}
+
+function rowPage(rows: RunScopedCompactRow[], nextCursor: string | null = null): RunScopedRowPage {
+  return { rows, nextCursor };
+}
+
 describe('headless production store helpers', () => {
+  it('hydrates the existing store from a validated run-scoped bootstrap conversion', () => {
+    const bootstrap = runScopedBootstrap();
+
+    expect(isRunScopedBootstrap(bootstrap)).toBe(true);
+    const state = hydrateFromBootstrap(bootstrap);
+
+    expect(state.connection).toBe('live');
+    expect(state.mode).toBe('inspect');
+    expect(state.devMode).toBe(true);
+    expect(state.run?.runId).toBe('run-1');
+    expect(state.latestEventId).toBe('run-1:4');
+    expect(state.activeTurnId).toBe('turn-1');
+    expect(state.state).toEqual({
+      path: 'workflow.collect',
+      leaf: 'collect',
+      kind: 'stateful',
+      exits: [{ name: 'continue', kind: 'submit' }],
+      visitCount: 2,
+    });
+    expect(state.topology).toEqual(topology);
+    expect(state.pending.ownerInput?.questions[0]).toEqual(
+      expect.objectContaining({ id: 'q1', question: 'What now?', choices: ['continue'] }),
+    );
+    expect(state.statePathVisits).toEqual({
+      'workflow.collect': ['workflow.collect#1', 'workflow.collect#2'],
+    });
+    expect(state.aggregateStats).toEqual({ turnCount: 1, activeTurnId: 'turn-1' });
+    expect(state.transcript).toContainEqual(
+      expect.objectContaining({
+        type: 'state_change',
+        stateVisitId: 'workflow.collect#2',
+        eventId: 'run-1:3',
+      }),
+    );
+  });
+
+  it('rejects malformed run-scoped bootstrap payloads before store hydration', () => {
+    const bootstrap = runScopedBootstrap();
+
+    expect(isRunScopedBootstrap({ ...bootstrap, run: {} })).toBe(false);
+    expect(isRunScopedBootstrap({ ...bootstrap, pending: {} })).toBe(false);
+    expect(
+      isRunScopedBootstrap({
+        ...bootstrap,
+        pending: [{ ...bootstrap.pending[0], pendingCard: { kind: 'unknown' } }],
+      }),
+    ).toBe(false);
+  });
+
+  it('applies canonical run events across state, posture, turn, message, request, diagnostic, token, and ignored classes', () => {
+    const initial = hydrateFromBootstrap(runScopedBootstrap());
+    const stateChanged = applyRunEvent(
+      initial,
+      apiEvent({
+        type: 'state.changed',
+        id: 'run-1:5',
+        seq: 5,
+        stateVisitId: 'workflow.review#1',
+        data: {
+          from: 'workflow.collect',
+          to: 'workflow.review',
+          cause: 'submit',
+          stateVisitId: 'workflow.review#1',
+          path: 'workflow.review',
+          leaf: 'review',
+          kind: 'stateful',
+          visitCount: 1,
+          exits: [{ name: 'approve', kind: 'submit' }],
+          row: {
+            kind: 'state_change',
+            label: 'workflow.review',
+            status: 'submit',
+            summary: 'workflow.collect -> workflow.review',
+          },
+        },
+      }),
+    );
+    const postured = applyRunEvent(
+      stateChanged,
+      apiEvent({
+        type: 'posture.changed',
+        id: 'run-1:6',
+        seq: 6,
+        data: { posture: { open: true, submittedThisTurn: true } },
+      }),
+    );
+    const turnStarted = applyRunEvent(
+      postured,
+      apiEvent({
+        type: 'turn.started',
+        id: 'run-1:7',
+        seq: 7,
+        turnId: 'turn-2',
+        data: { turnId: 'turn-2' },
+      }),
+    );
+    const messaged = applyRunEvent(
+      turnStarted,
+      apiEvent({
+        type: 'model.delta',
+        id: 'run-1:8',
+        seq: 8,
+        stateVisitId: 'workflow.review#1',
+        itemId: 'msg-2',
+        data: { itemId: 'msg-2', delta: 'Hello', row: { kind: 'message', text: 'Hello' } },
+      }),
+    );
+    const tooled = applyRunEvent(
+      messaged,
+      apiEvent({
+        type: 'item.started',
+        id: 'run-1:9',
+        seq: 9,
+        stateVisitId: 'workflow.review#1',
+        itemId: 'tool-1',
+        data: {
+          row: { kind: 'tool', label: 'bash', status: 'pending', summary: 'npm test' },
+        },
+      }),
+    );
+    const requested = applyRunEvent(
+      tooled,
+      apiEvent({
+        type: 'request.created',
+        id: 'run-1:10',
+        seq: 10,
+        requestId: 'patch-1',
+        stateVisitId: 'workflow.review#1',
+        data: {
+          kind: 'file-approval',
+          pendingCard: {
+            kind: 'file-approval',
+            id: 'patch-1',
+            requestId: 'patch-1',
+            method: 'item/fileChange/requestApproval',
+            threadId: 'thread-1',
+            turnId: 'turn-2',
+            itemId: 'patch-1',
+            changes: [{ path: 'src/file.ts', kind: { type: 'add' }, diff: '+x\n' }],
+          },
+          row: {
+            kind: 'request',
+            label: 'file approval',
+            status: 'pending',
+            summary: 'src/file.ts',
+          },
+        },
+      }),
+    );
+    const noted = applyRunEvent(
+      requested,
+      apiEvent({
+        type: 'framework.note',
+        id: 'run-1:11',
+        seq: 11,
+        stateVisitId: 'workflow.review#1',
+        data: {
+          row: { kind: 'framework_note', text: 'framework says hi', status: 'info' },
+        },
+      }),
+    );
+    const diagnosed = applyRunEvent(
+      noted,
+      apiEvent({
+        type: 'diagnostic.abandoned_thread',
+        id: 'run-1:12',
+        seq: 12,
+        threadId: 'thread-old',
+        data: {
+          id: 'diag-2',
+          source: 'turnCompleted',
+          message: 'ignored old turn',
+          row: { kind: 'diagnostic', text: 'ignored old turn', status: 'warn' },
+        },
+      }),
+    );
+    const tokened = applyRunEvent(
+      diagnosed,
+      apiEvent({
+        type: 'subthread.token.updated',
+        id: 'run-1:13',
+        seq: 13,
+        data: { total: { totalTokens: 99, outputTokens: 7 }, modelContextWindow: 200000 },
+      }),
+    );
+    const ignored = applyRunEvent(
+      tokened,
+      apiEvent({
+        type: 'artifact.written',
+        id: 'run-1:14',
+        seq: 14,
+        data: { artifactId: 'a-1' },
+      }),
+    );
+
+    expect(ignored.latestEventId).toBe('run-1:14');
+    expect(ignored.state?.path).toBe('workflow.review');
+    expect(ignored.activeVisitId).toBe('workflow.review#1');
+    expect(ignored.statePathVisits['workflow.review']).toEqual(['workflow.review#1']);
+    expect(ignored.posture.submittedThisTurn).toBe(true);
+    expect(ignored.activeTurnId).toBe('turn-2');
+    expect(ignored.pending.fileApprovals[0]?.changes[0]?.path).toBe('src/file.ts');
+    expect(ignored.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'diag-2' })]),
+    );
+    expect(ignored.aggregateStats).toEqual(
+      expect.objectContaining({ totalTokens: 99, outputTokens: 7, modelContextWindow: 200000 }),
+    );
+    expect(ignored.transcript).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'msg-2', type: 'agent_message', text: 'Hello' }),
+        expect.objectContaining({ id: 'tool-1', type: 'tool_call', name: 'bash' }),
+        expect.objectContaining({ type: 'framework_note', text: 'framework says hi' }),
+      ]),
+    );
+  });
+
+  it('keeps historical row pages scoped to their own visits and idempotently merges duplicates by row id', () => {
+    const initial = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      currentStateVisit: {
+        id: 'workflow.collect#2',
+        path: 'workflow.collect',
+        seq: 3,
+        time: '2026-05-29T00:00:03.000Z',
+        to: 'workflow.collect',
+      },
+      stateVisits: [
+        {
+          id: 'workflow.collect#1',
+          path: 'workflow.collect',
+          seq: 1,
+          time: '2026-05-29T00:00:01.000Z',
+          to: 'workflow.collect',
+        },
+        {
+          id: 'workflow.collect#2',
+          path: 'workflow.collect',
+          seq: 3,
+          time: '2026-05-29T00:00:03.000Z',
+          to: 'workflow.collect',
+        },
+      ],
+      statePathVisits: { 'workflow.collect': ['workflow.collect#1', 'workflow.collect#2'] },
+      recentRows: [],
+    });
+
+    const visitOne = rowPage(
+      [
+        row({
+          id: 'row-v1',
+          eventId: 'run-1:2',
+          seq: 2,
+          stateVisitId: 'workflow.collect#1',
+          text: 'first visit',
+        }),
+      ],
+      'row-v1',
+    );
+    const visitTwo = rowPage([
+      row({
+        id: 'row-v2',
+        eventId: 'run-1:4',
+        seq: 4,
+        stateVisitId: 'workflow.collect#2',
+        text: 'second visit',
+      }),
+    ]);
+
+    const loaded = applyVisitRowPage(
+      applyVisitRowPage(initial, 'workflow.collect#1', visitOne),
+      'workflow.collect#2',
+      visitTwo,
+    );
+    const duplicate = applyVisitRowPage(loaded, 'workflow.collect#1', visitOne);
+
+    expect(duplicate.activeVisitId).toBe('workflow.collect#2');
+    expect(duplicate.rowPageCursors['workflow.collect#1']).toBe('row-v1');
+    expect(duplicate.rowPageCursors['workflow.collect#2']).toBeNull();
+    expect(duplicate.transcript.filter((item) => item.id === 'row-v1')).toHaveLength(1);
+    expect(duplicate.transcript).toEqual([
+      expect.objectContaining({ id: 'row-v1', stateVisitId: 'workflow.collect#1' }),
+      expect.objectContaining({ id: 'row-v2', stateVisitId: 'workflow.collect#2' }),
+    ]);
+  });
+
+  it('dedupes row pages against already-applied live events by canonical event id', () => {
+    const initial = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      currentStateVisit: {
+        id: 'workflow.collect#2',
+        path: 'workflow.collect',
+        seq: 3,
+        time: '2026-05-29T00:00:03.000Z',
+        to: 'workflow.collect',
+      },
+      stateVisits: [
+        {
+          id: 'workflow.collect#2',
+          path: 'workflow.collect',
+          seq: 3,
+          time: '2026-05-29T00:00:03.000Z',
+          to: 'workflow.collect',
+        },
+      ],
+      statePathVisits: { 'workflow.collect': ['workflow.collect#2'] },
+      recentRows: [],
+    });
+    const live = applyRunEvent(
+      initial,
+      apiEvent({
+        type: 'model.delta',
+        id: 'run-1:8',
+        seq: 8,
+        stateVisitId: 'workflow.collect#2',
+        itemId: 'msg-live',
+        data: { itemId: 'msg-live', delta: 'Hello' },
+      }),
+    );
+    const merged = applyVisitRowPage(
+      live,
+      'workflow.collect#2',
+      rowPage([
+        row({
+          id: 'row-live',
+          eventId: 'run-1:8',
+          seq: 8,
+          stateVisitId: 'workflow.collect#2',
+          text: 'Hello',
+        }),
+      ]),
+    );
+
+    expect(
+      merged.transcript.filter(
+        (item) => item.eventId === 'run-1:8' || item.eventIds?.includes('run-1:8'),
+      ),
+    ).toHaveLength(1);
+    expect(
+      merged.transcript.filter((item) => item.type === 'agent_message' && item.text === 'Hello'),
+    ).toHaveLength(1);
+    expect(merged.transcript).toContainEqual(
+      expect.objectContaining({ id: 'msg-live', eventIds: ['run-1:8'] }),
+    );
+  });
+
+  it('ignores unsupported compact row kinds with bounded diagnostics instead of throwing', () => {
+    const state = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      recentRows: Array.from({ length: 30 }, (_, idx) => ({
+        id: `unknown-${idx}`,
+        eventId: `run-1:${idx + 10}`,
+        seq: idx + 10,
+        time: '2026-05-29T00:00:06.000Z',
+        type: 'unknown.event',
+        stateVisitId: 'workflow.collect#2',
+        kind: 'not-renderable',
+        summary: `unknown ${idx}`,
+      })),
+    });
+
+    expect(state.transcript).toEqual([]);
+    expect(
+      state.diagnostics.filter((diagnostic) => diagnostic.source === 'compactRow'),
+    ).toHaveLength(25);
+  });
+
+  it('recovers approval and owner-input buckets from bootstrap pending cards and leaves incomplete summaries as rows', () => {
+    const state = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      pending: [
+        ...runScopedBootstrap().pending,
+        {
+          requestId: 'cmd-1',
+          status: 'pending',
+          kind: 'command-approval',
+          summary: 'npm test',
+          createdAt: '2026-05-29T00:00:04.000Z',
+          updatedAt: '2026-05-29T00:00:04.000Z',
+          lastEventId: 'run-1:5',
+          pendingCard: {
+            kind: 'command-approval',
+            id: 'cmd-1',
+            requestId: 'cmd-1',
+            method: 'item/commandExecution/requestApproval',
+            threadId: 'thread-1',
+            turnId: 'turn-1',
+            itemId: 'cmd-1',
+            command: 'npm test',
+            cwd: '/repo',
+          },
+        },
+        {
+          requestId: 'summary-only',
+          status: 'pending',
+          kind: 'file-approval',
+          summary: 'not enough fields',
+          createdAt: '2026-05-29T00:00:04.000Z',
+          updatedAt: '2026-05-29T00:00:04.000Z',
+          lastEventId: 'run-1:6',
+        },
+      ],
+      recentRows: [
+        {
+          id: 'request-row',
+          eventId: 'run-1:6',
+          seq: 6,
+          time: '2026-05-29T00:00:06.000Z',
+          type: 'request.created',
+          stateVisitId: 'workflow.collect#2',
+          kind: 'request',
+          summary: 'not enough fields',
+        },
+      ],
+    });
+
+    expect(state.pending.ownerInput?.id).toBe('owner-1');
+    expect(state.pending.cmdApprovals[0]).toEqual(
+      expect.objectContaining({ id: 'cmd-1', command: 'npm test' }),
+    );
+    expect(state.pending.fileApprovals).toEqual([]);
+    expect(state.transcript).toContainEqual(
+      expect.objectContaining({
+        id: 'request-row',
+        type: 'framework_note',
+        text: 'not enough fields',
+      }),
+    );
+  });
+
+  it('recovers open and awaiting posture from bootstrap and keeps terminal runs terminal after stream close', () => {
+    const open = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      posture: { isTerminal: false, isAwaiting: false, submittedThisTurn: false, open: true },
+    });
+    const awaiting = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      posture: { isTerminal: false, isAwaiting: true, submittedThisTurn: false, open: false },
+    });
+    const terminal = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      currentState: { path: 'workflow.done', kind: 'terminal', visitCount: 1 },
+      currentStateVisit: {
+        id: 'workflow.done#1',
+        path: 'workflow.done',
+        seq: 5,
+        time: '2026-05-29T00:00:05.000Z',
+        to: 'workflow.done',
+      },
+      posture: { isTerminal: true, isAwaiting: false, submittedThisTurn: false, open: false },
+    });
+
+    expect(open.posture.open).toBe(true);
+    expect(awaiting.posture.isAwaiting).toBe(true);
+    expect(markConnectionLost(terminal).connection).toBe('live');
+    expect(markConnectionLost(terminal).posture.isTerminal).toBe(true);
+  });
+
   it('hydrates UI state from the /api/state snapshot contract', () => {
     const state = hydrateFromSnapshot(snapshot());
 

@@ -1,6 +1,6 @@
 // Mirror of the @aharness/core run UI topology shape. Production hydrates this
-// through /api/state; fixture/demo flows may still provide topology outside the
-// production entry path.
+// through run-scoped bootstrap; fixture/demo flows may still provide topology
+// outside the production entry path.
 
 export type NodeKind = 'stateful' | 'terminal' | 'passive' | 'embed';
 
