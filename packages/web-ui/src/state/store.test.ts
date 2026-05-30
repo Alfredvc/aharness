@@ -1191,6 +1191,53 @@ describe('headless production store helpers', () => {
     );
   });
 
+  it('hides runtime orientation user messages and empty reasoning rows from visible transcript rows', () => {
+    const initial = hydrateFromSnapshot(snapshot());
+    const withRuntimeOrientation = applyAppEvent(initial, {
+      kind: 'ItemStarted',
+      id: 'orientation-user-1',
+      type: 'user_message',
+      text:
+        '[aharness] Now in state "createRecipe".\n' +
+        'Valid exits:\n' +
+        '  - "recipeReady" -> call aharness_submit({state:"createRecipe"})',
+    });
+    const withEmptyReasoning = applyAppEvent(withRuntimeOrientation, {
+      kind: 'ItemStarted',
+      id: 'reasoning-empty-1',
+      type: 'reasoning',
+      text: '',
+    });
+    const withReasoningText = applyAppEvent(withEmptyReasoning, {
+      kind: 'ItemStarted',
+      id: 'reasoning-text-1',
+      type: 'reasoning',
+      text: 'Checking the next command.',
+    });
+
+    const visible = visibleItems(withReasoningText.transcript, false);
+    const visibleInDevMode = visibleItems(withReasoningText.transcript, true);
+
+    expect(visible).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'orientation-user-1' }),
+        expect.objectContaining({ id: 'reasoning-empty-1' }),
+      ]),
+    );
+    expect(visible).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'reasoning-text-1',
+          type: 'reasoning',
+          text: 'Checking the next command.',
+        }),
+      ]),
+    );
+    expect(visibleInDevMode).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'reasoning-empty-1' })]),
+    );
+  });
+
   it('hydrates topology from the legacy flat snapshot fixture contract', () => {
     const state = hydrateFromSnapshot({
       ...snapshot(),

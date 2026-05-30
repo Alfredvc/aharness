@@ -437,10 +437,8 @@ type Action =
   | { type: 'setScope'; path: string | null };
 
 function looksLikeFrameworkOrientation(text: string): boolean {
-  // Heuristic: synthesised state-entry orientation from turn/start.input
-  // starts with "You have entered" and tells the model how to submit.
   if (!text) return false;
-  return /^You have entered\s+`/.test(text);
+  return /^You have entered\s+`/.test(text) || /^\[aharness\]\s+Now in state\s+"/.test(text);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1546,6 +1544,7 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
 export function visibleItems(items: TranscriptItem[], devMode: boolean): TranscriptItem[] {
   return items.filter((i) => {
     if (i.type === 'framework_note' && i.variant === 'orientation') return false;
+    if (i.type === 'reasoning' && i.text.trim().length === 0) return false;
     if (devMode) return true;
     return isVisibleTranscriptItem(i);
   });
