@@ -1,16 +1,25 @@
 import { createFsm } from '@aharness/core';
 
 type GateStatus = 'ok' | 'changes-requested' | 'failed' | 'done' | 'blocked';
-type RepairSource = 'review' | 'verification';
-type RecoveryPhase =
-  | 'create-recipe'
+type RoutePhase =
   | 'plan'
+  | 'review-plan'
+  | 'fix-plan'
   | 'execute'
-  | 'review'
-  | 'verify'
-  | 'repair'
+  | 'accept'
+  | 'fix-slice'
   | 'finish'
-  | 'clear-next';
+  | 'complete';
+type RecoveryPhase =
+  | 'route'
+  | 'plan'
+  | 'review-plan'
+  | 'fix-plan'
+  | 'execute'
+  | 'accept'
+  | 'fix-slice'
+  | 'finish';
+type FixSource = 'plan-review' | 'slice-review' | 'verification' | null;
 
 interface GateRecord {
   readonly sliceNumber: number;
@@ -19,33 +28,59 @@ interface GateRecord {
   readonly summary: string;
 }
 
+interface RoutePayload {
+  readonly worktreeCreated: boolean;
+  readonly recipePath: string;
+  readonly phase: RoutePhase;
+  readonly currentSlice: string | null;
+  readonly currentPlanPath: string | null;
+  readonly lastCompleted: string | null;
+  readonly workspaceSummary: string;
+  readonly routeSummary: string;
+  readonly verificationCommands: string[];
+  readonly fixSource: FixSource;
+  readonly planFindings: string[];
+  readonly acceptanceFindings: string[];
+  readonly failingCommands: string[];
+  readonly planFixCycles: number;
+  readonly sliceFixCycles: number;
+}
+
 interface Data {
   roadmapPath: string;
+  continueRoadmap: boolean;
   worktree: boolean;
   worktreePath: string | null;
   worktreeCreated: boolean;
-  requiredContextFiles: string[];
   recipePath: string | null;
+  currentPhase: RoutePhase | null;
   currentSlice: string | null;
   currentPlanPath: string | null;
   lastCompleted: string | null;
   completedSlices: number;
   maxSlices: number;
+  maxFixCycles: number;
   maxRecoveryAttempts: number;
   workspaceSummary: string | null;
-  sliceSummary: string | null;
+  routeSummary: string | null;
   planSummary: string | null;
+  planReviewSummary: string | null;
+  planFixSummary: string | null;
   executionSummary: string | null;
-  reviewSummary: string | null;
+  acceptanceSummary: string | null;
   verificationCommands: string[];
   verificationSummary: string | null;
-  repairSource: RepairSource | null;
-  repairSummary: string | null;
-  blockingFindings: string[];
+  fixSummary: string | null;
+  fixSource: FixSource;
+  planFindings: string[];
+  acceptanceFindings: string[];
+  failingCommands: string[];
   changedFiles: string[];
   stagedFiles: string[];
   commitSha: string | null;
   nextSlice: string | null;
+  planFixCycles: number;
+  sliceFixCycles: number;
   finalSummary: string | null;
   blocker: string | null;
   recoveryPhase: RecoveryPhase | null;
@@ -59,12 +94,13 @@ interface Data {
 
 interface RecipeOutput {
   roadmapPath: string;
+  continueRoadmap: boolean;
   worktree: boolean;
   worktreePath: string | null;
-  requiredContextFiles: string[];
   recipePath: string | null;
   completedSlices: number;
   lastCommitSha: string | null;
+  nextSlice: string | null;
   finalOwnerRequest: string | null;
   summary: string;
 }
@@ -109,10 +145,14 @@ function isTmpWorktreePath(path: string | null): path is string {
   return path !== null && path.startsWith('/tmp/') && path.trim().length > '/tmp/'.length;
 }
 
+function worktreeReady(data: Readonly<Data>, worktreeCreated: boolean): boolean {
+  return !data.worktree || (worktreeCreated && isTmpWorktreePath(data.worktreePath));
+}
+
 function worktreeLine(data: Readonly<Data>): string {
   if (!data.worktree) return 'Worktree mode: disabled; use the current checkout.';
   const status = data.worktreeCreated ? 'created' : 'target';
-  return `Worktree mode: enabled; ${status} worktree path: ${data.worktreePath ?? 'not recorded'}. Use this worktree for all repository commands and file edits.`;
+  return `Worktree mode: enabled; ${status} worktree path: ${data.worktreePath ?? 'not recorded'}. Use this worktree for repository commands and file edits.`;
 }
 
 function worktreeCreationLine(data: Readonly<Data>): string {
@@ -120,26 +160,33 @@ function worktreeCreationLine(data: Readonly<Data>): string {
   return [
     'Worktree mode is enabled.',
     `Create a git worktree under /tmp at: ${data.worktreePath ?? '/tmp/<unique-aharness-worktree>'}`,
-    'After creating it, re-read the roadmap and grounding files from inside that worktree and do all recipe, code, documentation, staging, and commit work there.',
+    'After creating it, re-read the roadmap and recipe from inside that worktree and do all recipe, code, documentation, staging, and commit work there.',
     'Do not merge, remove, prune, or otherwise clean up the worktree automatically.',
   ].join('\n');
 }
 
-function worktreeReady(data: Readonly<Data>, worktreeCreated: boolean): boolean {
-  return !data.worktree || (worktreeCreated && isTmpWorktreePath(data.worktreePath));
+function hasNextSlice(nextSlice: string | null): nextSlice is string {
+  return nextSlice !== null && nextSlice.trim().length > 0;
 }
 
-function currentRecoveryGuidance(data: Readonly<Data>, phase: RecoveryPhase): string {
-  return defaultRecoveryGuidance(
-    phase,
-    data.requiredContextFiles,
-    data.worktree,
-    data.worktreePath,
+function hasCurrentSlice(payload: RoutePayload): boolean {
+  return (
+    payload.phase === 'complete' ||
+    (payload.currentSlice !== null && payload.currentSlice.trim().length > 0)
   );
 }
 
-function hasNextSlice(nextSlice: string | null): nextSlice is string {
-  return nextSlice !== null && nextSlice.trim().length > 0;
+function appendUnique(existing: string[], incoming: readonly string[]): string[] {
+  const merged = new Set(existing);
+  for (const item of incoming) {
+    const trimmed = item.trim();
+    if (trimmed.length > 0) merged.add(trimmed);
+  }
+  return [...merged];
+}
+
+function formatList(items: readonly string[], empty = 'none recorded'): string[] {
+  return items.length > 0 ? items.map((item) => `- ${item}`) : [`- ${empty}`];
 }
 
 function record(draft: Data, phase: string, status: GateStatus, summary: string): void {
@@ -151,13 +198,53 @@ function record(draft: Data, phase: string, status: GateStatus, summary: string)
   });
 }
 
-function appendUnique(existing: string[], incoming: readonly string[]): string[] {
-  const merged = new Set(existing);
-  for (const item of incoming) {
-    const trimmed = item.trim();
-    if (trimmed.length > 0) merged.add(trimmed);
-  }
-  return [...merged];
+function resetRecovery(draft: Data): void {
+  draft.recoveryPhase = null;
+  draft.recoveryReason = null;
+  draft.recoveryEvidence = null;
+  draft.recoveryGuidance = null;
+  draft.blocker = null;
+}
+
+function resetSliceRuntime(draft: Data): void {
+  draft.planSummary = null;
+  draft.planReviewSummary = null;
+  draft.planFixSummary = null;
+  draft.executionSummary = null;
+  draft.acceptanceSummary = null;
+  draft.verificationCommands = [];
+  draft.verificationSummary = null;
+  draft.fixSummary = null;
+  draft.fixSource = null;
+  draft.planFindings = [];
+  draft.acceptanceFindings = [];
+  draft.failingCommands = [];
+  draft.changedFiles = [];
+  draft.stagedFiles = [];
+  draft.nextSlice = null;
+  draft.planFixCycles = 0;
+  draft.sliceFixCycles = 0;
+  resetRecovery(draft);
+}
+
+function applyRoute(draft: Data, payload: RoutePayload): void {
+  draft.worktreeCreated = draft.worktree ? payload.worktreeCreated : false;
+  draft.recipePath = payload.recipePath;
+  draft.currentPhase = payload.phase;
+  draft.currentSlice = payload.currentSlice;
+  draft.currentPlanPath = payload.currentPlanPath;
+  draft.lastCompleted = payload.lastCompleted;
+  draft.workspaceSummary = payload.workspaceSummary;
+  draft.routeSummary = payload.routeSummary;
+  draft.verificationCommands = payload.verificationCommands;
+  draft.fixSource = payload.fixSource;
+  draft.planFindings = [...payload.planFindings];
+  draft.acceptanceFindings = [...payload.acceptanceFindings];
+  draft.failingCommands = [...payload.failingCommands];
+  draft.planFixCycles = payload.planFixCycles;
+  draft.sliceFixCycles = payload.sliceFixCycles;
+  resetRecovery(draft);
+  record(draft, 'route-from-recipe', 'ok', payload.routeSummary);
 }
 
 function requestRecovery(
@@ -174,78 +261,61 @@ function requestRecovery(
   record(draft, `${phase}-phase`, 'blocked', `${reason} Evidence: ${evidence}`);
 }
 
-function resetRecovery(draft: Data): void {
-  draft.recoveryPhase = null;
-  draft.recoveryReason = null;
-  draft.recoveryEvidence = null;
-  draft.recoveryGuidance = null;
-  draft.blocker = null;
-}
-
-function resetSliceRuntime(draft: Data): void {
-  draft.planSummary = null;
-  draft.executionSummary = null;
-  draft.reviewSummary = null;
-  draft.verificationCommands = [];
-  draft.verificationSummary = null;
-  draft.repairSource = null;
-  draft.repairSummary = null;
-  draft.blockingFindings = [];
-  draft.changedFiles = [];
-  draft.stagedFiles = [];
-  draft.nextSlice = null;
-  resetRecovery(draft);
-}
-
-function contextFilesLine(data: Readonly<Data>): string {
-  return data.requiredContextFiles.length > 0
-    ? `Required context files: ${data.requiredContextFiles.join(', ')}`
-    : 'Required context files: none recorded.';
+function currentRecoveryGuidance(data: Readonly<Data>, phase: RecoveryPhase): string {
+  return defaultRecoveryGuidance(phase, data.worktree, data.worktreePath);
 }
 
 function defaultRecoveryGuidance(
   phase: RecoveryPhase,
-  requiredContextFiles: readonly string[] = [],
   worktree = false,
   worktreePath: string | null = null,
 ): string {
-  const contextFiles =
-    requiredContextFiles.length > 0
-      ? ` Re-read these required context files when relevant: ${requiredContextFiles.join(', ')}.`
-      : ' No extra context files are recorded; if recovery suggests missing grounding, re-check the roadmap for referenced idea, spec, architecture, or design files.';
   const worktreeGuidance = worktree
     ? ` Worktree mode is enabled; keep repository commands and file edits in ${worktreePath ?? 'the /tmp worktree'}. If the worktree is missing, recover by creating it under /tmp. Do not merge, remove, prune, or clean it up automatically.`
     : '';
-  const shared = `Work autonomously inside the current roadmap and recipe. Re-read the relevant files, git state, and command output.${contextFiles}${worktreeGuidance} Preserve unrelated owner changes. Do not ask the owner to solve routine implementation uncertainty. A failed gate may expose a small repository-local consistency repair outside the current slice; recover it without owner input when the command output identifies the exact files or symbols, the edit is narrowly bounded, it does not revert or overwrite owner changes, and it is required to make the current parent phase retryable. Do not use this allowance for broad unrelated features, cleanup, speculative refactors, dependency or pin decisions, destructive isolation, or reverting dirty work; route those as blockers with the decision needed.`;
+  const shared = `Work autonomously from durable repository evidence: roadmap, recipe, current detailed plan when present, git status, recent commits, and command output.${worktreeGuidance} Preserve unrelated owner changes. Do not ask the owner to solve routine implementation uncertainty. Do not broaden scope, perform cleanup, make dependency or pin decisions, use destructive isolation, or revert dirty work.`;
   switch (phase) {
-    case 'create-recipe':
-      return `${shared} Recover by re-reading the roadmap and referenced docs, identifying the first unimplemented slice from repository evidence, and creating or correcting the recipe without implementing roadmap work.`;
+    case 'route':
+      return `${shared} Recover by re-reading the roadmap and recipe, creating or correcting the recipe if needed, and choosing the next phase from durable evidence. The recipe should track current slice, current phase, current detailed plan, current fix source, and last completed commit.`;
     case 'plan':
-      return `${shared} Recover by reconciling the roadmap slice with the recipe, checking whether an existing detailed plan is stale, and writing a bounded slice plan with explicit verification commands.`;
+      return `${shared} Recover by reconciling the current slice with the roadmap and recipe, then writing or correcting only the bounded current-slice plan. Do not implement.`;
+    case 'review-plan':
+      return `${shared} Recover by reconstructing the plan-review basis and running one bounded review round with concrete blocking findings only.`;
+    case 'fix-plan':
+      return `${shared} Recover by re-reading the listed plan-review blockers, fixing only the detailed plan or recipe, or disputing invalid blockers with evidence. Do not implement.`;
     case 'execute':
-      return `${shared} Recover by re-reading the detailed plan, isolating the exact implementation blocker, consulting local code/docs, and continuing only the current slice.`;
-    case 'review':
-      return `${shared} Recover by rebuilding the review basis from the roadmap, recipe, plan, and git diff, then retrying review with concrete findings.`;
-    case 'verify':
-      return `${shared} Recover by deriving or fixing the verification command setup from the plan, running focused checks, and preserving failures as repair inputs when they are real slice issues or narrowly bounded gate-blocking repository consistency issues.`;
-    case 'repair':
-      return `${shared} Recover by re-reading the failed review or verification gate, restoring the repair source if missing, and fixing current-slice issues or narrowly bounded gate-blocking repository consistency issues before returning to the failed gate.`;
+      return `${shared} Recover by re-reading the accepted plan, isolating the implementation blocker, and continuing only the current slice. Run planned verification as part of execution.`;
+    case 'accept':
+      return `${shared} Recover by rebuilding the acceptance basis from the roadmap, recipe, plan, git diff, and verification evidence, then rerun the bounded acceptance review.`;
+    case 'fix-slice':
+      return `${shared} Recover by re-reading the accepted blockers or failing commands and fixing only current-slice implementation, docs, or tests needed to return to acceptance.`;
     case 'finish':
-      return `${shared} Recover by re-checking git status, confirming the recipe update, staging only slice-owned files plus the recipe, and committing with the repository convention.`;
-    case 'clear-next':
-      return `${shared} Recover by re-reading the committed recipe state, roadmap, and last commit, then confirming the next slice before returning to planning.`;
+      return `${shared} Recover by re-checking git status, confirming the recipe update, staging only slice-owned files plus the recipe, and committing with repository convention.`;
   }
+}
+
+function currentSliceLine(data: Readonly<Data>): string {
+  return data.currentSlice
+    ? `Current slice/chunk: ${data.currentSlice}`
+    : 'No current slice recorded.';
+}
+
+function currentPlanLine(data: Readonly<Data>): string {
+  return data.currentPlanPath
+    ? `Current detailed plan: ${data.currentPlanPath}`
+    : 'No detailed plan recorded yet.';
 }
 
 function recipeOutput(data: Readonly<Data>): RecipeOutput {
   return {
     roadmapPath: data.roadmapPath,
+    continueRoadmap: data.continueRoadmap,
     worktree: data.worktree,
     worktreePath: data.worktreePath,
-    requiredContextFiles: data.requiredContextFiles,
     recipePath: data.recipePath,
     completedSlices: data.completedSlices,
     lastCommitSha: data.commitSha,
+    nextSlice: data.nextSlice,
     finalOwnerRequest: data.finalOwnerRequest,
     summary: data.finalSummary ?? 'Recipe-driven development completed.',
   };
@@ -256,13 +326,12 @@ function renderReport(data: Readonly<Data>): string {
     '# Recipe-Driven Development Result',
     '',
     `Roadmap: \`${data.roadmapPath}\``,
+    `Mode: ${data.continueRoadmap ? 'continue roadmap until complete or safety cap' : 'one slice/chunk iteration'}`,
     `Worktree: ${data.worktree ? `enabled at \`${data.worktreePath ?? 'not recorded'}\`` : 'disabled'}`,
     `Recipe: \`${data.recipePath ?? 'not recorded'}\``,
-    `Required context files: ${
-      data.requiredContextFiles.length > 0 ? data.requiredContextFiles.join(', ') : 'none'
-    }`,
-    `Completed slices: ${data.completedSlices}`,
-    `Last commit: \`${data.commitSha ?? 'none'}\``,
+    `Completed slices this run: ${data.completedSlices}`,
+    `Last commit: \`${data.commitSha ?? data.lastCompleted ?? 'none'}\``,
+    `Current phase: ${data.currentPhase ?? 'none'}`,
     `Current slice: ${data.currentSlice ?? 'none'}`,
     `Next slice: ${data.nextSlice ?? 'none'}`,
     '',
@@ -282,13 +351,16 @@ function renderReport(data: Readonly<Data>): string {
     '',
     '## Last Slice Evidence',
     '',
+    `Route: ${data.routeSummary ?? 'not recorded'}`,
     `Plan: \`${data.currentPlanPath ?? 'none'}\``,
     `Workspace: ${data.workspaceSummary ?? 'not recorded'}`,
     `Plan summary: ${data.planSummary ?? 'not recorded'}`,
+    `Plan review: ${data.planReviewSummary ?? 'not recorded'}`,
+    `Plan fix: ${data.planFixSummary ?? 'not recorded'}`,
     `Implementation: ${data.executionSummary ?? 'not recorded'}`,
-    `Review: ${data.reviewSummary ?? 'not recorded'}`,
+    `Acceptance: ${data.acceptanceSummary ?? 'not recorded'}`,
     `Verification: ${data.verificationSummary ?? 'not recorded'}`,
-    `Repair: ${data.repairSummary ?? 'not recorded'}`,
+    `Fix: ${data.fixSummary ?? 'not recorded'}`,
     `Changed files: ${data.changedFiles.length > 0 ? data.changedFiles.join(', ') : 'none'}`,
     `Staged files: ${data.stagedFiles.length > 0 ? data.stagedFiles.join(', ') : 'none'}`,
     `Verification commands: ${
@@ -311,40 +383,28 @@ function renderReport(data: Readonly<Data>): string {
   ].join('\n');
 }
 
-function currentSliceLine(data: Readonly<Data>): string {
-  return data.currentSlice
-    ? `Current slice/chunk: ${data.currentSlice}`
-    : 'No current slice recorded.';
-}
-
-function currentPlanLine(data: Readonly<Data>): string {
-  return data.currentPlanPath
-    ? `Current detailed plan: ${data.currentPlanPath}`
-    : 'No detailed plan recorded yet.';
-}
-
-function subagentReviewInstruction(scope: string): string {
-  return [
-    'Subagent review is required for this step.',
-    `Spawn one or more subagents to review ${scope}.`,
-    'Resolve or route every blocking subagent finding before advancing.',
-  ].join('\n');
-}
-
 export const machine = fsm.machine({
   id: 'recipe-driven-development',
   input: {
     roadmapPath: fsm.input.path({
-      description: 'Implementation roadmap file to execute fully',
+      description: 'Implementation roadmap file to resume or execute',
       complete: 'file',
     }),
+    continueRoadmap: fsm.input.custom<boolean>({
+      description: 'Continue with additional slices after the current slice is committed',
+      default: false,
+    }),
     maxSlices: fsm.input.number({
-      description: 'Safety cap for roadmap slices in one run',
-      default: 50,
+      description: 'Safety cap for slices committed in one run when continueRoadmap is enabled',
+      default: 1,
+    }),
+    maxFixCycles: fsm.input.number({
+      description: 'Maximum plan/slice fix cycles before blocking for owner review',
+      default: 1,
     }),
     maxRecoveryAttempts: fsm.input.number({
       description: 'Autonomous recovery attempts before terminal failure',
-      default: 5,
+      default: 3,
     }),
     worktree: fsm.input.custom<boolean>({
       description: 'Create and use a temporary git worktree under /tmp',
@@ -353,31 +413,39 @@ export const machine = fsm.machine({
   },
   data: ({ input }): Data => ({
     roadmapPath: input.roadmapPath,
+    continueRoadmap: input.continueRoadmap,
     worktree: input.worktree,
     worktreePath: input.worktree ? makeWorktreePath(input.roadmapPath) : null,
     worktreeCreated: false,
-    requiredContextFiles: [],
     recipePath: null,
+    currentPhase: null,
     currentSlice: null,
     currentPlanPath: null,
     lastCompleted: null,
     completedSlices: 0,
     maxSlices: input.maxSlices,
+    maxFixCycles: input.maxFixCycles,
     maxRecoveryAttempts: input.maxRecoveryAttempts,
     workspaceSummary: null,
-    sliceSummary: null,
+    routeSummary: null,
     planSummary: null,
+    planReviewSummary: null,
+    planFixSummary: null,
     executionSummary: null,
-    reviewSummary: null,
+    acceptanceSummary: null,
     verificationCommands: [],
     verificationSummary: null,
-    repairSource: null,
-    repairSummary: null,
-    blockingFindings: [],
+    fixSummary: null,
+    fixSource: null,
+    planFindings: [],
+    acceptanceFindings: [],
+    failingCommands: [],
     changedFiles: [],
     stagedFiles: [],
     commitSha: null,
     nextSlice: null,
+    planFixCycles: 0,
+    sliceFixCycles: 0,
     finalSummary: null,
     blocker: null,
     recoveryPhase: null,
@@ -388,76 +456,26 @@ export const machine = fsm.machine({
     finalOwnerRequest: null,
     history: [],
   }),
-  initial: 'createRecipe',
+  initial: 'routeFromRecipe',
   states: {
-    createRecipe: fsm.state({
+    routeFromRecipe: fsm.state({
       main: true,
       prompt: (data) =>
         [
-          'Read the implementation roadmap, every grounding file it references, git status, and recent commits.',
+          'Route the recipe-driven-development workflow from durable repository evidence.',
           `Roadmap path: ${data.roadmapPath}`,
           worktreeCreationLine(data),
           '',
-          subagentReviewInstruction(
-            'the roadmap interpretation, required context-file list, recipe contents, current slice selection, and worktree setup if enabled',
-          ),
-          '',
-          'Identify and store every required extra file that future planning, execution, review, or recovery should re-read. Examples include idea files, design specs, architecture docs, requirements docs, parent plans, API contracts, and migration notes.',
-          'Create a short implementation recipe file for this roadmap. The recipe must record the roadmap path, current slice/chunk, current detailed plan path if one exists, last completed commit if any, iteration rules, and current handoff notes.',
-          'The recipe must also record the required extra context files so a later agent or recovery attempt can reload them.',
-          'Set the current slice/chunk to the first unimplemented roadmap slice. Do not implement roadmap work in this state.',
-          'When worktree mode is enabled, submit worktreeCreated=true only after the /tmp worktree exists and the recipe work was done there.',
-          'If the roadmap is already fully implemented, submit roadmapComplete after writing or updating the recipe to record completion.',
-          'If the roadmap cannot be interpreted safely, submit needsRecovery with concrete evidence and any useful recovery guidance.',
+          'Read the roadmap, existing recipe if present, current detailed plan if present, git status, and recent commits.',
+          'If no recipe exists, create a short recipe. The recipe should track parent roadmap, current slice/chunk, current phase, current detailed plan, current fix source, last completed commit, and current handoff notes.',
+          'The recipe may list durable grounding documents such as idea files, specs, architecture docs, parent plans, API contracts, and migration notes. Do not store implementation source files, tests, generated files, or broad file lists as durable context.',
+          'Choose the next phase from the recipe and repository evidence: plan, review-plan, fix-plan, execute, accept, fix-slice, finish, or complete.',
+          'If worktree mode is enabled, submit worktreeCreated=true only after the /tmp worktree exists and routing work was done there.',
+          'If the roadmap is already fully implemented, submit phase="complete" after writing or updating the recipe to record completion.',
+          'If the workflow cannot be routed safely, submit needsRecovery with concrete evidence.',
         ].join('\n'),
       on: {
-        recipeReady: fsm.submit<{
-          worktreeCreated: boolean;
-          recipePath: string;
-          requiredContextFiles: string[];
-          currentSlice: string;
-          currentPlanPath: string | null;
-          lastCompleted: string | null;
-          workspaceSummary: string;
-          sliceSummary: string;
-        }>({
-          route: [
-            {
-              if: (data, payload) => worktreeReady(data, payload.worktreeCreated),
-              to: 'planSlice',
-              reduce: (draft, payload) => {
-                draft.worktreeCreated = draft.worktree ? payload.worktreeCreated : false;
-                draft.recipePath = payload.recipePath;
-                draft.requiredContextFiles = appendUnique([], payload.requiredContextFiles);
-                draft.currentSlice = payload.currentSlice;
-                draft.currentPlanPath = payload.currentPlanPath;
-                draft.lastCompleted = payload.lastCompleted;
-                draft.workspaceSummary = payload.workspaceSummary;
-                draft.sliceSummary = payload.sliceSummary;
-                resetSliceRuntime(draft);
-                record(draft, 'create-recipe', 'ok', payload.sliceSummary);
-              },
-            },
-            {
-              to: 'recover',
-              reduce: (draft, payload) => {
-                requestRecovery(
-                  draft,
-                  'create-recipe',
-                  'Worktree mode was requested but the /tmp worktree was not confirmed',
-                  `Expected worktree path: ${draft.worktreePath ?? 'not recorded'}. worktreeCreated=${payload.worktreeCreated}`,
-                  currentRecoveryGuidance(draft, 'create-recipe'),
-                );
-              },
-            },
-          ],
-        }),
-        roadmapComplete: fsm.submit<{
-          worktreeCreated: boolean;
-          recipePath: string;
-          requiredContextFiles: string[];
-          summary: string;
-        }>({
+        routed: fsm.submit<RoutePayload>({
           route: [
             {
               if: (data, payload) => !worktreeReady(data, payload.worktreeCreated),
@@ -465,34 +483,77 @@ export const machine = fsm.machine({
               reduce: (draft, payload) => {
                 requestRecovery(
                   draft,
-                  'create-recipe',
+                  'route',
                   'Worktree mode was requested but the /tmp worktree was not confirmed',
                   `Expected worktree path: ${draft.worktreePath ?? 'not recorded'}. worktreeCreated=${payload.worktreeCreated}`,
-                  currentRecoveryGuidance(draft, 'create-recipe'),
+                  currentRecoveryGuidance(draft, 'route'),
                 );
               },
             },
             {
-              if: (data) => data.worktree,
-              to: 'worktreeHandoff',
+              if: (_data, payload) => !hasCurrentSlice(payload),
+              to: 'recover',
               reduce: (draft, payload) => {
-                draft.worktreeCreated = payload.worktreeCreated;
-                draft.recipePath = payload.recipePath;
-                draft.requiredContextFiles = appendUnique([], payload.requiredContextFiles);
-                draft.finalSummary = payload.summary;
-                resetRecovery(draft);
-                record(draft, 'create-recipe', 'done', payload.summary);
+                requestRecovery(
+                  draft,
+                  'route',
+                  'Route selected a non-complete phase without a current slice',
+                  `Selected phase: ${payload.phase}. Route summary: ${payload.routeSummary}`,
+                  currentRecoveryGuidance(draft, 'route'),
+                );
               },
             },
             {
+              if: (data, payload) => payload.phase === 'complete' && data.worktree,
+              to: 'worktreeHandoff',
+              reduce: (draft, payload) => {
+                applyRoute(draft, payload);
+                draft.finalSummary = payload.routeSummary;
+                record(draft, 'route-from-recipe', 'done', payload.routeSummary);
+              },
+            },
+            {
+              if: (_data, payload) => payload.phase === 'complete',
               to: 'complete',
               reduce: (draft, payload) => {
-                draft.recipePath = payload.recipePath;
-                draft.requiredContextFiles = appendUnique([], payload.requiredContextFiles);
-                draft.finalSummary = payload.summary;
-                resetRecovery(draft);
-                record(draft, 'create-recipe', 'done', payload.summary);
+                applyRoute(draft, payload);
+                draft.finalSummary = payload.routeSummary;
+                record(draft, 'route-from-recipe', 'done', payload.routeSummary);
               },
+            },
+            {
+              if: (_data, payload) => payload.phase === 'plan',
+              to: 'planSlice',
+              reduce: applyRoute,
+            },
+            {
+              if: (_data, payload) => payload.phase === 'review-plan',
+              to: 'reviewPlan',
+              reduce: applyRoute,
+            },
+            {
+              if: (_data, payload) => payload.phase === 'fix-plan',
+              to: 'fixPlan',
+              reduce: applyRoute,
+            },
+            {
+              if: (_data, payload) => payload.phase === 'execute',
+              to: 'executeSlice',
+              reduce: applyRoute,
+            },
+            {
+              if: (_data, payload) => payload.phase === 'accept',
+              to: 'acceptSlice',
+              reduce: applyRoute,
+            },
+            {
+              if: (_data, payload) => payload.phase === 'fix-slice',
+              to: 'fixSlice',
+              reduce: applyRoute,
+            },
+            {
+              to: 'finishSlice',
+              reduce: applyRoute,
             },
           ],
         }),
@@ -505,10 +566,10 @@ export const machine = fsm.machine({
           reduce: (draft, payload) => {
             requestRecovery(
               draft,
-              'create-recipe',
+              'route',
               payload.reason,
               payload.evidence,
-              payload.guidance || currentRecoveryGuidance(draft, 'create-recipe'),
+              payload.guidance || currentRecoveryGuidance(draft, 'route'),
             );
           },
         }),
@@ -516,23 +577,21 @@ export const machine = fsm.machine({
     }),
     planSlice: fsm.state({
       main: true,
+      clearOnEntry: true,
       prompt: (data) =>
         [
-          'Confirm or write the detailed implementation plan for this slice only.',
+          'Plan the current recipe slice only.',
           `Roadmap: ${data.roadmapPath}`,
           `Recipe: ${data.recipePath ?? 'not recorded'}`,
           worktreeLine(data),
-          contextFilesLine(data),
           currentSliceLine(data),
           currentPlanLine(data),
           '',
-          subagentReviewInstruction(
-            'the slice plan against the roadmap, recipe, required context, scope boundaries, documentation updates, and verification commands',
-          ),
-          '',
+          'Use agentfiles:writing-plans-v2 when the detailed plan is missing, stale, or needs fixes.',
           'The plan must define scope boundaries, implementation tasks, acceptance checks, verification commands, and required documentation updates.',
-          'If the existing plan is stale, update it before continuing. Do not implement in this state.',
-          'Submit needsRecovery if the current slice cannot be planned from the roadmap and recipe after inspection.',
+          'Update the recipe current phase to review-plan after the plan is ready.',
+          'Do not implement in this state.',
+          'Submit needsRecovery if the current slice cannot be planned from durable evidence.',
         ].join('\n'),
       on: {
         planReady: fsm.submit<{
@@ -541,13 +600,15 @@ export const machine = fsm.machine({
           summary: string;
           verificationCommands: string[];
         }>({
-          to: 'executeSlice',
+          to: 'reviewPlan',
           reduce: (draft, payload) => {
+            draft.currentPhase = 'review-plan';
             draft.currentPlanPath = payload.planPath;
             draft.planSummary = `${payload.wroteOrUpdated ? 'Wrote or updated' : 'Confirmed'} ${
               payload.planPath
             }: ${payload.summary}`;
             draft.verificationCommands = payload.verificationCommands;
+            draft.planFindings = [];
             resetRecovery(draft);
             record(draft, 'plan-slice', 'ok', draft.planSummary);
           },
@@ -570,28 +631,172 @@ export const machine = fsm.machine({
         }),
       },
     }),
+    reviewPlan: fsm.state({
+      main: true,
+      prompt: (data) =>
+        [
+          'Run one bounded plan-review round before execution.',
+          `Roadmap: ${data.roadmapPath}`,
+          `Recipe: ${data.recipePath ?? 'not recorded'}`,
+          worktreeLine(data),
+          currentSliceLine(data),
+          currentPlanLine(data),
+          `Plan fix cycles used: ${data.planFixCycles} of ${data.maxFixCycles}`,
+          '',
+          'Use a structural plan reviewer and a code-feasibility reviewer. Review only the current slice plan.',
+          'Blocking findings must be critical or important and include concrete evidence, why they block this slice, the minimal required fix, and a verification signal.',
+          'Suggestions, style preferences, broad cleanup, and speculative improvements are non-blocking.',
+          'Submit approved=true only when there are no blocking findings.',
+          'Submit needsRecovery only if the review basis cannot be reconstructed.',
+        ].join('\n'),
+      on: {
+        reviewComplete: fsm.submit<{
+          approved: boolean;
+          summary: string;
+          reviewerSummaries: string[];
+          blockingFindings: string[];
+          nonBlockingFindings: string[];
+        }>({
+          route: [
+            {
+              if: (_data, payload) => payload.approved && payload.blockingFindings.length === 0,
+              to: 'executeSlice',
+              reduce: (draft, payload) => {
+                draft.currentPhase = 'execute';
+                draft.planReviewSummary = [
+                  payload.summary,
+                  `Reviewers: ${payload.reviewerSummaries.join('; ') || 'none recorded'}`,
+                  `Non-blocking findings: ${payload.nonBlockingFindings.join('; ') || 'none'}`,
+                ].join('\n');
+                draft.planFindings = [];
+                resetRecovery(draft);
+                record(draft, 'review-plan', 'ok', payload.summary);
+              },
+            },
+            {
+              if: (data) => data.planFixCycles < data.maxFixCycles,
+              to: 'fixPlan',
+              reduce: (draft, payload) => {
+                draft.currentPhase = 'fix-plan';
+                draft.planReviewSummary = payload.summary;
+                draft.planFindings = payload.blockingFindings;
+                draft.fixSource = 'plan-review';
+                resetRecovery(draft);
+                record(
+                  draft,
+                  'review-plan',
+                  'changes-requested',
+                  `${payload.summary} Blocking findings: ${payload.blockingFindings.join('; ')}`,
+                );
+              },
+            },
+            {
+              to: 'failed',
+              reduce: (draft, payload) => {
+                const summary = `Plan review still has blocking findings after ${draft.planFixCycles} fix cycle(s): ${payload.blockingFindings.join('; ')}`;
+                draft.currentPhase = 'review-plan';
+                draft.planReviewSummary = payload.summary;
+                draft.planFindings = payload.blockingFindings;
+                draft.blocker = summary;
+                draft.finalSummary = summary;
+                record(draft, 'review-plan', 'blocked', summary);
+              },
+            },
+          ],
+        }),
+        needsRecovery: fsm.submit<{
+          reason: string;
+          evidence: string;
+          guidance: string;
+        }>({
+          to: 'recover',
+          reduce: (draft, payload) => {
+            requestRecovery(
+              draft,
+              'review-plan',
+              payload.reason,
+              payload.evidence,
+              payload.guidance || currentRecoveryGuidance(draft, 'review-plan'),
+            );
+          },
+        }),
+      },
+    }),
+    fixPlan: fsm.state({
+      prompt: (data) =>
+        [
+          'Fix the current detailed plan based only on the listed plan-review blockers.',
+          `Roadmap: ${data.roadmapPath}`,
+          `Recipe: ${data.recipePath ?? 'not recorded'}`,
+          worktreeLine(data),
+          currentSliceLine(data),
+          currentPlanLine(data),
+          `Plan fix cycles used: ${data.planFixCycles} of ${data.maxFixCycles}`,
+          '',
+          'Blocking plan findings:',
+          ...formatList(data.planFindings),
+          '',
+          'Do not implement code. Edit only the detailed plan, recipe, or directly related planning docs needed to make execution safe.',
+          'If a finding is invalid, record the dispute with evidence in the plan or handoff notes instead of inventing work.',
+          'Update the recipe current phase back to review-plan before submitting.',
+        ].join('\n'),
+      on: {
+        fixComplete: fsm.submit<{
+          summary: string;
+          changedFiles: string[];
+          verificationCommands: string[];
+          disputedFindings: string[];
+        }>({
+          to: 'reviewPlan',
+          reduce: (draft, payload) => {
+            draft.currentPhase = 'review-plan';
+            draft.planFixSummary = [
+              payload.summary,
+              `Disputed findings: ${payload.disputedFindings.join('; ') || 'none'}`,
+            ].join('\n');
+            draft.changedFiles = appendUnique(draft.changedFiles, payload.changedFiles);
+            draft.verificationCommands = payload.verificationCommands;
+            draft.planFixCycles += 1;
+            resetRecovery(draft);
+            record(draft, 'fix-plan', 'ok', payload.summary);
+          },
+        }),
+        needsRecovery: fsm.submit<{
+          reason: string;
+          evidence: string;
+          guidance: string;
+        }>({
+          to: 'recover',
+          reduce: (draft, payload) => {
+            requestRecovery(
+              draft,
+              'fix-plan',
+              payload.reason,
+              payload.evidence,
+              payload.guidance || currentRecoveryGuidance(draft, 'fix-plan'),
+            );
+          },
+        }),
+      },
+    }),
     executeSlice: fsm.state({
       main: true,
       clearOnEntry: true,
       prompt: (data) =>
         [
-          'Fresh context checkpoint after planning.',
-          'Re-read the roadmap, recipe, detailed plan, git status, and relevant code. Execute the current slice end to end.',
+          'Execute the current slice end to end from the reviewed plan.',
           `Roadmap: ${data.roadmapPath}`,
           `Recipe: ${data.recipePath ?? 'not recorded'}`,
           worktreeLine(data),
-          contextFilesLine(data),
           currentSliceLine(data),
           currentPlanLine(data),
           '',
-          subagentReviewInstruction(
-            'the implementation diff, tests, documentation updates, and slice-boundary compliance before marking implementation complete',
-          ),
-          '',
-          'Keep work inside the slice boundary. Preserve existing behavior unless the current plan intentionally changes it.',
-          'Update relevant documentation in the same slice as behavior changes. Run task-local checks where useful.',
-          'Submit implementationComplete only when the slice is ready for review.',
-          'Submit needsRecovery only when you have concrete evidence that recovery work is needed before implementation can continue.',
+          'Use the recipe-driven-development workflow and the current detailed plan. Use subagents only when they are actually useful for this slice.',
+          'Implement only the current slice. Preserve existing behavior unless the plan intentionally changes it.',
+          'Update relevant documentation in the same slice as behavior changes.',
+          'Run the planned verification commands as part of execution. Fix ordinary implementation or test failures before submitting.',
+          'If execution proves the plan is flawed or impossible, submit needsRecovery with evidence so the workflow can replan instead of improvising.',
+          'Submit implementationComplete only when the slice is ready for acceptance review, with verification evidence included.',
         ].join('\n'),
       on: {
         implementationComplete: fsm.submit<{
@@ -599,20 +804,66 @@ export const machine = fsm.machine({
           changedFiles: string[];
           completedPlanItems: string[];
           docsUpdated: boolean;
-          localCheckSummary: string;
+          commands: string[];
+          verificationPassed: boolean;
+          verificationSummary: string;
+          failingCommands: string[];
         }>({
-          to: 'reviewSlice',
-          reduce: (draft, payload) => {
-            draft.executionSummary = [
-              payload.summary,
-              `Completed plan items: ${payload.completedPlanItems.join('; ')}`,
-              `Docs updated: ${payload.docsUpdated}`,
-              `Local checks: ${payload.localCheckSummary}`,
-            ].join('\n');
-            draft.changedFiles = appendUnique(draft.changedFiles, payload.changedFiles);
-            resetRecovery(draft);
-            record(draft, 'execute-slice', 'ok', payload.summary);
-          },
+          route: [
+            {
+              if: (_data, payload) => payload.verificationPassed,
+              to: 'acceptSlice',
+              reduce: (draft, payload) => {
+                draft.currentPhase = 'accept';
+                draft.executionSummary = [
+                  payload.summary,
+                  `Completed plan items: ${payload.completedPlanItems.join('; ')}`,
+                  `Docs updated: ${payload.docsUpdated}`,
+                ].join('\n');
+                draft.changedFiles = appendUnique(draft.changedFiles, payload.changedFiles);
+                draft.verificationCommands = payload.commands;
+                draft.verificationSummary = payload.verificationSummary;
+                draft.failingCommands = [];
+                draft.fixSource = null;
+                resetRecovery(draft);
+                record(draft, 'execute-slice', 'ok', payload.summary);
+              },
+            },
+            {
+              if: (data) => data.sliceFixCycles < data.maxFixCycles,
+              to: 'fixSlice',
+              reduce: (draft, payload) => {
+                draft.currentPhase = 'fix-slice';
+                draft.executionSummary = payload.summary;
+                draft.changedFiles = appendUnique(draft.changedFiles, payload.changedFiles);
+                draft.verificationCommands = payload.commands;
+                draft.verificationSummary = payload.verificationSummary;
+                draft.failingCommands = payload.failingCommands;
+                draft.fixSource = 'verification';
+                resetRecovery(draft);
+                record(
+                  draft,
+                  'execute-slice',
+                  'failed',
+                  `${payload.summary} Failing commands: ${payload.failingCommands.join('; ')}`,
+                );
+              },
+            },
+            {
+              to: 'failed',
+              reduce: (draft, payload) => {
+                const summary = `Verification still failed before acceptance and fix-cycle budget is exhausted: ${payload.failingCommands.join('; ')}`;
+                draft.currentPhase = 'execute';
+                draft.executionSummary = payload.summary;
+                draft.verificationCommands = payload.commands;
+                draft.verificationSummary = payload.verificationSummary;
+                draft.failingCommands = payload.failingCommands;
+                draft.blocker = summary;
+                draft.finalSummary = summary;
+                record(draft, 'execute-slice', 'blocked', summary);
+              },
+            },
+          ],
         }),
         needsRecovery: fsm.submit<{
           reason: string;
@@ -632,60 +883,82 @@ export const machine = fsm.machine({
         }),
       },
     }),
-    reviewSlice: fsm.state({
+    acceptSlice: fsm.state({
       main: true,
       prompt: (data) =>
         [
-          'Review the completed slice diff against the roadmap, recipe, and detailed plan.',
+          'Accept or reject the completed slice.',
+          `Roadmap: ${data.roadmapPath}`,
+          `Recipe: ${data.recipePath ?? 'not recorded'}`,
           worktreeLine(data),
-          contextFilesLine(data),
           currentSliceLine(data),
           currentPlanLine(data),
+          `Slice fix cycles used: ${data.sliceFixCycles} of ${data.maxFixCycles}`,
           '',
-          subagentReviewInstruction(
-            'the completed slice diff independently; use focused reviewer subagents for plan/spec compliance and code quality when both apply',
-          ),
+          'Review the completed diff, documentation alignment, scope boundaries, and verification evidence.',
+          `Verification summary: ${data.verificationSummary ?? 'none recorded'}`,
+          'Verification commands:',
+          ...formatList(data.verificationCommands),
           '',
-          'Prioritize correctness, behavior regressions, missing tests, documentation drift, and scope leaks.',
-          'Critical or Important findings are blocking. Submit approved=true only when no blocking findings remain.',
-          'Submit needsRecovery only if the review basis itself is missing or inconsistent and must be reconstructed.',
+          'Use agentfiles:reviewing-code when useful. Blocking findings must be critical or important and concrete.',
+          'Do not block on style preferences, speculative cleanup, later-slice work, or non-issues. Submit approved=true only when no blocking findings remain and verification evidence is credible.',
+          'Submit needsRecovery only if the acceptance basis itself cannot be reconstructed.',
         ].join('\n'),
       on: {
-        reviewComplete: fsm.submit<{
+        acceptanceComplete: fsm.submit<{
           approved: boolean;
+          verificationAccepted: boolean;
           summary: string;
           blockingFindings: string[];
           nonBlockingFindings: string[];
         }>({
           route: [
             {
-              if: (_data, payload) => payload.approved && payload.blockingFindings.length === 0,
-              to: 'verifySlice',
+              if: (_data, payload) =>
+                payload.approved &&
+                payload.verificationAccepted &&
+                payload.blockingFindings.length === 0,
+              to: 'finishSlice',
               reduce: (draft, payload) => {
-                draft.reviewSummary = `${payload.summary} Non-blocking findings: ${payload.nonBlockingFindings.join(
-                  '; ',
-                )}`;
-                draft.blockingFindings = [];
-                draft.repairSource = null;
+                draft.currentPhase = 'finish';
+                draft.acceptanceSummary = `${payload.summary} Non-blocking findings: ${
+                  payload.nonBlockingFindings.join('; ') || 'none'
+                }`;
+                draft.acceptanceFindings = [];
+                draft.fixSource = null;
                 resetRecovery(draft);
-                record(draft, 'review-slice', 'ok', payload.summary);
+                record(draft, 'accept-slice', 'ok', payload.summary);
               },
             },
             {
-              to: 'repairSlice',
+              if: (data) => data.sliceFixCycles < data.maxFixCycles,
+              to: 'fixSlice',
               reduce: (draft, payload) => {
-                draft.reviewSummary = payload.summary;
-                draft.blockingFindings = payload.blockingFindings;
-                draft.repairSource = 'review';
+                draft.currentPhase = 'fix-slice';
+                draft.acceptanceSummary = payload.summary;
+                draft.acceptanceFindings = payload.blockingFindings;
+                draft.fixSource = payload.verificationAccepted ? 'slice-review' : 'verification';
                 resetRecovery(draft);
                 record(
                   draft,
-                  'review-slice',
+                  'accept-slice',
                   'changes-requested',
                   `${payload.summary} Blocking findings: ${payload.blockingFindings.join('; ')}`,
                 );
               },
             },
+            {
+              to: 'failed',
+              reduce: (draft, payload) => {
+                const summary = `Acceptance still has blocking findings after ${draft.sliceFixCycles} fix cycle(s): ${payload.blockingFindings.join('; ')}`;
+                draft.currentPhase = 'accept';
+                draft.acceptanceSummary = payload.summary;
+                draft.acceptanceFindings = payload.blockingFindings;
+                draft.blocker = summary;
+                draft.finalSummary = summary;
+                record(draft, 'accept-slice', 'blocked', summary);
+              },
+            },
           ],
         }),
         needsRecovery: fsm.submit<{
@@ -697,156 +970,68 @@ export const machine = fsm.machine({
           reduce: (draft, payload) => {
             requestRecovery(
               draft,
-              'review',
+              'accept',
               payload.reason,
               payload.evidence,
-              payload.guidance || currentRecoveryGuidance(draft, 'review'),
+              payload.guidance || currentRecoveryGuidance(draft, 'accept'),
             );
           },
         }),
       },
     }),
-    verifySlice: fsm.state({
-      main: true,
+    fixSlice: fsm.state({
       prompt: (data) =>
         [
-          'Run final verification for the current slice.',
+          'Fix only the concrete current-slice blockers from acceptance or verification.',
+          `Roadmap: ${data.roadmapPath}`,
+          `Recipe: ${data.recipePath ?? 'not recorded'}`,
           worktreeLine(data),
-          contextFilesLine(data),
           currentSliceLine(data),
           currentPlanLine(data),
+          `Fix source: ${data.fixSource ?? 'not recorded'}`,
+          `Slice fix cycles used: ${data.sliceFixCycles} of ${data.maxFixCycles}`,
           '',
-          'Verification commands from the plan:',
-          ...(data.verificationCommands.length > 0
-            ? data.verificationCommands.map((command) => `- ${command}`)
-            : ['- none recorded; derive the required commands from the plan before submitting']),
+          'Acceptance blockers:',
+          ...formatList(data.acceptanceFindings),
           '',
-          subagentReviewInstruction(
-            'the verification command selection and command results, including whether additional required checks are missing',
-          ),
+          'Failing commands:',
+          ...formatList(data.failingCommands),
           '',
-          'Submit passed=true only when every required verification command completed successfully.',
-          'Submit needsRecovery only if verification cannot be run or interpreted after inspecting the plan and command output.',
+          'Fix only listed blockers or failing commands. Do not perform opportunistic cleanup, unrelated refactors, or later-slice work.',
+          'If a finding is invalid, record the dispute with evidence instead of changing code to satisfy it.',
+          'Rerun the relevant verification commands and return to acceptance.',
         ].join('\n'),
       on: {
-        verified: fsm.submit<{
-          passed: boolean;
-          commands: string[];
+        fixComplete: fsm.submit<{
           summary: string;
+          changedFiles: string[];
+          commands: string[];
+          verificationPassed: boolean;
+          verificationSummary: string;
+          remainingFindings: string[];
           failingCommands: string[];
         }>({
-          route: [
-            {
-              if: (_data, payload) => payload.passed,
-              to: 'finishSlice',
-              reduce: (draft, payload) => {
-                draft.verificationCommands = payload.commands;
-                draft.verificationSummary = payload.summary;
-                draft.blockingFindings = [];
-                draft.repairSource = null;
-                resetRecovery(draft);
-                record(draft, 'verify-slice', 'ok', payload.summary);
-              },
-            },
-            {
-              to: 'repairSlice',
-              reduce: (draft, payload) => {
-                draft.verificationCommands = payload.commands;
-                draft.verificationSummary = payload.summary;
-                draft.blockingFindings = payload.failingCommands;
-                draft.repairSource = 'verification';
-                resetRecovery(draft);
-                record(
-                  draft,
-                  'verify-slice',
-                  'failed',
-                  `${payload.summary} Failing commands: ${payload.failingCommands.join('; ')}`,
-                );
-              },
-            },
-          ],
-        }),
-        needsRecovery: fsm.submit<{
-          reason: string;
-          evidence: string;
-          guidance: string;
-        }>({
-          to: 'recover',
+          to: 'acceptSlice',
           reduce: (draft, payload) => {
-            requestRecovery(
+            draft.currentPhase = 'accept';
+            draft.fixSummary = payload.summary;
+            draft.changedFiles = appendUnique(draft.changedFiles, payload.changedFiles);
+            draft.verificationCommands = payload.commands;
+            draft.verificationSummary = payload.verificationSummary;
+            draft.acceptanceFindings = payload.remainingFindings;
+            draft.failingCommands = payload.failingCommands;
+            draft.sliceFixCycles += 1;
+            resetRecovery(draft);
+            record(
               draft,
-              'verify',
-              payload.reason,
-              payload.evidence,
-              payload.guidance || currentRecoveryGuidance(draft, 'verify'),
+              'fix-slice',
+              payload.verificationPassed && payload.remainingFindings.length === 0
+                ? 'ok'
+                : 'failed',
+              payload.summary,
             );
           },
         }),
-      },
-    }),
-    repairSlice: fsm.state({
-      prompt: (data) =>
-        [
-          'Repair the current slice based on the last failed gate.',
-          worktreeLine(data),
-          contextFilesLine(data),
-          currentSliceLine(data),
-          `Repair source: ${data.repairSource ?? 'not recorded'}`,
-          `Review summary: ${data.reviewSummary ?? 'none'}`,
-          `Verification summary: ${data.verificationSummary ?? 'none'}`,
-          '',
-          'Blocking items:',
-          ...(data.blockingFindings.length > 0
-            ? data.blockingFindings.map((finding) => `- ${finding}`)
-            : ['- none recorded']),
-          '',
-          subagentReviewInstruction(
-            'the repair diff against the failed review or verification gate before returning to that gate',
-          ),
-          '',
-          'Fix only current-slice issues. Preserve the failed gate: review repairs return to review, verification repairs return to verification.',
-          'Submit needsRecovery only if the failed gate context is missing or contradictory.',
-        ].join('\n'),
-      on: {
-        repairComplete: fsm.submit<{
-          summary: string;
-          changedFiles: string[];
-        }>({
-          route: [
-            {
-              if: (data) => data.repairSource === 'review',
-              to: 'reviewSlice',
-              reduce: (draft, payload) => {
-                draft.repairSummary = payload.summary;
-                draft.changedFiles = appendUnique(draft.changedFiles, payload.changedFiles);
-                resetRecovery(draft);
-                record(draft, 'repair-slice', 'ok', payload.summary);
-              },
-            },
-            {
-              if: (data) => data.repairSource === 'verification',
-              to: 'verifySlice',
-              reduce: (draft, payload) => {
-                draft.repairSummary = payload.summary;
-                draft.changedFiles = appendUnique(draft.changedFiles, payload.changedFiles);
-                resetRecovery(draft);
-                record(draft, 'repair-slice', 'ok', payload.summary);
-              },
-            },
-            {
-              to: 'recover',
-              reduce: (draft, payload) => {
-                requestRecovery(
-                  draft,
-                  'repair',
-                  'Repair completed but no failed gate was recorded',
-                  payload.summary,
-                  currentRecoveryGuidance(draft, 'repair'),
-                );
-              },
-            },
-          ],
-        }),
         needsRecovery: fsm.submit<{
           reason: string;
           evidence: string;
@@ -856,10 +1041,10 @@ export const machine = fsm.machine({
           reduce: (draft, payload) => {
             requestRecovery(
               draft,
-              'repair',
+              'fix-slice',
               payload.reason,
               payload.evidence,
-              payload.guidance || currentRecoveryGuidance(draft, 'repair'),
+              payload.guidance || currentRecoveryGuidance(draft, 'fix-slice'),
             );
           },
         }),
@@ -869,22 +1054,19 @@ export const machine = fsm.machine({
       main: true,
       prompt: (data) =>
         [
-          'Finish the verified slice.',
+          'Finish the accepted slice.',
+          `Roadmap: ${data.roadmapPath}`,
+          `Recipe: ${data.recipePath ?? 'not recorded'}`,
+          worktreeLine(data),
           currentSliceLine(data),
           currentPlanLine(data),
-          contextFilesLine(data),
-          worktreeLine(data),
-          `Recipe: ${data.recipePath ?? 'not recorded'}`,
           `Verification summary: ${data.verificationSummary ?? 'not recorded'}`,
-          '',
-          subagentReviewInstruction(
-            'the recipe update, staged files, git status, and commit readiness before committing or declaring the roadmap complete',
-          ),
           '',
           'Update the recipe to the next slice/chunk or completion state.',
           'Stage only slice-owned files plus the recipe update, then commit.',
           'Do not stage unrelated dirty files. Do not add Co-Authored-By tags.',
           'When worktree mode is enabled, do not merge, remove, prune, or clean up the worktree after committing.',
+          `Run mode: ${data.continueRoadmap ? 'continue after this slice if the roadmap has more work' : 'finish this one slice/chunk and stop'}.`,
           'Submit nextSlice with the next unimplemented roadmap slice. Submit nextSlice=null only when the whole roadmap is complete after this commit.',
           'Submit needsRecovery only if recipe update, staging, or commit state cannot be reconciled after checking git status and roadmap state.',
         ].join('\n'),
@@ -899,40 +1081,44 @@ export const machine = fsm.machine({
           route: [
             {
               if: (data, payload) =>
-                hasNextSlice(payload.nextSlice) && data.completedSlices + 1 < data.maxSlices,
-              to: 'clearForNextSlice',
-              reduce: (draft, payload) => {
-                const completedSummary = `${draft.currentSlice ?? 'Current slice'}: ${
-                  payload.summary
-                }`;
-                draft.stagedFiles = payload.stagedFiles;
-                draft.commitSha = payload.commitSha;
-                draft.nextSlice = payload.nextSlice;
-                draft.completedSlices += 1;
-                draft.lastCompleted = payload.commitSha;
-                draft.completedSliceSummaries.push(completedSummary);
-                resetRecovery(draft);
-                record(
-                  draft,
-                  'finish-slice',
-                  'ok',
-                  `${payload.summary} Recipe update: ${payload.recipeUpdateSummary}`,
-                );
-              },
-            },
-            {
-              if: (_data, payload) => hasNextSlice(payload.nextSlice),
+                data.continueRoadmap &&
+                hasNextSlice(payload.nextSlice) &&
+                data.completedSlices + 1 >= data.maxSlices,
               to: 'failed',
               reduce: (draft, payload) => {
                 const summary = `Reached maxSlices before ${payload.nextSlice}. Last commit: ${payload.commitSha}`;
                 draft.stagedFiles = payload.stagedFiles;
                 draft.commitSha = payload.commitSha;
                 draft.nextSlice = payload.nextSlice;
-                draft.completedSlices += 1;
                 draft.lastCompleted = payload.commitSha;
                 draft.blocker = summary;
                 draft.finalSummary = summary;
+                draft.completedSlices += 1;
                 record(draft, 'finish-slice', 'blocked', summary);
+              },
+            },
+            {
+              if: (data, payload) => data.continueRoadmap && hasNextSlice(payload.nextSlice),
+              to: 'routeFromRecipe',
+              reduce: (draft, payload) => {
+                const completedSummary = `${draft.currentSlice ?? 'Current slice'}: ${
+                  payload.summary
+                }`;
+                resetSliceRuntime(draft);
+                draft.stagedFiles = payload.stagedFiles;
+                draft.commitSha = payload.commitSha;
+                draft.nextSlice = payload.nextSlice;
+                draft.lastCompleted = payload.commitSha;
+                draft.completedSliceSummaries.push(completedSummary);
+                draft.completedSlices += 1;
+                draft.currentPhase = 'plan';
+                draft.workspaceSummary = `Previous slice committed as ${payload.commitSha}.`;
+                record(
+                  draft,
+                  'finish-slice',
+                  'ok',
+                  `${payload.summary} Recipe update: ${payload.recipeUpdateSummary}`,
+                );
               },
             },
             {
@@ -944,11 +1130,13 @@ export const machine = fsm.machine({
                 }`;
                 draft.stagedFiles = payload.stagedFiles;
                 draft.commitSha = payload.commitSha;
-                draft.nextSlice = null;
-                draft.completedSlices += 1;
+                draft.nextSlice = payload.nextSlice;
                 draft.lastCompleted = payload.commitSha;
                 draft.completedSliceSummaries.push(completedSummary);
-                draft.finalSummary = `${payload.summary} Recipe update: ${payload.recipeUpdateSummary}`;
+                draft.completedSlices += 1;
+                draft.finalSummary = hasNextSlice(payload.nextSlice)
+                  ? `${payload.summary} Recipe update: ${payload.recipeUpdateSummary}. Next slice recorded: ${payload.nextSlice}.`
+                  : `${payload.summary} Recipe update: ${payload.recipeUpdateSummary}`;
                 resetRecovery(draft);
                 record(draft, 'finish-slice', 'done', draft.finalSummary);
               },
@@ -961,11 +1149,13 @@ export const machine = fsm.machine({
                 }`;
                 draft.stagedFiles = payload.stagedFiles;
                 draft.commitSha = payload.commitSha;
-                draft.nextSlice = null;
-                draft.completedSlices += 1;
+                draft.nextSlice = payload.nextSlice;
                 draft.lastCompleted = payload.commitSha;
                 draft.completedSliceSummaries.push(completedSummary);
-                draft.finalSummary = `${payload.summary} Recipe update: ${payload.recipeUpdateSummary}`;
+                draft.completedSlices += 1;
+                draft.finalSummary = hasNextSlice(payload.nextSlice)
+                  ? `${payload.summary} Recipe update: ${payload.recipeUpdateSummary}. Next slice recorded: ${payload.nextSlice}.`
+                  : `${payload.summary} Recipe update: ${payload.recipeUpdateSummary}`;
                 resetRecovery(draft);
                 record(draft, 'finish-slice', 'done', draft.finalSummary);
               },
@@ -990,98 +1180,20 @@ export const machine = fsm.machine({
         }),
       },
     }),
-    clearForNextSlice: fsm.state({
-      main: true,
-      clearOnEntry: true,
-      prompt: (data) =>
-        [
-          'Fresh context checkpoint after a committed slice.',
-          `Roadmap path: ${data.roadmapPath}`,
-          `Recipe path: ${data.recipePath ?? 'not recorded'}`,
-          worktreeLine(data),
-          contextFilesLine(data),
-          `Last commit: ${data.commitSha ?? 'not recorded'}`,
-          `Expected next slice: ${data.nextSlice ?? 'not recorded'}`,
-          '',
-          subagentReviewInstruction(
-            'the committed recipe state, roadmap progress, and expected next slice before planning continues or completion is declared',
-          ),
-          '',
-          'Re-read the roadmap, recipe, git status, and current detailed plan if present.',
-          'Confirm the recipe points at the expected next slice before continuing.',
-          'If the recipe is complete, submit recipeComplete. If it is inconsistent with the roadmap or commit, submit needsRecovery.',
-        ].join('\n'),
-      on: {
-        readyToPlan: fsm.submit<{
-          currentSlice: string;
-          currentPlanPath: string | null;
-          workspaceSummary: string;
-          sliceSummary: string;
-        }>({
-          to: 'planSlice',
-          reduce: (draft, payload) => {
-            draft.currentSlice = payload.currentSlice;
-            draft.currentPlanPath = payload.currentPlanPath;
-            draft.workspaceSummary = payload.workspaceSummary;
-            draft.sliceSummary = payload.sliceSummary;
-            resetSliceRuntime(draft);
-            record(draft, 'clear-for-next-slice', 'ok', payload.sliceSummary);
-          },
-        }),
-        recipeComplete: fsm.submit<{
-          summary: string;
-        }>({
-          route: [
-            {
-              if: (data) => data.worktree,
-              to: 'worktreeHandoff',
-              reduce: (draft, payload) => {
-                draft.finalSummary = payload.summary;
-                resetRecovery(draft);
-                record(draft, 'clear-for-next-slice', 'done', payload.summary);
-              },
-            },
-            {
-              to: 'complete',
-              reduce: (draft, payload) => {
-                draft.finalSummary = payload.summary;
-                resetRecovery(draft);
-                record(draft, 'clear-for-next-slice', 'done', payload.summary);
-              },
-            },
-          ],
-        }),
-        needsRecovery: fsm.submit<{
-          reason: string;
-          evidence: string;
-          guidance: string;
-        }>({
-          to: 'recover',
-          reduce: (draft, payload) => {
-            requestRecovery(
-              draft,
-              'clear-next',
-              payload.reason,
-              payload.evidence,
-              payload.guidance || currentRecoveryGuidance(draft, 'clear-next'),
-            );
-          },
-        }),
-      },
-    }),
     worktreeHandoff: fsm.state({
       mode: 'open',
       main: true,
       prompt: (data) =>
         [
-          'The roadmap run is complete in worktree mode.',
+          'The recipe-driven-development run is complete in worktree mode.',
           worktreeLine(data),
           `Roadmap: ${data.roadmapPath}`,
           `Recipe: ${data.recipePath ?? 'not recorded'}`,
-          `Last commit: ${data.commitSha ?? 'none'}`,
+          `Last commit: ${data.commitSha ?? data.lastCompleted ?? 'none'}`,
+          `Next slice: ${data.nextSlice ?? 'none'}`,
           '',
           'Do not merge branches, remove the worktree, prune worktrees, delete temporary files, or perform cleanup in this state.',
-          'Ask the owner what they want to do next, such as merge, cleanup, continue inspection, or leave the worktree as-is.',
+          'Ask the owner what they want to do next, such as merge, cleanup, continue inspection, leave it as-is, or something else.',
         ].join('\n'),
       on: {
         ownerDecision: fsm.await({
@@ -1089,7 +1201,8 @@ export const machine = fsm.machine({
             [
               'Worktree run complete.',
               `Worktree: ${data.worktreePath ?? 'not recorded'}`,
-              `Last commit: ${data.commitSha ?? 'none'}`,
+              `Last commit: ${data.commitSha ?? data.lastCompleted ?? 'none'}`,
+              `Next slice: ${data.nextSlice ?? 'none'}`,
               'What do you want to do next: merge, cleanup, inspect further, leave it as-is, or something else?',
             ].join('\n'),
           to: 'complete',
@@ -1111,7 +1224,7 @@ export const machine = fsm.machine({
           guidance: recovery.input.string({ description: 'Phase-specific recovery guidance' }),
           maxAttempts: recovery.input.number({
             description: 'Maximum autonomous recovery attempts',
-            default: 5,
+            default: 3,
           }),
         },
         data: ({ input }): RecoveryData => ({
@@ -1127,7 +1240,6 @@ export const machine = fsm.machine({
         initial: 'attemptRecovery',
         states: {
           attemptRecovery: recovery.state({
-            clearOnEntry: true,
             prompt: (data) =>
               [
                 `Autonomous recovery attempt ${data.attempt} of ${data.maxAttempts}.`,
@@ -1138,15 +1250,10 @@ export const machine = fsm.machine({
                 'Phase-specific recovery guidance:',
                 data.guidance,
                 '',
-                subagentReviewInstruction(
-                  'the recovery diagnosis, proposed correction, changed files, and whether the parent phase can be retried safely',
-                ),
-                '',
                 'Recover the workflow rather than stopping. Re-read the roadmap, recipe, current detailed plan if present, git status, relevant code, and command output.',
-                'Prefer documented local workflow and project evidence over guessing. Default to current-slice boundaries, but do not treat outside-slice ownership as an automatic stop when the active gate is blocked by a small repository-local consistency failure.',
-                'You may repair a gate-blocking consistency failure without owner input when command output identifies the exact files or symbols, the edit is narrowly bounded, it preserves unrelated owner changes, and it is necessary for the parent phase to retry.',
-                'Do not use that allowance for broad unrelated features, cleanup, speculative refactors, dependency or pin decisions, destructive isolation, or reverting dirty work. Route those as exhausted with the concrete decision needed.',
-                'Submit recovered when the parent phase can be retried. Submit retry only when another fresh recovery attempt can make new progress. Submit exhausted only when the attempt budget is spent or the blocker requires external state outside the repository.',
+                'You may repair a gate-blocking consistency failure without owner input only when command output identifies exact files or symbols, the edit is narrowly bounded, it preserves unrelated owner changes, and it is necessary for the parent phase to retry.',
+                'Do not use recovery for broad unrelated features, cleanup, speculative refactors, dependency or pin decisions, destructive isolation, or reverting dirty work.',
+                'Submit recovered when the parent phase can be retried. Submit retry only when another recovery attempt can make new progress. Submit exhausted when the attempt budget is spent or the blocker requires external state outside the repository.',
               ].join('\n'),
             on: {
               recovered: recovery.submit<{
@@ -1216,12 +1323,11 @@ export const machine = fsm.machine({
       }),
       {
         input: (data) => ({
-          phase: data.recoveryPhase ?? 'create-recipe',
+          phase: data.recoveryPhase ?? 'route',
           reason: data.recoveryReason ?? 'No recovery reason recorded.',
           evidence: data.recoveryEvidence ?? 'No recovery evidence recorded.',
           guidance:
-            data.recoveryGuidance ??
-            currentRecoveryGuidance(data, data.recoveryPhase ?? 'create-recipe'),
+            data.recoveryGuidance ?? currentRecoveryGuidance(data, data.recoveryPhase ?? 'route'),
           maxAttempts: data.maxRecoveryAttempts,
         }),
         on: {
@@ -1257,30 +1363,30 @@ export const machine = fsm.machine({
           target: 'planSlice',
         },
         {
+          guard: ({ context }: { context: Data }) => context.recoveryPhase === 'review-plan',
+          target: 'reviewPlan',
+        },
+        {
+          guard: ({ context }: { context: Data }) => context.recoveryPhase === 'fix-plan',
+          target: 'fixPlan',
+        },
+        {
           guard: ({ context }: { context: Data }) => context.recoveryPhase === 'execute',
           target: 'executeSlice',
         },
         {
-          guard: ({ context }: { context: Data }) => context.recoveryPhase === 'review',
-          target: 'reviewSlice',
+          guard: ({ context }: { context: Data }) => context.recoveryPhase === 'accept',
+          target: 'acceptSlice',
         },
         {
-          guard: ({ context }: { context: Data }) => context.recoveryPhase === 'verify',
-          target: 'verifySlice',
-        },
-        {
-          guard: ({ context }: { context: Data }) => context.recoveryPhase === 'repair',
-          target: 'repairSlice',
+          guard: ({ context }: { context: Data }) => context.recoveryPhase === 'fix-slice',
+          target: 'fixSlice',
         },
         {
           guard: ({ context }: { context: Data }) => context.recoveryPhase === 'finish',
           target: 'finishSlice',
         },
-        {
-          guard: ({ context }: { context: Data }) => context.recoveryPhase === 'clear-next',
-          target: 'clearForNextSlice',
-        },
-        { target: 'createRecipe' },
+        { target: 'routeFromRecipe' },
       ],
     }),
     complete: fsm.final({

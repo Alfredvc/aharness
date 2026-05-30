@@ -19,8 +19,8 @@ the compatibility gate and drift-check details.
 - `fsm.machine(config)` declares the machine, optional typed `input`, initial
   data, initial state, and states map.
 - `fsm.state(options)` declares an active Codex state with `prompt`, optional
-  `ask`, `on`, `entry`, `clearOnEntry`, visualization-only `main`, `guidance`,
-  `skills`, `mode`, and low-level `xstate` escape hatch.
+  `ask`, `on`, `entry`, `model`, `clearOnEntry`, visualization-only `main`,
+  `guidance`, `skills`, `mode`, and low-level `xstate` escape hatch.
 - `fsm.submit<T>(options)` declares a typed model submission exit.
 - `fsm.await(options)` declares an owner-input exit.
 - `fsm.final(options)` declares a terminal state with `outcome`, optional
@@ -77,52 +77,39 @@ with `withEvents(...)` and for the built-in event keys.
 `ask` declares owner-facing text for states that need owner input. Use it with
 an await or with a later submit that interprets the owner reply.
 
-`clearOnEntry: true` starts the state with fresh model context after a
-committed non-self transition enters that state. Machine data remains live. The
-default working directory is the original aharness launch CWD, and the aharness
-run directory and artifacts remain anchored to that original launch directory.
+`model` on a state-level declaratively applies model and effort changes for that
+state.
 
-Use object form when a state should start from fresh model context in a
-specific working directory, model, reasoning effort, or any non-empty
-combination of those options:
+Object shape:
 
 ```ts
-reviewWorktree: fsm.state({
-  clearOnEntry: {
-    cwd: '/absolute/path/to/worktree',
-    model: 'gpt-5.1-codex',
-    reasoningEffort: 'high',
-  },
-  prompt: 'Review this worktree and submit findings.',
-  on: {
-    reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
-  },
-});
+model: {
+  name?: 'gpt-5.1-codex',
+  effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh',
+}
 ```
 
+Valid forms:
+
 ```ts
-modelReview: fsm.state({
-  clearOnEntry: { model: 'gpt-5.1-codex' },
-  prompt: 'Review with the requested Codex model.',
+targetModel: fsm.state({
+  model: { name: 'gpt-5.1-codex' },
+  prompt: 'Review with this model and submit findings.',
   on: {
     reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
   },
 });
 
-highEffortReview: fsm.state({
-  clearOnEntry: { reasoningEffort: 'high' },
-  prompt: 'Review with a fresh high-effort context.',
+highEffort: fsm.state({
+  model: { effort: 'high' },
+  prompt: 'Review with higher reasoning effort.',
   on: {
     reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
   },
 });
 
 targetedImplementation: fsm.state({
-  clearOnEntry: {
-    cwd: '/absolute/path/to/worktree',
-    model: 'gpt-5.1-codex',
-    reasoningEffort: 'high',
-  },
+  model: { name: 'gpt-5.1-codex', effort: 'high' },
   prompt: 'Implement in this worktree with the requested model and effort.',
   on: {
     implemented: fsm.submit<{ summary: string }>({ to: 'review' }),
@@ -130,39 +117,41 @@ targetedImplementation: fsm.state({
 });
 ```
 
-`cwd` must resolve to a non-empty absolute path for an existing directory. It
-may also be computed from machine data:
+`model.name` and static `model.effort` values are validated where possible against
+Codex `model/list` and `model/list({ includeHidden: true })`.
+
+Sticky behavior:
+
+- A state-level `model` declaration applies for the target state and is used by the
+  next aharness-driven turn.
+- If a later non-clear state omits `model`, aharness does not clear prior
+  settings; the effective model and effort remain in force.
+
+`clearOnEntry` is freshness-only:
+
+- `clearOnEntry: true` creates a replacement thread in the current launch CWD.
+- `clearOnEntry: { cwd }` creates a replacement thread in the given absolute
+  directory (string or function of machine data).
+
+`clearOnEntry` may be paired with `model`, and both settings are applied on the
+clear transition.
 
 ```ts
-implementPackage: fsm.state({
-  clearOnEntry: { cwd: (data) => data.packageDir },
-  prompt: 'Work in the package directory and submit implementation evidence.',
+freshWorktreeReview: fsm.state({
+  clearOnEntry: { cwd: '/absolute/path/to/worktree' },
+  model: { name: 'gpt-5.1-codex', effort: 'high' },
+  prompt: 'Review the worktree and submit findings.',
   on: {
-    implemented: fsm.submit<{ summary: string }>({ to: 'verify' }),
+    reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
   },
 });
 ```
 
-Model-only, effort-only, and model-plus-effort declarations are valid:
+`model` and `clearOnEntry` settings are scoped by state declaration:
 
-```ts
-clearOnEntry: { model: 'gpt-5.1-codex' }
-clearOnEntry: { reasoningEffort: 'high' }
-clearOnEntry: { model: 'gpt-5.1-codex', reasoningEffort: 'high' }
-```
-
-`model` and `reasoningEffort` must be static strings. Dynamic callbacks are
-only supported for `cwd`. Allowed reasoning efforts are `none`, `minimal`,
-`low`, `medium`, `high`, and `xhigh`.
-
-`reasoningEffort` can be used without `model`. In that case, aharness resolves
-the target model from Codex effective config for the clear CWD with
-`config/read({ cwd })`, then from Codex's `model/list` default entry, falling
-back to the first catalog entry. `aharness verify` checks statically resolvable
-model and effort declarations against Codex `config/read` and
-`model/list({ includeHidden: true })`.
-Function-form `cwd` may defer effort support checks to runtime preflight after
-the clear CWD is resolved.
+- `clearOnEntry` controls thread replacement and working directory.
+- `model` controls model/effort. For non-clear states, omission means "keep the
+  current model/effort settings."
 
 `main: true` marks a state, passive state, or final as part of the graph's
 primary spine. It is visualization-only metadata and never changes transition
