@@ -47,6 +47,17 @@ const activePanelVirtuosoComponents: Components<ActivePanelTimelineRow> = {
 
 export const activePanelVirtuosoComponentsForTest = activePanelVirtuosoComponents;
 
+function activePanelFollowOutput(input: { isFollowing: boolean; atBottom: boolean }) {
+  return input.isFollowing && input.atBottom ? 'smooth' : false;
+}
+
+function activePanelShouldAutoscroll(input: { isFollowing: boolean; atBottom: boolean }): boolean {
+  return input.isFollowing && input.atBottom;
+}
+
+export const activePanelFollowOutputForTest = activePanelFollowOutput;
+export const activePanelShouldAutoscrollForTest = activePanelShouldAutoscroll;
+
 function leafOf(path: string): string {
   return path.split('.').pop() ?? path;
 }
@@ -246,6 +257,9 @@ export function ActivePanel({ session }: Props) {
     !session.posture.isTerminal;
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const atBottomRef = useRef(true);
+  useEffect(() => {
+    atBottomRef.current = isFollowing;
+  }, [isFollowing]);
   const timelineRows = useMemo(
     () =>
       buildActivePanelTimelineRows({
@@ -274,6 +288,10 @@ export function ActivePanel({ session }: Props) {
     ],
   );
   const initialItemCount = typeof window === 'undefined' ? timelineRows.length : undefined;
+  const initialTopMostItemIndexProps =
+    typeof window !== 'undefined' && isFollowing && timelineRows.length > 0
+      ? { initialTopMostItemIndex: timelineRows.length - 1 }
+      : {};
 
   return (
     <section
@@ -351,13 +369,16 @@ export function ActivePanel({ session }: Props) {
         data={timelineRows}
         components={activePanelVirtuosoComponents}
         initialItemCount={initialItemCount}
+        {...initialTopMostItemIndexProps}
         computeItemKey={(_, row) => row.key}
-        followOutput={(atBottom) => (atBottom ? 'smooth' : false)}
+        followOutput={(atBottom) => activePanelFollowOutput({ isFollowing, atBottom })}
         atBottomStateChange={(atBottom) => {
           atBottomRef.current = atBottom;
         }}
         totalListHeightChanged={() => {
-          if (atBottomRef.current) virtuosoRef.current?.autoscrollToBottom();
+          if (activePanelShouldAutoscroll({ isFollowing, atBottom: atBottomRef.current })) {
+            virtuosoRef.current?.autoscrollToBottom();
+          }
         }}
         itemContent={(_, row) => <ActivePanelTimelineRowView row={row} session={session} />}
       />

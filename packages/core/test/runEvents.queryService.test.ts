@@ -346,6 +346,51 @@ describe('run event query service', () => {
     expect(recentRows.rows.map((row) => row.eventId)).toEqual(['run-query:3', 'run-query:4']);
   });
 
+  it('projects compact tool output metadata from normalized row data', () => {
+    const eventsPath = tempEventsPath();
+    writeJsonl(
+      eventsPath,
+      event(1, 'state.changed', {
+        stateVisitId: 'root.plan#1',
+        data: {
+          path: 'root.plan',
+          to: 'root.plan',
+          row: { kind: 'state_change', label: 'root.plan', status: 'boot' },
+        },
+      }),
+      event(2, 'item.completed', {
+        stateVisitId: 'root.plan#1',
+        itemId: 'call-1',
+        data: {
+          row: {
+            kind: 'tool',
+            label: 'bash',
+            status: 'completed',
+            output: 'done',
+            ok: true,
+            resultId: 'call-1:output',
+          },
+        },
+      }),
+    );
+    const service = createRunEventQueryService({ runId: RUN_ID, eventsPath });
+
+    const visitRows = service.getStateVisitRows('root.plan#1');
+
+    expect(visitRows.ok).toBe(true);
+    if (!visitRows.ok) return;
+    expect(visitRows.rows).toEqual([
+      expect.objectContaining({ kind: 'state_change' }),
+      expect.objectContaining({
+        kind: 'tool',
+        itemId: 'call-1',
+        output: 'done',
+        ok: true,
+        resultId: 'call-1:output',
+      }),
+    ]);
+  });
+
   it('projects API-safe event pages without raw and validates canonical event cursors', () => {
     const eventsPath = tempEventsPath();
     writeJsonl(eventsPath, ...fixtureEvents());

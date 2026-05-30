@@ -107,6 +107,11 @@ export interface RunEventCompactRow {
   readonly status?: string;
   readonly summary?: string;
   readonly elapsedMs?: number;
+  // UI-visible tool result fields for compact tool rows; raw envelopes stay out
+  // of bootstrap/row-page projections.
+  readonly output?: string;
+  readonly ok?: boolean;
+  readonly resultId?: string;
   readonly data?: RunEventPayload;
 }
 

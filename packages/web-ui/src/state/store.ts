@@ -564,6 +564,9 @@ function transcriptItemFromCompactRow(
         reserved,
         ...(row.elapsedMs === undefined ? {} : { elapsedMs: row.elapsedMs }),
         category: isSubagentToolRow(row) ? 'subagent' : 'tool',
+        ...(row.output === undefined ? {} : { output: row.output }),
+        ...(row.ok === undefined ? {} : { ok: row.ok }),
+        ...(row.resultId === undefined ? {} : { resultId: row.resultId }),
       };
     }
     case 'request': {
@@ -746,6 +749,10 @@ function compactRowFromRunEvent(e: RunScopedApiEvent): RunScopedCompactRow | nul
   const turnId = e.turnId ?? readString(row['turnId']);
   const itemId = e.itemId ?? readString(row['itemId']);
   const requestId = e.requestId ?? readString(row['requestId']);
+  const elapsedMs = readNumber(row['elapsedMs']);
+  const output = readString(row['output']);
+  const ok = readBoolean(row['ok']);
+  const resultId = readString(row['resultId']);
   return {
     id: readString(row['id']) ?? `${e.id}:row`,
     eventId: e.id,
@@ -761,9 +768,10 @@ function compactRowFromRunEvent(e: RunScopedApiEvent): RunScopedCompactRow | nul
     ...(text !== undefined ? { text } : {}),
     ...(status !== undefined ? { status } : {}),
     ...(summary !== undefined ? { summary } : {}),
-    ...(readNumber(row['elapsedMs']) === undefined
-      ? {}
-      : { elapsedMs: readNumber(row['elapsedMs']) }),
+    ...(elapsedMs === undefined ? {} : { elapsedMs }),
+    ...(output === undefined ? {} : { output }),
+    ...(ok === undefined ? {} : { ok }),
+    ...(resultId === undefined ? {} : { resultId }),
     ...(data === undefined ? {} : { data }),
   };
 }

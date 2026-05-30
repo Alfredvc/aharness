@@ -450,12 +450,33 @@ describe('headless production store helpers', () => {
         },
       }),
     );
-    const requested = applyRunEvent(
+    const completedTool = applyRunEvent(
       tooled,
       apiEvent({
-        type: 'request.created',
+        type: 'item.completed',
         id: 'run-1:10',
         seq: 10,
+        stateVisitId: 'workflow.review#1',
+        itemId: 'tool-1',
+        data: {
+          row: {
+            kind: 'tool',
+            label: 'bash',
+            status: 'completed',
+            summary: 'npm test',
+            output: 'all tests passed',
+            ok: true,
+            resultId: 'tool-1:output',
+          },
+        },
+      }),
+    );
+    const requested = applyRunEvent(
+      completedTool,
+      apiEvent({
+        type: 'request.created',
+        id: 'run-1:11',
+        seq: 11,
         requestId: 'patch-1',
         stateVisitId: 'workflow.review#1',
         data: {
@@ -483,8 +504,8 @@ describe('headless production store helpers', () => {
       requested,
       apiEvent({
         type: 'framework.note',
-        id: 'run-1:11',
-        seq: 11,
+        id: 'run-1:12',
+        seq: 12,
         stateVisitId: 'workflow.review#1',
         data: {
           row: { kind: 'framework_note', text: 'framework says hi', status: 'info' },
@@ -495,8 +516,8 @@ describe('headless production store helpers', () => {
       noted,
       apiEvent({
         type: 'diagnostic.abandoned_thread',
-        id: 'run-1:12',
-        seq: 12,
+        id: 'run-1:13',
+        seq: 13,
         threadId: 'thread-old',
         data: {
           id: 'diag-2',
@@ -510,8 +531,8 @@ describe('headless production store helpers', () => {
       diagnosed,
       apiEvent({
         type: 'token.updated',
-        id: 'run-1:13',
-        seq: 13,
+        id: 'run-1:14',
+        seq: 14,
         data: { total: { totalTokens: 99, outputTokens: 7 }, modelContextWindow: 200000 },
       }),
     );
@@ -519,13 +540,13 @@ describe('headless production store helpers', () => {
       tokened,
       apiEvent({
         type: 'artifact.written',
-        id: 'run-1:14',
-        seq: 14,
+        id: 'run-1:15',
+        seq: 15,
         data: { artifactId: 'a-1' },
       }),
     );
 
-    expect(ignored.latestEventId).toBe('run-1:14');
+    expect(ignored.latestEventId).toBe('run-1:15');
     expect(ignored.state?.path).toBe('workflow.review');
     expect(ignored.activeVisitId).toBe('workflow.review#1');
     expect(ignored.statePathVisits['workflow.review']).toEqual(['workflow.review#1']);
@@ -546,6 +567,10 @@ describe('headless production store helpers', () => {
           type: 'tool_call',
           name: 'bash',
           preview: 'npm test',
+          status: 'completed',
+          output: 'all tests passed',
+          ok: true,
+          resultId: 'tool-1:output',
         }),
         expect.objectContaining({ type: 'framework_note', text: 'framework says hi' }),
       ]),
@@ -582,6 +607,9 @@ describe('headless production store helpers', () => {
           status: 'completed',
           summary: 'pnpm test',
           elapsedMs: 42,
+          output: 'command completed',
+          ok: true,
+          resultId: 'tool-1:output',
           data: { command: 'pnpm test -- --runInBand', raw: { hidden: true } },
         }),
         row({
@@ -695,6 +723,9 @@ describe('headless production store helpers', () => {
           preview: 'pnpm test -- --runInBand',
           elapsedMs: 42,
           category: 'tool',
+          output: 'command completed',
+          ok: true,
+          resultId: 'tool-1:output',
         }),
         expect.objectContaining({
           id: 'tool-pending',

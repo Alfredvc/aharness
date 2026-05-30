@@ -195,6 +195,11 @@ export type RunScopedCompactRow = {
   status?: string;
   summary?: string;
   elapsedMs?: number;
+  // UI-visible tool result fields for compact tool rows; raw envelopes stay out
+  // of bootstrap/row-page projections.
+  output?: string;
+  ok?: boolean;
+  resultId?: string;
   data?: Record<string, unknown>;
 };
 
@@ -959,6 +964,9 @@ function isRunScopedCompactRow(value: unknown): value is RunScopedCompactRow {
     isOptionalString(value['status']) &&
     isOptionalString(value['summary']) &&
     isOptionalNumber(value['elapsedMs']) &&
+    isOptionalString(value['output']) &&
+    isOptionalBoolean(value['ok']) &&
+    isOptionalString(value['resultId']) &&
     (value['data'] === undefined || isRecord(value['data']))
   );
 }
@@ -1037,6 +1045,10 @@ function isOptionalString(value: unknown): value is string | undefined {
 
 function isStringOrNull(value: unknown): value is string | null {
   return typeof value === 'string' || value === null;
+}
+
+function isOptionalBoolean(value: unknown): value is boolean | undefined {
+  return value === undefined || typeof value === 'boolean';
 }
 
 function isSafeNumber(value: unknown): value is number {

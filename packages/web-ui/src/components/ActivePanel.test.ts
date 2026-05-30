@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   activePanelVirtuosoComponentsForTest,
+  activePanelFollowOutputForTest,
   activePanelRowForTest,
+  activePanelShouldAutoscrollForTest,
   buildActivePanelTimelineRowsForTest,
   buildNodeDetailRowsForTest,
   ActivePanel,
@@ -239,6 +241,14 @@ describe('ActivePanel timeline rows', () => {
 });
 
 describe('ActivePanel virtualized list', () => {
+  it('only follows output and height changes while viewing the live transcript', () => {
+    expect(activePanelFollowOutputForTest({ isFollowing: true, atBottom: true })).toBe('smooth');
+    expect(activePanelFollowOutputForTest({ isFollowing: true, atBottom: false })).toBe(false);
+    expect(activePanelFollowOutputForTest({ isFollowing: false, atBottom: true })).toBe(false);
+    expect(activePanelShouldAutoscrollForTest({ isFollowing: true, atBottom: true })).toBe(true);
+    expect(activePanelShouldAutoscrollForTest({ isFollowing: false, atBottom: true })).toBe(false);
+  });
+
   it('renders measured timeline rows with the Virtuoso mock context', () => {
     const data: ActivePanelTimelineRow[] = [
       { kind: 'empty', key: 'empty-current', text: 'no activity yet in this visit' },

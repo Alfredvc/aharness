@@ -61,7 +61,6 @@ function expectNoSensitivePayload(value: unknown): void {
   const text = json(value);
   for (const forbidden of [
     'tool arguments must stay out',
-    'tool output must stay out',
     'secret owner-facing prompt',
     'state context must stay out',
     'resolved prompt must stay out',
@@ -96,7 +95,7 @@ describe('run event adapter', () => {
         id: 'call-1:output',
         type: 'function_call_output',
         name: 'bash',
-        output: 'tool output must stay out',
+        output: 'visible tool output',
         ok: false,
       },
       'item.completed',
@@ -416,6 +415,37 @@ describe('run event adapter', () => {
     expect(ownerInput).not.toHaveProperty('raw');
     expect(commandApproval).not.toHaveProperty('raw');
     expect(fileUpdate).not.toHaveProperty('raw');
+  });
+
+  it('stores UI-safe function-call output on the compact tool row', () => {
+    const input = appEventToRunEventAppendInput({
+      kind: 'ItemStarted',
+      id: 'call-1:output',
+      type: 'function_call_output',
+      name: 'bash',
+      output: 'tests failed\nexpected true to be false',
+      ok: false,
+    });
+
+    expect(input).toEqual(
+      expect.objectContaining({
+        type: 'item.completed',
+        itemId: 'call-1',
+        data: expect.objectContaining({
+          itemId: 'call-1',
+          outputItemId: 'call-1:output',
+          ok: false,
+          row: expect.objectContaining({
+            kind: 'tool',
+            label: 'bash',
+            status: 'failed',
+            output: 'tests failed\nexpected true to be false',
+            ok: false,
+            resultId: 'call-1:output',
+          }),
+        }),
+      }),
+    );
   });
 
   it('can enrich sanitized AppEvent mappings with raw and meta payloads', () => {
