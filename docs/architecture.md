@@ -18,7 +18,7 @@ At runtime, `aharness <file.fsm.ts>` runs foreground-only:
 2. It starts one Codex `app-server` child process.
 3. It connects as the sole WebSocket client for that run.
 4. It hosts the XState actor, submit handling, owner input, approval dispatch,
-   hook dispatch, snapshots, and event logging in the same CLI process.
+   hook dispatch and canonical JSONL event logging in the same CLI process.
 5. It opens a loopback browser UI protected by a per-run token.
 
 For read-only FSM inspection, `aharness visualize <file.fsm.ts>` verifies and
@@ -108,9 +108,10 @@ process around that work.
 ## Artifacts And Runs
 
 Each invocation creates a fresh run directory under `.aharness/runs/<runId>/`.
-Run artifacts include snapshots, event logs, terminal reports, and any final
-artifacts declared by the FSM. These files are inspection evidence for the run;
-the current public CLI starts a new run and Codex thread for each invocation.
+Run artifacts include the canonical `events.jsonl` transcript, terminal
+reports, and any final artifacts declared by the FSM. These files are
+inspection evidence for the run; the current public CLI starts a new run and
+Codex thread for each invocation.
 
 For new runs, `events.jsonl` is a canonical `aharness.event.v1` transcript. It
 stores compact normalized event data plus full raw runtime payloads inline,
@@ -119,18 +120,17 @@ command output, file diffs, approval/permission/elicitation payloads, and token
 usage notifications, plus parent-visible sub-thread notifications. Run
 directories should therefore be handled as sensitive material.
 
-The loopback UI server has two API surfaces during the JSONL source-of-truth
-transition. Run-scoped routes under `/api/runs/:runId/` serve compact
-JSONL-backed projections for bootstrap state, visit rows, recent rows,
-diagnostic event pages, canonical run-event SSE, and replies. These HTTP/SSE
-responses omit raw payloads; raw evidence remains in `events.jsonl`. The React
-browser now uses the run-scoped bootstrap, row, stream, and reply routes after
-the CLI hands it `token` and `runId` query params. Its shell uses compact
-JSONL-backed rows plus aggregate running-time, token, and context-window stats;
-the old top turn count and bottom turn ribbon are no longer user-facing chrome.
-The flat `/api/state`, `/api/stream`, and `/api/reply` routes remain
-compatibility/internal routes until later cleanup, and `snapshot.json` remains
-written for current inspection state until the later source-of-truth cutover.
+Run-scoped routes under `/api/runs/:runId/` serve compact JSONL-backed
+projections for bootstrap state, visit rows, recent rows, diagnostic event
+pages, canonical run-event SSE, and replies. These HTTP/SSE responses omit raw
+payloads; raw evidence remains in `events.jsonl`. The React browser uses the
+run-scoped bootstrap, row, stream, and reply routes after the CLI hands it
+`token` and `runId` query params. Its shell uses compact JSONL-backed rows plus
+aggregate running-time, token, and context-window stats; the old top turn count
+and bottom turn ribbon are no longer user-facing chrome. The old flat
+`/api/state`, `/api/stream`, and `/api/reply` browser routes are no longer
+served for new runs. Production live runs do not write `snapshot.json`; retained
+snapshot helper exports are legacy/internal compatibility only.
 
 ## Package Boundaries
 

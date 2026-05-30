@@ -15,6 +15,7 @@ const FILE_TARGETS = [
   'CLAUDE.md',
   'docs/architecture.md',
   'docs/reference.md',
+  'docs/troubleshooting.md',
   'examples/DEMOS.md',
   'packages/core/README.md',
   'packages/core/scripts/browserGoldenServer.mjs',
@@ -58,10 +59,22 @@ const RULES = [
     pattern: /\bthread\/rollback\b|\brolling back\b|\bRollback\b|\brollback-backed\b/i,
     allowNegated: true,
   },
+  {
+    id: 'snapshot-current-source',
+    pattern:
+      /\bsnapshot\.json\b.*\b(current inspection state|source of truth|authoritative|UI-facing|reconstruct|replay|history)\b|\b(current inspection state|source of truth|authoritative|UI-facing|reconstruct|replay|history)\b.*\bsnapshot\.json\b/i,
+    allowNegated: true,
+  },
+  {
+    id: 'flat-browser-routes-current',
+    pattern:
+      /\/api\/(?:state|stream|reply)\b.*\b(compatibility|browser source|production browser|remain|served|route)\b|\b(browser source|production browser|compatibility|remain|served|route)\b.*\/api\/(?:state|stream|reply)\b/i,
+    allowNegated: true,
+  },
 ];
 
 const NEGATION =
-  /\b(no|not|never|without|instead of|rather than|does not|do not|is not|are not)\b/i;
+  /\b(no|not|never|without|instead of|rather than|does not|do not|is not|are not|no longer)\b/i;
 
 function pathExists(path) {
   try {

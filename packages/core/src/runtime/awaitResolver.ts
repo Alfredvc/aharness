@@ -89,8 +89,8 @@ export interface AwaitResolverInput {
   readonly currentAwaitExitName: () => string | null;
   /**
    * Send `AWAIT__<stateId>__<exitName>` with the user's reply text into
-   * the live actor. The daemon owns post-commit side-effects (snapshot
-   * flush, nudge inject); this resolver only commits.
+   * the live actor. The daemon owns post-commit side-effects (JSONL-backed
+   * state event publication, nudge inject); this resolver only commits.
    */
   readonly commitAwait: (
     stateId: string,
@@ -116,8 +116,8 @@ export interface AwaitResolverInput {
     | { readonly ok: false; readonly error: string };
   /**
    * Hook fired immediately after `commitAwait`. The daemon wires its
-   * post-transition pipeline here (snapshot flush + state-entry nudge
-   * inject). May be sync or async; the resolver awaits it.
+   * post-transition pipeline here (state-entry side effects and optional
+   * clear-on-entry scheduling). May be sync or async; the resolver awaits it.
    */
   readonly onAfterTransition: (info: {
     readonly from: string;

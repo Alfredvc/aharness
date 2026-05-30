@@ -22,7 +22,6 @@ import type {
   CommandApprovalRequest,
   FileChangeApprovalRequest,
   ReplayableAppEvent,
-  UiSnapshot,
 } from '../src/ui/events.js';
 
 function hasCodex(): boolean {
@@ -113,6 +112,23 @@ function createEventCollector(timeoutMs = 15_000): EventCollector {
 interface UiSession {
   readonly baseUrl: string;
   readonly token: string;
+  readonly runId: string;
+}
+
+interface RunScopedPendingCard {
+  readonly kind?: string;
+  readonly id?: string;
+  readonly requestId?: string;
+  readonly command?: string;
+  readonly itemId?: string;
+  readonly changes?: ReadonlyArray<unknown>;
+}
+
+interface RunScopedBootstrapForApproval {
+  readonly pending: ReadonlyArray<{
+    readonly requestId?: string;
+    readonly pendingCard?: RunScopedPendingCard;
+  }>;
 }
 
 function uiSessionFromStdout(chunks: ReadonlyArray<string>): UiSession {
@@ -123,10 +139,14 @@ function uiSessionFromStdout(chunks: ReadonlyArray<string>): UiSession {
   if (!match) throw new Error(`browser UI URL was not printed; stdout=${stdout}`);
   const parsed = new URL(match[1]!);
   const token = parsed.searchParams.get('token');
+  const runId = parsed.searchParams.get('runId');
   if (token === null || token.length === 0) {
     throw new Error(`browser UI URL did not include a token; stdout=${stdout}`);
   }
-  return { baseUrl: parsed.origin, token };
+  if (runId === null || runId.length === 0) {
+    throw new Error(`browser UI URL did not include a runId; stdout=${stdout}`);
+  }
+  return { baseUrl: parsed.origin, token, runId };
 }
 
 function summarizeMockRequests(recorded: ReadonlyArray<{ body: unknown }>): string {
@@ -184,12 +204,12 @@ function uiAuthHeaders(session: UiSession): Record<string, string> {
   return { 'x-aharness-ui-token': session.token };
 }
 
-async function readUiState(session: UiSession): Promise<UiSnapshot> {
-  const response = await fetch(`${session.baseUrl}/api/state`, {
+async function readUiBootstrap(session: UiSession): Promise<RunScopedBootstrapForApproval> {
+  const response = await fetch(`${session.baseUrl}/api/runs/${session.runId}/bootstrap`, {
     headers: uiAuthHeaders(session),
   });
   expect(response.status).toBe(200);
-  return (await response.json()) as UiSnapshot;
+  return (await response.json()) as RunScopedBootstrapForApproval;
 }
 
 async function postApprovalReply(
@@ -197,7 +217,7 @@ async function postApprovalReply(
   requestId: string,
   decision: BrowserApprovalDecision,
 ): Promise<void> {
-  const response = await fetch(`${session.baseUrl}/api/reply`, {
+  const response = await fetch(`${session.baseUrl}/api/runs/${session.runId}/reply`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', ...uiAuthHeaders(session) },
     body: JSON.stringify({ kind: 'approval', requestId, decision }),
@@ -226,12 +246,19 @@ async function waitForPendingCleared(
 ): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const snapshot = await readUiState(session);
-    const bucket =
-      kind === 'command'
-        ? snapshot.state.pending.cmdApprovals
-        : snapshot.state.pending.fileApprovals;
-    if (!bucket.some((approval) => approval.id === requestId)) return;
+    const bootstrap = await readUiBootstrap(session);
+    const pendingKind = kind === 'command' ? 'command-approval' : 'file-approval';
+    if (
+      !bootstrap.pending.some(
+        (summary) =>
+          summary.pendingCard?.kind === pendingKind &&
+          (summary.pendingCard.id === requestId ||
+            summary.pendingCard.requestId === requestId ||
+            summary.requestId === requestId),
+      )
+    ) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(`approval ${requestId} was still pending after ${timeoutMs}ms`);
@@ -244,9 +271,16 @@ async function waitForFileApprovalChanges(
 ): Promise<FileChangeApprovalRequest> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const snapshot = await readUiState(session);
-    const approval = snapshot.state.pending.fileApprovals.find((entry) => entry.id === requestId);
-    if (approval && approval.changes.length > 0) return approval;
+    const bootstrap = await readUiBootstrap(session);
+    const approval = bootstrap.pending
+      .map((summary) => summary.pendingCard)
+      .find(
+        (card) =>
+          card?.kind === 'file-approval' && (card.id === requestId || card.requestId === requestId),
+      );
+    if (approval && approval.changes !== undefined && approval.changes.length > 0) {
+      return approval as unknown as FileChangeApprovalRequest;
+    }
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(`file approval ${requestId} never received changes[]`);
@@ -445,7 +479,7 @@ describe.skipIf(!E2E_ENABLED)('runCli — real app-server approvals (end-to-end)
   }
 
   for (const decision of ['accept', 'decline'] as const) {
-    it(`routes a Codex-generated command approval through /api/reply (${decision})`, async () => {
+    it(`routes a Codex-generated command approval through run-scoped reply (${decision})`, async () => {
       const { sseFunctionCall, sseResponseCreated, sseTurnComplete } =
         await import('@aharness/test-support');
 
@@ -468,10 +502,14 @@ describe.skipIf(!E2E_ENABLED)('runCli — real app-server approvals (end-to-end)
         firstTurn,
         approvalKind: 'command',
         assertBeforeReply: async (session, requestId) => {
-          const snapshot = await readUiState(session);
-          const approval = snapshot.state.pending.cmdApprovals.find(
-            (entry) => entry.id === requestId,
-          );
+          const bootstrap = await readUiBootstrap(session);
+          const approval = bootstrap.pending
+            .map((summary) => summary.pendingCard)
+            .find(
+              (entry) =>
+                entry?.kind === 'command-approval' &&
+                (entry.id === requestId || entry.requestId === requestId),
+            );
           expect(approval).toBeDefined();
           expect(approval?.requestId).not.toBe(approval?.itemId);
           expect(approval?.command).toContain('python3 -c');
@@ -481,7 +519,7 @@ describe.skipIf(!E2E_ENABLED)('runCli — real app-server approvals (end-to-end)
   }
 
   for (const decision of ['accept', 'decline'] as const) {
-    it(`routes a Codex-generated file approval through /api/reply (${decision})`, async () => {
+    it(`routes a Codex-generated file approval through run-scoped reply (${decision})`, async () => {
       const { sseFunctionCall, sseResponseCreated, sseTurnComplete } =
         await import('@aharness/test-support');
 

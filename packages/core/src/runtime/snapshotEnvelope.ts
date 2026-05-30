@@ -1,5 +1,9 @@
 /**
- * Headless snapshot envelope reader/writer. Spec §4.4, §5.8.
+ * Legacy/internal headless snapshot envelope reader/writer.
+ *
+ * Retained for old-run inspection and public runtime-surface compatibility.
+ * Production new runs do not write this envelope, and UI/history/replay do
+ * not use `snapshot.json` as a source of truth.
  *
  * Schema: {
  *   xstate,

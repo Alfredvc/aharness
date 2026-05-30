@@ -449,7 +449,7 @@ describe('run-scoped UI server routes', () => {
     expect(body).not.toContain('raw message must not be served');
   });
 
-  it('returns the same reply bodies from flat and run-scoped reply routes', async () => {
+  it('serves replies only through the run-scoped reply route', async () => {
     const cases: ReadonlyArray<{
       readonly name: string;
       readonly payload: unknown;
@@ -534,10 +534,10 @@ describe('run-scoped UI server routes', () => {
       const flat = await postReply(handle, '/api/reply', testCase.payload);
       const runScoped = await postReply(handle, `/api/runs/${RUN_ID}/reply`, testCase.payload);
 
-      expect(flat, testCase.name).toEqual(testCase.result);
+      expect(flat, testCase.name).toEqual({ status: 404, body: { error: 'Not found' } });
       expect(runScoped, testCase.name).toEqual(testCase.result);
     }
-    expect(replyHandler).toHaveBeenCalledTimes(cases.length * 2);
+    expect(replyHandler).toHaveBeenCalledTimes(cases.length);
   });
 
   it('rejects run-scoped reply transport failures before invoking the reply handler', async () => {

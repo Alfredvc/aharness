@@ -176,7 +176,7 @@ describe('createPermissionRequestDispatcher', () => {
     );
   });
 
-  it('dispatches permissionRequest through a canonical transition and returns after snapshot flush', async () => {
+  it('dispatches permissionRequest through a canonical transition and returns after the legacy flush hook', async () => {
     const events: string[] = [];
     const host = buildCanonicalPermissionHost({
       permissionRequest: {
@@ -200,7 +200,7 @@ describe('createPermissionRequestDispatcher', () => {
     expect(events).toEqual(['reduce:1', 'flush:1', 'return:1:Bash']);
   });
 
-  it('reports committed canonical permissionRequest transitions after snapshot flush', async () => {
+  it('reports committed canonical permissionRequest transitions after the legacy flush hook', async () => {
     const events: string[] = [];
     const host = buildCanonicalPermissionHost({
       permissionRequest: {

@@ -36,10 +36,7 @@ import { runCliForTest, type RunCliForTestOpts, type RunCliTestHooks } from '../
 import type { AppServerHandle, SpawnAppServerOptions } from '../src/appServer/index.js';
 import { JsonRpcClient, type Transport } from '../src/jsonrpc/client.js';
 import { METHOD } from '../src/protocol/methodNames.js';
-import {
-  flushHeadlessSnapshotEnvelope,
-  loadHeadlessSnapshotEnvelope,
-} from '../src/runtime/snapshotEnvelope.js';
+import { flushHeadlessSnapshotEnvelope } from '../src/runtime/snapshotEnvelope.js';
 import {
   RUN_EVENT_SCHEMA,
   type RunEventAppendInput,
@@ -47,7 +44,7 @@ import {
   type RunEventRecorder,
 } from '../src/runEvents/index.js';
 import type { ActiveThreadBinding } from '../src/runtime/activeThreadBinding.js';
-import type { ReplayableAppEvent, UiSnapshot } from '../src/ui/events.js';
+import type { ReplayableAppEvent } from '../src/ui/events.js';
 import { startUiServer, type StartUiServerOptions, type UiServerHandle } from '../src/ui/server.js';
 import type { ConnectHeadlessWsOptions } from '../src/transport/wsClient.js';
 
@@ -291,9 +288,17 @@ describe('runCliForTest — pre-spawn gates', () => {
     });
 
     let capturedSock: string | undefined;
-    let capturedSnapshot: UiSnapshot | undefined;
+    let capturedRunId: string | undefined;
+    let capturedPosture: Record<string, unknown> | undefined;
     const startUiServerImpl = vi.fn(async (options: StartUiServerOptions) => {
-      capturedSnapshot = options.eventLog.snapshot();
+      const bootstrap = options.runScoped?.service.getBootstrap({
+        getRunMeta: options.runScoped.getRunMeta,
+        topology: options.runScoped.topology,
+      });
+      if (bootstrap?.ok) {
+        capturedRunId = (bootstrap.bootstrap.run as { runId?: string }).runId;
+        capturedPosture = bootstrap.bootstrap.posture as Record<string, unknown>;
+      }
       return {
         url: 'http://127.0.0.1:45678',
         close: vi.fn(async () => undefined),
@@ -324,8 +329,8 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(capturedSock).toBeDefined();
     expect(capturedSock).not.toBe(join(existingRoot, 'app-server.sock'));
     expect(capturedSock).toMatch(new RegExp(`/${fsmHash}-[0-9a-f]{6}/app-server.sock$`));
-    expect(capturedSnapshot?.state.run.runId).not.toBe(existingRunId);
-    expect(capturedSnapshot?.state.posture).not.toHaveProperty('pendingClear');
+    expect(capturedRunId).not.toBe(existingRunId);
+    expect(capturedPosture).not.toHaveProperty('pendingClear');
   });
 
   it('case 3b: legacy resume option starts with thread/start, never thread/resume', async () => {
@@ -1001,11 +1006,26 @@ describe('runCliForTest — pre-spawn gates', () => {
     const stdout = makeWritableBuffer();
     const order: string[] = [];
     const published: ReplayableAppEvent[] = [];
-    let capturedSnapshot: UiSnapshot | undefined;
+    let capturedBootstrap:
+      | {
+          run: { runId: string; repoRoot: string; fsmFile: string };
+          currentState: unknown;
+          topology: unknown;
+          posture: Record<string, unknown>;
+          latestEventId: string | null;
+        }
+      | undefined;
 
     const startUiServerImpl = vi.fn(async (options: StartUiServerOptions) => {
       order.push('ui-server');
-      capturedSnapshot = options.eventLog.snapshot();
+      const bootstrap = options.runScoped?.service.getBootstrap({
+        getRunMeta: options.runScoped.getRunMeta,
+        topology: options.runScoped.topology,
+      });
+      expect(bootstrap?.ok).toBe(true);
+      if (bootstrap?.ok) {
+        capturedBootstrap = bootstrap.bootstrap as typeof capturedBootstrap;
+      }
       return {
         url: 'http://127.0.0.1:45678',
         close: vi.fn(async () => undefined),
@@ -1035,17 +1055,17 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(spawnAppServer).toHaveBeenCalledTimes(1);
     expect(order).toEqual(['ui-server', 'app-server']);
     expect(stdout.text()).toContain('http://127.0.0.1:45678');
-    expect(capturedSnapshot?.state.run).toMatchObject({
+    expect(capturedBootstrap?.run).toMatchObject({
       runId: expect.stringMatching(/^[0-9a-f]{6}-[0-9a-f]{6}$/),
       repoRoot,
       fsmFile: fsmPath,
     });
-    expect(capturedSnapshot?.state.currentState).toMatchObject({
+    expect(capturedBootstrap?.currentState).toMatchObject({
       path: 'greet',
       leaf: 'greet',
       kind: 'stateful',
     });
-    expect(capturedSnapshot?.state.topology).toMatchObject({
+    expect(capturedBootstrap?.topology).toMatchObject({
       machineId: 'stub',
       initial: 'greet',
       nodes: expect.arrayContaining([
@@ -1061,13 +1081,13 @@ describe('runCliForTest — pre-spawn gates', () => {
         }),
       ]),
     });
-    expect(capturedSnapshot?.state.posture).toMatchObject({
+    expect(capturedBootstrap?.posture).toMatchObject({
       isTerminal: false,
       isAwaiting: false,
       submittedThisTurn: false,
       open: false,
     });
-    expect(capturedSnapshot?.latestEventId).toBe('1');
+    expect(capturedBootstrap?.latestEventId).toBe(`${capturedBootstrap?.run.runId}:2`);
     expect(published[0]).toMatchObject({
       id: '1',
       event: {
@@ -1319,7 +1339,10 @@ describe('runCliForTest — pre-spawn gates', () => {
         connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
         startUiServerImpl: async (options) => {
           expect(options.runScoped).toBeDefined();
-          expect(options.runScoped?.topology).toBe(options.eventLog.snapshot().state.topology);
+          expect(options.eventLog).toBeUndefined();
+          expect(options.runScoped?.topology).toEqual(
+            expect.objectContaining({ machineId: 'runScopedLive' }),
+          );
           runId = options.runScoped?.activeRunId;
           uiToken = options.uiToken;
           uiHandle = await startUiServer(options);
@@ -2300,7 +2323,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     const stdout = makeWritableBuffer();
     let transport!: Transport;
     let capturedReplyHandler: StartUiServerOptions['replyHandler'];
-    let readUiSnapshot: (() => UiSnapshot) | undefined;
+    let readBootstrap: (() => unknown) | undefined;
     let activeBinding: ActiveThreadBinding | undefined;
     let readPendingOwnerYieldCount: (() => number) | undefined;
     const startupThreadId = 'thread-startup-binding';
@@ -2607,7 +2630,11 @@ describe('runCliForTest — pre-spawn gates', () => {
         connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
         startUiServerImpl: async (options) => {
           capturedReplyHandler = options.replyHandler;
-          readUiSnapshot = () => options.eventLog.snapshot();
+          readBootstrap = () =>
+            options.runScoped?.service.getBootstrap({
+              getRunMeta: options.runScoped.getRunMeta,
+              topology: {},
+            });
           return {
             url: 'http://127.0.0.1:45678',
             close: vi.fn(async () => undefined),
@@ -2701,17 +2728,22 @@ describe('runCliForTest — pre-spawn gates', () => {
       ),
     ).toBe(false);
     expect(eventEntries.every((entry) => !('kind' in entry) && !('ts' in entry))).toBe(true);
-    const snapshot = loadHeadlessSnapshotEnvelope(
-      join(repoRoot, '.aharness', 'runs', runId, 'snapshot.json'),
-    );
-    expect(snapshot.kind).toBe('ok');
-    if (snapshot.kind !== 'ok') throw new Error('snapshot did not load');
-    expect(snapshot.envelope.threadId).toBe(replacementThreadId);
-    expect(readUiSnapshot?.().state.run?.threadId).toBe(replacementThreadId);
-    expect(readUiSnapshot?.().state.diagnostics).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ threadId: startupThreadId, source: 'turnCompleted' }),
-      ]),
+    expect(existsSync(join(repoRoot, '.aharness', 'runs', runId, 'snapshot.json'))).toBe(false);
+    expect(readBootstrap?.()).toEqual(
+      expect.objectContaining({
+        ok: true,
+        bootstrap: expect.objectContaining({
+          run: expect.objectContaining({ threadId: replacementThreadId }),
+          recentRows: expect.arrayContaining([
+            expect.objectContaining({
+              kind: 'diagnostic',
+              text: expect.stringContaining(
+                'turnCompleted notification ignored for abandoned thread',
+              ),
+            }),
+          ]),
+        }),
+      }),
     );
   });
 

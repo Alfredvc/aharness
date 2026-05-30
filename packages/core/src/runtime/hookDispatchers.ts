@@ -59,6 +59,11 @@ export interface PerStateHookDispatcherInput {
     readonly matcher: string | null;
     readonly error: Error;
   }) => void;
+  /**
+   * @deprecated Legacy snapshot-era callback retained for external/test
+   * callers. Production runCli leaves this unset; canonical events in
+   * events.jsonl are the new-run replay source.
+   */
   readonly flushSnapshot?: (xstateSnapshot: unknown) => void;
   readonly ops?: AharnessOps;
   readonly writeFinalArtifacts?: (
@@ -299,6 +304,11 @@ export async function dispatchCanonicalBuiltinEvent(i: {
   readonly eventName: BuiltinHookEventName;
   readonly payload: unknown;
   readonly defaultReturn?: unknown;
+  /**
+   * @deprecated Legacy snapshot-era callback retained for external/test
+   * callers. Production runCli leaves this unset; canonical events in
+   * events.jsonl are the new-run replay source.
+   */
   readonly flushSnapshot?: (xstateSnapshot: unknown) => void;
   readonly ops?: AharnessOps;
   readonly writeFinalArtifacts?: (

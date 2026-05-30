@@ -9,7 +9,7 @@
  *
  * Covers the wiring boundary that the pure-unit `runtime.awaitResolver.test.ts`
  * does not exercise: notification-router → `dispatchRawResponseItem` →
- * await resolver → actor-host `commitAwait` → snapshot flush → drive-forward
+ * await resolver → actor-host `commitAwait` → JSONL state event → drive-forward
  * default-branch `turn/start` for the new state. The test pumps a
  * synthetic WS transport (mirrors `cli.runCli.phase1.test.ts`'s Phase 2a
  * stub) — no real codex process and no mock-model HTTP server.
@@ -19,20 +19,19 @@
  *   1. boot: thread/start → kickoff turn/start (state a's nudge) → turn/started
  *   2. await: push function_call(request_user_input) + function_call_output
  *      via `rawResponseItem/completed` notifications. The resolver fires
- *      `AWAIT__a__reply`; the host advances a→b; `onAfterTransition`
- *      flushes the post-AWAIT snapshot (test sees `value: 'b'`).
+ *      `AWAIT__a__reply`; the host advances a→b and records the state
+ *      transition in `events.jsonl`.
  *   3. drive-forward: push turn/completed for the kickoff turn → drive-
  *      forward's default branch issues a fresh turn/start carrying state
  *      b's nudge (assertion target).
  *   4. terminal submit: push `item/tool/call` for `state: 'b', exit:
  *      'done', data: {}` → dispatcher commits b→c; terminal exit code 0.
  *
- * Per plan §Task-8 the `_testOnSnapshotFlush` test seam (a new field on
- * `RunCliTestHooks`) is the only observation channel for the post-AWAIT
- * state sequence — codex's rollout file is never written because there
- * is no real codex process.
+ * The post-AWAIT state sequence is observed through canonical run events
+ * rather than `snapshot.json`; codex's rollout file is never written because
+ * there is no real codex process.
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -224,17 +223,6 @@ describe('runCliForTest — Phase 2b await-exit walk (synthetic transport)', () 
     const { handle, connect } = makeSyntheticConnectStub();
     const threadId = 'thread-await-exit';
 
-    // Capture the post-flush XState snapshot's `value` (state id for
-    // flat machines) on each `flushSnapshotFn` call. Production fires
-    // the flush after every transition: post-AWAIT__ commit (a→b) and
-    // post-`aharness_submit` commit (b→c). The kickoff turn does NOT
-    // flush — only commits do — so the sequence is exactly two entries.
-    const flushedStates: string[] = [];
-    const onSnapshotFlush = (xs: unknown): void => {
-      const v = (xs as { value?: unknown } | null)?.value;
-      if (typeof v === 'string') flushedStates.push(v);
-    };
-
     const driver = async (): Promise<void> => {
       // 1. Boot: reply to thread/start.
       await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
@@ -371,7 +359,6 @@ describe('runCliForTest — Phase 2b await-exit walk (synthetic transport)', () 
       spawnAppServer: (async () =>
         makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
       connectHeadlessWsImpl: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
-      _testOnSnapshotFlush: onSnapshotFlush,
     });
 
     await driverPromise;
@@ -379,11 +366,20 @@ describe('runCliForTest — Phase 2b await-exit walk (synthetic transport)', () 
 
     expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
 
-    // Snapshot-flush sequence: the AWAIT__ commit advances a→b (first
-    // flush from `onAfterTransition`), the following turn/completed
-    // pre-decision Phase-2c counter flush persists b again, then the
-    // submit b→c flushes from `dispatchSubmit` post-commit.
-    expect(flushedStates).toEqual(['b', 'b', 'c']);
+    const runId = readdirSync(join(repoRoot, '.aharness', 'runs'))[0];
+    if (!runId) throw new Error('missing run dir');
+    const runRoot = join(repoRoot, '.aharness', 'runs', runId);
+    expect(existsSync(join(runRoot, 'snapshot.json'))).toBe(false);
+    const eventEntries = readFileSync(join(runRoot, 'events.jsonl'), 'utf8')
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as { type?: string; data?: Record<string, unknown> });
+    expect(
+      eventEntries
+        .filter((entry) => entry.type === 'state.changed')
+        .map((entry) => entry.data?.['to']),
+    ).toEqual(['a', 'b', 'c']);
 
     // The post-AWAIT__ default-branch turn/start carries state b's
     // composed nudge — same `[aharness] Now in state "b"` marker the

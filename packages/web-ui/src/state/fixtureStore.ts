@@ -2,12 +2,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createEngine, type Engine } from '../fixtures/engine.js';
 import { readFixtureIdFromLocation, resolveFixture, type Fixture } from '../fixtures/registry.js';
 import {
-  applyAppEvent,
   createConnectingUiState,
   type ReplyPayload,
   type UiActions,
   type UiState,
 } from './store.js';
+import { applyAppEvent } from './legacyFlatEvents.js';
 
 function buildFixtureInitial(fixture: Fixture): UiState {
   return {

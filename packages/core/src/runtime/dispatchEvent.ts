@@ -12,6 +12,12 @@ import type { ActorHost } from './actorHost.js';
 
 export interface CreateEventDispatcherOpts {
   readonly host: ActorHost;
+  /**
+   * @deprecated Legacy snapshot-era callback retained for external/test
+   * callers. Production runCli does not use this dispatcher path for
+   * new-run UI/history/replay; canonical events in events.jsonl are the
+   * replay source.
+   */
   readonly flushSnapshot: (xstateSnapshot: unknown) => void;
   readonly ops?: AharnessOps;
   readonly onCanonicalEventError?: (info: CanonicalEventErrorInfo) => void;

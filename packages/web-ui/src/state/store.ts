@@ -1,6 +1,6 @@
-// Reducer + custom hook consuming production AppEvents. Produces UI state with
-// filter rules that hide internal aharness noise (reserved tools, framework
-// orientation) by default.
+// Reducer + custom hook consuming run-scoped JSONL bootstrap, row pages, and
+// live run events. Produces UI state with filter rules that hide internal
+// aharness noise (reserved tools, framework orientation) by default.
 
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import {
@@ -13,7 +13,6 @@ import {
   subscribeToEvents,
 } from '../api/client.js';
 import type {
-  AppEvent,
   FsmState,
   Posture,
   RunMeta,
@@ -23,7 +22,6 @@ import type {
   PermissionApproval,
   ElicitationRequest,
   AbandonedThreadDiagnostic,
-  UiSnapshot,
   UiMode,
   RunScopedAggregateStats,
   RunScopedApiEvent,
@@ -406,104 +404,6 @@ export function hydrateFromBootstrap(bootstrap: RunScopedBootstrap): UiState {
   };
 }
 
-// Legacy compatibility helper retained for flat /api/state fixtures and tests.
-export function hydrateFromSnapshot(snapshot: UiSnapshot): UiState {
-  const activeVisitId = snapshot.state.currentState
-    ? visitIdOf(snapshot.state.currentState.path, snapshot.state.currentState.visitCount)
-    : null;
-  const stateVisitId = activeVisitId ?? '__boot';
-  const mode = snapshot.state.mode ?? 'run';
-  return {
-    mode,
-    run: snapshot.state.run,
-    latestEventId: snapshot.latestEventId,
-    posture: snapshot.state.posture,
-    activeTurnId: snapshot.state.activeTurn?.turnId ?? null,
-    state: snapshot.state.currentState,
-    topology: snapshot.state.topology ?? EMPTY_TOPOLOGY,
-    transcript: [
-      ...snapshot.state.transcript.map(
-        (entry): TranscriptItem => ({
-          id: entry.id,
-          type: entry.reasoning ? 'reasoning' : 'agent_message',
-          text: entry.text,
-          streaming: false,
-          stateVisitId,
-        }),
-      ),
-      ...snapshot.state.frameworkNotes.map(
-        (note): TranscriptItem => ({
-          id: note.id,
-          type: 'framework_note',
-          text: note.text,
-          variant: note.variant,
-          stateVisitId,
-        }),
-      ),
-    ],
-    pending: {
-      ...emptyPending(),
-      ownerInput: snapshot.state.pending?.ownerInput ?? null,
-      fileApprovals: snapshot.state.pending?.fileApprovals ?? [],
-      cmdApprovals: snapshot.state.pending?.cmdApprovals ?? [],
-      permissionApprovals: snapshot.state.pending?.permissionApprovals ?? [],
-      elicitations: snapshot.state.pending?.elicitations ?? [],
-    },
-    diagnostics: snapshot.state.diagnostics ?? [],
-    stateVisits: snapshot.state.currentState
-      ? [
-          {
-            id: stateVisitId,
-            path: snapshot.state.currentState.path,
-            seq: 0,
-            time: '',
-            from: null,
-            to: snapshot.state.currentState.path,
-            cause: 'boot',
-          },
-        ]
-      : [],
-    statePathVisits: snapshot.state.currentState
-      ? { [snapshot.state.currentState.path]: [stateVisitId] }
-      : {},
-    rowPageCursors: {},
-    rowLoadStatus: {},
-    aggregateStats: {
-      turnCount: snapshot.state.completedTurns.length,
-      ...(snapshot.state.activeTurn?.turnId === undefined
-        ? {}
-        : { activeTurnId: snapshot.state.activeTurn.turnId }),
-    },
-    history: snapshot.state.currentState
-      ? [
-          {
-            at: 0,
-            from: null,
-            to: snapshot.state.currentState.path,
-            cause: 'boot',
-            visitId: stateVisitId,
-          },
-        ]
-      : [],
-    turns: snapshot.state.completedTurns.map((turn) => ({
-      turnId: turn.turnId,
-      finishReason: turn.finishReason,
-      endedAt: 0,
-      stateVisitId,
-    })),
-    connection: 'live',
-    replyError: null,
-    rowLoadError: null,
-    activeVisitId,
-    scopedPath: null,
-    devMode: mode === 'inspect',
-  };
-}
-
-export function applyAppEvent(state: UiState, event: AppEvent): UiState {
-  return reduceEvent(state, event);
-}
-
 export function applyRunEvent(state: UiState, event: RunScopedApiEvent): UiState {
   return reduceRunEvent(state, event);
 }
@@ -522,10 +422,8 @@ export function markConnectionLost(state: UiState): UiState {
 }
 
 type Action =
-  | { type: 'event'; e: AppEvent }
   | { type: 'runEvent'; e: RunScopedApiEvent }
   | { type: 'hydrate'; bootstrap: RunScopedBootstrap }
-  | { type: 'legacyHydrate'; snapshot: UiSnapshot }
   | { type: 'connectionLost' }
   | { type: 'replyFailed'; error: string }
   | { type: 'resolveApproval'; id: string }
@@ -537,10 +435,6 @@ type Action =
   | { type: 'rowLoadFailed'; visitId: string; error: string }
   | { type: 'toggleDevMode' }
   | { type: 'setScope'; path: string | null };
-
-function visitIdOf(path: string, visit: number): string {
-  return `${path}#${visit}`;
-}
 
 function looksLikeFrameworkOrientation(text: string): boolean {
   // Heuristic: synthesised state-entry orientation from turn/start.input
@@ -1387,9 +1281,6 @@ function reducer(s: UiState, a: Action): UiState {
   if (a.type === 'hydrate') {
     return hydrateFromBootstrap(a.bootstrap);
   }
-  if (a.type === 'legacyHydrate') {
-    return hydrateFromSnapshot(a.snapshot);
-  }
   if (a.type === 'connectionLost') {
     return markConnectionLost(s);
   }
@@ -1481,256 +1372,7 @@ function reducer(s: UiState, a: Action): UiState {
   if (a.type === 'runEvent') {
     return reduceRunEvent(s, a.e);
   }
-  return applyAppEvent(s, a.e);
-}
-
-function reduceEvent(previous: UiState, e: AppEvent): UiState {
-  const s =
-    previous.connection === 'live' ? previous : { ...previous, connection: 'live' as const };
-  const vid = s.activeVisitId ?? '__boot';
-  switch (e.kind) {
-    case 'AgentMessageDelta': {
-      const t = [...s.transcript];
-      const idx = t.findIndex((i) => i.id === e.id);
-      const prev = idx >= 0 ? t[idx] : undefined;
-      if (prev?.type === 'agent_message' || prev?.type === 'reasoning') {
-        t[idx] = { ...prev, text: prev.text + e.delta, streaming: true };
-      } else if (!prev) {
-        t.push({
-          id: e.id,
-          type: e.reasoning ? 'reasoning' : 'agent_message',
-          text: e.delta,
-          streaming: true,
-          stateVisitId: vid,
-        });
-      }
-      return { ...s, transcript: t };
-    }
-    case 'TurnStarted': {
-      return { ...s, activeTurnId: e.turnId };
-    }
-    case 'ItemStarted': {
-      // Idempotent: if an item with this id is already present, skip.
-      if (s.transcript.some((i) => i.id === e.id)) return s;
-      const t = [...s.transcript];
-      if (e.type === 'agent_message') {
-        t.push({
-          id: e.id,
-          type: 'agent_message',
-          text: e.text,
-          streaming: true,
-          stateVisitId: vid,
-        });
-      } else if (e.type === 'reasoning') {
-        t.push({
-          id: e.id,
-          type: 'reasoning',
-          text: e.text,
-          streaming: true,
-          stateVisitId: vid,
-        });
-      } else if (e.type === 'user_message') {
-        const synthetic = looksLikeFrameworkOrientation(e.text);
-        t.push({
-          id: e.id,
-          type: 'user_message',
-          text: e.text,
-          synthetic,
-          stateVisitId: vid,
-        });
-      } else if (e.type === 'function_call') {
-        t.push({
-          id: e.id,
-          type: 'tool_call',
-          name: e.name,
-          preview: e.arguments,
-          status: 'pending',
-          reserved: isReservedToolName(e.name),
-          stateVisitId: vid,
-        });
-      } else if (e.type === 'function_call_output') {
-        const callIdx = t.findIndex(
-          (i) => i.type === 'tool_call' && i.name === e.name && i.status === 'pending',
-        );
-        if (callIdx >= 0) {
-          const prev = t[callIdx] as Extract<TranscriptItem, { type: 'tool_call' }>;
-          t[callIdx] = { ...prev, status: e.ok ? 'completed' : 'failed' };
-        }
-        t.push({
-          id: e.id,
-          type: 'tool_result',
-          name: e.name,
-          output: e.output,
-          ok: e.ok,
-          reserved: isReservedToolName(e.name),
-          stateVisitId: vid,
-        });
-      }
-      return { ...s, transcript: t };
-    }
-    case 'ServerRequest': {
-      if (e.method === 'item/fileChange/requestApproval') {
-        if (s.pending.fileApprovals.some((r) => r.id === e.id)) return s;
-        return {
-          ...s,
-          pending: { ...s.pending, fileApprovals: [...s.pending.fileApprovals, e] },
-        };
-      }
-      if (e.method === 'item/commandExecution/requestApproval') {
-        if (s.pending.cmdApprovals.some((r) => r.id === e.id)) return s;
-        return {
-          ...s,
-          pending: { ...s.pending, cmdApprovals: [...s.pending.cmdApprovals, e] },
-        };
-      }
-      if (e.method === 'item/tool/requestUserInput') {
-        if (s.pending.ownerInput?.id === e.id) return s;
-        return {
-          ...s,
-          pending: { ...s.pending, ownerInput: e },
-          posture: { ...s.posture, isAwaiting: true },
-        };
-      }
-      if (e.method === 'item/permissions/requestApproval') {
-        if (s.pending.permissionApprovals.some((r) => r.id === e.id)) return s;
-        return {
-          ...s,
-          pending: {
-            ...s.pending,
-            permissionApprovals: [...s.pending.permissionApprovals, e],
-          },
-        };
-      }
-      if (e.method === 'mcpServer/elicitation/request') {
-        if (s.pending.elicitations.some((r) => r.id === e.id)) return s;
-        return {
-          ...s,
-          pending: { ...s.pending, elicitations: [...s.pending.elicitations, e] },
-        };
-      }
-      return s;
-    }
-    case 'OwnerInputResolved': {
-      if (s.pending.ownerInput?.id !== e.id) return s;
-      return {
-        ...s,
-        pending: { ...s.pending, ownerInput: null },
-        posture: { ...s.posture, isAwaiting: false },
-      };
-    }
-    case 'FileApprovalUpdated': {
-      return {
-        ...s,
-        pending: {
-          ...s.pending,
-          fileApprovals: s.pending.fileApprovals.map((r) =>
-            r.id === e.id ? { ...r, changes: e.changes } : r,
-          ),
-        },
-      };
-    }
-    case 'ApprovalRequestResolved': {
-      return {
-        ...s,
-        pending: {
-          ...s.pending,
-          fileApprovals: s.pending.fileApprovals.filter((r) => r.id !== e.id),
-          cmdApprovals: s.pending.cmdApprovals.filter((r) => r.id !== e.id),
-          permissionApprovals: s.pending.permissionApprovals.filter((r) => r.id !== e.id),
-          elicitations: s.pending.elicitations.filter((r) => r.id !== e.id),
-        },
-      };
-    }
-    case 'TurnCompleted': {
-      const t = s.transcript.map((i) =>
-        i.type === 'agent_message' || i.type === 'reasoning' ? { ...i, streaming: false } : i,
-      );
-      return {
-        ...s,
-        turns: [
-          ...s.turns,
-          {
-            turnId: e.turnId,
-            finishReason: e.finishReason,
-            endedAt: Date.now(),
-            stateVisitId: vid,
-          },
-        ],
-        transcript: t,
-        activeTurnId: null,
-        posture: { ...s.posture, submittedThisTurn: false },
-      };
-    }
-    case 'StateChange': {
-      const nextVid = visitIdOf(e.newState.path, e.newState.visitCount);
-      const note: TranscriptItem = {
-        id: `state-${e.to}-${Date.now()}`,
-        type: 'state_change',
-        from: e.from,
-        to: e.to,
-        cause: e.cause,
-        stateVisitId: nextVid,
-      };
-      return {
-        ...s,
-        state: e.newState,
-        activeVisitId: nextVid,
-        scopedPath: null, // un-pin scope on transition; follow active
-        transcript: [...s.transcript, note],
-        history: [
-          ...s.history,
-          { at: Date.now(), from: e.from, to: e.to, cause: e.cause, visitId: nextVid },
-        ],
-        posture: {
-          ...s.posture,
-          isAwaiting: Boolean(e.newState.awaitsOwnerText),
-          isTerminal: e.newState.kind === 'terminal',
-        },
-      };
-    }
-    case 'PostureChange': {
-      return { ...s, posture: { ...s.posture, ...e.posture } };
-    }
-    case 'ResyncRequired': {
-      return s;
-    }
-    case 'FreshClearBoundary': {
-      return {
-        ...s,
-        run: s.run ? { ...s.run, threadId: e.nextThreadId } : s.run,
-        pending: emptyPending(),
-        turns: [],
-        transcript: [
-          {
-            id: e.id,
-            type: 'fresh_clear_boundary',
-            reason: e.reason,
-            previousThreadId: e.previousThreadId,
-            nextThreadId: e.nextThreadId,
-            statePath: e.statePath,
-            stateVisitId: vid,
-          },
-        ],
-        activeTurnId: null,
-        posture: { ...s.posture, isAwaiting: false, submittedThisTurn: false },
-      };
-    }
-    case 'AbandonedThreadDiagnostic': {
-      return { ...s, diagnostics: [...s.diagnostics, e].slice(-DIAGNOSTIC_LIMIT) };
-    }
-    case 'FrameworkNote': {
-      const note: TranscriptItem = {
-        id: e.id,
-        type: 'framework_note',
-        text: e.text,
-        variant: e.variant,
-        stateVisitId: vid,
-      };
-      return { ...s, transcript: [...s.transcript, note] };
-    }
-    default:
-      return s;
-  }
+  return s;
 }
 
 export type UiActions = {

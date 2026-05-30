@@ -126,7 +126,6 @@ import { PHASE1_OPT_OUT_METHODS } from '../runtime/optOutNotificationMethods.js'
 import { performFreshClear } from '../runtime/freshClear.js';
 import { resolveClearOnEntryOptions } from '../runtime/clearOnEntryCwd.js';
 import { preflightClearOnEntryModel } from '../runtime/clearOnEntryModelPreflight.js';
-import { flushHeadlessSnapshotEnvelope } from '../runtime/snapshotEnvelope.js';
 import { discoverDeclaredHookKinds } from '../state/discoverHooks.js';
 import {
   payloadWithCanonicalCommit,
@@ -269,16 +268,6 @@ export interface RunCliTestHooks {
    * request is actually parked. Production callers leave this unset.
    */
   readonly _testReadPendingOwnerYieldCount?: (read: () => number) => void;
-  /**
-   * Test seam: when set, the wrapper around `flushHeadlessSnapshotEnvelope`
-   * (the per-transition snapshot flush fed to the submit dispatcher
-   * AND the await resolver's `onAfterTransition`) invokes this
-   * callback with the current xstate snapshot AFTER the production
-   * flush completes. The "await-exit walk" integration test reads
-   * `(xstate as {value: string}).value` to assemble the post-AWAIT__
-   * state sequence. Production callers leave this unset.
-   */
-  readonly _testOnSnapshotFlush?: (xstate: unknown) => void;
 }
 
 export type RunCliForTestOpts = RunCliOpts & RunCliTestHooks;
@@ -303,9 +292,8 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     return { exitCode: 2 };
   }
 
-  // 3. Resolve runDir. Every invocation mints a fresh `runId` so prior
-  //    snapshots remain inspectable artifacts but are never consumed as
-  //    startup continuation state.
+  // 3. Resolve runDir. Every invocation mints a fresh `runId`; new-run
+  //    UI/history/replay state is reconstructed from events.jsonl.
   const fsmAbs = resolve(o.cwd, o.fsmPath);
   const repoRoot = o.cwd;
   const runId = deriveRunId(fsmAbs);
@@ -533,19 +521,6 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   // the active-thread binding initialized after thread/start resolves.
   // oxlint-disable-next-line prefer-const
   let client: JsonRpcClient | undefined;
-  const flushSnapshotFn = (xstate: unknown): void => {
-    flushHeadlessSnapshotEnvelope(finalRunDir.snapshotPath, {
-      xstate,
-      aharnessSubmitToolName: 'aharness_submit',
-      threadId: activeThreadBinding.require(),
-    });
-    // Test seam: pin the post-AWAIT__ + post-submit state sequence
-    // for integration tests that walk the snapshot history. Fires
-    // AFTER the production flush completes so the observer sees the
-    // state that is durable on disk.
-    o._testOnSnapshotFlush?.(xstate);
-  };
-
   let terminalResolve!: (v: { readonly exitCode?: number } | null) => void;
   const terminalPromise = new Promise<{ readonly exitCode?: number } | null>((res) => {
     terminalResolve = res;
@@ -598,7 +573,6 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
 
   const permissionRequestDispatch = createPermissionRequestDispatcher({
     host,
-    flushSnapshot: (snapshot) => flushSnapshotFn(snapshot),
     ops: opsHandle.ops,
     writeFinalArtifacts: (terminalStateId, context) =>
       writeActiveFinalArtifacts(terminalStateId, context),
@@ -747,7 +721,6 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       host: '127.0.0.1',
       port: 0,
       uiToken,
-      eventLog: uiEventLog,
       replyHandler: (payload) => browserReplyController.handleReply(payload),
       runScoped: {
         activeRunId: finalRunDir.runId,
@@ -947,7 +920,6 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     host,
     machine,
     sidecar,
-    flushSnapshot: flushSnapshotFn,
     onTerminal: (_terminalStateId, meta) => signalTerminalCompletion(meta),
     onTransition: (info) => {
       o.stdout.write(`\n[transition] ${info.from} --${info.exit}--> ${info.to}\n`);
@@ -1048,9 +1020,8 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   // through the resolver. The resolver's `commitAwait` is bound to a
   // pure `host.commitAwait(...)` call — post-commit side-effects ride
   // `onAfterTransition` so future callers of `commitAwait` inherit the
-  // bare-commit semantics for free. The snapshot
-  // flush in `onAfterTransition` keeps R6 atomicity symmetric with
-  // `dispatchSubmit`'s post-commit flush.
+  // bare-commit semantics for free. JSONL state-change events are the
+  // persisted replay evidence for the await transition.
   const awaitResolver = createAwaitResolver({
     currentStateId: () => host.currentStateId(),
     currentAwaitExitName: () => currentAwaitExitName(host),
@@ -1123,7 +1094,6 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       publishOpenPosture();
     },
     onAfterTransition: async (info) => {
-      flushSnapshotFn(host.snapshot());
       await runActiveOnEntry();
       scheduleFreshClearAfterTransition(info);
     },
@@ -1265,7 +1235,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         // (jsonrpc/client.ts:188 calls the handler synchronously and
         // ignores its return value). The `void ... .catch(...)` wrapper
         // routes any rejection from inside the resolver's awaited path
-        // (commitAwait throw, flushSnapshotFn disk error, ...) to stderr
+        // (commitAwait throw, post-transition hook failure, ...) to stderr
         // instead of leaking as an unhandled rejection.
         c.onNotification(METHOD.rawResponseItemCompleted, (params: unknown) => {
           if (!isLiveThreadParams(params)) {
@@ -1368,7 +1338,6 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
           declaredHookKinds,
           host,
           activeThreadBinding,
-          flushSnapshot: flushSnapshotFn,
           ops: opsHandle.ops,
           serializeDispatch,
           writeFinalArtifacts: writeActiveFinalArtifacts,
@@ -1409,9 +1378,6 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     submittedThisTurn: () => submittedThisTurnFlag,
     isAwaiting,
     isOpen: () => isOpenState(host),
-    onTurnCompletedBeforeDecision: () => {
-      flushSnapshotFn(host.snapshot());
-    },
   });
   const driveForwardHandle = driveForward;
   const router = startNotificationRouter({
@@ -2311,7 +2277,6 @@ function createHookDispatchers(i: {
   readonly declaredHookKinds: ReadonlyArray<HookKind>;
   readonly host: ActorHost;
   readonly activeThreadBinding: ActiveThreadBinding;
-  readonly flushSnapshot: (xstateSnapshot: unknown) => void;
   readonly ops: AharnessOps;
   readonly serializeDispatch: <T>(fn: () => Promise<T>) => Promise<T>;
   readonly writeFinalArtifacts?: (
@@ -2346,7 +2311,6 @@ function createHookDispatchers(i: {
             kind: 'PreToolUse',
             host: i.host,
             activeThreadBinding: i.activeThreadBinding,
-            flushSnapshot: i.flushSnapshot,
             ops: i.ops,
             ...(i.writeFinalArtifacts !== undefined
               ? { writeFinalArtifacts: i.writeFinalArtifacts }
@@ -2372,7 +2336,6 @@ function createHookDispatchers(i: {
             kind: 'PostToolUse',
             host: i.host,
             activeThreadBinding: i.activeThreadBinding,
-            flushSnapshot: i.flushSnapshot,
             ops: i.ops,
             ...(i.writeFinalArtifacts !== undefined
               ? { writeFinalArtifacts: i.writeFinalArtifacts }
@@ -2398,7 +2361,6 @@ function createHookDispatchers(i: {
             kind: 'UserPromptSubmit',
             host: i.host,
             activeThreadBinding: i.activeThreadBinding,
-            flushSnapshot: i.flushSnapshot,
             ops: i.ops,
             ...(i.writeFinalArtifacts !== undefined
               ? { writeFinalArtifacts: i.writeFinalArtifacts }

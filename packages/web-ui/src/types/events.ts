@@ -1,7 +1,7 @@
 // Local mirrors of the browser-facing aharness contracts. Run-scoped JSONL
 // bootstrap, row, event, and resync shapes are the production data contract;
-// legacy flat AppEvent/UiSnapshot shapes remain below for compatibility tests
-// and fixtures until the later route cleanup.
+// legacy flat AppEvent/UiSnapshot shapes remain below only for fixture/demo
+// and compatibility-test helpers outside the production import path.
 import type { Topology } from './topology.js';
 
 export type RunMeta = {
@@ -467,8 +467,8 @@ export type FrameworkNote = {
   variant: 'info' | 'warn' | 'orientation';
 };
 
-// Legacy web-ui compatibility event union for flat /api/stream fixtures and
-// compatibility helpers. The production browser contract is run-scoped JSONL.
+// Legacy web-ui compatibility event union for fixture/demo and compatibility
+// helpers. The production browser contract is run-scoped JSONL.
 export type AppEvent =
   | AgentMessageDelta
   | TurnStarted
@@ -515,8 +515,8 @@ export type UiAppState = {
   };
 };
 
-// Legacy web-ui compatibility snapshot for flat /api/state fixtures and
-// compatibility helpers. Run-scoped bootstrap is the production boot contract.
+// Legacy web-ui compatibility snapshot for fixture/demo and compatibility
+// helpers. Run-scoped bootstrap is the production boot contract.
 export type UiSnapshot = {
   latestEventId: string | null;
   state: UiAppState;

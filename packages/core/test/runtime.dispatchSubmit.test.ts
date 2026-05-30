@@ -4,17 +4,18 @@
  *
  * Phase-1 scope (plan `2026-05-12-headless-phase-1a-transport-backbone.md`,
  * Task 9):
- *   - self-loop success → reply terse `'ok'`, snapshot flushed BEFORE
- *     reply, transition logged.
+ *   - self-loop success → reply terse `'ok'`, legacy flush hook runs
+ *     BEFORE reply when provided, transition logged.
  *   - terminal success → reply `Run complete. Terminal: success.`,
- *     `onTerminal` fired, snapshot flushed.
+ *     `onTerminal` fired, legacy flush hook runs when provided.
  *   - off-state / off-exit / schema-fail → `success: false` reply, actor
  *     not mutated.
  *
  * Phase-2a scope (plan `2026-05-12-headless-phase-2a-cross-state.md`,
  * Task 3):
- *   - cross-state submits commit + flush + log + compose nudge + invoke
- *     `scheduleCrossStateDance`, then reply terse `'ok'`.
+ *   - cross-state submits commit + optional legacy flush hook + log +
+ *     compose nudge + invoke `scheduleCrossStateDance`, then reply terse
+ *     `'ok'`.
  *   - `composeActiveStateNudge` runs AFTER commit so the live host is
  *     at the new leaf.
  *   - missing `composeActiveStateNudge` opt → throws
@@ -661,7 +662,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
 
   // ─── self-loop happy path ────────────────────────────────────────────
 
-  it('self-loop success → reply terse "ok"; snapshot flushed BEFORE reply; transition logged', async () => {
+  it('self-loop success → reply terse "ok"; legacy flush hook runs BEFORE reply; transition logged', async () => {
     const { host, machine } = makeSelfLoopHost();
     const events: string[] = [];
     const flush = vi.fn(() => {
@@ -684,7 +685,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
     expect(r.success).toBe(true);
     expect(r.contentItems).toEqual([{ type: 'inputText', text: 'ok' }]);
     expect(host.currentStateId()).toBe('a');
-    // R6: flush happens BEFORE the reply.
+    // Legacy compatibility: the optional flush hook runs BEFORE the reply.
     expect(events[0]).toBe('flush');
     expect(events).toContain('dispatch-resolved');
     expect(events.indexOf('flush')).toBeLessThan(events.indexOf('dispatch-resolved'));
@@ -696,7 +697,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
 
   // ─── terminal happy path ─────────────────────────────────────────────
 
-  it('terminal success → reply "Run complete. Terminal: success."; onTerminal fires; snapshot flushed', async () => {
+  it('terminal success → reply "Run complete. Terminal: success."; onTerminal fires; legacy flush hook runs', async () => {
     const { host, machine } = makeSelfTerminalHost();
     const flush = vi.fn();
     const onTerminal = vi.fn();
@@ -1023,15 +1024,14 @@ describe('createSubmitDispatcher — Phase 1', () => {
     expect(host.currentStateId()).toBe('b');
   });
 
-  it('cross-state submit commits and flushes BEFORE invoking composeActiveStateNudge and scheduleCrossStateDance', async () => {
+  it('cross-state submit commits before legacy flush hook, composeActiveStateNudge, and scheduleCrossStateDance', async () => {
     const machine = buildCrossStateMachine();
     const host = new ActorHost(machine, undefined);
     host.start();
     const events: string[] = [];
     // Observing the live host inside each callback proves that commit
-    // already ran before flush (the snapshot reflects the post-commit
-    // leaf), before compose (the compose-time read sees the new leaf),
-    // and before schedule.
+    // already ran before the legacy flush hook, before compose (the
+    // compose-time read sees the new leaf), and before schedule.
     const flush = vi.fn(() => {
       events.push(`flush:${host.currentStateId()}`);
     });
@@ -1330,13 +1330,13 @@ describe('createSubmitDispatcher — Phase 1', () => {
     ).rejects.toThrow(/crossStateDance not wired/);
   });
 
-  it('cross-state submit where composeActiveStateNudge throws → reply "ok", dance scheduled with fallback nudge, snapshot already flushed', async () => {
+  it('cross-state submit where composeActiveStateNudge throws → reply "ok", dance scheduled with fallback nudge, legacy flush hook already ran', async () => {
     // F2 defense-in-depth (plan `2026-05-13-headless-phase-2a-followups.md`
-    // Task 3): a throw between flush and reply would violate R6
-    // (snapshot durable but model sees error envelope). The dispatcher
-    // wraps `composeActiveStateNudge()` so the throw becomes a fallback
-    // nudge string; the cross-state path still reaches the dance and
-    // still replies `'ok'`.
+    // Task 3): a throw between commit and reply would violate the
+    // dispatcher success contract. The dispatcher wraps
+    // `composeActiveStateNudge()` so the throw becomes a fallback nudge
+    // string; the cross-state path still reaches the dance and still
+    // replies `'ok'`.
     const machine = buildCrossStateMachine();
     const host = new ActorHost(machine, undefined);
     host.start();
@@ -1357,8 +1357,9 @@ describe('createSubmitDispatcher — Phase 1', () => {
     // (1) reply is the same `'ok'` text the success path produces.
     expect(r.success).toBe(true);
     expect(r.contentItems).toEqual([{ type: 'inputText', text: 'ok' }]);
-    // (2) snapshot already flushed (R6 atomicity preserved — the flush
-    // ran BEFORE compose, so it's durable regardless of the throw).
+    // (2) legacy flush hook already ran; it fires BEFORE compose, so
+    // external legacy observers see post-commit state regardless of the
+    // throw.
     expect(flush).toHaveBeenCalledTimes(1);
     // (3) dance invoked exactly once with fallback orientation text
     // matching the documented shape.
@@ -1435,7 +1436,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
     await dispatch(call(JSON.stringify({ state: 'a', exit: 'next', data: {} })));
     // commit ran and the actor advanced to the awaitsOwnerText leaf.
     expect(host.currentStateId()).toBe('b');
-    // R6: snapshot was flushed before the dance was scheduled.
+    // Legacy compatibility: the flush hook ran before the dance was scheduled.
     expect(flush).toHaveBeenCalledTimes(1);
     // composeActiveStateNudge invoked exactly once (post-commit).
     expect(composeActiveStateNudge).toHaveBeenCalledTimes(1);
@@ -1482,7 +1483,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
 
   // ─── passive submit target ───────────────────────────────────────────
 
-  it('rejects submit whose target is a passive state; actor not mutated; snapshot not flushed', async () => {
+  it('rejects submit whose target is a passive state; actor not mutated; legacy flush hook not called', async () => {
     const machine = buildPassiveTargetMachine();
     const host = new ActorHost(machine, undefined);
     host.start();
@@ -1508,8 +1509,8 @@ describe('createSubmitDispatcher — Phase 1', () => {
     expect(text).toContain("'a'");
     expect(text).toMatch(/passive/i);
     expect(text).toMatch(/submit/i);
-    // R6: no commit, no snapshot flush, no transition log, no terminal
-    // signal. The actor remains on state `a`.
+    // No commit, no legacy flush hook, no transition log, no terminal signal.
+    // The actor remains on state `a`.
     expect(commitSpy).not.toHaveBeenCalled();
     expect(flush).not.toHaveBeenCalled();
     expect(onTransition).not.toHaveBeenCalled();

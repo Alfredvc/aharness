@@ -189,7 +189,7 @@ describe('createPerStateHookDispatcher — PreToolUse deny aggregation', () => {
 });
 
 describe('createPerStateHookDispatcher — canonical built-in hook events', () => {
-  it('dispatches preToolUse through the selected canonical transition and returns after snapshot flush', async () => {
+  it('dispatches preToolUse through the selected canonical transition and returns after the legacy flush hook', async () => {
     const events: string[] = [];
     const host = buildCanonicalHookHost({
       preToolUse: {
@@ -232,7 +232,7 @@ describe('createPerStateHookDispatcher — canonical built-in hook events', () =
     expect(events).toEqual(['reduce:1', 'flush:1', 'return:1:Bash']);
   });
 
-  it('reports committed canonical hook transitions after snapshot flush', async () => {
+  it('reports committed canonical hook transitions after the legacy flush hook', async () => {
     const events: string[] = [];
     const fsm = createFsm<CanonicalHookCtx>();
     const machine = fsm.machine({

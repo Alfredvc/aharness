@@ -1,12 +1,12 @@
 /**
- * Snapshot load — `@aharness/core` §4.7 + state-posture spec §7.
+ * Legacy snapshot load helper.
  *
  * `loadSnapshot(runDir)` reads and parses `<runDir>/snapshot.json`,
  * returning `{ xstate, injectedSkills }` or `null` if the file does not
- * exist. Runtime startup does not call this helper; snapshots are kept
- * as per-run inspection data.
+ * exist. Runtime startup and UI/history/replay do not call this helper
+ * for new runs; `events.jsonl` is the source of truth.
  *
- * The write side lives in `daemon/snapshotFlush.ts:flushSnapshot`
+ * The legacy write side lives in `runtime/snapshotFlush.ts:flushSnapshot`
  * (tmp + fsync + rename, synchronous). On-disk envelope shape:
  *   `{ xstate: <persistedSnapshot>, injectedSkills?: string[] }`
  *

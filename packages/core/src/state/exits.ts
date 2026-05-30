@@ -307,9 +307,9 @@ export interface AwaitsOwnerTextDecl<TContext extends MachineContext = MachineCo
  * (`clearOnEntry`), not an imperative operation.
  *
  * Fires from two paths: submit-driven transitions (`dispatchSubmit`,
- * after commit + first snapshot flush) and await-resolution / first-
- * state-boot (`onStateEntry`). Resume-from-snapshot does NOT re-fire
- * `onEntry` — only fresh state entries trigger it.
+ * after commit and post-transition bookkeeping) and await-resolution /
+ * first-state-boot (`onStateEntry`). Legacy snapshot inspection does NOT
+ * re-fire `onEntry` — only fresh state entries trigger it.
  */
 export type OnEntryFn<TContext = unknown> = (
   ctx: Readonly<TContext>,
@@ -821,7 +821,7 @@ export function passive(opts: PassiveOptions = {}): {
 
 /**
  * Terminal (final) state. `outcome` is a strict union — closed set so
- * downstream snapshot/run-log consumers stay statically exhaustive.
+ * downstream run-log consumers stay statically exhaustive.
  * Authors needing more nuance encode it in the leading-up state's exit
  * data, not the terminal kind.
  *

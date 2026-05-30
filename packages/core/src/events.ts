@@ -8,8 +8,8 @@
  * most kernels still serialize append-mode writes, but this is filesystem-
  * dependent). Readers should tolerate truncated tails. The writer does
  * not fsync; lost trailing entries on hard crash are acceptable for an
- * append-only transcript. `snapshot.json` remains written for current
- * inspection state in this slice.
+ * append-only transcript. New-run UI/history/replay rebuilds from
+ * canonical JSONL, not `snapshot.json`.
  *
  * `appendEventEntry` keeps the legacy public input union callable while
  * mapping every input to a canonical envelope before it lands on disk:
@@ -26,9 +26,7 @@
  *                     UTF-8) are written.
  *   - `transition`  — reserved variant; no @aharness/core caller currently
  *                     emits it. (The CC-era inspector-driven persister
- *                     was the only emitter; @aharness/core's daemon writes
- *                     snapshots via `flushSnapshot` without an
- *                     inspector hook.)
+ *                     was the only emitter.)
  *   - `artifact`    — emitted by `writeArtifact` as `artifact.written`.
  *   - `terminal`    — compatibility input for terminal completion; the
  *                     live runtime path writes terminal/run completion

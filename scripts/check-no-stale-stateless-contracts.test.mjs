@@ -19,6 +19,7 @@ const requiredFiles = [
   'CLAUDE.md',
   'docs/architecture.md',
   'docs/reference.md',
+  'docs/troubleshooting.md',
   'examples/DEMOS.md',
   'packages/core/README.md',
   'packages/core/scripts/browserGoldenServer.mjs',
@@ -145,6 +146,28 @@ describe('check-no-stale-stateless-contracts', () => {
     expect(code).toBe(1);
     expect(stderr).toContain('framework-recovery-promise');
     expect(stderr).toContain('events.ts');
+  });
+
+  it('rejects snapshot.json as the current inspection source', async () => {
+    const root = makeCleanRepo();
+    write(root, 'docs/troubleshooting.md', 'The current inspection state is snapshot.json.\n');
+
+    const { code, stderr } = await runScript(root);
+
+    expect(code).toBe(1);
+    expect(stderr).toContain('snapshot-current-source');
+    expect(stderr).toContain('docs/troubleshooting.md');
+  });
+
+  it('rejects flat browser routes as a current served contract', async () => {
+    const root = makeCleanRepo();
+    write(root, 'docs/reference.md', 'The /api/state route remains served for browser state.\n');
+
+    const { code, stderr } = await runScript(root);
+
+    expect(code).toBe(1);
+    expect(stderr).toContain('flat-browser-routes-current');
+    expect(stderr).toContain('docs/reference.md');
   });
 
   it('rejects rollback-backed clear copy and UI rollback terms', async () => {

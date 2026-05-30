@@ -35,9 +35,9 @@ import type { RunDir } from './types.js';
  * `events.jsonl` append are not in a single atomic step. A process
  * kill (SIGKILL or hard crash) between `rename` and `appendEventEntry`
  * leaves the artifact on disk but absent from the canonical event log.
- * The current slice still writes `snapshot.json` inspection state, so this
- * does not corrupt FSM advancement; if a user FSM needs strict
- * artifact↔log consistency, that is the user FSM's responsibility.
+ * This does not corrupt FSM advancement, but restart/replay visibility is
+ * limited to entries that landed in `events.jsonl`; if a user FSM needs
+ * strict artifact↔log consistency, that is the user FSM's responsibility.
  */
 export async function writeArtifact(
   runDir: RunDir,

@@ -255,11 +255,10 @@ API and SSE responses omit raw payloads; use the sensitive `events.jsonl` file
 only when raw runtime evidence is needed. The React browser now uses the
 run-scoped bootstrap, row, stream, and reply surface. It renders compact rows
 and aggregate running-time/token/context stats in the header and bottom status
-bar instead of a top turn count or bottom turn ribbon. The flat `/api/state`,
-`/api/stream`, and `/api/reply` routes remain compatibility/internal routes
-until later cleanup, not the production browser source. `snapshot.json` remains
-present for current inspection state until the later JSONL source-of-truth
-cutover.
+bar instead of a top turn count or bottom turn ribbon. The old flat
+`/api/state`, `/api/stream`, and `/api/reply` browser routes are no longer
+served for new runs. Production live runs do not write `snapshot.json`; retained
+snapshot helper exports are legacy/internal compatibility only.
 
 `aharness install <source>` delegates package-spec handling to npm inside the
 aharness managed npm project. The source may be any package spec npm accepts.

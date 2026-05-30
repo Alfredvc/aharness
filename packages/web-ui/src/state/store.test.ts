@@ -2,15 +2,14 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, normalize, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
-  applyAppEvent,
   applyRunEvent,
   applyVisitRowPage,
   createConnectingUiState,
   hydrateFromBootstrap,
-  hydrateFromSnapshot,
   markConnectionLost,
   visibleItems,
 } from './store.js';
+import { applyAppEvent, hydrateFromSnapshot } from './legacyFlatEvents.js';
 import {
   deriveActivity,
   formatAggregateStats,
@@ -1097,7 +1096,7 @@ describe('headless production store helpers', () => {
     expect(markConnectionLost(terminal).posture.isTerminal).toBe(true);
   });
 
-  it('hydrates UI state from the /api/state snapshot contract', () => {
+  it('hydrates UI state from the legacy flat snapshot fixture contract', () => {
     const state = hydrateFromSnapshot(snapshot());
 
     expect(state.connection).toBe('live');
@@ -1192,7 +1191,7 @@ describe('headless production store helpers', () => {
     );
   });
 
-  it('hydrates topology from the /api/state snapshot contract', () => {
+  it('hydrates topology from the legacy flat snapshot fixture contract', () => {
     const state = hydrateFromSnapshot({
       ...snapshot(),
       state: {
@@ -1219,7 +1218,7 @@ describe('headless production store helpers', () => {
     expect(state.topology).toEqual(topology);
   });
 
-  it('hydrates abandoned-thread diagnostics from the /api/state snapshot contract', () => {
+  it('hydrates abandoned-thread diagnostics from the legacy flat snapshot fixture contract', () => {
     const state = hydrateFromSnapshot({
       ...snapshot(),
       state: {
@@ -1242,7 +1241,7 @@ describe('headless production store helpers', () => {
     expect(state.transcript.some((item) => item.id === 'diag-1')).toBe(false);
   });
 
-  it('hydrates pending owner input from the /api/state snapshot contract', () => {
+  it('hydrates pending owner input from the legacy flat snapshot fixture contract', () => {
     const state = hydrateFromSnapshot({
       ...snapshot(),
       state: {
@@ -1270,7 +1269,7 @@ describe('headless production store helpers', () => {
     expect(state.pending.ownerInput?.questions[0]?.question).toBe('What now?');
   });
 
-  it('hydrates approval buckets from the /api/state snapshot contract', () => {
+  it('hydrates approval buckets from the legacy flat snapshot fixture contract', () => {
     const state = hydrateFromSnapshot({
       ...snapshot(),
       state: {

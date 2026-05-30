@@ -48,6 +48,7 @@ export interface RunCtx {
 export interface RunDir {
   readonly runId: string;
   readonly root: string;
+  /** Legacy path retained for old-run helpers; production new runs do not write it. */
   readonly snapshotPath: string;
   readonly eventsPath: string;
   readonly artifactsDir: string;

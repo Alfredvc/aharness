@@ -1,5 +1,5 @@
 /**
- * Tests for `daemon/snapshotFlush.ts` — the daemon's atomic
+ * Tests for `runtime/snapshotFlush.ts` — the legacy/internal atomic
  * `<runDir>/snapshot.json` writer (tmp + fsync + rename).
  */
 import { describe, expect, it } from 'vitest';

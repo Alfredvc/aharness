@@ -57,7 +57,9 @@ export {
   type MaterializeHookScriptsInput,
 } from './codexHome/index.js';
 
-// Headless snapshot envelope reader/writer + cutover-detection.
+// Legacy/internal snapshot envelope helpers. Retained for old-run inspection
+// and public runtime-surface compatibility; production new runs do not write
+// snapshot.json and UI/history/replay rebuild from events.jsonl.
 export {
   flushHeadlessSnapshotEnvelope,
   flushPhase1Envelope,
@@ -87,8 +89,8 @@ export type {
 export { buildDynamicToolsRegistration } from './transport/dynamicToolsRegistration.js';
 
 // Submit dispatcher: validates aharness_submit args against per-(state, exit)
-// sidecar schemas, dry-runs the transition, commits + flushes (R6), and
-// dispatches the four-step cross-state dance via scheduleCrossStateDance
+// sidecar schemas, dry-runs the transition, commits, and dispatches the
+// four-step cross-state dance via scheduleCrossStateDance
 // when the target is a different stateful state. awaitsOwnerText-target
 // transitions follow the same dance path with the preamble injected at
 // composeStateNudge time. Terminal targets fire onTerminal + reply Run

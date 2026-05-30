@@ -174,7 +174,7 @@ describe('createEventDispatcher', () => {
     expect(flushSnapshot).toHaveBeenCalledTimes(1);
   });
 
-  it('reports committed non-self event transitions after snapshot flush', async () => {
+  it('reports committed non-self event transitions after the legacy flush hook', async () => {
     const events: string[] = [];
     const base = createFsm<Ctx>();
     const fsm = base.withEvents({
@@ -464,7 +464,7 @@ describe('createEventDispatcher', () => {
     expect(onTerminal).not.toHaveBeenCalled();
   });
 
-  it('commits a selected signal branch after awaiting effect and before snapshot flush', async () => {
+  it('commits a selected signal branch after awaiting effect and before the legacy flush hook', async () => {
     const events: string[] = [];
     const host = buildHost({
       eventMeta: customEvent({
@@ -507,7 +507,7 @@ describe('createEventDispatcher', () => {
     expect(events).toEqual(['effect:0:3', 'reduce:0:3', 'commit:3', 'flush:b:3']);
   });
 
-  it('runs request return after commit and snapshot flush using post-commit data', async () => {
+  it('runs request return after commit and legacy flush hook using post-commit data', async () => {
     const events: string[] = [];
     const host = buildHost({
       eventMeta: customEvent({

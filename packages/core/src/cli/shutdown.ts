@@ -3,8 +3,9 @@
  *
  * On SIGTERM the CLI tears down its children in this order:
  *
- *   1. The dispatcher's per-transition snapshot flush is the source of
- *      truth for durability — `runShutdown` does NOT double-flush.
+ *   1. Transition handling records canonical run events as it goes;
+ *      `runShutdown` performs teardown only and does not write a derived
+ *      state snapshot.
  *   2. Close the WS client first so codex stops emitting notifications
  *      to a half-shutdown handler. Closing the client drops the
  *      `accept()`ed Unix-domain socket; codex observes the close and

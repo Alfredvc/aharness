@@ -1,12 +1,11 @@
 /**
- * Atomic snapshot flush — tmp + fsync + rename.
+ * Legacy/internal atomic snapshot flush — tmp + fsync + rename.
  *
- * The single write path @aharness/core's daemon uses for `<runDir>/snapshot.json`.
- * Flat `(path, snapshot)` signature so callers that already hold a
- * concrete path don't have to thread a `RunDir`.
+ * Retained for old-run inspection helpers and runtime-surface compatibility.
+ * Production new runs do not call this path; `events.jsonl` is the new-run
+ * UI/history/replay source.
  *
- * Synchronous on purpose — the daemon wants the bytes durable on disk
- * before it acknowledges the operation. One `fsync` per flush.
+ * Synchronous on purpose for legacy callers. One `fsync` per flush.
  */
 import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';

@@ -39,8 +39,9 @@ aharness turns those process rules into executable state machines:
   through aharness instead of relying on model convention.
 - **Repair loops are explicit.** Failed evidence can transition to repair,
   rerun checks, and only then continue.
-- **Runs are inspectable.** Every run writes snapshots, event logs, terminal
-  reports, and declared artifacts under `.aharness/runs/<runId>/`.
+- **Runs are inspectable.** Every run writes a canonical `events.jsonl`
+  transcript, terminal reports, and declared artifacts under
+  `.aharness/runs/<runId>/`.
 
 ## The Middle Layer
 
@@ -105,10 +106,11 @@ payload expansion; inspect `events.jsonl` directly only when that sensitive raw
 evidence is needed. The React browser now boots, streams rows/events, and sends
 replies through those run-scoped endpoints. Browser chrome is no longer centered
 on a top turn count or bottom turn ribbon; it renders aggregate run duration,
-token, and context stats when those values are available. The flat
-`/api/state`, `/api/stream`, and `/api/reply` routes remain
-compatibility/internal routes until a later cleanup, not the production browser
-source. `snapshot.json` still exists for current inspection state.
+token, and context stats when those values are available. The old flat
+`/api/state`, `/api/stream`, and `/api/reply` browser routes are no longer
+served for new runs. `snapshot.json` is not written by production live runs and
+is not a new-run UI/history/replay source; retained snapshot helper exports are
+legacy/internal compatibility only.
 
 ## Write A Workflow
 
@@ -277,7 +279,7 @@ flowchart LR
     Codex["Codex CLI<br/>coding worker"]
     aharness["aharness CLI<br/>FSM actor + verifier"]
     Browser["Loopback browser UI<br/>approvals + graph"]
-    Runs[".aharness/runs/&lt;runId&gt;<br/>events + snapshots + artifacts"]
+    Runs[".aharness/runs/&lt;runId&gt;<br/>events.jsonl + reports + artifacts"]
 
     aharness <--> Codex
     aharness <--> Browser

@@ -14,7 +14,7 @@
  *
  * Phase-2a scope (cross-state turn-end dance, plan
  * `2026-05-12-headless-phase-2a-cross-state.md`):
- *   - Cross-state submits commit + flush + log the transition, then
+ *   - Cross-state submits commit + log the transition, then
  *     dispatch the four-step turn-end dance via
  *     `scheduleCrossStateDance` with the FULL composed nudge for the
  *     new state (`composeActiveStateNudge` callback) and reply terse
@@ -34,7 +34,7 @@
  *
  * State-entry scope:
  *   - submit-driven state entry awaits `onEntry` after the transition
- *     snapshot flush before any success reply can leave the handler.
+ *     commits before any success reply can leave the handler.
  *
  * Out of scope for this dispatcher layer:
  *   - Per-state hooks + embed-runtime regression (Phase 2d).
@@ -46,11 +46,11 @@
  * responses use `contentItems` with the `{type: 'inputText', text}`
  * variant.
  *
- * R6 atomicity contract ("snapshot persisted ⇔ model saw success
- * reply"):
+ * Transition success contract:
  *   1. commit  — `host.commitSubmit` advances the actor synchronously.
- *   2. flush   — `flushSnapshot(host.snapshot())` is synchronous; bytes
- *                durable on disk before any reply leaves the handler.
+ *   2. legacy  — deprecated `flushSnapshot?` test/external hook may run
+ *                when explicitly provided. Production runCli does not
+ *                provide it; new-run replay evidence is `events.jsonl`.
  *   3. log     — `onTransition?({from, exit, to})` fires for the stdout
  *                UI sink (Phase 1b Task 12).
  *   4. signal  — `onTerminal?(stateId)` fires synchronously for terminal
@@ -96,16 +96,11 @@ export interface CreateSubmitDispatcherOpts {
   readonly machine: AnyStateMachine;
   readonly sidecar: SchemaSidecar;
   /**
-   * Flush callback. Caller closes over `runDir.snapshotPath`, `threadId`,
-   * and `aharnessSubmitToolName: 'aharness_submit'` and calls
-   * `flushHeadlessSnapshotEnvelope` internally. The dispatcher passes only the
-   * actor snapshot (`host.snapshot()`) because it does not know its own
-   * threadId. See Phase 1b Task 17 step 11 for the closure shape.
-   *
-   * Synchronous-only: the dispatcher relies on bytes-on-disk before the
-   * success reply returns.
+   * @deprecated Legacy test/external callback for snapshot-era callers.
+   * Production `runCli` does not provide this; new-run UI/history/replay
+   * persistence is the canonical `events.jsonl` transcript.
    */
-  readonly flushSnapshot: (xstateSnapshot: unknown) => void;
+  readonly flushSnapshot?: (xstateSnapshot: unknown) => void;
   /**
    * Terminal-detection callback. Invoked synchronously inside the
    * success path *before* the reply returns when the projected new leaf
@@ -116,14 +111,14 @@ export interface CreateSubmitDispatcherOpts {
   readonly onTerminal?: (terminalStateId: string, meta?: ServerRequestMeta) => void;
   /**
    * Stdout-UI transition log hook (Phase 1b Task 12). Invoked
-   * synchronously after commit + flush, before the reply returns, on
+   * synchronously after commit, before the reply returns, on
    * any successful transition.
    */
   readonly onTransition?: (info: { from: string; exit: string; to: string }) => void;
   /**
    * Phase 2a: schedule the cross-state turn-end dance for a submit
    * whose target is a different stateful state. Invoked synchronously
-   * AFTER commit + flush + `onTransition`, BEFORE the reply returns —
+   * AFTER commit + `onTransition`, BEFORE the reply returns —
    * the dance's watcher registration must complete before the reply
    * leaves the handler (otherwise codex's `item/completed` could land
    * before the watcher exists). The callable is responsible for
@@ -169,8 +164,8 @@ export interface CreateSubmitDispatcherOpts {
   readonly composeActiveStateNudge?: () => string;
   /**
    * Run the active state's author `onEntry` hook after the transition
-   * snapshot flush but before terminal/cross-state success side-effects
-   * and before returning a success reply.
+   * commit but before terminal/cross-state success side-effects and
+   * before returning a success reply.
    */
   readonly runOnEntry?: () => Promise<void>;
   readonly ops?: AharnessOps;
@@ -370,7 +365,7 @@ async function dispatch(
       }
       const artifactResult = await writeFinalArtifacts(o, settledStateId);
       if (!artifactResult.ok) return errReply(artifactResult.message);
-      o.flushSnapshot(o.host.snapshot());
+      o.flushSnapshot?.(o.host.snapshot());
       o.onTransition?.({ from: cur, exit, to: settledStateId });
       callOnTerminal(o, settledStateId, serverMeta);
       return {
@@ -399,16 +394,17 @@ async function dispatch(
   // Step 6a: commit. Synchronous in XState v5.
   o.host.commitSubmit(cur, exit, commitPayload);
 
-  // Step 6b: synchronous snapshot flush of the transition. Bytes are
-  // on-disk before any reply leaves the handler (R6).
-  o.flushSnapshot(o.host.snapshot());
+  // Step 6b: optional legacy snapshot callback for callers that still
+  // exercise snapshot-era helper contracts. Production runCli leaves it
+  // unset; canonical JSONL events are emitted through onTransition and
+  // related runtime publishers.
+  o.flushSnapshot?.(o.host.snapshot());
 
   // Step 6c: transition log (stdout UI sink, Phase 1b).
   o.onTransition?.({ from: cur, exit, to: dry.nextStateId });
 
-  // Step 6c.2: state-entry hook. This runs after the durable transition
-  // snapshot and before terminal/cross-state scheduling or the success
-  // reply.
+  // Step 6c.2: state-entry hook. This runs after the transition commit
+  // and before terminal/cross-state scheduling or the success reply.
   if (o.runOnEntry !== undefined) {
     await o.runOnEntry();
   }
@@ -451,11 +447,11 @@ async function dispatch(
     if (!o.composeActiveStateNudge) {
       throw new Error('composeActiveStateNudge not wired');
     }
-    // F2 defense-in-depth: a throw between flush (R6 durable) and reply
-    // would break R6 (snapshot persisted but model sees an error
-    // envelope). Wrap the compose call so any throw becomes a fallback
-    // nudge string; the cross-state path still reaches scheduleCross-
-    // StateDance and still replies 'ok'. The fallback text mirrors the
+    // F2 defense-in-depth: a throw after commit but before reply would
+    // leave the actor advanced while the model sees an error envelope.
+    // Wrap the compose call so any throw becomes a fallback nudge
+    // string; the cross-state path still reaches scheduleCrossStateDance
+    // and still replies 'ok'. The fallback text mirrors the
     // shape used by `composeActiveStateNudge`'s own in-house catches at
     // `runCli.ts:584,596` so log scrubbers treat both cases the same.
     let nudge: string;

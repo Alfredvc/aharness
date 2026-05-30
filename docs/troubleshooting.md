@@ -107,9 +107,10 @@ Each run writes inspection files under:
 .aharness/runs/<runId>/
 ```
 
-Look for the event log, snapshots, terminal report, and any final artifacts
-declared by `fsm.final({ artifacts })`. Current public CLI invocations start a
-new run and Codex thread; run artifacts are evidence, not continuation state.
+Look for the canonical `events.jsonl` transcript, terminal report, and any
+final artifacts declared by `fsm.final({ artifacts })`. Current public CLI
+invocations start a new run and Codex thread; run artifacts are evidence, not
+continuation state.
 
 For new runs, `events.jsonl` is the canonical event transcript and includes
 full raw runtime payloads by default. That can include secret-marked owner
@@ -126,7 +127,7 @@ the sensitive `events.jsonl` file rather than an API response. The React
 browser now uses the run-scoped bootstrap, row, stream, and reply endpoints. Its
 header and bottom status bar show aggregate running-time, token, and
 context-window stats when available; the browser no longer uses a top turn count
-or bottom turn ribbon as the primary run chrome. The flat `/api/state`,
-`/api/stream`, and `/api/reply` routes remain compatibility/internal routes
-until later cleanup, not the production browser source. `snapshot.json` still
-exists for current inspection state.
+or bottom turn ribbon as the primary run chrome. The old flat `/api/state`,
+`/api/stream`, and `/api/reply` browser routes are no longer served for new
+runs. Production live runs do not write `snapshot.json`; retained snapshot
+helper exports are legacy/internal compatibility only.

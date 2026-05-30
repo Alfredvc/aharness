@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url';
 
 import type { BrowserReplyResult } from './reply.js';
 import { streamRunScopedSseEvents, type RunScopedSseEvent } from './runScopedSse.js';
-import { serializeSseEvent, type UiEventLog } from './sse.js';
 
 export interface UiRunScopedRouteUnavailable {
   readonly ok: false;
@@ -90,7 +89,11 @@ export type StartUiServerOptions = {
   host: string;
   port: number;
   uiToken: string;
-  eventLog: UiEventLog;
+  /**
+   * @deprecated Legacy flat-event observation surface. The HTTP server no
+   * longer exposes `/api/state`, `/api/stream`, or flat `/api/reply`.
+   */
+  eventLog?: unknown;
   replyHandler?: (payload: unknown) => BrowserReplyResult | Promise<BrowserReplyResult>;
   runScoped?: UiRunScopedRouteOptions;
 };
@@ -180,48 +183,6 @@ async function handleRequest(
   const url = new URL(request.url ?? '/', 'http://127.0.0.1');
   const path = url.pathname;
   const method = request.method ?? 'GET';
-
-  if (path === '/api/state') {
-    if (method !== 'GET') {
-      sendMethodNotAllowed(response, 'GET');
-      return;
-    }
-    if (!isAuthorized(options, request, url, 'header-or-query')) {
-      sendUnauthorized(response);
-      return;
-    }
-
-    sendJson(response, 200, options.eventLog.snapshot());
-    return;
-  }
-
-  if (path === '/api/stream') {
-    if (method !== 'GET') {
-      sendMethodNotAllowed(response, 'GET');
-      return;
-    }
-    if (!isAuthorized(options, request, url, 'query-only')) {
-      sendUnauthorized(response);
-      return;
-    }
-
-    streamEvents(options.eventLog, activeStreams, request, response, url);
-    return;
-  }
-
-  if (path === '/api/reply') {
-    if (method !== 'POST') {
-      sendMethodNotAllowed(response, 'POST');
-      return;
-    }
-    if (!isAuthorized(options, request, url, 'header-only')) {
-      sendUnauthorized(response);
-      return;
-    }
-
-    await handleReplyRequest(options.replyHandler, request, response);
-    return;
-  }
 
   if (await handleRunScopedRequest(options, activeStreams, request, response, url, path, method)) {
     return;
@@ -624,74 +585,6 @@ function contentTypeFor(filePath: string): string {
     default:
       return 'application/octet-stream';
   }
-}
-
-function streamEvents(
-  eventLog: UiEventLog,
-  activeStreams: Set<StreamCleanup>,
-  request: http.IncomingMessage,
-  response: http.ServerResponse,
-  url: URL,
-): void {
-  response.writeHead(200, {
-    'cache-control': 'no-cache',
-    connection: 'keep-alive',
-    'content-type': 'text/event-stream; charset=utf-8',
-  });
-  response.flushHeaders();
-
-  let lastSentId = readStreamCursor(request, url);
-  let closed = false;
-
-  const writePendingEvents = () => {
-    if (closed) {
-      return;
-    }
-
-    for (const event of eventLog.eventsAfter(lastSentId)) {
-      response.write(serializeSseEvent(event));
-      lastSentId =
-        event.event.kind === 'ResyncRequired' ? eventLog.snapshot().latestEventId : event.id;
-    }
-  };
-
-  let pollInterval: ReturnType<typeof setInterval> | null = null;
-  const unsubscribe = eventLog.subscribe(writePendingEvents);
-  const cleanup = () => {
-    if (closed) {
-      return;
-    }
-
-    closed = true;
-    unsubscribe();
-    if (pollInterval !== null) {
-      clearInterval(pollInterval);
-    }
-    activeStreams.delete(cleanup);
-    if (!response.destroyed && !response.writableEnded) {
-      response.end();
-    }
-  };
-
-  activeStreams.add(cleanup);
-  request.on('close', cleanup);
-  writePendingEvents();
-  if (!closed) {
-    pollInterval = setInterval(writePendingEvents, 250);
-  }
-}
-
-function readLastEventId(request: http.IncomingMessage): string | null {
-  const header = request.headers['last-event-id'];
-  if (Array.isArray(header)) {
-    return header[0] ?? null;
-  }
-
-  return header ?? null;
-}
-
-function readStreamCursor(request: http.IncomingMessage, url: URL): string | null {
-  return readLastEventId(request) ?? url.searchParams.get('after');
 }
 
 function sendMethodNotAllowed(response: http.ServerResponse, allow: string): void {

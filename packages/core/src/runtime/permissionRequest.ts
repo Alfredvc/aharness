@@ -17,6 +17,11 @@ export interface PermissionRequestDispatcherInput {
     readonly matcher: string;
     readonly error: Error;
   }) => void;
+  /**
+   * @deprecated Legacy snapshot-era callback retained for external/test
+   * callers. Production runCli leaves this unset; canonical events in
+   * events.jsonl are the new-run replay source.
+   */
   readonly flushSnapshot?: (xstateSnapshot: unknown) => void;
   readonly ops?: AharnessOps;
   readonly writeFinalArtifacts?: (

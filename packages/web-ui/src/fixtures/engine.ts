@@ -7,9 +7,9 @@ import type { Scene } from './script.js';
 
 type Listener = (e: AppEvent) => void;
 
-// ReplyPayload mirrors the `POST /api/reply` surface the headless CLI will
-// accept (headless spec §4.6). Production wiring narrows / refines the wire
-// schema; fixtures use the same shape so design work translates 1:1.
+// ReplyPayload mirrors the browser reply payload shape. Production wiring
+// sends it through the run-scoped reply route; fixtures use the same payload
+// so design work translates to the live UI.
 export type ApprovalDecision = 'accept' | 'acceptForSession' | 'decline' | 'cancel';
 
 export type ReplyPayload =
