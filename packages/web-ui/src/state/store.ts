@@ -84,6 +84,9 @@ export type TranscriptItem =
       reserved: boolean;
       elapsedMs?: number;
       category?: 'tool' | 'subagent';
+      output?: string;
+      ok?: boolean;
+      resultId?: string;
     })
   | (TranscriptBase & {
       id: string;
@@ -437,10 +440,8 @@ type Action =
   | { type: 'setScope'; path: string | null };
 
 function looksLikeFrameworkOrientation(text: string): boolean {
-  // Heuristic: synthesised state-entry orientation from turn/start.input
-  // starts with "You have entered" and tells the model how to submit.
   if (!text) return false;
-  return /^You have entered\s+`/.test(text);
+  return /^You have entered\s+`/.test(text) || /^\[aharness\]\s+Now in state\s+"/.test(text);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -563,6 +564,9 @@ function transcriptItemFromCompactRow(
         reserved,
         ...(row.elapsedMs === undefined ? {} : { elapsedMs: row.elapsedMs }),
         category: isSubagentToolRow(row) ? 'subagent' : 'tool',
+        ...(row.output === undefined ? {} : { output: row.output }),
+        ...(row.ok === undefined ? {} : { ok: row.ok }),
+        ...(row.resultId === undefined ? {} : { resultId: row.resultId }),
       };
     }
     case 'request': {
@@ -745,6 +749,10 @@ function compactRowFromRunEvent(e: RunScopedApiEvent): RunScopedCompactRow | nul
   const turnId = e.turnId ?? readString(row['turnId']);
   const itemId = e.itemId ?? readString(row['itemId']);
   const requestId = e.requestId ?? readString(row['requestId']);
+  const elapsedMs = readNumber(row['elapsedMs']);
+  const output = readString(row['output']);
+  const ok = readBoolean(row['ok']);
+  const resultId = readString(row['resultId']);
   return {
     id: readString(row['id']) ?? `${e.id}:row`,
     eventId: e.id,
@@ -760,9 +768,10 @@ function compactRowFromRunEvent(e: RunScopedApiEvent): RunScopedCompactRow | nul
     ...(text !== undefined ? { text } : {}),
     ...(status !== undefined ? { status } : {}),
     ...(summary !== undefined ? { summary } : {}),
-    ...(readNumber(row['elapsedMs']) === undefined
-      ? {}
-      : { elapsedMs: readNumber(row['elapsedMs']) }),
+    ...(elapsedMs === undefined ? {} : { elapsedMs }),
+    ...(output === undefined ? {} : { output }),
+    ...(ok === undefined ? {} : { ok }),
+    ...(resultId === undefined ? {} : { resultId }),
     ...(data === undefined ? {} : { data }),
   };
 }
@@ -1544,14 +1553,66 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
  * inspector instead.
  */
 export function visibleItems(items: TranscriptItem[], devMode: boolean): TranscriptItem[] {
-  return items.filter((i) => {
-    if (i.type === 'framework_note' && i.variant === 'orientation') return false;
+  return foldToolResults(items).filter((i) => {
+    if (isAlwaysHiddenTranscriptItem(i)) return false;
     if (devMode) return true;
     return isVisibleTranscriptItem(i);
   });
 }
 
+function foldToolResults(items: ReadonlyArray<TranscriptItem>): TranscriptItem[] {
+  const folded: TranscriptItem[] = [];
+  for (const item of items) {
+    if (item.type !== 'tool_result') {
+      folded.push(item);
+      continue;
+    }
+
+    const idSuffix = ':output';
+    const outputCallId = item.id.endsWith(idSuffix) ? item.id.slice(0, -idSuffix.length) : null;
+    let callIdx =
+      outputCallId === null
+        ? -1
+        : folded.findIndex(
+            (candidate) =>
+              candidate.type === 'tool_call' &&
+              candidate.id === outputCallId &&
+              candidate.resultId === undefined,
+          );
+
+    if (callIdx < 0) {
+      for (let i = folded.length - 1; i >= 0; i--) {
+        const candidate = folded[i];
+        if (
+          candidate?.type === 'tool_call' &&
+          candidate.name === item.name &&
+          candidate.status === 'pending'
+        ) {
+          callIdx = i;
+          break;
+        }
+      }
+    }
+
+    if (callIdx < 0) {
+      folded.push(item);
+      continue;
+    }
+
+    const prev = folded[callIdx] as Extract<TranscriptItem, { type: 'tool_call' }>;
+    folded[callIdx] = {
+      ...prev,
+      status: item.ok ? 'completed' : 'failed',
+      output: item.output,
+      ok: item.ok,
+      resultId: item.id,
+    };
+  }
+  return folded;
+}
+
 function isVisibleTranscriptItem(i: TranscriptItem): boolean {
+  if (isAlwaysHiddenTranscriptItem(i)) return false;
   if (i.type === 'tool_call' && i.reserved) return false;
   if (i.type === 'tool_result' && i.reserved) return false;
   if (i.type === 'compact_status' && i.reserved) return false;
@@ -1561,6 +1622,12 @@ function isVisibleTranscriptItem(i: TranscriptItem): boolean {
   }
   if (i.type === 'state_change') return false;
   return true;
+}
+
+function isAlwaysHiddenTranscriptItem(i: TranscriptItem): boolean {
+  if (i.type === 'framework_note' && i.variant === 'orientation') return true;
+  if (i.type === 'reasoning' && i.text.trim().length === 0) return true;
+  return false;
 }
 
 /**

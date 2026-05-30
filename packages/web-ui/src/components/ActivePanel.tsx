@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { Virtuoso, type Components, type VirtuosoHandle } from 'react-virtuoso';
 import type { UiState, UiActions, TranscriptItem, ReplyPayload } from '../state/store';
 import type {
   FileChangeApproval,
@@ -21,6 +22,41 @@ type VisitGroup = {
   items: TranscriptItem[];
   loadStatus: UiState['rowLoadStatus'][string] | undefined;
 };
+export type ActivePanelTimelineRow =
+  | { kind: 'inspect_empty'; key: string; text: string }
+  | { kind: 'awaiting_codex'; key: string }
+  | { kind: 'empty'; key: string; text: string }
+  | {
+      kind: 'visit_header';
+      key: string;
+      visit: number;
+      entry: (UiState['history'][number] & { visitId: string }) | null;
+    }
+  | { kind: 'transcript'; key: string; item: TranscriptItem }
+  | { kind: 'inline_indicator'; key: string; activity: Activity }
+  | { kind: 'approvals'; key: string };
+
+const activePanelVirtuosoComponents: Components<ActivePanelTimelineRow> = {
+  Header: () => <div className="ap-virtual-header" aria-hidden />,
+  Item: ({ children, context: _context, item: _item, ...props }) => (
+    <div {...props} className="ap-virtual-item">
+      {children}
+    </div>
+  ),
+};
+
+export const activePanelVirtuosoComponentsForTest = activePanelVirtuosoComponents;
+
+function activePanelFollowOutput(input: { isFollowing: boolean; atBottom: boolean }) {
+  return input.isFollowing && input.atBottom ? 'smooth' : false;
+}
+
+function activePanelShouldAutoscroll(input: { isFollowing: boolean; atBottom: boolean }): boolean {
+  return input.isFollowing && input.atBottom;
+}
+
+export const activePanelFollowOutputForTest = activePanelFollowOutput;
+export const activePanelShouldAutoscrollForTest = activePanelShouldAutoscroll;
 
 function leafOf(path: string): string {
   return path.split('.').pop() ?? path;
@@ -47,6 +83,74 @@ function emptyVisitMessage(group: VisitGroup): string {
 function submitReply(onReply: UiActions['reply'], payload: ReplyPayload) {
   void onReply(payload).catch(() => undefined);
 }
+
+function buildActivePanelTimelineRows(input: {
+  mode: UiState['mode'];
+  displayNode: VizNode | null;
+  isFollowing: boolean;
+  turnsLength: number;
+  hasAnyVisibleContent: boolean;
+  groups: VisitGroup[];
+  entryByVisit: Map<string, UiState['history'][number]>;
+  showInlineIndicator: boolean;
+  activity: Activity;
+  showApprovals: boolean;
+}): ActivePanelTimelineRow[] {
+  if (input.mode === 'inspect') {
+    return [
+      {
+        kind: 'inspect_empty',
+        key: 'inspect-empty',
+        text: input.displayNode
+          ? 'static visualization mode; no run transcript'
+          : 'select any state in the graph to inspect its metadata',
+      },
+    ];
+  }
+  if (input.isFollowing && input.turnsLength === 0 && !input.hasAnyVisibleContent) {
+    return [{ kind: 'awaiting_codex', key: 'awaiting-codex' }];
+  }
+  const rows: ActivePanelTimelineRow[] = [];
+  if (input.groups.length === 0) {
+    rows.push({
+      kind: 'empty',
+      key: 'empty-current',
+      text: input.isFollowing ? 'no activity yet in this visit' : 'activity not loaded yet',
+    });
+  } else {
+    for (const group of input.groups) {
+      if (!input.isFollowing) {
+        rows.push({
+          kind: 'visit_header',
+          key: `${group.visitId}:header`,
+          visit: group.visit,
+          entry: input.entryByVisit.get(group.visitId) ?? null,
+        });
+      }
+      if (group.items.length === 0) {
+        rows.push({
+          kind: 'empty',
+          key: `${group.visitId}:empty`,
+          text: emptyVisitMessage(group),
+        });
+      } else {
+        for (const item of group.items) {
+          if (item.type === 'state_change') continue;
+          rows.push({ kind: 'transcript', key: item.id, item });
+        }
+      }
+    }
+  }
+  if (input.showInlineIndicator) {
+    rows.push({ kind: 'inline_indicator', key: 'inline-indicator', activity: input.activity });
+  }
+  if (input.showApprovals) {
+    rows.push({ kind: 'approvals', key: 'approvals' });
+  }
+  return rows;
+}
+
+export const buildActivePanelTimelineRowsForTest = buildActivePanelTimelineRows;
 
 export function ActivePanel({ session }: Props) {
   const isFollowing = session.scopedPath === null;
@@ -151,6 +255,43 @@ export function ActivePanel({ session }: Props) {
     !session.pending.ownerInput &&
     !session.posture.isAwaiting &&
     !session.posture.isTerminal;
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const atBottomRef = useRef(true);
+  useEffect(() => {
+    atBottomRef.current = isFollowing;
+  }, [isFollowing]);
+  const timelineRows = useMemo(
+    () =>
+      buildActivePanelTimelineRows({
+        mode: session.mode,
+        displayNode,
+        isFollowing,
+        turnsLength: session.turns.length,
+        hasAnyVisibleContent: hasVisibleContent(session.transcript),
+        groups,
+        entryByVisit,
+        showInlineIndicator,
+        activity,
+        showApprovals: isFollowing && totalApprovals > 0,
+      }),
+    [
+      session.mode,
+      displayNode,
+      isFollowing,
+      session.turns.length,
+      session.transcript,
+      groups,
+      entryByVisit,
+      showInlineIndicator,
+      activity,
+      totalApprovals,
+    ],
+  );
+  const initialItemCount = typeof window === 'undefined' ? timelineRows.length : undefined;
+  const initialTopMostItemIndexProps =
+    typeof window !== 'undefined' && isFollowing && timelineRows.length > 0
+      ? { initialTopMostItemIndex: timelineRows.length - 1 }
+      : {};
 
   return (
     <section
@@ -222,85 +363,25 @@ export function ActivePanel({ session }: Props) {
         {activeEntry ? <EntryLine entry={activeEntry} /> : null}
       </header>
 
-      <div className="ap-body">
-        {session.mode === 'inspect' ? (
-          <div className="ap-empty quiet">
-            {displayNode
-              ? 'static visualization mode; no run transcript'
-              : 'select any state in the graph to inspect its metadata'}
-          </div>
-        ) : isFollowing && session.turns.length === 0 && !hasVisibleContent(session.transcript) ? (
-          <AwaitingCodexPlaceholder />
-        ) : groups.length === 0 ? (
-          <div className="ap-empty quiet">
-            {isFollowing ? 'no activity yet in this visit' : 'activity not loaded yet'}
-          </div>
-        ) : (
-          groups.map((g, gi) => {
-            const h = entryByVisit.get(g.visitId);
-            const showHeader = !isFollowing; // single-group following: skip per-visit header
-            return (
-              <div key={g.visitId} className="ap-visit-group" data-first={gi === 0}>
-                {showHeader ? (
-                  <div className="ap-visit-header">
-                    <span className="ap-visit-rule" aria-hidden />
-                    <span className="ap-visit-label">
-                      visit {g.visit}
-                      {h ? (
-                        <>
-                          {' '}
-                          · via <em>{h.cause}</em>
-                          {h.from ? (
-                            <>
-                              {' '}
-                              from <span className="from">{leafOf(h.from)}</span>
-                            </>
-                          ) : (
-                            <> at boot</>
-                          )}
-                        </>
-                      ) : null}
-                    </span>
-                    <span className="ap-visit-rule" aria-hidden />
-                  </div>
-                ) : null}
-                {g.items.length === 0 ? (
-                  <div className="ap-empty quiet">{emptyVisitMessage(g)}</div>
-                ) : (
-                  g.items.map((it) => <ActivePanelRow key={it.id} item={it} />)
-                )}
-              </div>
-            );
-          })
-        )}
-        {showInlineIndicator ? <InlineThinking activity={activity} /> : null}
-        {isFollowing && totalApprovals > 0 ? (
-          <div className="ap-approvals">
-            {session.pending.fileApprovals.map((r, i) => (
-              <FileApprovalCard
-                key={r.id}
-                req={r}
-                top={i === 0 && session.pending.cmdApprovals.length === 0}
-                onReply={session.reply}
-              />
-            ))}
-            {session.pending.cmdApprovals.map((r, i) => (
-              <CmdApprovalCard
-                key={r.id}
-                req={r}
-                top={i === 0 && session.pending.fileApprovals.length === 0}
-                onReply={session.reply}
-              />
-            ))}
-            {session.pending.permissionApprovals.map((r) => (
-              <PermissionApprovalCard key={r.id} req={r} onReply={session.reply} />
-            ))}
-            {session.pending.elicitations.map((r) => (
-              <ElicitationCard key={r.id} req={r} onReply={session.reply} />
-            ))}
-          </div>
-        ) : null}
-      </div>
+      <Virtuoso
+        ref={virtuosoRef}
+        className="ap-body"
+        data={timelineRows}
+        components={activePanelVirtuosoComponents}
+        initialItemCount={initialItemCount}
+        {...initialTopMostItemIndexProps}
+        computeItemKey={(_, row) => row.key}
+        followOutput={(atBottom) => activePanelFollowOutput({ isFollowing, atBottom })}
+        atBottomStateChange={(atBottom) => {
+          atBottomRef.current = atBottom;
+        }}
+        totalListHeightChanged={() => {
+          if (activePanelShouldAutoscroll({ isFollowing, atBottom: atBottomRef.current })) {
+            virtuosoRef.current?.autoscrollToBottom();
+          }
+        }}
+        itemContent={(_, row) => <ActivePanelTimelineRowView row={row} session={session} />}
+      />
 
       {isFollowing && session.pending.ownerInput ? (
         <InteractionSlot req={session.pending.ownerInput} reply={session.reply} />
@@ -401,6 +482,93 @@ function buildNodeDetailRows(node: VizNode): DetailRow[] {
 }
 
 export const buildNodeDetailRowsForTest = buildNodeDetailRows;
+
+export const activePanelRowForTest = (item: TranscriptItem) => <ActivePanelRow item={item} />;
+
+function ActivePanelTimelineRowView({
+  row,
+  session,
+}: {
+  row: ActivePanelTimelineRow;
+  session: UiState & UiActions;
+}) {
+  switch (row.kind) {
+    case 'inspect_empty':
+    case 'empty':
+      return <div className="ap-empty quiet">{row.text}</div>;
+    case 'awaiting_codex':
+      return <AwaitingCodexPlaceholder />;
+    case 'visit_header':
+      return <VisitHeader visit={row.visit} entry={row.entry} />;
+    case 'transcript':
+      return <ActivePanelRow item={row.item} />;
+    case 'inline_indicator':
+      return <InlineThinking activity={row.activity} />;
+    case 'approvals':
+      return <ApprovalsStack session={session} />;
+  }
+}
+
+function VisitHeader({
+  visit,
+  entry,
+}: {
+  visit: number;
+  entry: (UiState['history'][number] & { visitId: string }) | null;
+}) {
+  return (
+    <div className="ap-visit-header">
+      <span className="ap-visit-rule" aria-hidden />
+      <span className="ap-visit-label">
+        visit {visit}
+        {entry ? (
+          <>
+            {' '}
+            · via <em>{entry.cause}</em>
+            {entry.from ? (
+              <>
+                {' '}
+                from <span className="from">{leafOf(entry.from)}</span>
+              </>
+            ) : (
+              <> at boot</>
+            )}
+          </>
+        ) : null}
+      </span>
+      <span className="ap-visit-rule" aria-hidden />
+    </div>
+  );
+}
+
+function ApprovalsStack({ session }: { session: UiState & UiActions }) {
+  return (
+    <div className="ap-approvals">
+      {session.pending.fileApprovals.map((r, i) => (
+        <FileApprovalCard
+          key={r.id}
+          req={r}
+          top={i === 0 && session.pending.cmdApprovals.length === 0}
+          onReply={session.reply}
+        />
+      ))}
+      {session.pending.cmdApprovals.map((r, i) => (
+        <CmdApprovalCard
+          key={r.id}
+          req={r}
+          top={i === 0 && session.pending.fileApprovals.length === 0}
+          onReply={session.reply}
+        />
+      ))}
+      {session.pending.permissionApprovals.map((r) => (
+        <PermissionApprovalCard key={r.id} req={r} onReply={session.reply} />
+      ))}
+      {session.pending.elicitations.map((r) => (
+        <ElicitationCard key={r.id} req={r} onReply={session.reply} />
+      ))}
+    </div>
+  );
+}
 
 function DevContextBox({ fsmState }: { fsmState: UiState['state'] }) {
   if (!fsmState) return null;
@@ -959,6 +1127,12 @@ function ToolCallRow({ item }: { item: Extract<TranscriptItem, { type: 'tool_cal
       </header>
       {pending ? <div className="tc-scan" aria-hidden /> : null}
       {preview ? <div className="tc-preview">{preview}</div> : null}
+      {item.output && item.output.length > 0 ? (
+        <div className="tool-output" data-ok={item.ok ?? item.status === 'completed'}>
+          <div className="to-head">{item.ok === false ? 'output · failed' : 'output'}</div>
+          <pre>{item.output}</pre>
+        </div>
+      ) : null}
     </article>
   );
 }

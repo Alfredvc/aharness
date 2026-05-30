@@ -24,7 +24,7 @@ function visitIdOf(path: string, visit: number): string {
 
 function looksLikeFrameworkOrientation(text: string): boolean {
   if (!text) return false;
-  return /^You have entered\s+`/.test(text);
+  return /^You have entered\s+`/.test(text) || /^\[aharness\]\s+Now in state\s+"/.test(text);
 }
 
 export function hydrateFromSnapshot(snapshot: UiSnapshot): UiState {
@@ -180,22 +180,47 @@ function reduceEvent(previous: UiState, e: AppEvent): UiState {
           stateVisitId: vid,
         });
       } else if (e.type === 'function_call_output') {
-        const callIdx = t.findIndex(
-          (i) => i.type === 'tool_call' && i.name === e.name && i.status === 'pending',
-        );
+        const idSuffix = ':output';
+        const outputCallId = e.id.endsWith(idSuffix) ? e.id.slice(0, -idSuffix.length) : null;
+        let callIdx =
+          outputCallId === null
+            ? -1
+            : t.findIndex(
+                (i) => i.type === 'tool_call' && i.id === outputCallId && i.status === 'pending',
+              );
+        if (callIdx < 0) {
+          for (let i = t.length - 1; i >= 0; i--) {
+            const candidate = t[i];
+            if (
+              candidate?.type === 'tool_call' &&
+              candidate.name === e.name &&
+              candidate.status === 'pending'
+            ) {
+              callIdx = i;
+              break;
+            }
+          }
+        }
         if (callIdx >= 0) {
           const prev = t[callIdx] as Extract<TranscriptItem, { type: 'tool_call' }>;
-          t[callIdx] = { ...prev, status: e.ok ? 'completed' : 'failed' };
+          t[callIdx] = {
+            ...prev,
+            status: e.ok ? 'completed' : 'failed',
+            output: e.output,
+            ok: e.ok,
+            resultId: e.id,
+          };
+        } else {
+          t.push({
+            id: e.id,
+            type: 'tool_result',
+            name: e.name,
+            output: e.output,
+            ok: e.ok,
+            reserved: isReservedToolName(e.name),
+            stateVisitId: vid,
+          });
         }
-        t.push({
-          id: e.id,
-          type: 'tool_result',
-          name: e.name,
-          output: e.output,
-          ok: e.ok,
-          reserved: isReservedToolName(e.name),
-          stateVisitId: vid,
-        });
       }
       return { ...s, transcript: t };
     }

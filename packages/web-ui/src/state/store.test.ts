@@ -5,6 +5,7 @@ import {
   applyRunEvent,
   applyVisitRowPage,
   createConnectingUiState,
+  hasVisibleContent,
   hydrateFromBootstrap,
   markConnectionLost,
   visibleItems,
@@ -449,12 +450,33 @@ describe('headless production store helpers', () => {
         },
       }),
     );
-    const requested = applyRunEvent(
+    const completedTool = applyRunEvent(
       tooled,
       apiEvent({
-        type: 'request.created',
+        type: 'item.completed',
         id: 'run-1:10',
         seq: 10,
+        stateVisitId: 'workflow.review#1',
+        itemId: 'tool-1',
+        data: {
+          row: {
+            kind: 'tool',
+            label: 'bash',
+            status: 'completed',
+            summary: 'npm test',
+            output: 'all tests passed',
+            ok: true,
+            resultId: 'tool-1:output',
+          },
+        },
+      }),
+    );
+    const requested = applyRunEvent(
+      completedTool,
+      apiEvent({
+        type: 'request.created',
+        id: 'run-1:11',
+        seq: 11,
         requestId: 'patch-1',
         stateVisitId: 'workflow.review#1',
         data: {
@@ -482,8 +504,8 @@ describe('headless production store helpers', () => {
       requested,
       apiEvent({
         type: 'framework.note',
-        id: 'run-1:11',
-        seq: 11,
+        id: 'run-1:12',
+        seq: 12,
         stateVisitId: 'workflow.review#1',
         data: {
           row: { kind: 'framework_note', text: 'framework says hi', status: 'info' },
@@ -494,8 +516,8 @@ describe('headless production store helpers', () => {
       noted,
       apiEvent({
         type: 'diagnostic.abandoned_thread',
-        id: 'run-1:12',
-        seq: 12,
+        id: 'run-1:13',
+        seq: 13,
         threadId: 'thread-old',
         data: {
           id: 'diag-2',
@@ -509,8 +531,8 @@ describe('headless production store helpers', () => {
       diagnosed,
       apiEvent({
         type: 'token.updated',
-        id: 'run-1:13',
-        seq: 13,
+        id: 'run-1:14',
+        seq: 14,
         data: { total: { totalTokens: 99, outputTokens: 7 }, modelContextWindow: 200000 },
       }),
     );
@@ -518,13 +540,13 @@ describe('headless production store helpers', () => {
       tokened,
       apiEvent({
         type: 'artifact.written',
-        id: 'run-1:14',
-        seq: 14,
+        id: 'run-1:15',
+        seq: 15,
         data: { artifactId: 'a-1' },
       }),
     );
 
-    expect(ignored.latestEventId).toBe('run-1:14');
+    expect(ignored.latestEventId).toBe('run-1:15');
     expect(ignored.state?.path).toBe('workflow.review');
     expect(ignored.activeVisitId).toBe('workflow.review#1');
     expect(ignored.statePathVisits['workflow.review']).toEqual(['workflow.review#1']);
@@ -545,6 +567,10 @@ describe('headless production store helpers', () => {
           type: 'tool_call',
           name: 'bash',
           preview: 'npm test',
+          status: 'completed',
+          output: 'all tests passed',
+          ok: true,
+          resultId: 'tool-1:output',
         }),
         expect.objectContaining({ type: 'framework_note', text: 'framework says hi' }),
       ]),
@@ -581,6 +607,9 @@ describe('headless production store helpers', () => {
           status: 'completed',
           summary: 'pnpm test',
           elapsedMs: 42,
+          output: 'command completed',
+          ok: true,
+          resultId: 'tool-1:output',
           data: { command: 'pnpm test -- --runInBand', raw: { hidden: true } },
         }),
         row({
@@ -694,6 +723,9 @@ describe('headless production store helpers', () => {
           preview: 'pnpm test -- --runInBand',
           elapsedMs: 42,
           category: 'tool',
+          output: 'command completed',
+          ok: true,
+          resultId: 'tool-1:output',
         }),
         expect.objectContaining({
           id: 'tool-pending',
@@ -1189,6 +1221,223 @@ describe('headless production store helpers', () => {
         }),
       ]),
     );
+  });
+
+  it('folds matching tool results into the existing visible tool call row', () => {
+    const initial = hydrateFromSnapshot(snapshot());
+    const withCall = applyAppEvent(initial, {
+      kind: 'ItemStarted',
+      id: 'call-bash-1',
+      type: 'function_call',
+      name: 'bash',
+      arguments: '{"command":"pnpm test","cwd":"/repo"}',
+    });
+    const withResult = applyAppEvent(withCall, {
+      kind: 'ItemStarted',
+      id: 'call-bash-1:output',
+      type: 'function_call_output',
+      name: 'bash',
+      output: 'completed',
+      ok: true,
+    });
+
+    const visible = visibleItems(withResult.transcript, false);
+
+    expect(withResult.transcript).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'call-bash-1',
+          type: 'tool_call',
+          name: 'bash',
+          status: 'completed',
+          output: 'completed',
+          ok: true,
+          resultId: 'call-bash-1:output',
+        }),
+      ]),
+    );
+    expect(withResult.transcript).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'call-bash-1:output',
+          type: 'tool_result',
+        }),
+      ]),
+    );
+    expect(visible).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'call-bash-1',
+          type: 'tool_call',
+          name: 'bash',
+          status: 'completed',
+          output: 'completed',
+          ok: true,
+        }),
+      ]),
+    );
+    expect(visible).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'call-bash-1:output',
+          type: 'tool_result',
+        }),
+      ]),
+    );
+  });
+
+  it('keeps orphan tool results as standalone result rows', () => {
+    const initial = hydrateFromSnapshot(snapshot());
+    const state = applyAppEvent(initial, {
+      kind: 'ItemStarted',
+      id: 'orphan-output-1',
+      type: 'function_call_output',
+      name: 'bash',
+      output: 'orphaned output',
+      ok: false,
+    });
+
+    expect(visibleItems(state.transcript, false)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'orphan-output-1',
+          type: 'tool_result',
+          name: 'bash',
+          output: 'orphaned output',
+          ok: false,
+        }),
+      ]),
+    );
+  });
+
+  it('matches function-call outputs by call id before falling back to tool name', () => {
+    const initial = hydrateFromSnapshot(snapshot());
+    const withFirstCall = applyAppEvent(initial, {
+      kind: 'ItemStarted',
+      id: 'call-bash-1',
+      type: 'function_call',
+      name: 'bash',
+      arguments: '{"command":"first"}',
+    });
+    const withSecondCall = applyAppEvent(withFirstCall, {
+      kind: 'ItemStarted',
+      id: 'call-bash-2',
+      type: 'function_call',
+      name: 'bash',
+      arguments: '{"command":"second"}',
+    });
+    const withFirstResult = applyAppEvent(withSecondCall, {
+      kind: 'ItemStarted',
+      id: 'call-bash-1:output',
+      type: 'function_call_output',
+      name: 'bash',
+      output: 'first completed',
+      ok: true,
+    });
+
+    const visible = visibleItems(withFirstResult.transcript, false);
+
+    expect(visible).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'call-bash-1',
+          type: 'tool_call',
+          status: 'completed',
+          output: 'first completed',
+          resultId: 'call-bash-1:output',
+        }),
+        expect.objectContaining({
+          id: 'call-bash-2',
+          type: 'tool_call',
+          status: 'pending',
+        }),
+      ]),
+    );
+  });
+
+  it('treats completed folded tool calls as activity scan boundaries', () => {
+    const initial = hydrateFromSnapshot(snapshot());
+    const withStreamingMessage = applyAppEvent(initial, {
+      kind: 'ItemStarted',
+      id: 'agent-stream-1',
+      type: 'agent_message',
+      text: 'old streaming message',
+    });
+    const withCall = {
+      ...withStreamingMessage,
+      transcript: [
+        ...withStreamingMessage.transcript,
+        {
+          id: 'call-bash-1',
+          type: 'tool_call' as const,
+          name: 'bash',
+          preview: '{"command":"pnpm test"}',
+          status: 'completed' as const,
+          reserved: false,
+          stateVisitId: withStreamingMessage.activeVisitId ?? '__boot',
+          output: 'completed',
+          ok: true,
+          resultId: 'call-bash-1:output',
+        },
+      ],
+    };
+
+    expect(deriveActivity(withCall).kind).not.toBe('streaming.message');
+  });
+
+  it('hides runtime orientation user messages and empty reasoning rows from visible transcript rows', () => {
+    const initial = hydrateFromSnapshot(snapshot());
+    const withRuntimeOrientation = applyAppEvent(initial, {
+      kind: 'ItemStarted',
+      id: 'orientation-user-1',
+      type: 'user_message',
+      text:
+        '[aharness] Now in state "createRecipe".\n' +
+        'Valid exits:\n' +
+        '  - "recipeReady" -> call aharness_submit({state:"createRecipe"})',
+    });
+    const withEmptyReasoning = applyAppEvent(withRuntimeOrientation, {
+      kind: 'ItemStarted',
+      id: 'reasoning-empty-1',
+      type: 'reasoning',
+      text: '',
+    });
+    const withReasoningText = applyAppEvent(withEmptyReasoning, {
+      kind: 'ItemStarted',
+      id: 'reasoning-text-1',
+      type: 'reasoning',
+      text: 'Checking the next command.',
+    });
+
+    const visible = visibleItems(withReasoningText.transcript, false);
+    const visibleInDevMode = visibleItems(withReasoningText.transcript, true);
+
+    expect(visible).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'orientation-user-1' })]),
+    );
+    expect(visible).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'reasoning-empty-1' })]),
+    );
+    expect(visible).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'reasoning-text-1',
+          type: 'reasoning',
+          text: 'Checking the next command.',
+        }),
+      ]),
+    );
+    expect(visibleInDevMode).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'reasoning-empty-1' })]),
+    );
+    expect(
+      hasVisibleContent(
+        withEmptyReasoning.transcript.filter((item) =>
+          ['orientation-user-1', 'reasoning-empty-1'].includes(item.id),
+        ),
+      ),
+    ).toBe(false);
+    expect(hasVisibleContent(withReasoningText.transcript)).toBe(true);
   });
 
   it('hydrates topology from the legacy flat snapshot fixture contract', () => {

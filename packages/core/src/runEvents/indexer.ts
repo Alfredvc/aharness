@@ -231,6 +231,9 @@ function compactRow(event: RunEventEnvelope): RunEventCompactRow | null {
   const requestId = event.requestId ?? readString(row['requestId']);
   const data = isRecord(row['data']) ? row['data'] : undefined;
   const elapsedMs = readNumber(row['elapsedMs']);
+  const output = readString(row['output']);
+  const ok = readBoolean(row['ok']);
+  const resultId = readString(row['resultId']);
 
   return {
     id: readString(row['id']) ?? `${event.id}:row`,
@@ -248,6 +251,9 @@ function compactRow(event: RunEventEnvelope): RunEventCompactRow | null {
     ...(status !== undefined ? { status } : {}),
     ...(summary !== undefined ? { summary } : {}),
     ...(elapsedMs !== undefined ? { elapsedMs } : {}),
+    ...(output !== undefined ? { output } : {}),
+    ...(ok !== undefined ? { ok } : {}),
+    ...(resultId !== undefined ? { resultId } : {}),
     ...(data !== undefined ? { data } : {}),
   };
 }

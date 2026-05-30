@@ -313,6 +313,9 @@ function itemInput(event: ItemStarted): RunEventAppendInput {
           label: event.name,
           status: event.ok ? 'completed' : 'failed',
           summary: event.name,
+          output: event.output,
+          ok: event.ok,
+          resultId: event.id,
         },
       }),
     };
