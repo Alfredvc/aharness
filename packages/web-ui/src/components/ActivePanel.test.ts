@@ -1,8 +1,16 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { Virtuoso, VirtuosoMockContext } from 'react-virtuoso';
 import { describe, expect, it } from 'vitest';
 
-import { activePanelRowForTest, buildNodeDetailRowsForTest, ActivePanel } from './ActivePanel.js';
+import {
+  activePanelVirtuosoComponentsForTest,
+  activePanelRowForTest,
+  buildActivePanelTimelineRowsForTest,
+  buildNodeDetailRowsForTest,
+  ActivePanel,
+} from './ActivePanel.js';
+import type { ActivePanelTimelineRow } from './ActivePanel.js';
 import { canAcceptElicitation } from './elicitationActions.js';
 import { OwnerInputComposer } from './OwnerInputComposer.js';
 import type { UiState, UiActions } from '../state/store.js';
@@ -106,6 +114,18 @@ function baseSession(overrides: Partial<TestSession> = {}): TestSession {
   };
 }
 
+function renderActivePanel(session: TestSession): string {
+  return renderToStaticMarkup(
+    createElement(() =>
+      createElement(
+        VirtuosoMockContext.Provider,
+        { value: { viewportHeight: 640, itemHeight: 48 } },
+        createElement(ActivePanel, { session }),
+      ),
+    ),
+  );
+}
+
 describe('ActivePanel elicitation actions', () => {
   it('only offers accept when the browser can send valid elicitation content', () => {
     expect(canAcceptElicitation({ mode: 'url' })).toBe(true);
@@ -170,124 +190,199 @@ describe('ActivePanel tool rows', () => {
   });
 });
 
-describe('ActivePanel historical visits', () => {
-  it('renders compact normalized rows without raw expansion', () => {
-    const html = renderToStaticMarkup(
-      createElement(ActivePanel, {
-        session: baseSession({
-          transcript: [
+describe('ActivePanel timeline rows', () => {
+  it('adds approval and inline activity rows to the virtualized timeline tail', () => {
+    const rows = buildActivePanelTimelineRowsForTest({
+      mode: 'run',
+      displayNode: null,
+      isFollowing: true,
+      turnsLength: 1,
+      hasAnyVisibleContent: true,
+      groups: [
+        {
+          visitId: 'workflow.collect#2',
+          visit: 2,
+          rowCount: 2,
+          items: [
             {
-              id: 'msg-1',
+              id: 'state-change-1',
+              type: 'state_change',
+              from: null,
+              to: 'workflow.collect',
+              cause: 'boot',
+              stateVisitId: 'workflow.collect#2',
+            },
+            {
+              id: 'agent-1',
               type: 'agent_message',
-              text: 'model text',
+              text: 'Hello',
               streaming: false,
-              stateVisitId: 'workflow.collect#2',
-            },
-            {
-              id: 'reason-1',
-              type: 'reasoning',
-              text: 'hidden reasoning text',
-              streaming: false,
-              stateVisitId: 'workflow.collect#2',
-            },
-            {
-              id: 'tool-1',
-              type: 'tool_call',
-              name: 'bash',
-              preview: 'pnpm test',
-              status: 'completed',
-              reserved: false,
-              elapsedMs: 4200,
-              category: 'tool',
-              stateVisitId: 'workflow.collect#2',
-            },
-            {
-              id: 'tool-pending',
-              type: 'tool_call',
-              name: 'python',
-              preview: 'python script.py',
-              status: 'pending',
-              reserved: false,
-              category: 'tool',
-              stateVisitId: 'workflow.collect#2',
-            },
-            {
-              id: 'tool-failed',
-              type: 'tool_call',
-              name: 'eslint',
-              preview: 'lint failed',
-              status: 'failed',
-              reserved: false,
-              elapsedMs: 1200,
-              category: 'tool',
-              stateVisitId: 'workflow.collect#2',
-            },
-            {
-              id: 'subagent-1',
-              type: 'tool_call',
-              name: 'spawn_agent',
-              preview: 'worker running',
-              status: 'pending',
-              reserved: false,
-              category: 'subagent',
-              stateVisitId: 'workflow.collect#2',
-            },
-            {
-              id: 'request-1',
-              type: 'compact_status',
-              category: 'request',
-              label: 'command approval',
-              status: 'pending',
-              summary: 'approve command',
-              stateVisitId: 'workflow.collect#2',
-            },
-            {
-              id: 'reply-1',
-              type: 'compact_status',
-              category: 'reply',
-              label: 'approval',
-              status: 'submitted',
-              summary: 'request-1',
-              stateVisitId: 'workflow.collect#2',
-            },
-            {
-              id: 'reply-2',
-              type: 'compact_status',
-              category: 'reply',
-              label: 'approval',
-              status: 'accepted',
-              summary: 'request-1',
-              stateVisitId: 'workflow.collect#2',
-            },
-            {
-              id: 'reply-3',
-              type: 'compact_status',
-              category: 'reply',
-              label: 'approval',
-              status: 'failed',
-              summary: 'rejected',
-              stateVisitId: 'workflow.collect#2',
-            },
-            {
-              id: 'diagnostic-1',
-              type: 'compact_status',
-              category: 'diagnostic',
-              label: 'abandoned',
-              status: 'warn',
-              summary: 'old thread ignored',
-              stateVisitId: 'workflow.collect#2',
-            },
-            {
-              id: 'fresh-clear-1',
-              type: 'fresh_clear_boundary',
-              reason: 'clearOnEntry',
-              previousThreadId: 'old-thread',
-              nextThreadId: 'new-thread',
-              statePath: 'workflow.collect',
               stateVisitId: 'workflow.collect#2',
             },
           ],
-        }),
+          loadStatus: undefined,
+        },
+      ],
+      entryByVisit: new Map(),
+      showInlineIndicator: true,
+      activity: {
+        kind: 'thinking',
+        label: 'model thinking',
+        tone: 'indigo',
+        motion: 'wave',
+      },
+      showApprovals: true,
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(['transcript', 'inline_indicator', 'approvals']);
+  });
+});
+
+describe('ActivePanel virtualized list', () => {
+  it('renders measured timeline rows with the Virtuoso mock context', () => {
+    const data: ActivePanelTimelineRow[] = [
+      { kind: 'empty', key: 'empty-current', text: 'no activity yet in this visit' },
+    ];
+    const html = renderToStaticMarkup(
+      createElement(() =>
+        createElement(
+          VirtuosoMockContext.Provider,
+          { value: { viewportHeight: 300, itemHeight: 48 } },
+          createElement(Virtuoso<ActivePanelTimelineRow>, {
+            data,
+            components: activePanelVirtuosoComponentsForTest,
+            initialItemCount: 1,
+            itemContent: (_: number, row: ActivePanelTimelineRow) =>
+              row.kind === 'empty'
+                ? createElement('div', { className: 'ap-empty quiet' }, row.text)
+                : null,
+          }),
+        ),
+      ),
+    );
+
+    expect(html).toContain('ap-virtual-item');
+    expect(html).toContain('ap-virtual-header');
+    expect(html).toContain('no activity yet in this visit');
+  });
+});
+
+describe('ActivePanel historical visits', () => {
+  it('renders compact normalized rows without raw expansion', () => {
+    const html = renderActivePanel(
+      baseSession({
+        transcript: [
+          {
+            id: 'msg-1',
+            type: 'agent_message',
+            text: 'model text',
+            streaming: false,
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
+            id: 'reason-1',
+            type: 'reasoning',
+            text: 'hidden reasoning text',
+            streaming: false,
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
+            id: 'tool-1',
+            type: 'tool_call',
+            name: 'bash',
+            preview: 'pnpm test',
+            status: 'completed',
+            reserved: false,
+            elapsedMs: 4200,
+            category: 'tool',
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
+            id: 'tool-pending',
+            type: 'tool_call',
+            name: 'python',
+            preview: 'python script.py',
+            status: 'pending',
+            reserved: false,
+            category: 'tool',
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
+            id: 'tool-failed',
+            type: 'tool_call',
+            name: 'eslint',
+            preview: 'lint failed',
+            status: 'failed',
+            reserved: false,
+            elapsedMs: 1200,
+            category: 'tool',
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
+            id: 'subagent-1',
+            type: 'tool_call',
+            name: 'spawn_agent',
+            preview: 'worker running',
+            status: 'pending',
+            reserved: false,
+            category: 'subagent',
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
+            id: 'request-1',
+            type: 'compact_status',
+            category: 'request',
+            label: 'command approval',
+            status: 'pending',
+            summary: 'approve command',
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
+            id: 'reply-1',
+            type: 'compact_status',
+            category: 'reply',
+            label: 'approval',
+            status: 'submitted',
+            summary: 'request-1',
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
+            id: 'reply-2',
+            type: 'compact_status',
+            category: 'reply',
+            label: 'approval',
+            status: 'accepted',
+            summary: 'request-1',
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
+            id: 'reply-3',
+            type: 'compact_status',
+            category: 'reply',
+            label: 'approval',
+            status: 'failed',
+            summary: 'rejected',
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
+            id: 'diagnostic-1',
+            type: 'compact_status',
+            category: 'diagnostic',
+            label: 'abandoned',
+            status: 'warn',
+            summary: 'old thread ignored',
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
+            id: 'fresh-clear-1',
+            type: 'fresh_clear_boundary',
+            reason: 'clearOnEntry',
+            previousThreadId: 'old-thread',
+            nextThreadId: 'new-thread',
+            statePath: 'workflow.collect',
+            stateVisitId: 'workflow.collect#2',
+          },
+        ],
       }),
     );
 
@@ -326,21 +421,17 @@ describe('ActivePanel historical visits', () => {
         stateVisitId: 'workflow.collect#2',
       },
     ];
-    const hidden = renderToStaticMarkup(
-      createElement(ActivePanel, {
-        session: baseSession({
-          scopedPath: 'workflow.collect',
-          rowLoadStatus: {
-            'workflow.collect#2': { loading: false, loaded: true, error: null, storedRows: 1 },
-          },
-          transcript,
-        }),
+    const hidden = renderActivePanel(
+      baseSession({
+        scopedPath: 'workflow.collect',
+        rowLoadStatus: {
+          'workflow.collect#2': { loading: false, loaded: true, error: null, storedRows: 1 },
+        },
+        transcript,
       }),
     );
-    const dev = renderToStaticMarkup(
-      createElement(ActivePanel, {
-        session: baseSession({ scopedPath: 'workflow.collect', transcript, devMode: true }),
-      }),
+    const dev = renderActivePanel(
+      baseSession({ scopedPath: 'workflow.collect', transcript, devMode: true }),
     );
 
     expect(hidden).toContain('activity hidden in this view');
@@ -349,35 +440,33 @@ describe('ActivePanel historical visits', () => {
   });
 
   it('renders frozen historical scope visits from loaded row pages without false empty placeholders', () => {
-    const html = renderToStaticMarkup(
-      createElement(ActivePanel, {
-        session: baseSession({
-          scopedPath: 'workflow.collect',
-          rowLoadStatus: {
-            'workflow.collect#1': { loading: false, loaded: true, error: null },
-            'workflow.collect#2': { loading: false, loaded: true, error: null },
+    const html = renderActivePanel(
+      baseSession({
+        scopedPath: 'workflow.collect',
+        rowLoadStatus: {
+          'workflow.collect#1': { loading: false, loaded: true, error: null },
+          'workflow.collect#2': { loading: false, loaded: true, error: null },
+        },
+        transcript: [
+          {
+            id: 'row-v1',
+            type: 'agent_message',
+            text: 'first visit row',
+            streaming: false,
+            stateVisitId: 'workflow.collect#1',
+            seq: 2,
+            eventId: 'run-1:2',
           },
-          transcript: [
-            {
-              id: 'row-v1',
-              type: 'agent_message',
-              text: 'first visit row',
-              streaming: false,
-              stateVisitId: 'workflow.collect#1',
-              seq: 2,
-              eventId: 'run-1:2',
-            },
-            {
-              id: 'row-v2',
-              type: 'agent_message',
-              text: 'second visit row',
-              streaming: false,
-              stateVisitId: 'workflow.collect#2',
-              seq: 4,
-              eventId: 'run-1:4',
-            },
-          ],
-        }),
+          {
+            id: 'row-v2',
+            type: 'agent_message',
+            text: 'second visit row',
+            streaming: false,
+            stateVisitId: 'workflow.collect#2',
+            seq: 4,
+            eventId: 'run-1:4',
+          },
+        ],
       }),
     );
 
@@ -390,15 +479,13 @@ describe('ActivePanel historical visits', () => {
   });
 
   it('does not claim emptiness for a known visit while row loading is in flight', () => {
-    const html = renderToStaticMarkup(
-      createElement(ActivePanel, {
-        session: baseSession({
-          scopedPath: 'workflow.collect',
-          statePathVisits: { 'workflow.collect': ['workflow.collect#1'] },
-          rowLoadStatus: {
-            'workflow.collect#1': { loading: true, loaded: false, error: null },
-          },
-        }),
+    const html = renderActivePanel(
+      baseSession({
+        scopedPath: 'workflow.collect',
+        statePathVisits: { 'workflow.collect': ['workflow.collect#1'] },
+        rowLoadStatus: {
+          'workflow.collect#1': { loading: true, loaded: false, error: null },
+        },
       }),
     );
 
@@ -409,27 +496,25 @@ describe('ActivePanel historical visits', () => {
   });
 
   it('does not claim emptiness when a loaded visit only has rows hidden by the default filter', () => {
-    const html = renderToStaticMarkup(
-      createElement(ActivePanel, {
-        session: baseSession({
-          scopedPath: 'workflow.collect',
-          statePathVisits: { 'workflow.collect': ['workflow.collect#1'] },
-          rowLoadStatus: {
-            'workflow.collect#1': { loading: false, loaded: true, error: null },
+    const html = renderActivePanel(
+      baseSession({
+        scopedPath: 'workflow.collect',
+        statePathVisits: { 'workflow.collect': ['workflow.collect#1'] },
+        rowLoadStatus: {
+          'workflow.collect#1': { loading: false, loaded: true, error: null },
+        },
+        transcript: [
+          {
+            id: 'state-row',
+            type: 'state_change',
+            from: null,
+            to: 'workflow.collect',
+            cause: 'boot',
+            stateVisitId: 'workflow.collect#1',
+            seq: 1,
+            eventId: 'run-1:1',
           },
-          transcript: [
-            {
-              id: 'state-row',
-              type: 'state_change',
-              from: null,
-              to: 'workflow.collect',
-              cause: 'boot',
-              stateVisitId: 'workflow.collect#1',
-              seq: 1,
-              eventId: 'run-1:1',
-            },
-          ],
-        }),
+        ],
       }),
     );
 
@@ -439,25 +524,23 @@ describe('ActivePanel historical visits', () => {
   });
 
   it('does not claim emptiness when loaded row pages only produced unsupported diagnostics', () => {
-    const html = renderToStaticMarkup(
-      createElement(ActivePanel, {
-        session: baseSession({
-          scopedPath: 'workflow.collect',
-          statePathVisits: { 'workflow.collect': ['workflow.collect#1', 'workflow.collect#2'] },
-          rowLoadStatus: {
-            'workflow.collect#1': { loading: false, loaded: true, error: null, storedRows: 2 },
-            'workflow.collect#2': { loading: false, loaded: true, error: null },
+    const html = renderActivePanel(
+      baseSession({
+        scopedPath: 'workflow.collect',
+        statePathVisits: { 'workflow.collect': ['workflow.collect#1', 'workflow.collect#2'] },
+        rowLoadStatus: {
+          'workflow.collect#1': { loading: false, loaded: true, error: null, storedRows: 2 },
+          'workflow.collect#2': { loading: false, loaded: true, error: null },
+        },
+        transcript: [
+          {
+            id: 'row-v2',
+            type: 'agent_message',
+            text: 'second visit row',
+            streaming: false,
+            stateVisitId: 'workflow.collect#2',
           },
-          transcript: [
-            {
-              id: 'row-v2',
-              type: 'agent_message',
-              text: 'second visit row',
-              streaming: false,
-              stateVisitId: 'workflow.collect#2',
-            },
-          ],
-        }),
+        ],
       }),
     );
 
@@ -470,15 +553,13 @@ describe('ActivePanel historical visits', () => {
   });
 
   it('shows row-load errors without false empty placeholders', () => {
-    const html = renderToStaticMarkup(
-      createElement(ActivePanel, {
-        session: baseSession({
-          scopedPath: 'workflow.collect',
-          statePathVisits: { 'workflow.collect': ['workflow.collect#1'] },
-          rowLoadStatus: {
-            'workflow.collect#1': { loading: false, loaded: false, error: 'boom' },
-          },
-        }),
+    const html = renderActivePanel(
+      baseSession({
+        scopedPath: 'workflow.collect',
+        statePathVisits: { 'workflow.collect': ['workflow.collect#1'] },
+        rowLoadStatus: {
+          'workflow.collect#1': { loading: false, loaded: false, error: 'boom' },
+        },
       }),
     );
 
@@ -488,16 +569,14 @@ describe('ActivePanel historical visits', () => {
   });
 
   it('uses the run-scoped reply endpoint hint for open-state composer replies', () => {
-    const html = renderToStaticMarkup(
-      createElement(ActivePanel, {
-        session: baseSession({
-          posture: {
-            isTerminal: false,
-            isAwaiting: false,
-            submittedThisTurn: false,
-            open: true,
-          },
-        }),
+    const html = renderActivePanel(
+      baseSession({
+        posture: {
+          isTerminal: false,
+          isAwaiting: false,
+          submittedThisTurn: false,
+          open: true,
+        },
       }),
     );
 

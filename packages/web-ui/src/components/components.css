@@ -1701,12 +1701,15 @@
 
 .ap-body {
   flex: 1;
-  overflow-y: auto;
-  padding: 20px 26px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
   min-height: 0;
+  scrollbar-width: thin;
+}
+.ap-virtual-item {
+  padding: 0 26px 16px;
+  box-sizing: border-box;
+}
+.ap-virtual-header {
+  height: 20px;
 }
 .ap-empty {
   padding: 40px 0;
