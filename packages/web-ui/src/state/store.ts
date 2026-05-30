@@ -1546,8 +1546,7 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
  */
 export function visibleItems(items: TranscriptItem[], devMode: boolean): TranscriptItem[] {
   return foldToolResults(items).filter((i) => {
-    if (i.type === 'framework_note' && i.variant === 'orientation') return false;
-    if (i.type === 'reasoning' && i.text.trim().length === 0) return false;
+    if (isAlwaysHiddenTranscriptItem(i)) return false;
     if (devMode) return true;
     return isVisibleTranscriptItem(i);
   });
@@ -1605,6 +1604,7 @@ function foldToolResults(items: ReadonlyArray<TranscriptItem>): TranscriptItem[]
 }
 
 function isVisibleTranscriptItem(i: TranscriptItem): boolean {
+  if (isAlwaysHiddenTranscriptItem(i)) return false;
   if (i.type === 'tool_call' && i.reserved) return false;
   if (i.type === 'tool_result' && i.reserved) return false;
   if (i.type === 'compact_status' && i.reserved) return false;
@@ -1614,6 +1614,12 @@ function isVisibleTranscriptItem(i: TranscriptItem): boolean {
   }
   if (i.type === 'state_change') return false;
   return true;
+}
+
+function isAlwaysHiddenTranscriptItem(i: TranscriptItem): boolean {
+  if (i.type === 'framework_note' && i.variant === 'orientation') return true;
+  if (i.type === 'reasoning' && i.text.trim().length === 0) return true;
+  return false;
 }
 
 /**

@@ -5,6 +5,7 @@ import {
   applyRunEvent,
   applyVisitRowPage,
   createConnectingUiState,
+  hasVisibleContent,
   hydrateFromBootstrap,
   markConnectionLost,
   visibleItems,
@@ -1211,6 +1212,27 @@ describe('headless production store helpers', () => {
 
     const visible = visibleItems(withResult.transcript, false);
 
+    expect(withResult.transcript).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'call-bash-1',
+          type: 'tool_call',
+          name: 'bash',
+          status: 'completed',
+          output: 'completed',
+          ok: true,
+          resultId: 'call-bash-1:output',
+        }),
+      ]),
+    );
+    expect(withResult.transcript).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'call-bash-1:output',
+          type: 'tool_result',
+        }),
+      ]),
+    );
     expect(visible).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -1360,10 +1382,10 @@ describe('headless production store helpers', () => {
     const visibleInDevMode = visibleItems(withReasoningText.transcript, true);
 
     expect(visible).not.toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: 'orientation-user-1' }),
-        expect.objectContaining({ id: 'reasoning-empty-1' }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ id: 'orientation-user-1' })]),
+    );
+    expect(visible).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'reasoning-empty-1' })]),
     );
     expect(visible).toEqual(
       expect.arrayContaining([
@@ -1377,6 +1399,14 @@ describe('headless production store helpers', () => {
     expect(visibleInDevMode).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'reasoning-empty-1' })]),
     );
+    expect(
+      hasVisibleContent(
+        withEmptyReasoning.transcript.filter((item) =>
+          ['orientation-user-1', 'reasoning-empty-1'].includes(item.id),
+        ),
+      ),
+    ).toBe(false);
+    expect(hasVisibleContent(withReasoningText.transcript)).toBe(true);
   });
 
   it('hydrates topology from the legacy flat snapshot fixture contract', () => {
