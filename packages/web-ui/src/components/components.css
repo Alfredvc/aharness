@@ -1899,6 +1899,31 @@
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+.tool-output {
+  border-top: var(--hair) solid var(--line);
+  background: var(--bg);
+}
+.tool-output[data-ok='false'] {
+  border-top-color: rgba(240, 96, 112, 0.38);
+}
+.tool-output .to-head {
+  padding: 8px 14px 0;
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--ink-quiet);
+}
+.tool-output pre {
+  margin: 0;
+  padding: 6px 14px 10px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 
 .compact-row {
   display: flex;

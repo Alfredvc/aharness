@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { buildNodeDetailRowsForTest, ActivePanel } from './ActivePanel.js';
+import { activePanelRowForTest, buildNodeDetailRowsForTest, ActivePanel } from './ActivePanel.js';
 import { canAcceptElicitation } from './elicitationActions.js';
 import { OwnerInputComposer } from './OwnerInputComposer.js';
 import type { UiState, UiActions } from '../state/store.js';
@@ -142,6 +142,31 @@ describe('ActivePanel inspect node details', () => {
       { label: 'hooks', value: 'PreToolUse x1 (^Bash$)' },
       { label: 'exits', value: 'submitPlan -> review: Plan is ready.' },
     ]);
+  });
+});
+
+describe('ActivePanel tool rows', () => {
+  it('renders completed tool output inside the tool-call card', () => {
+    const html = renderToStaticMarkup(
+      createElement(() =>
+        activePanelRowForTest({
+          id: 'call-bash-1',
+          type: 'tool_call',
+          name: 'bash',
+          preview: 'pnpm test',
+          status: 'completed',
+          reserved: false,
+          stateVisitId: 'workflow.collect#2',
+          output: 'completed',
+          ok: true,
+          resultId: 'call-bash-1:output',
+        }),
+      ),
+    );
+
+    expect(html).toContain('<pre>completed</pre>');
+    expect(html).toContain('tool-output');
+    expect(html).not.toContain('tool-result');
   });
 });
 

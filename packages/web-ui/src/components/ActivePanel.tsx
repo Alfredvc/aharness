@@ -402,6 +402,8 @@ function buildNodeDetailRows(node: VizNode): DetailRow[] {
 
 export const buildNodeDetailRowsForTest = buildNodeDetailRows;
 
+export const activePanelRowForTest = (item: TranscriptItem) => <ActivePanelRow item={item} />;
+
 function DevContextBox({ fsmState }: { fsmState: UiState['state'] }) {
   if (!fsmState) return null;
   const ctx = fsmState.context ?? {};
@@ -959,6 +961,12 @@ function ToolCallRow({ item }: { item: Extract<TranscriptItem, { type: 'tool_cal
       </header>
       {pending ? <div className="tc-scan" aria-hidden /> : null}
       {preview ? <div className="tc-preview">{preview}</div> : null}
+      {item.output && item.output.length > 0 ? (
+        <div className="tool-output" data-ok={item.ok ?? item.status === 'completed'}>
+          <div className="to-head">{item.ok === false ? 'output · failed' : 'output'}</div>
+          <pre>{item.output}</pre>
+        </div>
+      ) : null}
     </article>
   );
 }
