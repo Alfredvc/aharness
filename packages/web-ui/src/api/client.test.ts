@@ -23,6 +23,7 @@ import type {
 } from '../types/events.js';
 import {
   isRunScopedApiEvent,
+  isRunScopedBootstrap,
   isRunScopedEventPage,
   isRunScopedResyncRequired,
   isRunScopedRowPage,
@@ -225,6 +226,44 @@ describe('run-scoped API client', () => {
     expect(fetch).toHaveBeenCalledWith('/api/runs/run-1/bootstrap', {
       headers: { 'X-Aharness-Ui-Token': UI_TOKEN },
     });
+  });
+
+  it('validates API-safe aggregate stats while accepting explicit zero values', () => {
+    expect(
+      isRunScopedBootstrap(
+        bootstrap({
+          aggregateStats: {
+            turnCount: 0,
+            totalTokens: 0,
+            inputTokens: 0,
+            cachedInputTokens: 0,
+            outputTokens: 0,
+            reasoningOutputTokens: 0,
+            modelContextWindow: 0,
+          },
+        }),
+      ),
+    ).toBe(true);
+    expect(
+      isRunScopedBootstrap(
+        bootstrap({
+          aggregateStats: {
+            turnCount: 0,
+            totalTokens: Number.NaN,
+          },
+        }),
+      ),
+    ).toBe(false);
+    expect(
+      isRunScopedBootstrap(
+        bootstrap({
+          aggregateStats: {
+            turnCount: 0,
+            raw: { totalTokens: 999 },
+          } as unknown as RunScopedBootstrap['aggregateStats'],
+        }),
+      ),
+    ).toBe(false);
   });
 
   it('fetchBootstrap wraps malformed JSON parse failures as ApiClientError', async () => {

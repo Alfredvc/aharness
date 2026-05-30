@@ -4,6 +4,7 @@
 
 import { hasVisibleContent } from './store.js';
 import type { TranscriptItem, UiState } from './store.js';
+import type { RunMeta, RunScopedAggregateStats } from '../types/events.js';
 
 export type ActivityTone = 'indigo' | 'amber' | 'mint' | 'rose' | 'plasma' | 'muted';
 export type ActivityMotion = 'wave' | 'pulse' | 'scan' | 'still';
@@ -31,6 +32,23 @@ export type Activity = {
   since?: number;
   toolName?: string;
 };
+
+export type RunDurationFormatInput = {
+  aggregateStats: RunScopedAggregateStats;
+  run: Pick<RunMeta, 'startedAt'> | null;
+  nowMs: number;
+};
+
+export type AggregateStatsFormatInput = RunDurationFormatInput;
+
+export type FormattedAggregateStats = {
+  duration?: string;
+  totalTokens?: string;
+  tokenBreakdownLabels: string[];
+  contextWindow?: string;
+};
+
+const compactNumberFormatter = new Intl.NumberFormat('en-US');
 
 function trim(s: string, n: number): string {
   if (!s) return '';
@@ -143,7 +161,7 @@ export function deriveActivity(s: UiState): Activity {
     return {
       kind: 'tool',
       label: `running ${prettyTool(live.name)}`,
-      detail: live.reserved ? 'reserved tool' : trim(live.arguments, 70),
+      detail: live.reserved ? 'reserved tool' : trim(live.preview, 70),
       tone: 'indigo',
       motion: 'wave',
       toolName: live.name,
@@ -226,6 +244,67 @@ export function deriveActivity(s: UiState): Activity {
     detail: turnsLabel,
     tone: 'muted',
     motion: 'still',
+  };
+}
+
+function parseTimestampMs(value: string | undefined): number | null {
+  if (value === undefined || value.length === 0) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isTerminalRunStatus(status: string | undefined): boolean {
+  return status !== undefined && status !== 'running';
+}
+
+export function formatRunDurationLabel(input: RunDurationFormatInput): string | null {
+  const startMs =
+    parseTimestampMs(input.aggregateStats.startedAt) ?? parseTimestampMs(input.run?.startedAt);
+  if (startMs === null) return null;
+
+  const endMs = isTerminalRunStatus(input.aggregateStats.status)
+    ? parseTimestampMs(input.aggregateStats.endedAt)
+    : input.nowMs;
+  if (endMs === null || !Number.isFinite(endMs)) return null;
+  if (endMs < startMs) return null;
+
+  return formatElapsed(endMs - startMs);
+}
+
+export function formatTokenCountLabel(value: number | undefined): string | null {
+  if (value === undefined || !Number.isFinite(value)) return null;
+  const unit = value === 1 ? 'token' : 'tokens';
+  return `${compactNumberFormatter.format(value)} ${unit}`;
+}
+
+function labelledTokenCount(label: string, value: number | undefined): string | null {
+  const tokenCount = formatTokenCountLabel(value);
+  return tokenCount === null ? null : `${label} ${tokenCount}`;
+}
+
+export function formatTokenBreakdownLabels(stats: RunScopedAggregateStats): string[] {
+  return [
+    labelledTokenCount('input', stats.inputTokens),
+    labelledTokenCount('cached input', stats.cachedInputTokens),
+    labelledTokenCount('output', stats.outputTokens),
+    labelledTokenCount('reasoning', stats.reasoningOutputTokens),
+  ].filter((label): label is string => label !== null);
+}
+
+export function formatContextWindowLabel(stats: RunScopedAggregateStats): string | null {
+  const tokenCount = formatTokenCountLabel(stats.modelContextWindow);
+  return tokenCount === null ? null : `context ${tokenCount}`;
+}
+
+export function formatAggregateStats(input: AggregateStatsFormatInput): FormattedAggregateStats {
+  const duration = formatRunDurationLabel(input);
+  const totalTokens = formatTokenCountLabel(input.aggregateStats.totalTokens);
+  const contextWindow = formatContextWindowLabel(input.aggregateStats);
+  return {
+    ...(duration === null ? {} : { duration }),
+    ...(totalTokens === null ? {} : { totalTokens }),
+    tokenBreakdownLabels: formatTokenBreakdownLabels(input.aggregateStats),
+    ...(contextWindow === null ? {} : { contextWindow }),
   };
 }
 

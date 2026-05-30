@@ -3,7 +3,7 @@ import { readBootToken, useAharnessSession } from './state/store';
 import { Graph } from './components/Graph';
 import { ActivePanel } from './components/ActivePanel';
 import { BootSkeleton } from './components/BootSkeleton';
-import { TurnRibbon } from './components/TurnRibbon';
+import { RunStatsBar } from './components/RunStatsBar';
 import './components/components.css';
 
 export function App() {
@@ -79,7 +79,7 @@ export function AharnessShell({ session }: { session: ReturnType<typeof useAharn
           </div>
         </main>
       )}
-      {showBoot ? null : <TurnRibbon session={session} />}
+      {showBoot ? null : <RunStatsBar session={session} variant="bottom" />}
       {helpOpen ? <HelpOverlay onClose={() => setHelpOpen(false)} /> : null}
     </div>
   );
@@ -92,7 +92,7 @@ function TopHeader({
   session: ReturnType<typeof useAharnessSession>;
   onHelp: () => void;
 }) {
-  const { run, posture, turns, devMode, toggleDevMode } = session;
+  const { run, posture, devMode, toggleDevMode } = session;
   const posturePill =
     session.connection === 'connecting'
       ? { label: 'connecting', tone: 'plasma' }
@@ -128,10 +128,7 @@ function TopHeader({
           <span className="k">codex</span>
           <span className="v">{run?.codexPin ?? 'pending'}</span>
         </span>
-        <span className="top-meta-row">
-          <span className="k">turns</span>
-          <span className="v">{turns.length}</span>
-        </span>
+        <RunStatsBar session={session} variant="header" />
       </div>
       <div className="top-actions">
         <button

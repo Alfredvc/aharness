@@ -86,7 +86,10 @@ export function ActivePanel({ session }: Props) {
     return visitIds.map((visitId) => ({
       visitId,
       visit: visitNumber(visitId),
-      rowCount: buckets.get(visitId)?.length ?? 0,
+      rowCount: Math.max(
+        buckets.get(visitId)?.length ?? 0,
+        session.rowLoadStatus[visitId]?.storedRows ?? 0,
+      ),
       items: visibleItems(buckets.get(visitId) ?? [], session.devMode),
       loadStatus: session.rowLoadStatus[visitId],
     }));
@@ -896,6 +899,8 @@ function ActivePanelRow({ item }: { item: TranscriptItem }) {
     case 'framework_note':
       // Dev-mode only renders this; warn variant always shown.
       return <FrameworkNoteRow item={item} />;
+    case 'compact_status':
+      return <CompactStatusRow item={item} />;
     case 'state_change':
       // Already represented by the graph; skip in panel.
       return null;
@@ -923,7 +928,13 @@ function ToolCallRow({ item }: { item: Extract<TranscriptItem, { type: 'tool_cal
     const id = window.setInterval(() => setTick((n) => (n + 1) % 1_000_000), 200);
     return () => window.clearInterval(id);
   }, [pending]);
-  const elapsed = formatElapsed(Date.now() - startedRef.current);
+  const elapsed =
+    item.elapsedMs !== undefined
+      ? formatElapsed(item.elapsedMs)
+      : pending
+        ? formatElapsed(Date.now() - startedRef.current)
+        : null;
+  const preview = truncate(item.preview, 140);
   return (
     <article className={`tool-call ${pending ? 'is-pending' : ''}`} data-status={item.status}>
       <header className="tc-head">
@@ -940,13 +951,14 @@ function ToolCallRow({ item }: { item: Extract<TranscriptItem, { type: 'tool_cal
           </span>
         )}
         <span className="name">{prettyToolName(item.name)}</span>
+        {item.category === 'subagent' ? <span className="badge subagent">subagent</span> : null}
         <span className="badge" data-status={item.status}>
           {item.status}
         </span>
-        {pending ? <span className="tc-elapsed mono">{elapsed}</span> : null}
+        {elapsed ? <span className="tc-elapsed mono">{elapsed}</span> : null}
       </header>
       {pending ? <div className="tc-scan" aria-hidden /> : null}
-      <pre>{prettyArgs(item.arguments)}</pre>
+      {preview ? <div className="tc-preview">{preview}</div> : null}
     </article>
   );
 }
@@ -1057,6 +1069,19 @@ function FrameworkNoteRow({ item }: { item: Extract<TranscriptItem, { type: 'fra
   );
 }
 
+function CompactStatusRow({ item }: { item: Extract<TranscriptItem, { type: 'compact_status' }> }) {
+  const elapsed = item.elapsedMs === undefined ? null : formatElapsed(item.elapsedMs);
+  return (
+    <div className="compact-row" data-kind={item.category} data-status={item.status ?? 'info'}>
+      <span className="compact-kicker">{item.category}</span>
+      <span className="compact-label">{item.label}</span>
+      {item.status ? <span className="compact-status">{item.status}</span> : null}
+      {elapsed ? <span className="compact-elapsed mono">{elapsed}</span> : null}
+      {item.summary ? <span className="compact-summary">{truncate(item.summary, 120)}</span> : null}
+    </div>
+  );
+}
+
 function ReasoningRow({ item }: { item: Extract<TranscriptItem, { type: 'reasoning' }> }) {
   const [open, setOpen] = useState(false);
   return (
@@ -1085,12 +1110,4 @@ function shortThread(threadId: string): string {
 function renderInline(text: string): string {
   const esc = text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
   return esc.replace(/`([^`]+?)`/g, '<code>$1</code>');
-}
-
-function prettyArgs(raw: string): string {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
-  }
 }

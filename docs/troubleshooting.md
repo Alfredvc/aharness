@@ -123,7 +123,10 @@ If you inspect the loopback UI API directly, run-scoped endpoints under
 SSE, and reply projections for the active run. Those API/SSE responses omit raw
 payload expansion, so missing raw request or tool details usually means you need
 the sensitive `events.jsonl` file rather than an API response. The React
-browser now uses the run-scoped bootstrap, row, stream, and reply endpoints. The
-flat `/api/state`, `/api/stream`, and `/api/reply` routes remain
-compatibility/internal routes until later cleanup, not the production browser
-source. `snapshot.json` still exists for current inspection state.
+browser now uses the run-scoped bootstrap, row, stream, and reply endpoints. Its
+header and bottom status bar show aggregate running-time, token, and
+context-window stats when available; the browser no longer uses a top turn count
+or bottom turn ribbon as the primary run chrome. The flat `/api/state`,
+`/api/stream`, and `/api/reply` routes remain compatibility/internal routes
+until later cleanup, not the production browser source. `snapshot.json` still
+exists for current inspection state.

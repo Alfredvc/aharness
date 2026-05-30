@@ -86,9 +86,10 @@ npx aharness ./workflow.fsm.ts
 
 `verify` checks the machine before any model run. `visualize` opens the browser
 graph without starting Codex. Running the FSM starts Codex, opens the aharness
-UI, shows live turn/tool activity in the browser transcript, and writes run
-artifacts under `.aharness/runs/<runId>/`. Internal aharness submit calls stay
-out of the default transcript.
+UI, shows compact JSONL-backed transcript rows plus aggregate running-time,
+token, and context-window stats in the header and bottom status bar, and writes
+run artifacts under `.aharness/runs/<runId>/`. Internal aharness submit calls
+stay out of the default transcript.
 
 New runs write a canonical `events.jsonl` transcript under the run directory.
 That file includes full raw runtime payloads by default, including
@@ -102,10 +103,12 @@ JSONL-backed endpoints for the active run: `/api/runs/:runId/bootstrap`,
 `/api/runs/:runId/reply`. These API/SSE projections are compact and omit raw
 payload expansion; inspect `events.jsonl` directly only when that sensitive raw
 evidence is needed. The React browser now boots, streams rows/events, and sends
-replies through those run-scoped endpoints. The flat `/api/state`,
-`/api/stream`, and `/api/reply` routes remain compatibility/internal routes
-until a later cleanup, not the production browser source. `snapshot.json` still
-exists for current inspection state.
+replies through those run-scoped endpoints. Browser chrome is no longer centered
+on a top turn count or bottom turn ribbon; it renders aggregate run duration,
+token, and context stats when those values are available. The flat
+`/api/state`, `/api/stream`, and `/api/reply` routes remain
+compatibility/internal routes until a later cleanup, not the production browser
+source. `snapshot.json` still exists for current inspection state.
 
 ## Write A Workflow
 
@@ -288,8 +291,9 @@ XState actor in-process. Codex performs the work; aharness controls the
 transition surface.
 
 Owner replies, permission requests, hooks, typed submissions, and final
-artifacts all pass through the active FSM state. The browser UI shows the graph
-and handles approvals through a per-run loopback token.
+artifacts all pass through the active FSM state. The browser UI shows the graph,
+compact run rows, aggregate run stats, and handles approvals through a per-run
+loopback token.
 
 ## Packages
 

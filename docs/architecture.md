@@ -125,10 +125,12 @@ JSONL-backed projections for bootstrap state, visit rows, recent rows,
 diagnostic event pages, canonical run-event SSE, and replies. These HTTP/SSE
 responses omit raw payloads; raw evidence remains in `events.jsonl`. The React
 browser now uses the run-scoped bootstrap, row, stream, and reply routes after
-the CLI hands it `token` and `runId` query params. The flat `/api/state`,
-`/api/stream`, and `/api/reply` routes remain compatibility/internal routes
-until later cleanup, and `snapshot.json` remains written for current inspection
-state until the later source-of-truth cutover.
+the CLI hands it `token` and `runId` query params. Its shell uses compact
+JSONL-backed rows plus aggregate running-time, token, and context-window stats;
+the old top turn count and bottom turn ribbon are no longer user-facing chrome.
+The flat `/api/state`, `/api/stream`, and `/api/reply` routes remain
+compatibility/internal routes until later cleanup, and `snapshot.json` remains
+written for current inspection state until the later source-of-truth cutover.
 
 ## Package Boundaries
 

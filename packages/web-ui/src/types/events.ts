@@ -926,6 +926,7 @@ function isPendingCardBase(value: Record<string, unknown>, kind: string, method:
 function isRunScopedAggregateStats(value: unknown): value is RunScopedAggregateStats {
   return (
     isRecord(value) &&
+    !('raw' in value) &&
     isOptionalString(value['status']) &&
     isOptionalString(value['startedAt']) &&
     isOptionalString(value['endedAt']) &&

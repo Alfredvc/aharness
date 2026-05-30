@@ -81,9 +81,11 @@ export type TranscriptItem =
       id: string;
       type: 'tool_call';
       name: string;
-      arguments: string;
+      preview: string;
       status: 'pending' | 'approved' | 'declined' | 'completed' | 'failed';
       reserved: boolean;
+      elapsedMs?: number;
+      category?: 'tool' | 'subagent';
     })
   | (TranscriptBase & {
       id: string;
@@ -98,6 +100,16 @@ export type TranscriptItem =
       type: 'framework_note';
       text: string;
       variant: 'info' | 'warn' | 'orientation';
+    })
+  | (TranscriptBase & {
+      id: string;
+      type: 'compact_status';
+      category: 'request' | 'reply' | 'diagnostic';
+      label: string;
+      status?: string;
+      summary?: string;
+      reserved?: boolean;
+      elapsedMs?: number;
     })
   | (TranscriptBase & {
       id: string;
@@ -142,7 +154,10 @@ export type UiState = {
   stateVisits: RunScopedStateVisit[];
   statePathVisits: Record<string, string[]>;
   rowPageCursors: Record<string, string | null>;
-  rowLoadStatus: Record<string, { loading: boolean; loaded: boolean; error: string | null }>;
+  rowLoadStatus: Record<
+    string,
+    { loading: boolean; loaded: boolean; error: string | null; storedRows?: number }
+  >;
   aggregateStats: RunScopedAggregateStats;
   history: Array<{ at: number; from: string | null; to: string; cause: string; visitId: string }>;
   turns: TurnRecord[];
@@ -560,6 +575,43 @@ function rowText(row: RunScopedCompactRow): string {
   return row.text ?? row.summary ?? row.label ?? '';
 }
 
+function rowPreview(row: RunScopedCompactRow): string {
+  return (
+    readString(row.data?.['preview']) ??
+    readString(row.data?.['command']) ??
+    readString(row.data?.['summary']) ??
+    row.summary ??
+    row.text ??
+    ''
+  );
+}
+
+function compactStatus(
+  status: string | undefined,
+): Extract<TranscriptItem, { type: 'tool_call' }>['status'] {
+  if (
+    status === 'completed' ||
+    status === 'failed' ||
+    status === 'approved' ||
+    status === 'declined'
+  ) {
+    return status;
+  }
+  if (status === 'accepted' || status === 'resolved') return 'completed';
+  return 'pending';
+}
+
+function isSubagentToolRow(row: RunScopedCompactRow): boolean {
+  const itemType = readString(row.data?.['itemType']);
+  const label = row.label ?? '';
+  return (
+    itemType === 'spawnAgentToolCall' ||
+    itemType === 'collabAgentToolCall' ||
+    label === 'spawn_agent' ||
+    label === 'collab_agent'
+  );
+}
+
 function rowVisitId(
   row: RunScopedCompactRow,
   options: { fallbackVisitId: string | null; live: boolean },
@@ -606,33 +658,48 @@ function transcriptItemFromCompactRow(
     }
     case 'tool': {
       const name = row.label ?? row.summary ?? 'tool';
-      const status =
-        row.status === 'completed' || row.status === 'failed' || row.status === 'approved'
-          ? row.status
-          : row.status === 'declined'
-            ? 'declined'
-            : 'pending';
+      const reserved = row.data?.['internal'] === true || isReservedToolName(name);
       return {
         ...common,
         id: row.itemId ?? row.id,
         type: 'tool_call',
         name,
-        arguments: row.summary ?? '',
-        status,
-        reserved: isReservedToolName(name),
+        preview: rowPreview(row),
+        status: compactStatus(row.status),
+        reserved,
+        ...(row.elapsedMs === undefined ? {} : { elapsedMs: row.elapsedMs }),
+        category: isSubagentToolRow(row) ? 'subagent' : 'tool',
       };
     }
     case 'request': {
-      const text = row.summary ?? row.label ?? '';
-      return text
-        ? {
-            ...common,
-            id: row.id,
-            type: 'framework_note',
-            text,
-            variant: 'info',
-          }
-        : null;
+      const label = row.label ?? readString(row.data?.['kind']) ?? 'request';
+      const summary = row.summary ?? row.text;
+      return {
+        ...common,
+        id: row.id,
+        type: 'compact_status',
+        category: 'request',
+        label,
+        ...(row.status === undefined ? {} : { status: row.status }),
+        ...(summary === undefined ? {} : { summary }),
+        reserved: row.data?.['internal'] === true,
+        ...(row.elapsedMs === undefined ? {} : { elapsedMs: row.elapsedMs }),
+      };
+    }
+    case 'reply': {
+      const label = row.label ?? 'reply';
+      const summary = row.summary ?? row.text;
+      return {
+        ...common,
+        id: row.id,
+        type: 'compact_status',
+        category: 'reply',
+        label,
+        ...(row.status === undefined ? {} : { status: row.status }),
+        ...(summary === undefined ? {} : { summary }),
+        reserved: row.data?.['internal'] === true,
+        ...(row.elapsedMs === undefined ? {} : { elapsedMs: row.elapsedMs }),
+      };
     }
     case 'framework_note': {
       const text = rowText(row);
@@ -643,7 +710,17 @@ function transcriptItemFromCompactRow(
     }
     case 'diagnostic': {
       const text = rowText(row);
-      return text ? { ...common, id: row.id, type: 'framework_note', text, variant: 'warn' } : null;
+      return text
+        ? {
+            ...common,
+            id: row.id,
+            type: 'compact_status',
+            category: 'diagnostic',
+            label: row.label ?? 'diagnostic',
+            status: row.status ?? 'warn',
+            summary: text,
+          }
+        : null;
     }
     case 'state_change': {
       return {
@@ -751,7 +828,7 @@ function mergeRowPage(state: UiState, visitId: string, page: RunScopedRowPage): 
     rowPageCursors: { ...state.rowPageCursors, [visitId]: page.nextCursor },
     rowLoadStatus: {
       ...state.rowLoadStatus,
-      [visitId]: { loading: false, loaded: true, error: null },
+      [visitId]: { loading: false, loaded: true, error: null, storedRows: page.rows.length },
     },
     rowLoadError: null,
   };
@@ -1093,7 +1170,7 @@ function mergeAggregateFromRunEvent(state: UiState, e: RunScopedApiEvent): UiSta
   } else if (e.type === 'turn.completed') {
     const turnId = e.turnId ?? readString(data['turnId']);
     if (turnId === undefined || aggregate.activeTurnId === turnId) delete aggregate.activeTurnId;
-  } else if (e.type === 'token.updated' || e.type === 'subthread.token.updated') {
+  } else if (e.type === 'token.updated') {
     const total = isRecord(data['total']) ? data['total'] : data;
     for (const key of [
       'totalTokens',
@@ -1368,6 +1445,9 @@ function reducer(s: UiState, a: Action): UiState {
           loading: true,
           loaded: s.rowLoadStatus[a.visitId]?.loaded ?? false,
           error: null,
+          ...(s.rowLoadStatus[a.visitId]?.storedRows === undefined
+            ? {}
+            : { storedRows: s.rowLoadStatus[a.visitId]?.storedRows }),
         },
       },
     };
@@ -1385,6 +1465,9 @@ function reducer(s: UiState, a: Action): UiState {
           loading: false,
           loaded: s.rowLoadStatus[a.visitId]?.loaded ?? false,
           error: a.error,
+          ...(s.rowLoadStatus[a.visitId]?.storedRows === undefined
+            ? {}
+            : { storedRows: s.rowLoadStatus[a.visitId]?.storedRows }),
         },
       },
     };
@@ -1460,7 +1543,7 @@ function reduceEvent(previous: UiState, e: AppEvent): UiState {
           id: e.id,
           type: 'tool_call',
           name: e.name,
-          arguments: e.arguments,
+          preview: e.arguments,
           status: 'pending',
           reserved: isReservedToolName(e.name),
           stateVisitId: vid,
@@ -1829,6 +1912,7 @@ export function visibleItems(items: TranscriptItem[], devMode: boolean): Transcr
 function isVisibleTranscriptItem(i: TranscriptItem): boolean {
   if (i.type === 'tool_call' && i.reserved) return false;
   if (i.type === 'tool_result' && i.reserved) return false;
+  if (i.type === 'compact_status' && i.reserved) return false;
   if (i.type === 'user_message' && i.synthetic) return false;
   if (i.type === 'framework_note' && (i.variant === 'orientation' || i.variant === 'info')) {
     return false;

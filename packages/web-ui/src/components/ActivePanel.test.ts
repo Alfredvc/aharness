@@ -146,6 +146,183 @@ describe('ActivePanel inspect node details', () => {
 });
 
 describe('ActivePanel historical visits', () => {
+  it('renders compact normalized rows without raw expansion', () => {
+    const html = renderToStaticMarkup(
+      createElement(ActivePanel, {
+        session: baseSession({
+          transcript: [
+            {
+              id: 'msg-1',
+              type: 'agent_message',
+              text: 'model text',
+              streaming: false,
+              stateVisitId: 'workflow.collect#2',
+            },
+            {
+              id: 'reason-1',
+              type: 'reasoning',
+              text: 'hidden reasoning text',
+              streaming: false,
+              stateVisitId: 'workflow.collect#2',
+            },
+            {
+              id: 'tool-1',
+              type: 'tool_call',
+              name: 'bash',
+              preview: 'pnpm test',
+              status: 'completed',
+              reserved: false,
+              elapsedMs: 4200,
+              category: 'tool',
+              stateVisitId: 'workflow.collect#2',
+            },
+            {
+              id: 'tool-pending',
+              type: 'tool_call',
+              name: 'python',
+              preview: 'python script.py',
+              status: 'pending',
+              reserved: false,
+              category: 'tool',
+              stateVisitId: 'workflow.collect#2',
+            },
+            {
+              id: 'tool-failed',
+              type: 'tool_call',
+              name: 'eslint',
+              preview: 'lint failed',
+              status: 'failed',
+              reserved: false,
+              elapsedMs: 1200,
+              category: 'tool',
+              stateVisitId: 'workflow.collect#2',
+            },
+            {
+              id: 'subagent-1',
+              type: 'tool_call',
+              name: 'spawn_agent',
+              preview: 'worker running',
+              status: 'pending',
+              reserved: false,
+              category: 'subagent',
+              stateVisitId: 'workflow.collect#2',
+            },
+            {
+              id: 'request-1',
+              type: 'compact_status',
+              category: 'request',
+              label: 'command approval',
+              status: 'pending',
+              summary: 'approve command',
+              stateVisitId: 'workflow.collect#2',
+            },
+            {
+              id: 'reply-1',
+              type: 'compact_status',
+              category: 'reply',
+              label: 'approval',
+              status: 'submitted',
+              summary: 'request-1',
+              stateVisitId: 'workflow.collect#2',
+            },
+            {
+              id: 'reply-2',
+              type: 'compact_status',
+              category: 'reply',
+              label: 'approval',
+              status: 'accepted',
+              summary: 'request-1',
+              stateVisitId: 'workflow.collect#2',
+            },
+            {
+              id: 'reply-3',
+              type: 'compact_status',
+              category: 'reply',
+              label: 'approval',
+              status: 'failed',
+              summary: 'rejected',
+              stateVisitId: 'workflow.collect#2',
+            },
+            {
+              id: 'diagnostic-1',
+              type: 'compact_status',
+              category: 'diagnostic',
+              label: 'abandoned',
+              status: 'warn',
+              summary: 'old thread ignored',
+              stateVisitId: 'workflow.collect#2',
+            },
+            {
+              id: 'fresh-clear-1',
+              type: 'fresh_clear_boundary',
+              reason: 'clearOnEntry',
+              previousThreadId: 'old-thread',
+              nextThreadId: 'new-thread',
+              statePath: 'workflow.collect',
+              stateVisitId: 'workflow.collect#2',
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(html).toContain('model text');
+    expect(html).toContain('model · reasoning');
+    expect(html).toContain('4s');
+    expect(html).toContain('pnpm test');
+    expect(html).toContain('python');
+    expect(html).toContain('python script.py');
+    expect(html).toContain('eslint');
+    expect(html).toContain('lint failed');
+    expect(html).toContain('1s');
+    expect(html).toContain('subagent');
+    expect(html).toContain('worker running');
+    expect(html).toContain('command approval');
+    expect(html).toContain('submitted');
+    expect(html).toContain('accepted');
+    expect(html).toContain('failed');
+    expect(html).toContain('old thread ignored');
+    expect(html).toContain('fresh clear · replacement thread');
+    expect(html).toContain('old-thread');
+    expect(html).toContain('new-thread');
+    expect(html).not.toContain('{&quot;');
+    expect(html).not.toContain('<pre');
+  });
+
+  it('keeps aharness internal tools hidden by default and visible in dev mode', () => {
+    const transcript: TestSession['transcript'] = [
+      {
+        id: 'internal-tool',
+        type: 'tool_call',
+        name: 'aharness_submit',
+        preview: '{}',
+        status: 'completed',
+        reserved: true,
+        stateVisitId: 'workflow.collect#2',
+      },
+    ];
+    const hidden = renderToStaticMarkup(
+      createElement(ActivePanel, {
+        session: baseSession({
+          scopedPath: 'workflow.collect',
+          rowLoadStatus: {
+            'workflow.collect#2': { loading: false, loaded: true, error: null, storedRows: 1 },
+          },
+          transcript,
+        }),
+      }),
+    );
+    const dev = renderToStaticMarkup(
+      createElement(ActivePanel, {
+        session: baseSession({ scopedPath: 'workflow.collect', transcript, devMode: true }),
+      }),
+    );
+
+    expect(hidden).toContain('activity hidden in this view');
+    expect(hidden).not.toContain('aharness_submit');
+    expect(dev).toContain('aharness_submit');
+  });
+
   it('renders frozen historical scope visits from loaded row pages without false empty placeholders', () => {
     const html = renderToStaticMarkup(
       createElement(ActivePanel, {
@@ -232,6 +409,55 @@ describe('ActivePanel historical visits', () => {
     );
 
     expect(html).toContain('activity hidden in this view');
+    expect(html).not.toContain('no activity in this visit');
+    expect(html).not.toContain('no activity yet in this visit');
+  });
+
+  it('does not claim emptiness when loaded row pages only produced unsupported diagnostics', () => {
+    const html = renderToStaticMarkup(
+      createElement(ActivePanel, {
+        session: baseSession({
+          scopedPath: 'workflow.collect',
+          statePathVisits: { 'workflow.collect': ['workflow.collect#1', 'workflow.collect#2'] },
+          rowLoadStatus: {
+            'workflow.collect#1': { loading: false, loaded: true, error: null, storedRows: 2 },
+            'workflow.collect#2': { loading: false, loaded: true, error: null },
+          },
+          transcript: [
+            {
+              id: 'row-v2',
+              type: 'agent_message',
+              text: 'second visit row',
+              streaming: false,
+              stateVisitId: 'workflow.collect#2',
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(html).toContain('visit 1');
+    expect(html).toContain('activity hidden in this view');
+    expect(html).toContain('visit 2');
+    expect(html).toContain('second visit row');
+    expect(html).not.toContain('no activity in this visit');
+    expect(html).not.toContain('no activity yet in this visit');
+  });
+
+  it('shows row-load errors without false empty placeholders', () => {
+    const html = renderToStaticMarkup(
+      createElement(ActivePanel, {
+        session: baseSession({
+          scopedPath: 'workflow.collect',
+          statePathVisits: { 'workflow.collect': ['workflow.collect#1'] },
+          rowLoadStatus: {
+            'workflow.collect#1': { loading: false, loaded: false, error: 'boom' },
+          },
+        }),
+      }),
+    );
+
+    expect(html).toContain('could not load activity for this visit');
     expect(html).not.toContain('no activity in this visit');
     expect(html).not.toContain('no activity yet in this visit');
   });

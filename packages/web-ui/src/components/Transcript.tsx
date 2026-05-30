@@ -74,7 +74,7 @@ function TranscriptRow({ item }: { item: TranscriptItem }) {
               {item.status}
             </span>
           </header>
-          <pre>{prettyArgs(item.arguments)}</pre>
+          {item.preview ? <div className="tc-preview">{item.preview}</div> : null}
         </article>
       );
     case 'tool_result':
@@ -98,6 +98,15 @@ function TranscriptRow({ item }: { item: TranscriptItem }) {
           <span className="rule" aria-hidden />
           <span className="body">{item.text}</span>
           <span className="rule" aria-hidden />
+        </div>
+      );
+    case 'compact_status':
+      return (
+        <div className="compact-row" data-kind={item.category} data-status={item.status ?? 'info'}>
+          <span className="compact-kicker">{item.category}</span>
+          <span className="compact-label">{item.label}</span>
+          {item.status ? <span className="compact-status">{item.status}</span> : null}
+          {item.summary ? <span className="compact-summary">{item.summary}</span> : null}
         </div>
       );
     case 'state_change':
@@ -132,14 +141,6 @@ function renderInline(text: string) {
   // Minimal markdown-y: backticks → <code>, escape angle brackets.
   const esc = text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
   return esc.replace(/`([^`]+?)`/g, '<code>$1</code>');
-}
-
-function prettyArgs(raw: string): string {
-  try {
-    return JSON.stringify(JSON.parse(raw), null, 2);
-  } catch {
-    return raw;
-  }
 }
 
 function shortThread(threadId: string): string {

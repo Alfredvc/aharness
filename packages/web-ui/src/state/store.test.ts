@@ -11,7 +11,14 @@ import {
   markConnectionLost,
   visibleItems,
 } from './store.js';
-import { deriveActivity } from './activity.js';
+import {
+  deriveActivity,
+  formatAggregateStats,
+  formatContextWindowLabel,
+  formatRunDurationLabel,
+  formatTokenBreakdownLabels,
+  formatTokenCountLabel,
+} from './activity.js';
 import {
   isRunScopedBootstrap,
   type RunScopedApiEvent,
@@ -271,6 +278,94 @@ describe('headless production store helpers', () => {
     );
   });
 
+  it('formats aggregate run stats with explicit zero values and omitted missing fields', () => {
+    const state = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      run: {
+        ...runScopedBootstrap().run,
+        startedAt: '2026-05-29T00:00:00.000Z',
+      },
+      aggregateStats: {
+        status: 'running',
+        startedAt: '2026-05-29T00:00:05.000Z',
+        turnCount: 1,
+        totalTokens: 0,
+        inputTokens: 0,
+        cachedInputTokens: 0,
+        outputTokens: 25,
+        reasoningOutputTokens: 0,
+        modelContextWindow: 128000,
+      },
+    });
+
+    expect(
+      formatAggregateStats({
+        aggregateStats: state.aggregateStats,
+        run: state.run,
+        nowMs: Date.parse('2026-05-29T00:00:15.000Z'),
+      }),
+    ).toEqual({
+      duration: '10s',
+      totalTokens: '0 tokens',
+      tokenBreakdownLabels: [
+        'input 0 tokens',
+        'cached input 0 tokens',
+        'output 25 tokens',
+        'reasoning 0 tokens',
+      ],
+      contextWindow: 'context 128,000 tokens',
+    });
+    expect(formatTokenCountLabel(undefined)).toBeNull();
+    expect(formatTokenBreakdownLabels({ turnCount: 0 })).toEqual([]);
+    expect(formatContextWindowLabel({ turnCount: 0 })).toBeNull();
+  });
+
+  it('formats terminal duration from endedAt and omits invalid timestamps', () => {
+    expect(
+      formatRunDurationLabel({
+        aggregateStats: {
+          status: 'success',
+          startedAt: '2026-05-29T00:00:00.000Z',
+          endedAt: '2026-05-29T00:01:05.000Z',
+          turnCount: 1,
+        },
+        run: { startedAt: '2026-05-29T00:00:30.000Z' },
+        nowMs: Date.parse('2026-05-29T00:10:00.000Z'),
+      }),
+    ).toBe('1m 05s');
+    expect(
+      formatRunDurationLabel({
+        aggregateStats: { startedAt: 'not a timestamp', turnCount: 0 },
+        run: { startedAt: 'also invalid' },
+        nowMs: Date.parse('2026-05-29T00:00:05.000Z'),
+      }),
+    ).toBeNull();
+    expect(
+      formatRunDurationLabel({
+        aggregateStats: {
+          status: 'failed',
+          startedAt: '2026-05-29T00:00:00.000Z',
+          endedAt: 'invalid',
+          turnCount: 0,
+        },
+        run: null,
+        nowMs: Date.parse('2026-05-29T00:00:05.000Z'),
+      }),
+    ).toBeNull();
+    expect(
+      formatRunDurationLabel({
+        aggregateStats: {
+          status: 'success',
+          startedAt: '2026-05-29T00:00:10.000Z',
+          endedAt: '2026-05-29T00:00:05.000Z',
+          turnCount: 0,
+        },
+        run: null,
+        nowMs: Date.parse('2026-05-29T00:00:20.000Z'),
+      }),
+    ).toBeNull();
+  });
+
   it('rejects malformed run-scoped bootstrap payloads before store hydration', () => {
     const bootstrap = runScopedBootstrap();
 
@@ -414,7 +509,7 @@ describe('headless production store helpers', () => {
     const tokened = applyRunEvent(
       diagnosed,
       apiEvent({
-        type: 'subthread.token.updated',
+        type: 'token.updated',
         id: 'run-1:13',
         seq: 13,
         data: { total: { totalTokens: 99, outputTokens: 7 }, modelContextWindow: 200000 },
@@ -446,10 +541,286 @@ describe('headless production store helpers', () => {
     expect(ignored.transcript).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'msg-2', type: 'agent_message', text: 'Hello' }),
-        expect.objectContaining({ id: 'tool-1', type: 'tool_call', name: 'bash' }),
+        expect.objectContaining({
+          id: 'tool-1',
+          type: 'tool_call',
+          name: 'bash',
+          preview: 'npm test',
+        }),
         expect.objectContaining({ type: 'framework_note', text: 'framework says hi' }),
       ]),
     );
+  });
+
+  it('converts compact rows to normalized transcript display fields without raw payloads', () => {
+    const state = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      recentRows: [
+        row({
+          id: 'message-row',
+          eventId: 'run-1:5',
+          seq: 5,
+          stateVisitId: 'workflow.collect#2',
+          text: 'model text',
+        }),
+        row({
+          id: 'reasoning-row',
+          eventId: 'run-1:6',
+          seq: 6,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'reasoning',
+          text: 'thinking',
+        }),
+        row({
+          id: 'tool-row',
+          eventId: 'run-1:7',
+          seq: 7,
+          stateVisitId: 'workflow.collect#2',
+          itemId: 'tool-1',
+          kind: 'tool',
+          label: 'bash',
+          status: 'completed',
+          summary: 'pnpm test',
+          elapsedMs: 42,
+          data: { command: 'pnpm test -- --runInBand', raw: { hidden: true } },
+        }),
+        row({
+          id: 'pending-tool-row',
+          eventId: 'run-1:8',
+          seq: 8,
+          stateVisitId: 'workflow.collect#2',
+          itemId: 'tool-pending',
+          kind: 'tool',
+          label: 'python',
+          status: 'pending',
+          summary: 'python script.py',
+        }),
+        row({
+          id: 'failed-tool-row',
+          eventId: 'run-1:9',
+          seq: 9,
+          stateVisitId: 'workflow.collect#2',
+          itemId: 'tool-failed',
+          kind: 'tool',
+          label: 'eslint',
+          status: 'failed',
+          summary: 'lint failed',
+          elapsedMs: 1200,
+        }),
+        row({
+          id: 'subagent-row',
+          eventId: 'run-1:10',
+          seq: 10,
+          stateVisitId: 'workflow.collect#2',
+          itemId: 'subagent-1',
+          kind: 'tool',
+          label: 'spawn_agent',
+          status: 'pending',
+          summary: 'worker running',
+          data: { itemType: 'spawnAgentToolCall' },
+        }),
+        row({
+          id: 'request-row',
+          eventId: 'run-1:11',
+          seq: 11,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'request',
+          label: 'command approval',
+          status: 'pending',
+          summary: 'approve command',
+        }),
+        row({
+          id: 'reply-submitted',
+          eventId: 'run-1:12',
+          seq: 12,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'reply',
+          label: 'approval',
+          status: 'submitted',
+          summary: 'request-1',
+        }),
+        row({
+          id: 'reply-failed',
+          eventId: 'run-1:13',
+          seq: 13,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'reply',
+          label: 'approval',
+          status: 'failed',
+          summary: 'rejected',
+        }),
+        row({
+          id: 'diagnostic-row',
+          eventId: 'run-1:14',
+          seq: 14,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'diagnostic',
+          label: 'abandoned',
+          text: 'old thread ignored',
+          status: 'warn',
+        }),
+        row({
+          id: 'fresh-clear-row',
+          eventId: 'run-1:15',
+          seq: 15,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'fresh_clear',
+          label: 'workflow.collect',
+          data: {
+            previousThreadId: 'old-thread',
+            nextThreadId: 'new-thread',
+          },
+        }),
+        row({
+          id: 'internal-tool',
+          eventId: 'run-1:16',
+          seq: 16,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'tool',
+          label: 'aharness_submit',
+          status: 'completed',
+          summary: '{}',
+        }),
+      ],
+    });
+
+    expect(state.transcript).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'message-row', type: 'agent_message', text: 'model text' }),
+        expect.objectContaining({ id: 'reasoning-row', type: 'reasoning', text: 'thinking' }),
+        expect.objectContaining({
+          id: 'tool-1',
+          type: 'tool_call',
+          name: 'bash',
+          preview: 'pnpm test -- --runInBand',
+          elapsedMs: 42,
+          category: 'tool',
+        }),
+        expect.objectContaining({
+          id: 'tool-pending',
+          type: 'tool_call',
+          name: 'python',
+          status: 'pending',
+          preview: 'python script.py',
+        }),
+        expect.objectContaining({
+          id: 'tool-failed',
+          type: 'tool_call',
+          name: 'eslint',
+          status: 'failed',
+          preview: 'lint failed',
+          elapsedMs: 1200,
+        }),
+        expect.objectContaining({
+          id: 'subagent-1',
+          type: 'tool_call',
+          category: 'subagent',
+          preview: 'worker running',
+        }),
+        expect.objectContaining({
+          id: 'request-row',
+          type: 'compact_status',
+          category: 'request',
+          label: 'command approval',
+          status: 'pending',
+        }),
+        expect.objectContaining({
+          id: 'reply-submitted',
+          type: 'compact_status',
+          category: 'reply',
+          status: 'submitted',
+        }),
+        expect.objectContaining({
+          id: 'reply-failed',
+          type: 'compact_status',
+          category: 'reply',
+          status: 'failed',
+        }),
+        expect.objectContaining({
+          id: 'diagnostic-row',
+          type: 'compact_status',
+          category: 'diagnostic',
+          summary: 'old thread ignored',
+        }),
+        expect.objectContaining({
+          id: 'fresh-clear-row',
+          type: 'fresh_clear_boundary',
+          reason: 'clearOnEntry',
+          previousThreadId: 'old-thread',
+          nextThreadId: 'new-thread',
+          statePath: 'workflow.collect',
+        }),
+      ]),
+    );
+    expect(JSON.stringify(state.transcript)).not.toContain('"raw"');
+    expect(visibleItems(state.transcript, false)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'internal-tool' })]),
+    );
+    expect(visibleItems(state.transcript, true)).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'internal-tool' })]),
+    );
+  });
+
+  it('updates parent aggregate token totals from parent token events and ignores sub-thread token events', () => {
+    const initial = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      aggregateStats: {
+        turnCount: 1,
+        totalTokens: 10,
+        inputTokens: 8,
+        modelContextWindow: 128000,
+      },
+    });
+    const parentTokened = applyRunEvent(
+      initial,
+      apiEvent({
+        type: 'token.updated',
+        id: 'run-1:5',
+        seq: 5,
+        data: {
+          total: {
+            totalTokens: 25,
+            inputTokens: 20,
+            cachedInputTokens: 5,
+            outputTokens: 4,
+            reasoningOutputTokens: 1,
+          },
+          modelContextWindow: 200000,
+        },
+      }),
+    );
+    const childTokened = applyRunEvent(
+      parentTokened,
+      apiEvent({
+        type: 'subthread.token.updated',
+        id: 'run-1:6',
+        seq: 6,
+        threadId: 'child-thread',
+        turnId: 'child-turn',
+        data: {
+          total: {
+            totalTokens: 999,
+            inputTokens: 999,
+            cachedInputTokens: 999,
+            outputTokens: 999,
+            reasoningOutputTokens: 999,
+          },
+          modelContextWindow: 300000,
+        },
+      }),
+    );
+
+    expect(parentTokened.aggregateStats).toEqual(
+      expect.objectContaining({
+        totalTokens: 25,
+        inputTokens: 20,
+        cachedInputTokens: 5,
+        outputTokens: 4,
+        reasoningOutputTokens: 1,
+        modelContextWindow: 200000,
+      }),
+    );
+    expect(childTokened.aggregateStats).toEqual(parentTokened.aggregateStats);
   });
 
   it('keeps historical row pages scoped to their own visits and idempotently merges duplicates by row id', () => {
@@ -602,6 +973,38 @@ describe('headless production store helpers', () => {
     ).toHaveLength(25);
   });
 
+  it('remembers loaded row counts when row pages contain only unsupported compact rows', () => {
+    const initial = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      recentRows: [],
+    });
+    const state = applyVisitRowPage(
+      initial,
+      'workflow.collect#2',
+      rowPage([
+        row({
+          id: 'unsupported-row',
+          eventId: 'run-1:20',
+          seq: 20,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'not-renderable',
+          summary: 'diagnostic only',
+        }),
+      ]),
+    );
+
+    expect(state.transcript).toEqual([]);
+    expect(state.rowLoadStatus['workflow.collect#2']).toEqual({
+      loading: false,
+      loaded: true,
+      error: null,
+      storedRows: 1,
+    });
+    expect(state.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'compactRow' })]),
+    );
+  });
+
   it('recovers approval and owner-input buckets from bootstrap pending cards and leaves incomplete summaries as rows', () => {
     const state = hydrateFromBootstrap({
       ...runScopedBootstrap(),
@@ -659,8 +1062,9 @@ describe('headless production store helpers', () => {
     expect(state.transcript).toContainEqual(
       expect.objectContaining({
         id: 'request-row',
-        type: 'framework_note',
-        text: 'not enough fields',
+        type: 'compact_status',
+        category: 'request',
+        summary: 'not enough fields',
       }),
     );
   });
@@ -773,6 +1177,7 @@ describe('headless production store helpers', () => {
         expect.objectContaining({
           type: 'tool_call',
           name: 'mcp:github/create_issue',
+          preview: '{"title":"bug"}',
           reserved: false,
         }),
       ]),

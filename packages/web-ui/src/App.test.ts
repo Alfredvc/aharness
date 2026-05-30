@@ -1,0 +1,174 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it } from 'vitest';
+
+import { AharnessShell } from './App.js';
+import { RunStatsBar } from './components/RunStatsBar.js';
+import type { UiActions, UiState } from './state/store.js';
+
+type TestSession = UiState & UiActions;
+
+function baseSession(overrides: Partial<TestSession> = {}): TestSession {
+  return {
+    mode: 'run',
+    run: {
+      runId: 'run-1',
+      threadId: 'thread-1',
+      repoRoot: '/repo',
+      fsmFile: 'workflow.ts',
+      fsmHash6: 'abc123',
+      codexPin: 'codex-test',
+      startedAt: '2026-05-29T00:00:00.000Z',
+    },
+    latestEventId: 'run-1:4',
+    posture: {
+      isTerminal: false,
+      isAwaiting: false,
+      submittedThisTurn: false,
+      open: false,
+    },
+    activeTurnId: null,
+    state: {
+      path: 'workflow.collect',
+      leaf: 'collect',
+      kind: 'stateful',
+      exits: [],
+      visitCount: 1,
+    },
+    topology: {
+      machineId: 'workflow',
+      initial: 'workflow.collect',
+      nodes: [{ id: 'workflow.collect', label: 'collect', kind: 'stateful' }],
+      edges: [],
+    },
+    transcript: [],
+    pending: {
+      fileApprovals: [],
+      cmdApprovals: [],
+      permissionApprovals: [],
+      elicitations: [],
+      ownerInput: null,
+    },
+    diagnostics: [],
+    stateVisits: [
+      {
+        id: 'workflow.collect#1',
+        path: 'workflow.collect',
+        seq: 1,
+        time: '2026-05-29T00:00:00.000Z',
+        from: null,
+        to: 'workflow.collect',
+        cause: 'boot',
+      },
+    ],
+    statePathVisits: { 'workflow.collect': ['workflow.collect#1'] },
+    rowPageCursors: {},
+    rowLoadStatus: {},
+    aggregateStats: { turnCount: 0 },
+    history: [
+      {
+        at: Date.parse('2026-05-29T00:00:00.000Z'),
+        from: null,
+        to: 'workflow.collect',
+        cause: 'boot',
+        visitId: 'workflow.collect#1',
+      },
+    ],
+    turns: [],
+    connection: 'live',
+    replyError: null,
+    rowLoadError: null,
+    activeVisitId: 'workflow.collect#1',
+    scopedPath: null,
+    devMode: false,
+    reply: () => Promise.resolve(),
+    requestRowsForStatePath: () => Promise.resolve(),
+    toggleDevMode: () => undefined,
+    setScope: () => undefined,
+    ...overrides,
+  };
+}
+
+describe('AharnessShell run stats chrome', () => {
+  it('renders aggregate header and bottom stats without turn-count or ribbon chrome', () => {
+    const html = renderToStaticMarkup(
+      createElement(AharnessShell, {
+        session: baseSession({
+          posture: {
+            isTerminal: true,
+            isAwaiting: false,
+            submittedThisTurn: false,
+            open: false,
+          },
+          aggregateStats: {
+            status: 'success',
+            startedAt: '2026-05-29T00:00:00.000Z',
+            endedAt: '2026-05-29T00:01:05.000Z',
+            turnCount: 3,
+            totalTokens: 1234,
+            modelContextWindow: 200000,
+          },
+          turns: [
+            {
+              turnId: 'turn-1',
+              finishReason: 'stop',
+              endedAt: Date.parse('2026-05-29T00:01:05.000Z'),
+              stateVisitId: 'workflow.collect#1',
+            },
+          ],
+        }),
+      }),
+    );
+
+    expect(html).toContain('data-surface="header-run-stats"');
+    expect(html).toContain('data-surface="bottom-run-stats"');
+    expect(html.match(/1m 05s/g)).toHaveLength(2);
+    expect(html).toContain('1,234 tokens');
+    expect(html).toContain('context 200,000 tokens');
+    expect(html).not.toContain('>turns<');
+    expect(html).not.toContain('no turns completed yet');
+    expect(html).not.toContain('class="ribbon');
+    expect(html).not.toContain('ribbon-bar');
+    expect(html).not.toContain('TurnRibbon');
+  });
+
+  it('omits unavailable inspect-mode runtime stats while keeping the bottom surface', () => {
+    const html = renderToStaticMarkup(
+      createElement(RunStatsBar, {
+        session: baseSession({
+          mode: 'inspect',
+          aggregateStats: { turnCount: 0 },
+        }),
+        variant: 'bottom',
+        nowMs: Date.parse('2026-05-29T00:01:00.000Z'),
+      }),
+    );
+
+    expect(html).toContain('data-surface="bottom-run-stats"');
+    expect(html).toContain('inspect');
+    expect(html).toContain('run-1');
+    expect(html).not.toContain('data-stat-kind="duration"');
+    expect(html).not.toContain('data-stat-kind="tokens"');
+    expect(html).not.toContain('data-stat-kind="context"');
+  });
+
+  it('uses token breakdown labels when total tokens are absent', () => {
+    const html = renderToStaticMarkup(
+      createElement(RunStatsBar, {
+        session: baseSession({
+          aggregateStats: {
+            status: 'running',
+            startedAt: '2026-05-29T00:00:00.000Z',
+            turnCount: 1,
+            inputTokens: 5,
+            outputTokens: 7,
+          },
+        }),
+        variant: 'header',
+        nowMs: Date.parse('2026-05-29T00:00:15.000Z'),
+      }),
+    );
+
+    expect(html).toContain('input 5 tokens / output 7 tokens');
+  });
+});

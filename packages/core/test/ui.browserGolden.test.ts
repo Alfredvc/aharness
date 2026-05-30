@@ -413,9 +413,12 @@ describe('Phase 3 browser-rendered golden contract', () => {
     expect(js.response.status).toBe(200);
     expect(js.response.headers.get('content-type')).toMatch(/(?:application|text)\/javascript/);
     expect(js.body).toContain('/api/runs/');
+    expect(js.body).toContain('bottom-run-stats');
     expect(js.body).not.toContain('/api/state');
     expect(js.body).not.toContain('/api/stream');
     expect(js.body).not.toContain('/api/reply');
+    expect(js.body).not.toContain('TurnRibbon');
+    expect(js.body).not.toContain('no turns completed yet');
     expect(js.body).not.toContain('fixtures/');
     expect(js.body).not.toContain('browserGoldenServer');
     expect(js.body).not.toContain('ui.browserGolden.test');
@@ -423,6 +426,8 @@ describe('Phase 3 browser-rendered golden contract', () => {
     expect(css.response.status).toBe(200);
     expect(css.response.headers.get('content-type')).toContain('text/css');
     expect(css.body).toContain('font-family');
+    expect(css.body).toContain('.run-status-bar');
+    expect(css.body).not.toContain('.ribbon');
   });
 
   it.each([
