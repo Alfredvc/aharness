@@ -71,6 +71,16 @@ explicitly about those files:
 - `packages/core/src/ui/static/index.html` unless intentionally updating the
   embedded UI artifact through the web UI build flow
 
+## Files to never commit
+
+Never stage or commit files under these local planning and follow-up areas:
+
+- `docs/plans/`
+- `docs/specs/`
+- `docs/ideas/`
+- `docs/strategies/`
+- `docs/followups/`
+
 ## Working rules
 
 - Keep changes scoped to the requested behavior.
