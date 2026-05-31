@@ -1626,6 +1626,11 @@
   margin-left: 8px;
   letter-spacing: 0.04em;
 }
+.ap-run-meta {
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  color: var(--ink-quiet);
+}
 .ap-posture {
   display: flex;
   gap: 6px;

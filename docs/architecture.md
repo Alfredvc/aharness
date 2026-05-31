@@ -30,10 +30,11 @@ does not ask Codex to remember the workflow. Instead, aharness exposes only the
 active state's allowed exits and moves the machine when a typed event satisfies
 the state's rules.
 
-The browser run UI mirrors the active turn lifecycle and user-relevant tool
-activity. It shows when a turn has started but has not produced visible text yet,
-renders tool and MCP calls as transcript rows, and keeps aharness' internal
-submit/request-input calls hidden from the default view.
+The browser run UI defaults to a chronological compact transcript for the whole
+run. Selecting a graph state switches the right panel to that state's historical
+visits, grouped chronologically by visit id. Pending approvals, owner input, and
+open-state prompts remain live-run interaction surfaces rather than raw JSONL
+payload views.
 
 ## Visualization Topology
 
@@ -125,7 +126,8 @@ projections for bootstrap state, visit rows, recent rows, diagnostic event
 pages, canonical run-event SSE, and replies. These HTTP/SSE responses omit raw
 payloads; raw evidence remains in `events.jsonl`. The React browser uses the
 run-scoped bootstrap, row, stream, and reply routes after the CLI hands it
-`token` and `runId` query params. Its shell uses compact JSONL-backed rows plus
+`token` and `runId` query params. Its shell defaults to compact JSONL-backed
+chronological run rows, supports selected-state visit grouping, and shows
 aggregate running-time, token, and context-window stats; the old top turn count
 and bottom turn ribbon are no longer user-facing chrome. The old flat
 `/api/state`, `/api/stream`, and `/api/reply` browser routes are no longer

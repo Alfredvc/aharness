@@ -87,10 +87,10 @@ npx aharness ./workflow.fsm.ts
 
 `verify` checks the machine before any model run. `visualize` opens the browser
 graph without starting Codex. Running the FSM starts Codex, opens the aharness
-UI, shows compact JSONL-backed transcript rows plus aggregate running-time,
-token, and context-window stats in the header and bottom status bar, and writes
-run artifacts under `.aharness/runs/<runId>/`. Internal aharness submit calls
-stay out of the default transcript.
+UI, shows a chronological JSONL-backed run transcript by default, and lets you
+select graph states to see their visit-grouped activity. The header and bottom
+status bar show aggregate running-time, token, and context-window stats when
+available. Internal aharness submit calls stay out of the default transcript.
 
 New runs write a canonical `events.jsonl` transcript under the run directory.
 That file includes full raw runtime payloads by default, including

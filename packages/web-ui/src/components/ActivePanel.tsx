@@ -87,7 +87,6 @@ function submitReply(onReply: UiActions['reply'], payload: ReplyPayload) {
 function buildActivePanelTimelineRows(input: {
   mode: UiState['mode'];
   displayNode: VizNode | null;
-  isFollowing: boolean;
   turnsLength: number;
   hasAnyVisibleContent: boolean;
   groups: VisitGroup[];
@@ -107,26 +106,21 @@ function buildActivePanelTimelineRows(input: {
       },
     ];
   }
-  if (input.isFollowing && input.turnsLength === 0 && !input.hasAnyVisibleContent) {
-    return [{ kind: 'awaiting_codex', key: 'awaiting-codex' }];
-  }
   const rows: ActivePanelTimelineRow[] = [];
   if (input.groups.length === 0) {
     rows.push({
       kind: 'empty',
       key: 'empty-current',
-      text: input.isFollowing ? 'no activity yet in this visit' : 'activity not loaded yet',
+      text: 'activity not loaded yet',
     });
   } else {
     for (const group of input.groups) {
-      if (!input.isFollowing) {
-        rows.push({
-          kind: 'visit_header',
-          key: `${group.visitId}:header`,
-          visit: group.visit,
-          entry: input.entryByVisit.get(group.visitId) ?? null,
-        });
-      }
+      rows.push({
+        kind: 'visit_header',
+        key: `${group.visitId}:header`,
+        visit: group.visit,
+        entry: input.entryByVisit.get(group.visitId) ?? null,
+      });
       if (group.items.length === 0) {
         rows.push({
           kind: 'empty',
@@ -152,41 +146,90 @@ function buildActivePanelTimelineRows(input: {
 
 export const buildActivePanelTimelineRowsForTest = buildActivePanelTimelineRows;
 
+function buildRunTranscriptRows(input: {
+  mode: UiState['mode'];
+  items: TranscriptItem[];
+  devMode: boolean;
+  hasAnyVisibleContent: boolean;
+  turnsLength: number;
+  showInlineIndicator: boolean;
+  activity: Activity;
+  showApprovals: boolean;
+}): ActivePanelTimelineRow[] {
+  if (input.mode === 'inspect') {
+    return [
+      {
+        kind: 'inspect_empty',
+        key: 'inspect-empty',
+        text: 'static visualization mode; no run transcript',
+      },
+    ];
+  }
+  const visible = visibleItems(
+    [...input.items].sort((a, b) => {
+      const aSeq = a.seq ?? Number.MAX_SAFE_INTEGER;
+      const bSeq = b.seq ?? Number.MAX_SAFE_INTEGER;
+      if (aSeq !== bSeq) return aSeq - bSeq;
+      return a.id.localeCompare(b.id);
+    }),
+    input.devMode,
+  ).filter((item) => item.type !== 'state_change');
+
+  if (
+    visible.length === 0 &&
+    input.turnsLength === 0 &&
+    !input.hasAnyVisibleContent &&
+    !input.showApprovals
+  ) {
+    return [{ kind: 'awaiting_codex', key: 'awaiting-codex' }];
+  }
+
+  const rows: ActivePanelTimelineRow[] =
+    visible.length === 0 && input.showApprovals
+      ? []
+      : visible.length === 0
+        ? [{ kind: 'empty', key: 'empty-run', text: 'no run activity yet' }]
+        : visible.map((item) => ({ kind: 'transcript' as const, key: item.id, item }));
+
+  if (input.showInlineIndicator) {
+    rows.push({ kind: 'inline_indicator', key: 'inline-indicator', activity: input.activity });
+  }
+  if (input.showApprovals) {
+    rows.push({ kind: 'approvals', key: 'approvals' });
+  }
+  return rows;
+}
+
+export const buildRunTranscriptRowsForTest = buildRunTranscriptRows;
+
 export function ActivePanel({ session }: Props) {
-  const isFollowing = session.scopedPath === null;
-  // When following: scope is the active visit (single group).
-  // When frozen: scope is a path; we render every visit to it as its own group.
-  const scopePath = isFollowing
-    ? session.activeVisitId
-      ? session.activeVisitId.split('#')[0]
-      : null
-    : session.scopedPath;
+  const selectedPath = session.scopedPath;
+  const isRunTranscript = selectedPath === null;
 
   useEffect(() => {
-    if (isFollowing || !scopePath || !session.requestRowsForStatePath) return;
-    void session.requestRowsForStatePath(scopePath).catch(() => undefined);
-  }, [isFollowing, scopePath, session.requestRowsForStatePath]);
+    if (!isRunTranscript || !session.requestRecentRows) return;
+    void session.requestRecentRows().catch(() => undefined);
+  }, [isRunTranscript, session.requestRecentRows]);
+
+  useEffect(() => {
+    if (isRunTranscript || !selectedPath || !session.requestRowsForStatePath) return;
+    void session.requestRowsForStatePath(selectedPath).catch(() => undefined);
+  }, [isRunTranscript, selectedPath, session.requestRowsForStatePath]);
 
   const groups = useMemo(() => {
-    if (!scopePath) return [] as VisitGroup[];
-    const filter = isFollowing
-      ? (vid: string) => vid === session.activeVisitId
-      : (vid: string) => vid.startsWith(`${scopePath}#`);
+    if (isRunTranscript || !selectedPath) return [] as VisitGroup[];
     const buckets = new Map<string, TranscriptItem[]>();
     for (const it of session.transcript) {
-      if (!filter(it.stateVisitId)) continue;
+      if (!it.stateVisitId.startsWith(`${selectedPath}#`)) continue;
       const bucket = buckets.get(it.stateVisitId);
       if (bucket) bucket.push(it);
       else buckets.set(it.stateVisitId, [it]);
     }
-    const visitIds = isFollowing
-      ? Array.from(buckets.keys()).sort((a, b) => visitNumber(a) - visitNumber(b))
-      : [
-          ...(session.statePathVisits[scopePath] ?? []),
-          ...Array.from(buckets.keys()).filter(
-            (visitId) => !(session.statePathVisits[scopePath] ?? []).includes(visitId),
-          ),
-        ];
+    const knownVisits = session.statePathVisits[selectedPath] ?? [];
+    const visitIds = [
+      ...knownVisits,
+      ...Array.from(buckets.keys()).filter((visitId) => !knownVisits.includes(visitId)),
+    ];
     return visitIds.map((visitId) => ({
       visitId,
       visit: visitNumber(visitId),
@@ -198,12 +241,11 @@ export function ActivePanel({ session }: Props) {
       loadStatus: session.rowLoadStatus[visitId],
     }));
   }, [
+    isRunTranscript,
+    selectedPath,
     session.transcript,
     session.statePathVisits,
     session.rowLoadStatus,
-    scopePath,
-    isFollowing,
-    session.activeVisitId,
     session.devMode,
   ]);
 
@@ -222,14 +264,11 @@ export function ActivePanel({ session }: Props) {
     );
   }
 
-  // When scope is frozen (not following), reconstruct displayed state from path.
-  const displayLeaf = isFollowing ? fsmState.leaf : leafOf(scopePath!);
-  const displayPath = isFollowing ? fsmState.path : scopePath!;
+  const displayLeaf = isRunTranscript ? 'Run transcript' : leafOf(selectedPath);
+  const displayPath = isRunTranscript ? null : selectedPath;
   const displayNode = session.topology.nodes.find((node) => node.id === displayPath) ?? null;
   const totalVisits = groups.length;
-  const crumbs = breadcrumbOf(displayPath);
-  const activeEntry =
-    isFollowing && session.activeVisitId ? entryByVisit.get(session.activeVisitId) : null;
+  const crumbs = displayPath ? breadcrumbOf(displayPath) : [];
 
   const totalApprovals =
     session.pending.fileApprovals.length +
@@ -243,13 +282,13 @@ export function ActivePanel({ session }: Props) {
   // messages/reasoning stream tokens inline, approvals/owner-input render their
   // own cards/composer, terminal/lost ends the run.
   const showInlineIndicator =
-    isFollowing &&
+    isRunTranscript &&
     !session.posture.isTerminal &&
     !session.pending.ownerInput &&
     totalApprovals === 0 &&
     (activity.kind === 'thinking' || activity.kind === 'submitted');
   const showOpenComposer =
-    isFollowing &&
+    isRunTranscript &&
     fsmState.kind === 'stateful' &&
     session.posture.open &&
     !session.pending.ownerInput &&
@@ -258,28 +297,39 @@ export function ActivePanel({ session }: Props) {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const atBottomRef = useRef(true);
   useEffect(() => {
-    atBottomRef.current = isFollowing;
-  }, [isFollowing]);
+    atBottomRef.current = isRunTranscript;
+  }, [isRunTranscript]);
   const timelineRows = useMemo(
     () =>
-      buildActivePanelTimelineRows({
-        mode: session.mode,
-        displayNode,
-        isFollowing,
-        turnsLength: session.turns.length,
-        hasAnyVisibleContent: hasVisibleContent(session.transcript),
-        groups,
-        entryByVisit,
-        showInlineIndicator,
-        activity,
-        showApprovals: isFollowing && totalApprovals > 0,
-      }),
+      isRunTranscript
+        ? buildRunTranscriptRows({
+            mode: session.mode,
+            items: session.transcript,
+            devMode: session.devMode,
+            turnsLength: session.turns.length,
+            hasAnyVisibleContent: hasVisibleContent(session.transcript),
+            showInlineIndicator,
+            activity,
+            showApprovals: totalApprovals > 0,
+          })
+        : buildActivePanelTimelineRows({
+            mode: session.mode,
+            displayNode,
+            turnsLength: session.turns.length,
+            hasAnyVisibleContent: hasVisibleContent(session.transcript),
+            groups,
+            entryByVisit,
+            showInlineIndicator,
+            activity,
+            showApprovals: false,
+          }),
     [
+      isRunTranscript,
       session.mode,
-      displayNode,
-      isFollowing,
-      session.turns.length,
       session.transcript,
+      session.devMode,
+      session.turns.length,
+      displayNode,
       groups,
       entryByVisit,
       showInlineIndicator,
@@ -289,13 +339,13 @@ export function ActivePanel({ session }: Props) {
   );
   const initialItemCount = typeof window === 'undefined' ? timelineRows.length : undefined;
   const initialTopMostItemIndexProps =
-    typeof window !== 'undefined' && isFollowing && timelineRows.length > 0
+    typeof window !== 'undefined' && isRunTranscript && timelineRows.length > 0
       ? { initialTopMostItemIndex: timelineRows.length - 1 }
       : {};
 
   return (
     <section
-      className={`active-panel ${session.posture.isAwaiting && isFollowing ? 'awaits' : ''}`}
+      className={`active-panel ${session.posture.isAwaiting && isRunTranscript ? 'awaits' : ''}`}
     >
       <header className="ap-head">
         {session.mode === 'inspect' ? <NodeDetailBox node={displayNode} /> : null}
@@ -315,14 +365,21 @@ export function ActivePanel({ session }: Props) {
         ) : null}
         <h2 className="ap-leaf">
           {displayLeaf}
-          {isFollowing ? (
-            <span className="ap-visit">· visit {fsmState.visitCount}</span>
-          ) : totalVisits > 1 ? (
-            <span className="ap-visit">· {totalVisits} visits</span>
-          ) : (
-            <span className="ap-visit">· visit 1</span>
-          )}
+          {!isRunTranscript ? (
+            totalVisits > 1 ? (
+              <span className="ap-visit">· {totalVisits} visits</span>
+            ) : (
+              <span className="ap-visit">· visit 1</span>
+            )
+          ) : null}
         </h2>
+        {isRunTranscript ? (
+          session.recentRowsLoadStatus.error ? (
+            <div className="ap-run-meta">could not load recent run activity</div>
+          ) : session.recentRowsLoadStatus.loading ? (
+            <div className="ap-run-meta">loading recent run activity…</div>
+          ) : null
+        ) : null}
         {(() => {
           // Posture chips here only carry signal that the top-bar pill cannot.
           // Top pill already shows: terminal, awaits owner, clearing, lost, live, connecting.
@@ -331,7 +388,7 @@ export function ActivePanel({ session }: Props) {
             label: string;
             tone: 'indigo' | 'amber' | 'mint' | 'plasma' | 'rose';
           }> = [];
-          if (isFollowing) {
+          if (isRunTranscript) {
             if (session.posture.submittedThisTurn)
               chips.push({ label: 'submitted', tone: 'plasma' });
             if (totalApprovals > 0)
@@ -351,16 +408,15 @@ export function ActivePanel({ session }: Props) {
             </div>
           );
         })()}
-        {!isFollowing ? (
+        {!isRunTranscript ? (
           <button
             className="ap-unfreeze"
             onClick={() => session.setScope(null)}
-            title="Return to live view of the active state."
+            title="Return to the chronological run transcript."
           >
-            ↩ follow active
+            show run
           </button>
         ) : null}
-        {activeEntry ? <EntryLine entry={activeEntry} /> : null}
       </header>
 
       <Virtuoso
@@ -371,19 +427,26 @@ export function ActivePanel({ session }: Props) {
         initialItemCount={initialItemCount}
         {...initialTopMostItemIndexProps}
         computeItemKey={(_, row) => row.key}
-        followOutput={(atBottom) => activePanelFollowOutput({ isFollowing, atBottom })}
+        followOutput={(atBottom) =>
+          activePanelFollowOutput({ isFollowing: isRunTranscript, atBottom })
+        }
         atBottomStateChange={(atBottom) => {
           atBottomRef.current = atBottom;
         }}
         totalListHeightChanged={() => {
-          if (activePanelShouldAutoscroll({ isFollowing, atBottom: atBottomRef.current })) {
+          if (
+            activePanelShouldAutoscroll({
+              isFollowing: isRunTranscript,
+              atBottom: atBottomRef.current,
+            })
+          ) {
             virtuosoRef.current?.autoscrollToBottom();
           }
         }}
         itemContent={(_, row) => <ActivePanelTimelineRowView row={row} session={session} />}
       />
 
-      {isFollowing && session.pending.ownerInput ? (
+      {isRunTranscript && session.pending.ownerInput ? (
         <InteractionSlot req={session.pending.ownerInput} reply={session.reply} />
       ) : showOpenComposer ? (
         <OpenStateComposer onReply={session.reply} />
@@ -694,22 +757,6 @@ function JsonRow({
           <JsonNode value={v} depth={depth + 1} />
         </div>
       ) : null}
-    </div>
-  );
-}
-
-function EntryLine({ entry }: { entry: UiState['history'][number] }) {
-  return (
-    <div className="ap-entry">
-      entered via <em>{entry.cause}</em>
-      {entry.from ? (
-        <>
-          {' '}
-          from <span className="from">{leafOf(entry.from)}</span>
-        </>
-      ) : (
-        <> at boot</>
-      )}
     </div>
   );
 }

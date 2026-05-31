@@ -8,7 +8,7 @@ import {
   activePanelFollowOutputForTest,
   activePanelRowForTest,
   activePanelShouldAutoscrollForTest,
-  buildActivePanelTimelineRowsForTest,
+  buildRunTranscriptRowsForTest,
   buildNodeDetailRowsForTest,
   ActivePanel,
 } from './ActivePanel.js';
@@ -196,39 +196,44 @@ describe('ActivePanel tool rows', () => {
 });
 
 describe('ActivePanel timeline rows', () => {
-  it('adds approval and inline activity rows to the virtualized timeline tail', () => {
-    const rows = buildActivePanelTimelineRowsForTest({
+  it('keeps pending approvals and elicitations visible in the global view before transcript rows exist', () => {
+    const rows = buildRunTranscriptRowsForTest({
       mode: 'run',
-      displayNode: null,
-      isFollowing: true,
+      items: [],
+      devMode: false,
+      hasAnyVisibleContent: false,
+      turnsLength: 0,
+      showInlineIndicator: false,
+      activity: { kind: 'idle', label: 'idle', tone: 'muted', motion: 'still' },
+      showApprovals: true,
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(['approvals']);
+  });
+
+  it('adds approval and inline activity rows to the virtualized timeline tail', () => {
+    const rows = buildRunTranscriptRowsForTest({
+      mode: 'run',
       turnsLength: 1,
       hasAnyVisibleContent: true,
-      groups: [
+      devMode: false,
+      items: [
         {
-          visitId: 'workflow.collect#2',
-          visit: 2,
-          rowCount: 2,
-          items: [
-            {
-              id: 'state-change-1',
-              type: 'state_change',
-              from: null,
-              to: 'workflow.collect',
-              cause: 'boot',
-              stateVisitId: 'workflow.collect#2',
-            },
-            {
-              id: 'agent-1',
-              type: 'agent_message',
-              text: 'Hello',
-              streaming: false,
-              stateVisitId: 'workflow.collect#2',
-            },
-          ],
-          loadStatus: undefined,
+          id: 'state-change-1',
+          type: 'state_change',
+          from: null,
+          to: 'workflow.collect',
+          cause: 'boot',
+          stateVisitId: 'workflow.collect#2',
+        },
+        {
+          id: 'agent-1',
+          type: 'agent_message',
+          text: 'Hello',
+          streaming: false,
+          stateVisitId: 'workflow.collect#2',
         },
       ],
-      entryByVisit: new Map(),
       showInlineIndicator: true,
       activity: {
         kind: 'thinking',
@@ -281,6 +286,68 @@ describe('ActivePanel virtualized list', () => {
 });
 
 describe('ActivePanel historical visits', () => {
+  it('renders no selected state as a chronological run transcript without visit headers', () => {
+    const session = baseSession({
+      scopedPath: null,
+      transcript: [
+        {
+          id: 'later',
+          type: 'agent_message',
+          text: 'later',
+          streaming: false,
+          seq: 3,
+          stateVisitId: 'workflow.review#1',
+        },
+        {
+          id: 'earlier',
+          type: 'agent_message',
+          text: 'earlier',
+          streaming: false,
+          seq: 1,
+          stateVisitId: 'workflow.collect#1',
+        },
+      ],
+    });
+
+    const html = renderToStaticMarkup(createElement(ActivePanel, { session }));
+
+    expect(html).toContain('Run transcript');
+    expect(html.indexOf('earlier')).toBeLessThan(html.indexOf('later'));
+    expect(html).not.toContain('ap-visit-header');
+  });
+
+  it('keeps selected states grouped by visit', () => {
+    const session = baseSession({
+      scopedPath: 'workflow.collect',
+      statePathVisits: { 'workflow.collect': ['workflow.collect#1', 'workflow.collect#2'] },
+      transcript: [
+        {
+          id: 'v1',
+          type: 'agent_message',
+          text: 'first visit',
+          streaming: false,
+          seq: 1,
+          stateVisitId: 'workflow.collect#1',
+        },
+        {
+          id: 'v2',
+          type: 'agent_message',
+          text: 'second visit',
+          streaming: false,
+          seq: 2,
+          stateVisitId: 'workflow.collect#2',
+        },
+      ],
+    });
+
+    const html = renderToStaticMarkup(createElement(ActivePanel, { session }));
+
+    expect(html).toContain('visit 1');
+    expect(html).toContain('visit 2');
+    expect(html).toContain('first visit');
+    expect(html).toContain('second visit');
+  });
+
   it('renders compact normalized rows without raw expansion', () => {
     const html = renderActivePanel(
       baseSession({
