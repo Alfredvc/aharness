@@ -39,6 +39,9 @@ Run it with an explicit roadmap path:
 aharness fsms/recipe-driven-development.fsm.ts --roadmap-path docs/plans/example-roadmap.md
 ```
 
+The run continues through additional slices until the roadmap is complete,
+failing if it reaches the `--max-slices` safety cap, which defaults to 10.
+
 Run static verification with:
 
 ```sh

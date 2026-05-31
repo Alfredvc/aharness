@@ -48,7 +48,6 @@ interface RoutePayload {
 
 interface Data {
   roadmapPath: string;
-  continueRoadmap: boolean;
   worktree: boolean;
   worktreePath: string | null;
   worktreeCreated: boolean;
@@ -94,7 +93,6 @@ interface Data {
 
 interface RecipeOutput {
   roadmapPath: string;
-  continueRoadmap: boolean;
   worktree: boolean;
   worktreePath: string | null;
   recipePath: string | null;
@@ -323,7 +321,6 @@ function currentPlanLine(data: Readonly<Data>): string {
 function recipeOutput(data: Readonly<Data>): RecipeOutput {
   return {
     roadmapPath: data.roadmapPath,
-    continueRoadmap: data.continueRoadmap,
     worktree: data.worktree,
     worktreePath: data.worktreePath,
     recipePath: data.recipePath,
@@ -340,7 +337,7 @@ function renderReport(data: Readonly<Data>): string {
     '# Recipe-Driven Development Result',
     '',
     `Roadmap: \`${data.roadmapPath}\``,
-    `Mode: ${data.continueRoadmap ? 'continue roadmap until complete or safety cap' : 'one slice/chunk iteration'}`,
+    'Mode: continue roadmap until complete or safety cap',
     `Worktree: ${data.worktree ? `enabled at \`${data.worktreePath ?? 'not recorded'}\`` : 'disabled'}`,
     `Recipe: \`${data.recipePath ?? 'not recorded'}\``,
     `Completed slices this run: ${data.completedSlices}`,
@@ -404,13 +401,9 @@ export const machine = fsm.machine({
       description: 'Implementation roadmap file to resume or execute',
       complete: 'file',
     }),
-    continueRoadmap: fsm.input.custom<boolean>({
-      description: 'Continue with additional slices after the current slice is committed',
-      default: false,
-    }),
     maxSlices: fsm.input.number({
-      description: 'Safety cap for slices committed in one run when continueRoadmap is enabled',
-      default: 1,
+      description: 'Safety cap for slices committed in one run',
+      default: 10,
     }),
     maxFixCycles: fsm.input.number({
       description: 'Maximum plan/slice fix cycles before blocking for owner review',
@@ -427,7 +420,6 @@ export const machine = fsm.machine({
   },
   data: ({ input }): Data => ({
     roadmapPath: input.roadmapPath,
-    continueRoadmap: input.continueRoadmap,
     worktree: input.worktree,
     worktreePath: input.worktree ? makeWorktreePath(input.roadmapPath) : null,
     worktreeCreated: false,
@@ -1091,7 +1083,7 @@ export const machine = fsm.machine({
           'Stage only slice-owned files plus the recipe update, then commit.',
           'Do not stage unrelated dirty files. Do not add Co-Authored-By tags.',
           'When worktree mode is enabled, do not merge, remove, prune, or clean up the worktree after committing.',
-          `Run mode: ${data.continueRoadmap ? 'continue after this slice if the roadmap has more work' : 'finish this one slice/chunk and stop'}.`,
+          'Run mode: continue after this slice if the roadmap has more work, until the roadmap is complete or maxSlices is reached.',
           'Submit nextSlice with the next unimplemented roadmap slice. Submit nextSlice=null only when the whole roadmap is complete after this commit.',
           'Submit needsRecovery only if recipe update, staging, or commit state cannot be reconciled after checking git status and roadmap state.',
         ].join('\n'),
@@ -1106,7 +1098,6 @@ export const machine = fsm.machine({
           route: [
             {
               if: (data, payload) =>
-                data.continueRoadmap &&
                 hasNextSlice(payload.nextSlice) &&
                 data.completedSlices + 1 >= data.maxSlices,
               to: 'failed',
@@ -1123,7 +1114,7 @@ export const machine = fsm.machine({
               },
             },
             {
-              if: (data, payload) => data.continueRoadmap && hasNextSlice(payload.nextSlice),
+              if: (_data, payload) => hasNextSlice(payload.nextSlice),
               to: 'routeFromRecipe',
               reduce: (draft, payload) => {
                 const completedSummary = `${draft.currentSlice ?? 'Current slice'}: ${
