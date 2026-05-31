@@ -189,13 +189,13 @@ Built-in event keys are reserved:
 ## CLI
 
 ```bash
-aharness <file.fsm.ts> [--<flag> <value>]...
+aharness [--yolo] <file.fsm.ts> [--<flag> <value>]...
+aharness run [--yolo] <file.fsm.ts|command> [--<flag> <value>]...
 aharness visualize <file.fsm.ts> [--<flag> <value>]...
 aharness verify <file.fsm.ts>
 aharness doctor
 aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|yarn|bun>]
 aharness install <source>
-aharness run <command> [--<flag> <value>]...
 aharness list
 aharness uninstall <package-name>
 aharness verify <package-name>
@@ -204,19 +204,28 @@ aharness completion install [--shell bash|zsh|fish]
 aharness completion uninstall
 ```
 
-Machine inputs become kebab-case flags for `aharness <file.fsm.ts>` and
-`aharness visualize <file.fsm.ts>`. For example, `fixtureRoot` becomes
-`--fixture-root`. `aharness visualize` does not require runtime input flags; any
-provided flags are checked for name/type validity but are not used to start an
-actor.
+Machine inputs become kebab-case flags for
+`aharness run <file.fsm.ts|command>`, compatibility direct runs with
+`aharness <file.fsm.ts>`, and `aharness visualize <file.fsm.ts>`. For example,
+`fixtureRoot` becomes `--fixture-root`. On run commands, `--yolo` must appear
+before the run target and FSM input flags appear after it:
+
+```bash
+aharness run --yolo ./workflow.fsm.ts --fixture-root ./fixture
+```
+
+`aharness visualize` does not require runtime input flags; any provided flags
+are checked for name/type validity but are not used to start an actor.
 
 `aharness completion install` delegates to `@pnpm/tabtab` and writes the
 shell-side completion delegate for bash, zsh, or fish. That delegate invokes
 the hidden `aharness completion-server` bridge on every Tab press; bare
-`aharness completion` is kept as a compatibility alias for the same bridge.
-Before an FSM path is resolved, completion delegates to the shell's file
-completion; after an FSM path is resolved, it suggests that FSM's input flags
-and supported flag values.
+`aharness completion` is kept as a compatibility alias for the same bridge. At
+the root, completion lists top-level subcommands. Path-like direct-run prefixes
+delegate to the shell's native file completion. `aharness run` completes local
+directories, local `.fsm.ts` files, and installed command identities. After a
+target resolves, completion suggests that FSM's input flags and supported flag
+values.
 
 `aharness verify` checks an FSM without starting a run. `aharness doctor` checks
 the Codex CLI version gate and reports active run health from `.aharness/runs`.
