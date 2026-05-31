@@ -11,7 +11,7 @@
  * AST-only path: flag-name + static value completion is served from
  * `loader/sidecar.ts`'s `extractSchemaSidecar` (TS compiler API walk,
  * no JavaScript execution). Dynamic-callback completion (Task 21)
- * escalates to full `loadFsm()`.
+ * escalates to full local or installed FSM loading.
  *
  * Silent-error policy: any failure during the per-Tab bridge emits
  * zero suggestions and returns exit 0. Stuck imports during the bridge
@@ -26,10 +26,12 @@ import { parse as shellParse } from 'shell-quote';
 import { extractSchemaSidecar } from '../loader/sidecar.js';
 import { camelToKebab, kebabToCamel } from '../loader/inputFlags.js';
 import type { ArgFlagMeta, StaticCompletionKind } from '../loader/inputSchema.js';
-import { loadFsm } from '../loader/index.js';
+import { loadFsm, loadInstalledFsm } from '../loader/index.js';
 import type { ArgSentinel } from '../state/args.js';
 import {
+  checkInstalledLockFingerprint,
   readInstalledCompletionSnapshot,
+  resolveInstalledCommand,
   type InstalledRuntimeSnapshot,
   type TrustedCommandIndexEntry,
 } from '../installStore/index.js';
@@ -59,8 +61,9 @@ type LoadedConfig = {
  *
  * AST-only flag-name + static value completion (file, directory, {values})
  * runs without executing user code. The `{dynamic: true}` sentinel branch
- * in `emitValueCompletion` escalates into `loadFsm()` to recover the live
- * callback — that is the only path that runs user module code at Tab time.
+ * in `emitValueCompletion` escalates into the appropriate FSM loader to
+ * recover the live callback — that is the only path that runs user module
+ * code at Tab time.
  */
 export interface CompletionBridgeOpts {
   readonly env: NodeJS.ProcessEnv;
@@ -91,7 +94,19 @@ const ROOT_SUBCOMMANDS = [
 
 type FlagsMap = Record<string, ArgFlagMeta | undefined>;
 
-type CompletionInputTarget = { readonly kind: 'local'; readonly filePath: string };
+type CompletionInputTarget =
+  | { readonly kind: 'local'; readonly filePath: string }
+  | {
+      readonly kind: 'installed';
+      readonly identity: string;
+      readonly entryFile: string;
+      readonly packageName: string;
+      readonly commandName: string;
+      readonly packageRoot: string;
+      readonly managedProjectRoot: string;
+      readonly storeRoot: string;
+      readonly lockFingerprint: string;
+    };
 
 type CompletionContext =
   | { readonly kind: 'root'; readonly partial: string }
@@ -112,7 +127,7 @@ export async function runCompletionBridge(
     if (!parsed.complete) return { exitCode: 0 };
 
     const tokens = tokeniseLine(parsed.line, parsed.point);
-    const context = deriveCompletionContext(tokens, parsed.last, opts.cwd);
+    const context = await deriveCompletionContext(tokens, parsed.last, opts.cwd, opts.env);
     if (context.kind === 'root') {
       for (const command of ROOT_SUBCOMMANDS) {
         if (command.startsWith(context.partial)) opts.stdout.write(`${command}\n`);
@@ -149,9 +164,7 @@ export async function runCompletionBridge(
       return { exitCode: 0 };
     }
 
-    const fsmPath = context.target.filePath;
-    const extraction = await extractSchemaSidecar({ filePath: fsmPath });
-    const flags: FlagsMap = extraction.inputFlags ?? {};
+    const flags = await extractInputFlagsForTarget(context.target);
     const flagNames = Object.keys(flags);
 
     const last = parsed.last;
@@ -161,12 +174,12 @@ export async function runCompletionBridge(
 
     // Cursor on a flag value (cursor token non-empty, prev was a flag).
     if (prevIsFlag && last !== '' && !last.startsWith('--')) {
-      await emitValueCompletion(flags, prev, last, fsmPath, opts.cwd, opts.stdout);
+      await emitValueCompletion(flags, prev, last, context.target, opts.cwd, opts.stdout);
       return { exitCode: 0 };
     }
     // Cursor on the empty value slot immediately after a flag name.
     if (prevIsFlag && last === '' && lookupFlagByKebab(flags, prev)) {
-      await emitValueCompletion(flags, prev, '', fsmPath, opts.cwd, opts.stdout);
+      await emitValueCompletion(flags, prev, '', context.target, opts.cwd, opts.stdout);
       return { exitCode: 0 };
     }
     // Flag-name completion. Renders `--<kebab-name>` per matching field;
@@ -215,16 +228,17 @@ function tokeniseLine(line: string, point: number): ReadonlyArray<string> {
  * line for any later `.ts` token. Direct FSM input completion is only active
  * when the first user token itself resolves to an existing regular `.ts` file.
  */
-function deriveCompletionContext(
+async function deriveCompletionContext(
   tokens: ReadonlyArray<string>,
   last: string,
   cwd: string,
-): CompletionContext {
+  env: NodeJS.ProcessEnv,
+): Promise<CompletionContext> {
   const firstToken = tokens[1];
   if (!firstToken) return { kind: 'root', partial: '' };
 
   if (firstToken === 'run') {
-    const runTarget = deriveRunTargetCompletionContext(tokens, last);
+    const runTarget = await deriveRunTargetCompletionContext(tokens, last, cwd, env);
     if (runTarget) return runTarget;
   }
 
@@ -244,20 +258,62 @@ function deriveCompletionContext(
   return { kind: 'other-subcommand' };
 }
 
-function deriveRunTargetCompletionContext(
+async function deriveRunTargetCompletionContext(
   tokens: ReadonlyArray<string>,
   last: string,
-): CompletionContext | null {
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): Promise<CompletionContext | null> {
   const afterRun = tokens.slice(2);
   if (afterRun.length === 0) {
     return last === '' ? { kind: 'run-target', partial: '' } : null;
   }
 
-  const positional = afterRun.filter((token) => !token.startsWith('--'));
-  const partial = positional.at(-1);
-  if (partial !== undefined) return { kind: 'run-target', partial };
+  const targetIndex = afterRun.findIndex((token) => !token.startsWith('--'));
+  if (targetIndex >= 0) {
+    const targetToken = afterRun[targetIndex]!;
+    const cursorIsOnTarget =
+      targetIndex === afterRun.length - 1 && last === targetToken && last !== '';
+    if (cursorIsOnTarget) return { kind: 'run-target', partial: targetToken };
+
+    const target = await resolveCompletionInputTarget({ targetToken, cwd, env });
+    if (target) return { kind: 'post-target-input', target };
+    if (targetIndex === afterRun.length - 1) return { kind: 'run-target', partial: targetToken };
+    return null;
+  }
+
   if (last === '') return { kind: 'run-target', partial: '' };
   return null;
+}
+
+async function resolveCompletionInputTarget(args: {
+  readonly targetToken: string;
+  readonly cwd: string;
+  readonly env: NodeJS.ProcessEnv;
+}): Promise<CompletionInputTarget | null> {
+  const localPath = path.resolve(args.cwd, args.targetToken);
+  if (isExistingRegularFileSync(args.cwd, args.targetToken)) {
+    return { kind: 'local', filePath: localPath };
+  }
+
+  const snapshot = await readInstalledCompletionSnapshot({ env: args.env });
+  const resolved = resolveInstalledCommand(args.targetToken, snapshot);
+  if (!resolved.ok) return null;
+
+  const lock = await checkInstalledLockFingerprint(resolved.value.install, snapshot.paths);
+  if (!lock.ok) return null;
+
+  return {
+    kind: 'installed',
+    identity: resolved.value.identity,
+    entryFile: path.join(resolved.value.install.packageRoot, resolved.value.command.entry),
+    packageName: resolved.value.install.packageName,
+    commandName: resolved.value.command.commandName,
+    packageRoot: resolved.value.install.packageRoot,
+    managedProjectRoot: snapshot.paths.managedProjectRoot,
+    storeRoot: snapshot.paths.storeRoot,
+    lockFingerprint: lock.value,
+  };
 }
 
 function resolveLocalInputTarget(token: string, cwd: string): CompletionInputTarget | null {
@@ -383,6 +439,22 @@ function isExistingRegularFileSync(cwd: string, target: string): boolean {
   }
 }
 
+async function extractInputFlagsForTarget(target: CompletionInputTarget): Promise<FlagsMap> {
+  if (target.kind === 'local') {
+    const extraction = await extractSchemaSidecar({ filePath: target.filePath });
+    return extraction.inputFlags ?? {};
+  }
+
+  const extraction = await extractSchemaSidecar({
+    filePath: target.entryFile,
+    packageResolution: {
+      packageRoot: target.packageRoot,
+      managedProjectRoot: target.managedProjectRoot,
+    },
+  });
+  return extraction.inputFlags ?? {};
+}
+
 /**
  * Map a `--<kebab-name>` flag back to its declared field name and look
  * up its meta. Returns undefined when the flag name does not resolve to
@@ -397,10 +469,10 @@ function lookupFlagByKebab(flags: FlagsMap, kebabFlag: string): ArgFlagMeta | un
  * Dispatch on a flag's `completion` static kind. `'file'` delegates to native
  * shell file completion, `'directory'` enumerates directories locally,
  * `{values: [...]}` emits prefix matches;
- * `{dynamic: true}` escalates to `loadFsm()` so the live callback (which
- * the JSON sidecar reduces to a `{dynamic: true}` sentinel) can be
- * resolved off `machine.config.input?.[field]?.meta?.completion?.dynamic`
- * and invoked.
+ * `{dynamic: true}` escalates to the local or installed FSM loader so the
+ * live callback (which the JSON sidecar reduces to a `{dynamic: true}`
+ * sentinel) can be resolved off
+ * `machine.config.input?.[field]?.meta?.completion?.dynamic` and invoked.
  *
  * Spec §5.7 risk: the dynamic-callback path executes user module code at
  * Tab time. Phase 5 docs surface this; no inline mitigation here.
@@ -409,7 +481,7 @@ async function emitValueCompletion(
   flags: FlagsMap,
   kebabFlag: string,
   partial: string,
-  fsmPath: string,
+  target: CompletionInputTarget,
   cwd: string,
   stdout: NodeJS.WritableStream,
 ): Promise<void> {
@@ -435,10 +507,20 @@ async function emitValueCompletion(
     // live function reference (the JSON sidecar only persists the
     // sentinel). Silent-error policy: any failure on the load path or
     // inside the user-supplied callback emits nothing.
-    const repoRoot = findRepoRoot(cwd) ?? cwd;
     let loaded;
     try {
-      loaded = await loadFsm({ filePath: fsmPath, repoRoot });
+      loaded =
+        target.kind === 'local'
+          ? await loadFsm({ filePath: target.filePath, repoRoot: findRepoRoot(cwd) ?? cwd })
+          : await loadInstalledFsm({
+              entryFile: target.entryFile,
+              packageName: target.packageName,
+              commandName: target.commandName,
+              packageRoot: target.packageRoot,
+              managedProjectRoot: target.managedProjectRoot,
+              storeRoot: target.storeRoot,
+              lockFingerprint: target.lockFingerprint,
+            });
     } catch {
       return;
     }
@@ -455,8 +537,9 @@ async function emitValueCompletion(
       return;
     }
     let out: ReadonlyArray<string>;
+    const fsmFile = target.kind === 'local' ? target.filePath : target.entryFile;
     try {
-      out = dyn.dynamic(partial, { fsmFile: fsmPath, cwd });
+      out = dyn.dynamic(partial, { fsmFile, cwd });
     } catch {
       return;
     }

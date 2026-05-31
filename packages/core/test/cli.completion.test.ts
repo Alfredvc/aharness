@@ -28,6 +28,7 @@ import * as tabtab from '@pnpm/tabtab';
 import { runCompletionInstall, runCompletionUninstall } from '../src/cli/completion.js';
 import { enumerateFs, runCompletionBridge } from '../src/cli/completionBridge.js';
 import {
+  computeLockFingerprint,
   INSTALL_STORE_SCHEMA_VERSION,
   type TrustedCommandIndexEntry,
   type TrustedInstallRecord,
@@ -135,6 +136,131 @@ function writeCompletionStore(
       commands: opts.commands,
     }),
   );
+}
+
+async function writeInstalledCompletionFixture(
+  storeRoot: string,
+  opts: {
+    readonly source: string;
+    readonly lockFingerprint?: string;
+  },
+): Promise<{
+  readonly managedProjectRoot: string;
+  readonly packageRoot: string;
+  readonly entryFile: string;
+  readonly lockFingerprint: string;
+}> {
+  const managedProjectRoot = path.join(storeRoot, 'packages');
+  const packageRoot = path.join(managedProjectRoot, 'node_modules/@scope/tools');
+  const entryFile = path.join(packageRoot, 'fsms/build.fsm.ts');
+  fs.mkdirSync(path.dirname(entryFile), { recursive: true });
+  fs.writeFileSync(entryFile, opts.source);
+  fs.writeFileSync(
+    path.join(managedProjectRoot, 'package-lock.json'),
+    JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        '': {
+          dependencies: {
+            '@scope/tools': '1.0.0',
+          },
+        },
+        'node_modules/@scope/tools': {
+          version: '1.0.0',
+        },
+      },
+    }),
+  );
+
+  const computed = await computeLockFingerprint({
+    managedProjectRoot,
+    dependencyKey: '@scope/tools',
+    packageName: '@scope/tools',
+    packageVersion: '1.0.0',
+  });
+  if (!computed.ok) {
+    throw new Error(computed.diagnostics.map((d) => d.message).join('\n'));
+  }
+  const lockFingerprint = opts.lockFingerprint ?? computed.value;
+  const install: TrustedInstallRecord = {
+    packageName: '@scope/tools',
+    dependencyKey: '@scope/tools',
+    requestedSpec: '@scope/tools@1.0.0',
+    packageRoot,
+    packageVersion: '1.0.0',
+    sourceIntentKey: 'registry:@scope/tools@1.0.0',
+    lockFingerprint,
+    commands: {
+      build: {
+        commandName: 'build',
+        entry: 'fsms/build.fsm.ts',
+      },
+    },
+  };
+  writeCompletionStore(storeRoot, {
+    installs: {
+      '@scope/tools': install,
+    },
+    generation: 'test-generation',
+    commands: {
+      '@scope/tools/build': {
+        packageName: '@scope/tools',
+        commandName: 'build',
+        entry: 'fsms/build.fsm.ts',
+        packageRoot,
+        packageVersion: '1.0.0',
+        lockFingerprint,
+      },
+    },
+  });
+
+  return { managedProjectRoot, packageRoot, entryFile, lockFingerprint };
+}
+
+function staticInstalledFsmSource(prefix = ''): string {
+  return `${prefix}
+import { aharness, state, exit, final, arg } from '@aharness/core';
+
+export default aharness.machine({
+  input: {
+    choice: arg<string>({ description: 'Choice', completion: { values: ['alpha', 'beta'] } }),
+    topic: arg<string>({ description: 'Topic' }),
+  },
+  initial: 'go',
+  states: {
+    go: state({
+      entryPrompt: 'go',
+      exits: { out: exit<{ ok: boolean }>({ to: 'done' }) },
+    }),
+    done: final({ outcome: 'success' }),
+  },
+});
+`;
+}
+
+function dynamicInstalledFsmSource(prefix = ''): string {
+  return `${prefix}
+import { aharness, state, exit, final, arg } from '@aharness/core';
+
+export default aharness.machine({
+  input: {
+    project: arg<string>({
+      description: 'Project',
+      completion: {
+        dynamic: (partial) => ['alpha', 'beta'].filter((value) => value.startsWith(partial)),
+      },
+    }),
+  },
+  initial: 'go',
+  states: {
+    go: state({
+      entryPrompt: 'go',
+      exits: { out: exit<{ ok: boolean }>({ to: 'done' }) },
+    }),
+    done: final({ outcome: 'success' }),
+  },
+});
+`;
 }
 
 function commandIndexEntry(
@@ -317,6 +443,12 @@ describe('runCompletionBridge — run target completion', () => {
 });
 
 describe('runCompletionBridge — flag-name completion', () => {
+  it('emits local FSM flags after aharness run <target> --', async () => {
+    const lines = await captureBridge(`aharness run ${fixture} --`);
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
+  });
+
   it('emits matching --<kebab-name> when cursor is on --<partial>', async () => {
     const lines = await captureBridge(`aharness ${fixture} --id`);
     expect(lines.some((l) => l.startsWith('--ideafile-path'))).toBe(true);
@@ -333,10 +465,130 @@ describe('runCompletionBridge — flag-name completion', () => {
     expect(lines).toEqual([]);
   });
 
+  it('does not treat a later run --spec value as the run target', async () => {
+    const lines = await captureBridge(`aharness run build --spec ./other.fsm.ts --`);
+    expect(lines).toEqual([]);
+  });
+
   it('emits all flag names when cursor is empty after fsm path', async () => {
     const lines = await captureBridge(`aharness ${fixture} `);
     const names = lines.map((l) => l.split(':')[0]).sort();
     expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
+  });
+});
+
+describe('runCompletionBridge — installed input completion', () => {
+  let cwd: string;
+  let storeRoot: string;
+
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-installed-completion-cwd-'));
+    storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-installed-completion-store-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(cwd, { recursive: true, force: true });
+    fs.rmSync(storeRoot, { recursive: true, force: true });
+  });
+
+  it('emits installed static input flags after a qualified run target', async () => {
+    await writeInstalledCompletionFixture(storeRoot, { source: staticInstalledFsmSource() });
+
+    const lines = await captureBridge('aharness run @scope/tools/build --', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/tools/build --', storeRoot),
+    });
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--choice', '--topic']);
+  });
+
+  it('emits installed static value completion after a qualified run target', async () => {
+    await writeInstalledCompletionFixture(storeRoot, { source: staticInstalledFsmSource() });
+
+    const lines = await captureBridge('aharness run @scope/tools/build --choice a', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/tools/build --choice a', storeRoot),
+    });
+    expect(lines).toEqual(['alpha']);
+  });
+
+  it('uses static sidecar extraction for installed flags and values without importing the FSM', async () => {
+    await writeInstalledCompletionFixture(storeRoot, {
+      source: staticInstalledFsmSource("throw new Error('top-level import should not run');"),
+    });
+
+    const flagLines = await captureBridge('aharness run @scope/tools/build --', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/tools/build --', storeRoot),
+    });
+    const valueLines = await captureBridge('aharness run @scope/tools/build --choice a', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/tools/build --choice a', storeRoot),
+    });
+    expect(flagLines.map((l) => l.split(':')[0]).sort()).toEqual(['--choice', '--topic']);
+    expect(valueLines).toEqual(['alpha']);
+  });
+
+  it('emits flags after a unique bare installed command when no local build file exists', async () => {
+    await writeInstalledCompletionFixture(storeRoot, { source: staticInstalledFsmSource() });
+
+    const lines = await captureBridge('aharness run build --', {
+      cwd,
+      env: makeEnvWithHome('aharness run build --', storeRoot),
+    });
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--choice', '--topic']);
+  });
+
+  it('uses a local regular file named build before installed command completion', async () => {
+    fs.writeFileSync(path.join(cwd, 'build'), staticInstalledFsmSource());
+    await writeInstalledCompletionFixture(storeRoot, { source: dynamicInstalledFsmSource() });
+
+    const lines = await captureBridge('aharness run build --', {
+      cwd,
+      env: makeEnvWithHome('aharness run build --', storeRoot),
+    });
+    expect(lines).toEqual([]);
+  });
+
+  it('emits installed dynamic value completion for a trusted installed command', async () => {
+    await writeInstalledCompletionFixture(storeRoot, { source: dynamicInstalledFsmSource() });
+
+    const lines = await captureBridge('aharness run @scope/tools/build --project a', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/tools/build --project a', storeRoot),
+    });
+    expect(lines).toEqual(['alpha']);
+  });
+
+  it('does not import an installed FSM for dynamic completion when the lock fingerprint mismatches', async () => {
+    const marker = path.join(storeRoot, 'imported-marker');
+    await writeInstalledCompletionFixture(storeRoot, {
+      source: dynamicInstalledFsmSource(
+        `import * as fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(marker)}, 'imported');`,
+      ),
+      lockFingerprint: 'stale-lock',
+    });
+
+    const lines = await captureBridge('aharness run @scope/tools/build --project a', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/tools/build --project a', storeRoot),
+    });
+    expect(lines).toEqual([]);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it('emits no installed input flags when the lock fingerprint mismatches', async () => {
+    await writeInstalledCompletionFixture(storeRoot, {
+      source: staticInstalledFsmSource(),
+      lockFingerprint: 'stale-lock',
+    });
+
+    const lines = await captureBridge('aharness run @scope/tools/build --', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/tools/build --', storeRoot),
+    });
+    expect(lines).toEqual([]);
   });
 });
 
