@@ -640,8 +640,28 @@ describe('runCompletionBridge — FSM path completion', () => {
     expect(lines).toEqual(['__tabtab_complete_files__']);
   });
 
+  it('delegates to shell file completion after leading direct-run --yolo', async () => {
+    const lines = await captureBridge('aharness --yolo ');
+    expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+
+  it('delegates to shell file completion while completing a direct-run path after --yolo', async () => {
+    const lines = await captureBridge('aharness --yolo ./');
+    expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+
   it('delegates to shell file completion after the visualize subcommand', async () => {
     const lines = await captureBridge('aharness visualize ');
+    expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+
+  it('delegates to shell file completion while completing a visualize target path', async () => {
+    const lines = await captureBridge('aharness visualize ./');
+    expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+
+  it('delegates to shell file completion while completing a verify target path', async () => {
+    const lines = await captureBridge('aharness verify ./');
     expect(lines).toEqual(['__tabtab_complete_files__']);
   });
 });

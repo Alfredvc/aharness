@@ -242,6 +242,11 @@ async function deriveCompletionContext(
     if (runTarget) return runTarget;
   }
 
+  if (FILE_PATH_SUBCOMMANDS.has(firstToken)) {
+    const fileTarget = deriveFilePathSubcommandCompletionContext(tokens, last, cwd);
+    if (fileTarget) return fileTarget;
+  }
+
   const directRun = deriveDirectRunCompletionContext(tokens, last, cwd);
   if (directRun) return directRun;
 
@@ -268,20 +273,59 @@ function deriveDirectRunCompletionContext(
 ): CompletionContext | null {
   const args = tokens.slice(1);
   let targetIndex = 0;
+  let consumedYolo = false;
 
-  if (args[targetIndex] === '--yolo') targetIndex++;
+  if (args[targetIndex] === '--yolo') {
+    consumedYolo = true;
+    targetIndex++;
+  }
 
   const targetToken = args[targetIndex];
-  if (!targetToken || targetToken.startsWith('--')) return null;
+  if (!targetToken) {
+    return last === '' ? { kind: 'direct-file-target' } : null;
+  }
+  if (targetToken.startsWith('--')) return null;
 
   const cursorIsOnTarget = targetIndex === args.length - 1 && last === targetToken && last !== '';
-  if (cursorIsOnTarget) return null;
+  if (cursorIsOnTarget) {
+    const target = resolveLocalInputTarget(targetToken, cwd);
+    if (target) return { kind: 'post-target-input', target };
+    return consumedYolo || isPathLikeToken(targetToken) ? { kind: 'direct-file-target' } : null;
+  }
 
   const inputArgs = args.slice(targetIndex + 1);
   if (!isValidInputCompletionTail(inputArgs)) return null;
 
   const target = resolveLocalInputTarget(targetToken, cwd);
   return target ? { kind: 'post-target-input', target } : null;
+}
+
+function deriveFilePathSubcommandCompletionContext(
+  tokens: ReadonlyArray<string>,
+  last: string,
+  cwd: string,
+): CompletionContext | null {
+  const subcommand = tokens[1];
+  const targetToken = tokens[2];
+  if (!targetToken) {
+    return last === '' ? { kind: 'direct-file-target' } : null;
+  }
+  if (targetToken.startsWith('--')) return null;
+
+  const cursorIsOnTarget = tokens.length === 3 && last === targetToken && last !== '';
+  if (cursorIsOnTarget) {
+    const target = resolveLocalInputTarget(targetToken, cwd);
+    return target ? { kind: 'other-subcommand' } : { kind: 'direct-file-target' };
+  }
+
+  if (subcommand === 'visualize') {
+    const inputArgs = tokens.slice(3);
+    if (!isValidInputCompletionTail(inputArgs)) return null;
+    const target = resolveLocalInputTarget(targetToken, cwd);
+    if (target) return { kind: 'post-target-input', target };
+  }
+
+  return { kind: 'other-subcommand' };
 }
 
 async function deriveRunTargetCompletionContext(
