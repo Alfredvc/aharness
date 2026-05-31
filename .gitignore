@@ -5,6 +5,7 @@
 .DS_Store
 .agents
 .claude
+.codex
 .ccairgap
 .playwright-cli
 skills-lock.json

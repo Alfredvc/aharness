@@ -44,6 +44,17 @@ Notes:
 - Package-local changes may need package-local scripts in addition to the root
   checks.
 
+## Codex Edit Hook
+
+The repo-local Codex config includes a check-only `PostToolUse` hook for file
+edits. After Codex applies a patch through the edit/write tool path, the hook
+runs `pnpm exec oxlint --max-warnings 0` against touched JavaScript and
+TypeScript files and reports lint failures back to Codex without modifying files.
+
+Codex requires changed repo-local command hooks to be reviewed before they run.
+When Codex reports that hooks need review, open `/hooks` in the CLI and trust the
+current hook definition for this repository.
+
 ## Dev-Only Event Log Replay
 
 For UI visualization work, use the spike replay helper to open the browser UI
