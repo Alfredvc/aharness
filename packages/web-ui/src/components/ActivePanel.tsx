@@ -1119,6 +1119,8 @@ function ActivePanelRow({ item }: { item: TranscriptItem }) {
     case 'state_change':
       // Already represented by the graph; skip in panel.
       return null;
+    case 'transition_failure':
+      return <TransitionFailureRow item={item} />;
     case 'fresh_clear_boundary':
       return (
         <div className="fresh-clear-boundary">
@@ -1132,6 +1134,24 @@ function ActivePanelRow({ item }: { item: TranscriptItem }) {
     default:
       return null;
   }
+}
+
+function TransitionFailureRow({
+  item,
+}: {
+  item: Extract<TranscriptItem, { type: 'transition_failure' }>;
+}) {
+  const details = [item.toolName, item.state, item.exit].filter(
+    (value): value is string => value !== undefined,
+  );
+  return (
+    <div className="compact-row" data-kind="transition_failure" data-status={item.status}>
+      <span className="compact-kicker">transition</span>
+      <span className="compact-label">failed</span>
+      {details.length > 0 ? <span className="compact-status">{details.join(' · ')}</span> : null}
+      <span className="compact-summary">{truncate(item.summary, 120)}</span>
+    </div>
+  );
 }
 
 function ToolCallRow({ item }: { item: Extract<TranscriptItem, { type: 'tool_call' }> }) {

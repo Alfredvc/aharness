@@ -528,7 +528,7 @@ export type UiSnapshot = {
 };
 
 export function isRunScopedBootstrap(value: unknown): value is RunScopedBootstrap {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value) || 'raw' in value) return false;
   if (!isRunScopedRunMeta(value['run'])) return false;
   if (!(value['topology'] === null || isTopology(value['topology']))) return false;
   if (!isStringOrNull(value['latestEventId'])) return false;

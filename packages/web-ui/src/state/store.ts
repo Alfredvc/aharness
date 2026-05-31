@@ -58,10 +58,14 @@ export function isReservedToolName(name: string): boolean {
 type TranscriptBase = {
   id: string;
   stateVisitId: string;
+  turnId?: string;
   seq?: number;
   eventId?: string;
   eventIds?: string[];
 };
+
+export type ToolDisplayKind = 'command' | 'read' | 'list' | 'search' | 'mcp' | 'subagent' | 'tool';
+export type SubagentAction = 'spawn' | 'send' | 'wait' | 'resume' | 'close';
 
 export type TranscriptItem =
   | (TranscriptBase & {
@@ -86,6 +90,17 @@ export type TranscriptItem =
       reserved: boolean;
       elapsedMs?: number;
       category?: 'tool' | 'subagent';
+      displayKind?: ToolDisplayKind;
+      command?: string;
+      argumentsPreview?: string;
+      target?: string;
+      subagentAction?: SubagentAction;
+      agentNickname?: string;
+      agentRole?: string;
+      receiverThreadIds?: string[];
+      promptPreview?: string;
+      responsePreview?: string;
+      errorPreview?: string;
       output?: string;
       ok?: boolean;
       resultId?: string;
@@ -107,7 +122,7 @@ export type TranscriptItem =
   | (TranscriptBase & {
       id: string;
       type: 'compact_status';
-      category: 'request' | 'reply' | 'diagnostic';
+      category: 'request' | 'reply' | 'diagnostic' | 'lifecycle';
       label: string;
       status?: string;
       summary?: string;
@@ -120,6 +135,21 @@ export type TranscriptItem =
       from: string | null;
       to: string;
       cause: string;
+      visitCount?: number;
+      stateKind?: string;
+      open?: boolean;
+      awaiting?: boolean;
+      model?: string;
+      effort?: string;
+    })
+  | (TranscriptBase & {
+      id: string;
+      type: 'transition_failure';
+      summary: string;
+      status: 'failed';
+      toolName?: string;
+      state?: string;
+      exit?: string;
     })
   | (TranscriptBase & {
       id: string;
@@ -491,6 +521,34 @@ function readNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+function readDisplayKind(value: unknown): ToolDisplayKind | undefined {
+  switch (value) {
+    case 'command':
+    case 'read':
+    case 'list':
+    case 'search':
+    case 'mcp':
+    case 'subagent':
+    case 'tool':
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function readSubagentAction(value: unknown): SubagentAction | undefined {
+  switch (value) {
+    case 'spawn':
+    case 'send':
+    case 'wait':
+    case 'resume':
+    case 'close':
+      return value;
+    default:
+      return undefined;
+  }
+}
+
 function rowText(row: RunScopedCompactRow): string {
   return row.text ?? row.summary ?? row.label ?? '';
 }
@@ -556,7 +614,12 @@ function transcriptItemFromCompactRow(
 ): TranscriptItem | null {
   const stateVisitId = rowVisitId(row, options);
   if (stateVisitId === null) return null;
-  const common = { seq: row.seq, eventId: row.eventId, stateVisitId };
+  const common = {
+    seq: row.seq,
+    eventId: row.eventId,
+    stateVisitId,
+    ...(row.turnId === undefined ? {} : { turnId: row.turnId }),
+  };
   switch (row.kind) {
     case 'message': {
       const text = rowText(row);
@@ -579,6 +642,17 @@ function transcriptItemFromCompactRow(
     case 'tool': {
       const name = row.label ?? row.summary ?? 'tool';
       const reserved = row.data?.['internal'] === true || isReservedToolName(name);
+      const displayKind = readDisplayKind(row.data?.['displayKind']);
+      const command = readString(row.data?.['command']);
+      const argumentsPreview = readString(row.data?.['argumentsPreview']);
+      const target = readString(row.data?.['target']);
+      const subagentAction = readSubagentAction(row.data?.['subagentAction']);
+      const agentNickname = readString(row.data?.['agentNickname']);
+      const agentRole = readString(row.data?.['agentRole']);
+      const receiverThreadIds = readStringArray(row.data?.['receiverThreadIds']);
+      const promptPreview = readString(row.data?.['promptPreview']);
+      const responsePreview = readString(row.data?.['responsePreview']);
+      const errorPreview = readString(row.data?.['errorPreview']);
       return {
         ...common,
         id: row.itemId ?? row.id,
@@ -589,6 +663,17 @@ function transcriptItemFromCompactRow(
         reserved,
         ...(row.elapsedMs === undefined ? {} : { elapsedMs: row.elapsedMs }),
         category: isSubagentToolRow(row) ? 'subagent' : 'tool',
+        ...(displayKind === undefined ? {} : { displayKind }),
+        ...(command === undefined ? {} : { command }),
+        ...(argumentsPreview === undefined ? {} : { argumentsPreview }),
+        ...(target === undefined ? {} : { target }),
+        ...(subagentAction === undefined ? {} : { subagentAction }),
+        ...(agentNickname === undefined ? {} : { agentNickname }),
+        ...(agentRole === undefined ? {} : { agentRole }),
+        ...(receiverThreadIds === undefined ? {} : { receiverThreadIds }),
+        ...(promptPreview === undefined ? {} : { promptPreview }),
+        ...(responsePreview === undefined ? {} : { responsePreview }),
+        ...(errorPreview === undefined ? {} : { errorPreview }),
         ...(row.output === undefined ? {} : { output: row.output }),
         ...(row.ok === undefined ? {} : { ok: row.ok }),
         ...(row.resultId === undefined ? {} : { resultId: row.resultId }),
@@ -645,7 +730,27 @@ function transcriptItemFromCompactRow(
           }
         : null;
     }
+    case 'run_lifecycle': {
+      const label = row.label ?? 'run';
+      const summary = row.summary ?? row.text;
+      return {
+        ...common,
+        id: row.id,
+        type: 'compact_status',
+        category: 'lifecycle',
+        label,
+        ...(row.status === undefined ? {} : { status: row.status }),
+        ...(summary === undefined ? {} : { summary }),
+        ...(row.elapsedMs === undefined ? {} : { elapsedMs: row.elapsedMs }),
+      };
+    }
     case 'state_change': {
+      const visitCount = readNumber(row.data?.['visitCount']);
+      const stateKind = readString(row.data?.['stateKind']);
+      const open = readBoolean(row.data?.['open']);
+      const awaiting = readBoolean(row.data?.['awaiting']);
+      const model = readString(row.data?.['model']);
+      const effort = readString(row.data?.['effort']);
       return {
         ...common,
         id: row.id,
@@ -658,6 +763,29 @@ function transcriptItemFromCompactRow(
           stateVisitId.split('#')[0] ??
           '',
         cause: row.status ?? readString(row.data?.['cause']) ?? 'transition',
+        ...(visitCount === undefined ? {} : { visitCount }),
+        ...(stateKind === undefined ? {} : { stateKind }),
+        ...(open === undefined ? {} : { open }),
+        ...(awaiting === undefined ? {} : { awaiting }),
+        ...(model === undefined ? {} : { model }),
+        ...(effort === undefined ? {} : { effort }),
+      };
+    }
+    case 'transition_failure': {
+      const summary = row.summary ?? row.text;
+      if (summary === undefined) return null;
+      const toolName = readString(row.data?.['toolName']);
+      const state = readString(row.data?.['state']);
+      const exit = readString(row.data?.['exit']);
+      return {
+        ...common,
+        id: row.id,
+        type: 'transition_failure',
+        summary,
+        status: 'failed',
+        ...(toolName === undefined ? {} : { toolName }),
+        ...(state === undefined ? {} : { state }),
+        ...(exit === undefined ? {} : { exit }),
       };
     }
     case 'fresh_clear': {

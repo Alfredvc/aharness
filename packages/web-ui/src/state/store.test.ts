@@ -22,6 +22,8 @@ import {
 } from './activity.js';
 import {
   isRunScopedBootstrap,
+  isRunScopedEventPage,
+  isRunScopedRowPage,
   type RunScopedApiEvent,
   type FsmState,
   type Posture,
@@ -372,10 +374,24 @@ describe('headless production store helpers', () => {
 
     expect(isRunScopedBootstrap({ ...bootstrap, run: {} })).toBe(false);
     expect(isRunScopedBootstrap({ ...bootstrap, pending: {} })).toBe(false);
+    expect(isRunScopedBootstrap({ ...bootstrap, raw: { hidden: true } })).toBe(false);
     expect(
       isRunScopedBootstrap({
         ...bootstrap,
         pending: [{ ...bootstrap.pending[0], pendingCard: { kind: 'unknown' } }],
+      }),
+    ).toBe(false);
+    expect(
+      isRunScopedRowPage({
+        rows: [{ ...bootstrap.recentRows[0], raw: { hidden: true } }],
+        nextCursor: null,
+      }),
+    ).toBe(false);
+    expect(
+      isRunScopedEventPage({
+        events: [{ ...apiEvent(), raw: { hidden: true } }],
+        nextCursor: null,
+        diagnostics: [],
       }),
     ).toBe(false);
   });
@@ -587,6 +603,7 @@ describe('headless production store helpers', () => {
           eventId: 'run-1:5',
           seq: 5,
           stateVisitId: 'workflow.collect#2',
+          turnId: 'turn-compact-1',
           text: 'model text',
         }),
         row({
@@ -611,7 +628,14 @@ describe('headless production store helpers', () => {
           output: 'command completed',
           ok: true,
           resultId: 'tool-1:output',
-          data: { command: 'pnpm test -- --runInBand', raw: { hidden: true } },
+          turnId: 'turn-compact-1',
+          data: {
+            command: 'pnpm test -- --runInBand',
+            argumentsPreview: '-- --runInBand',
+            displayKind: 'command',
+            target: 'packages/web-ui',
+            raw: { hidden: true },
+          },
         }),
         row({
           id: 'pending-tool-row',
@@ -646,7 +670,17 @@ describe('headless production store helpers', () => {
           label: 'spawn_agent',
           status: 'pending',
           summary: 'worker running',
-          data: { itemType: 'spawnAgentToolCall' },
+          data: {
+            itemType: 'spawnAgentToolCall',
+            displayKind: 'subagent',
+            subagentAction: 'spawn',
+            agentNickname: 'planner',
+            agentRole: 'implementation',
+            receiverThreadIds: ['thread-a', 'thread-b'],
+            promptPreview: 'Implement the slice',
+            responsePreview: 'Done',
+            errorPreview: 'No error',
+          },
         }),
         row({
           id: 'request-row',
@@ -701,9 +735,73 @@ describe('headless production store helpers', () => {
           },
         }),
         row({
-          id: 'internal-tool',
+          id: 'state-meta-row',
           eventId: 'run-1:16',
           seq: 16,
+          stateVisitId: 'workflow.collect#2',
+          turnId: 'turn-compact-1',
+          kind: 'state_change',
+          label: 'workflow.review',
+          status: 'submit',
+          summary: 'workflow.collect -> workflow.review',
+          data: {
+            from: 'workflow.collect',
+            to: 'workflow.review',
+            cause: 'submit',
+            visitCount: 3,
+            stateKind: 'stateful',
+            open: true,
+            awaiting: false,
+            model: 'gpt-5',
+            effort: 'high',
+            raw: { hidden: true },
+          },
+        }),
+        row({
+          id: 'state-invalid-row',
+          eventId: 'run-1:17',
+          seq: 17,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'state_change',
+          label: 'workflow.invalid',
+          data: {
+            visitCount: '3',
+            stateKind: 12,
+            open: 'yes',
+            awaiting: 'no',
+            model: '',
+            effort: null,
+          },
+        }),
+        row({
+          id: 'transition-failure-row',
+          eventId: 'run-1:18',
+          seq: 18,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'transition_failure',
+          summary: 'Submit failed safely',
+          data: {
+            toolName: 'aharness_submit',
+            state: 'workflow.collect',
+            exit: 'continue',
+            raw: { hidden: true },
+          },
+        }),
+        row({
+          id: 'lifecycle-row',
+          eventId: 'run-1:19',
+          seq: 19,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'run_lifecycle',
+          label: 'run',
+          status: 'started',
+          summary: 'run started',
+          elapsedMs: 12,
+        }),
+        row({
+          id: 'internal-tool',
+          eventId: 'run-1:20',
+          seq: 20,
           stateVisitId: 'workflow.collect#2',
           kind: 'tool',
           label: 'aharness_submit',
@@ -715,7 +813,12 @@ describe('headless production store helpers', () => {
 
     expect(state.transcript).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ id: 'message-row', type: 'agent_message', text: 'model text' }),
+        expect.objectContaining({
+          id: 'message-row',
+          type: 'agent_message',
+          text: 'model text',
+          turnId: 'turn-compact-1',
+        }),
         expect.objectContaining({ id: 'reasoning-row', type: 'reasoning', text: 'thinking' }),
         expect.objectContaining({
           id: 'tool-1',
@@ -724,6 +827,11 @@ describe('headless production store helpers', () => {
           preview: 'pnpm test -- --runInBand',
           elapsedMs: 42,
           category: 'tool',
+          turnId: 'turn-compact-1',
+          displayKind: 'command',
+          command: 'pnpm test -- --runInBand',
+          argumentsPreview: '-- --runInBand',
+          target: 'packages/web-ui',
           output: 'command completed',
           ok: true,
           resultId: 'tool-1:output',
@@ -747,6 +855,14 @@ describe('headless production store helpers', () => {
           id: 'subagent-1',
           type: 'tool_call',
           category: 'subagent',
+          displayKind: 'subagent',
+          subagentAction: 'spawn',
+          agentNickname: 'planner',
+          agentRole: 'implementation',
+          receiverThreadIds: ['thread-a', 'thread-b'],
+          promptPreview: 'Implement the slice',
+          responsePreview: 'Done',
+          errorPreview: 'No error',
           preview: 'worker running',
         }),
         expect.objectContaining({
@@ -782,8 +898,55 @@ describe('headless production store helpers', () => {
           nextThreadId: 'new-thread',
           statePath: 'workflow.collect',
         }),
+        expect.objectContaining({
+          id: 'state-meta-row',
+          type: 'state_change',
+          turnId: 'turn-compact-1',
+          from: 'workflow.collect',
+          to: 'workflow.review',
+          cause: 'submit',
+          visitCount: 3,
+          stateKind: 'stateful',
+          open: true,
+          awaiting: false,
+          model: 'gpt-5',
+          effort: 'high',
+        }),
+        expect.objectContaining({
+          id: 'state-invalid-row',
+          type: 'state_change',
+          to: 'workflow.invalid',
+        }),
+        expect.objectContaining({
+          id: 'transition-failure-row',
+          type: 'transition_failure',
+          summary: 'Submit failed safely',
+          status: 'failed',
+          toolName: 'aharness_submit',
+          state: 'workflow.collect',
+          exit: 'continue',
+        }),
+        expect.objectContaining({
+          id: 'lifecycle-row',
+          type: 'compact_status',
+          category: 'lifecycle',
+          label: 'run',
+          status: 'started',
+          summary: 'run started',
+          elapsedMs: 12,
+        }),
       ]),
     );
+    const invalidStateRow = state.transcript.find((item) => item.id === 'state-invalid-row');
+    expect(invalidStateRow).toEqual(
+      expect.objectContaining({ id: 'state-invalid-row', type: 'state_change' }),
+    );
+    expect(invalidStateRow).not.toHaveProperty('visitCount');
+    expect(invalidStateRow).not.toHaveProperty('stateKind');
+    expect(invalidStateRow).not.toHaveProperty('open');
+    expect(invalidStateRow).not.toHaveProperty('awaiting');
+    expect(invalidStateRow).not.toHaveProperty('model');
+    expect(invalidStateRow).not.toHaveProperty('effort');
     expect(JSON.stringify(state.transcript)).not.toContain('"raw"');
     expect(visibleItems(state.transcript, false)).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'internal-tool' })]),
@@ -791,6 +954,68 @@ describe('headless production store helpers', () => {
     expect(visibleItems(state.transcript, true)).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'internal-tool' })]),
     );
+  });
+
+  it('accepts only known tool display hints and subagent actions from compact rows', () => {
+    const displayKinds = ['command', 'read', 'list', 'search', 'mcp', 'subagent', 'tool'] as const;
+    const subagentActions = ['spawn', 'send', 'wait', 'resume', 'close'] as const;
+    const state = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      recentRows: [
+        ...displayKinds.map((displayKind, index) =>
+          row({
+            id: `display-${displayKind}`,
+            eventId: `run-1:${index + 30}`,
+            seq: index + 30,
+            stateVisitId: 'workflow.collect#2',
+            itemId: `display-${displayKind}`,
+            kind: 'tool',
+            label: 'tool',
+            status: 'completed',
+            data: { displayKind },
+          }),
+        ),
+        ...subagentActions.map((subagentAction, index) =>
+          row({
+            id: `subagent-${subagentAction}`,
+            eventId: `run-1:${index + 40}`,
+            seq: index + 40,
+            stateVisitId: 'workflow.collect#2',
+            itemId: `subagent-${subagentAction}`,
+            kind: 'tool',
+            label: 'spawn_agent',
+            status: 'completed',
+            data: { itemType: 'spawnAgentToolCall', subagentAction },
+          }),
+        ),
+        row({
+          id: 'unknown-display',
+          eventId: 'run-1:50',
+          seq: 50,
+          stateVisitId: 'workflow.collect#2',
+          itemId: 'unknown-display',
+          kind: 'tool',
+          label: 'tool',
+          status: 'completed',
+          data: { displayKind: 'future-kind', subagentAction: 'future-action' },
+        }),
+      ],
+    });
+
+    for (const displayKind of displayKinds) {
+      expect(state.transcript).toContainEqual(
+        expect.objectContaining({ id: `display-${displayKind}`, displayKind }),
+      );
+    }
+    for (const subagentAction of subagentActions) {
+      expect(state.transcript).toContainEqual(
+        expect.objectContaining({ id: `subagent-${subagentAction}`, subagentAction }),
+      );
+    }
+    const unknown = state.transcript.find((item) => item.id === 'unknown-display');
+    expect(unknown).toEqual(expect.objectContaining({ type: 'tool_call', name: 'tool' }));
+    expect(unknown).not.toHaveProperty('displayKind');
+    expect(unknown).not.toHaveProperty('subagentAction');
   });
 
   it('updates parent aggregate token totals from parent token events and ignores sub-thread token events', () => {

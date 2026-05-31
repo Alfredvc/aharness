@@ -211,7 +211,7 @@ describe('ActivePanel timeline rows', () => {
     expect(rows.map((row) => row.kind)).toEqual(['approvals']);
   });
 
-  it('adds approval and inline activity rows to the virtualized timeline tail', () => {
+  it('keeps state transitions hidden in the Slice 0 run timeline while appending tail rows', () => {
     const rows = buildRunTranscriptRowsForTest({
       mode: 'run',
       turnsLength: 1,
@@ -245,6 +245,10 @@ describe('ActivePanel timeline rows', () => {
     });
 
     expect(rows.map((row) => row.kind)).toEqual(['transcript', 'inline_indicator', 'approvals']);
+    expect(rows.some((row) => row.kind === 'transcript' && row.item.id === 'agent-1')).toBe(true);
+    expect(rows.some((row) => row.kind === 'transcript' && row.item.id === 'state-change-1')).toBe(
+      false,
+    );
   });
 });
 
@@ -454,6 +458,25 @@ describe('ActivePanel historical visits', () => {
             stateVisitId: 'workflow.collect#2',
           },
           {
+            id: 'lifecycle-1',
+            type: 'compact_status',
+            category: 'lifecycle',
+            label: 'run',
+            status: 'started',
+            summary: 'run started',
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
+            id: 'transition-failure-1',
+            type: 'transition_failure',
+            summary: 'Submit failed safely',
+            status: 'failed',
+            toolName: 'aharness_submit',
+            state: 'workflow.collect',
+            exit: 'continue',
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
             id: 'fresh-clear-1',
             type: 'fresh_clear_boundary',
             reason: 'clearOnEntry',
@@ -482,6 +505,10 @@ describe('ActivePanel historical visits', () => {
     expect(html).toContain('accepted');
     expect(html).toContain('failed');
     expect(html).toContain('old thread ignored');
+    expect(html).toContain('lifecycle');
+    expect(html).toContain('run started');
+    expect(html).toContain('Submit failed safely');
+    expect(html).toContain('aharness_submit · workflow.collect · continue');
     expect(html).toContain('fresh clear · replacement thread');
     expect(html).toContain('old-thread');
     expect(html).toContain('new-thread');
