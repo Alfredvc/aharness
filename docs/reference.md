@@ -225,9 +225,10 @@ inspection mode without starting Codex, hooks, a thread, or the FSM actor.
 Function-form prompts are shown as source so dynamic state instructions remain
 inspectable.
 
-During live runs, the same browser shell also shows the active turn state and
-user-relevant tool/MCP calls in the transcript. Internal aharness submit and
-owner-input plumbing remains hidden from the default view.
+During live runs, the same browser shell also shows the active turn state and a
+polished transcript with state transitions, lifecycle rows, markdown assistant
+messages, concise tool/MCP/subagent rows, and fresh-clear boundaries. Internal
+aharness submit and owner-input plumbing remains hidden from the default view.
 
 Run artifacts are written under `.aharness/runs/<runId>/`. For new runs,
 `events.jsonl` is a canonical event transcript and includes full raw runtime

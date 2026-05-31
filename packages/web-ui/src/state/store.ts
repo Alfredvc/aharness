@@ -2053,13 +2053,11 @@ function explorationGroupFromChildren(
 /**
  * True when the transcript contains no user-facing content yet — used by
  * activity heuristics to detect "codex hasn't streamed anything visible".
- * Counts orientation notes, reserved tool calls, and state_change markers
- * as invisible for ActivePanel renderability until Slice 3 renders state
- * transitions in the panel.
+ * Counts orientation notes and reserved tool calls as invisible; state_change
+ * markers now have an ActivePanel row in the chronological run transcript.
  */
 export function hasVisibleContent(items: TranscriptItem[]): boolean {
   for (const i of items) {
-    if (i.type === 'state_change') continue;
     if (isVisibleTranscriptItem(i)) return true;
   }
   return false;

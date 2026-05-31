@@ -8,6 +8,7 @@ import {
   activePanelFollowOutputForTest,
   activePanelRowForTest,
   activePanelShouldAutoscrollForTest,
+  buildActivePanelTimelineRowsForTest,
   buildRunTranscriptRowsForTest,
   buildNodeDetailRowsForTest,
   ActivePanel,
@@ -171,6 +172,46 @@ describe('ActivePanel inspect node details', () => {
 });
 
 describe('ActivePanel tool rows', () => {
+  it('renders assistant markdown without activating raw HTML', () => {
+    const html = renderToStaticMarkup(
+      createElement(() =>
+        activePanelRowForTest({
+          id: 'agent-markdown',
+          type: 'agent_message',
+          text: [
+            'Paragraph with `inline` and [link](https://example.com).',
+            '',
+            '- first',
+            '- second',
+            '',
+            '1. one',
+            '2. two',
+            '',
+            '> quoted',
+            '',
+            '```ts',
+            'const value = 1;',
+            '```',
+            '',
+            '<button onclick="alert(1)">raw</button>',
+          ].join('\n'),
+          streaming: false,
+          stateVisitId: 'workflow.collect#2',
+        }),
+      ),
+    );
+
+    expect(html).toContain('<p>Paragraph with <code>inline</code>');
+    expect(html).toContain('<ul>');
+    expect(html).toContain('<ol>');
+    expect(html).toContain('<blockquote>');
+    expect(html).toContain('<pre><code class="language-ts">const value = 1');
+    expect(html).toContain('target="_blank"');
+    expect(html).toContain('rel="noreferrer"');
+    expect(html).toContain('&lt;button onclick=&quot;alert(1)&quot;&gt;raw&lt;/button&gt;');
+    expect(html).not.toContain('<button onclick=');
+  });
+
   it('renders completed tool output inside the tool-call card', () => {
     const html = renderToStaticMarkup(
       createElement(() =>
@@ -194,7 +235,7 @@ describe('ActivePanel tool rows', () => {
     expect(html).not.toContain('tool-result');
   });
 
-  it('renders a neutral exploration group row without final Slice 3 polish', () => {
+  it('renders a polished exploration group row with child previews', () => {
     const html = renderToStaticMarkup(
       createElement(() =>
         activePanelRowForTest({
@@ -227,9 +268,78 @@ describe('ActivePanel tool rows', () => {
       ),
     );
 
-    expect(html).toContain('Explored');
-    expect(html).toContain('read src/a.ts');
-    expect(html).toContain('list src');
+    expect(html).toContain('explored');
+    expect(html).toContain('completed');
+    expect(html).toContain('2 items');
+    expect(html).toContain('read');
+    expect(html).toContain('src/a.ts');
+    expect(html).toContain('list');
+    expect(html).toContain('src');
+  });
+
+  it('uses normalized command, MCP, and subagent display hints', () => {
+    const command = renderToStaticMarkup(
+      createElement(() =>
+        activePanelRowForTest({
+          id: 'cmd-1',
+          type: 'tool_call',
+          name: 'bash',
+          preview: 'raw preview',
+          status: 'completed',
+          reserved: false,
+          displayKind: 'command',
+          command: 'pnpm test -- --runInBand',
+          argumentsPreview: '--runInBand',
+          stateVisitId: 'workflow.collect#2',
+        }),
+      ),
+    );
+    const mcp = renderToStaticMarkup(
+      createElement(() =>
+        activePanelRowForTest({
+          id: 'mcp-1',
+          type: 'tool_call',
+          name: 'mcp__docs__search',
+          preview: 'query',
+          status: 'completed',
+          reserved: false,
+          displayKind: 'mcp',
+          target: 'docs/search',
+          stateVisitId: 'workflow.collect#2',
+        }),
+      ),
+    );
+    const subagent = renderToStaticMarkup(
+      createElement(() =>
+        activePanelRowForTest({
+          id: 'subagent-1',
+          type: 'tool_call',
+          name: 'spawn_agent',
+          preview: 'worker running',
+          status: 'completed',
+          reserved: false,
+          category: 'subagent',
+          displayKind: 'subagent',
+          subagentAction: 'spawn',
+          agentNickname: 'reviewer',
+          agentRole: 'code review',
+          receiverThreadIds: ['thread-1234567890'],
+          promptPreview: 'Inspect the renderer.',
+          responsePreview: 'Renderer looks scoped.',
+          stateVisitId: 'workflow.collect#2',
+        }),
+      ),
+    );
+
+    expect(command).toContain('pnpm test -- --runInBand');
+    expect(command).toContain('arguments');
+    expect(mcp).toContain('mcp docs/search');
+    expect(mcp).toContain('mcp');
+    expect(subagent).toContain('spawn reviewer');
+    expect(subagent).toContain('prompt');
+    expect(subagent).toContain('Inspect the renderer.');
+    expect(subagent).toContain('threads');
+    expect(subagent).toContain('thread-1…7890');
   });
 });
 
@@ -249,7 +359,7 @@ describe('ActivePanel timeline rows', () => {
     expect(rows.map((row) => row.kind)).toEqual(['approvals']);
   });
 
-  it('keeps state transitions hidden in the Slice 2 run timeline while appending tail rows', () => {
+  it('renders state transitions in the chronological run timeline while appending tail rows', () => {
     const rows = buildRunTranscriptRowsForTest({
       mode: 'run',
       turnsLength: 1,
@@ -262,6 +372,12 @@ describe('ActivePanel timeline rows', () => {
           from: null,
           to: 'workflow.collect',
           cause: 'boot',
+          visitCount: 2,
+          stateKind: 'stateful',
+          open: true,
+          awaiting: true,
+          model: 'gpt-5.1',
+          effort: 'high',
           stateVisitId: 'workflow.collect#2',
         },
         {
@@ -282,11 +398,50 @@ describe('ActivePanel timeline rows', () => {
       showApprovals: true,
     });
 
-    expect(rows.map((row) => row.kind)).toEqual(['transcript', 'inline_indicator', 'approvals']);
+    expect(rows.map((row) => row.kind)).toEqual([
+      'transcript',
+      'transcript',
+      'inline_indicator',
+      'approvals',
+    ]);
     expect(rows.some((row) => row.kind === 'transcript' && row.item.id === 'agent-1')).toBe(true);
     expect(rows.some((row) => row.kind === 'transcript' && row.item.id === 'state-change-1')).toBe(
-      false,
+      true,
     );
+  });
+
+  it('still suppresses duplicate state transitions inside scoped visit rows', () => {
+    const rows = buildActivePanelTimelineRowsForTest({
+      mode: 'run',
+      displayNode: null,
+      turnsLength: 1,
+      hasAnyVisibleContent: true,
+      groups: [
+        {
+          visitId: 'workflow.collect#1',
+          visit: 1,
+          rowCount: 1,
+          items: [
+            {
+              id: 'state-row',
+              type: 'state_change',
+              from: null,
+              to: 'workflow.collect',
+              cause: 'boot',
+              stateVisitId: 'workflow.collect#1',
+            },
+          ],
+          loadStatus: { loading: false, loaded: true, error: null, storedRows: 1 },
+        },
+      ],
+      entryByVisit: new Map(),
+      showInlineIndicator: false,
+      activity: { kind: 'idle', label: 'idle', tone: 'muted', motion: 'still' },
+      showApprovals: false,
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(['visit_header', 'empty']);
+    expect(rows.some((row) => row.kind === 'transcript')).toBe(false);
   });
 
   it('groups same-turn exploration rows through the run row builder', () => {
@@ -453,6 +608,20 @@ describe('ActivePanel historical visits', () => {
             stateVisitId: 'workflow.collect#2',
           },
           {
+            id: 'state-change-1',
+            type: 'state_change',
+            from: null,
+            to: 'workflow.collect',
+            cause: 'boot',
+            visitCount: 2,
+            stateKind: 'stateful',
+            open: true,
+            awaiting: true,
+            model: 'gpt-5.1',
+            effort: 'high',
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
             id: 'tool-1',
             type: 'tool_call',
             name: 'bash',
@@ -573,6 +742,10 @@ describe('ActivePanel historical visits', () => {
 
     expect(html).toContain('model text');
     expect(html).toContain('model · reasoning');
+    expect(html).toContain('boot');
+    expect(html).toContain('collect');
+    expect(html).toContain('visit 2');
+    expect(html).toContain('model gpt-5.1');
     expect(html).toContain('4s');
     expect(html).toContain('pnpm test');
     expect(html).toContain('python');

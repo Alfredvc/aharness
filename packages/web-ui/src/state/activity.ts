@@ -212,8 +212,8 @@ export function deriveActivity(s: UiState): Activity {
   // state in hand but nothing visible on the wire. Codex spawn + WS
   // handshake + thread/start typically take 5–15s; surface that wait
   // explicitly. hasVisibleContent still treats framework orientation notes and
-  // state_change markers as invisible for this ActivePanel-renderability
-  // heuristic until Slice 3 renders state transitions in the panel.
+  // reserved/internal tool plumbing as invisible for this renderability
+  // heuristic.
   if (s.turns.length === 0 && !hasVisibleContent(s.transcript)) {
     return {
       kind: 'boot.awaiting_codex',

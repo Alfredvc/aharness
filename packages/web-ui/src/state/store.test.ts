@@ -1778,7 +1778,7 @@ describe('headless production store helpers', () => {
       'framework-orientation-1',
       'state-change-1',
     ]);
-    expect(hasVisibleContent([items[3]])).toBe(false);
+    expect(hasVisibleContent([items[3]])).toBe(true);
   });
 
   it('hides runtime orientation user messages and empty reasoning rows from default transcript rows', () => {

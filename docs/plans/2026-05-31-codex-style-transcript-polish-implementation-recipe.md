@@ -1,11 +1,11 @@
 # Codex-Style Transcript Polish Implementation Recipe
 
 **Parent roadmap:** `docs/plans/2026-05-31-codex-style-transcript-polish-roadmap.md`
-**Current slice:** Slice 3 - ActivePanel rendering polish and markdown
-**Current phase:** write-plan
+**Current slice:** complete
+**Current phase:** complete
 **Current detailed plan:** `docs/plans/2026-05-31-codex-style-transcript-polish-slice-3-activepanel-rendering-polish-and-markdown.md`
 **Current fix source:** none
-**Last completed:** Slice 2 - transcript display-policy transforms (this commit)
+**Last completed:** Slice 3 - ActivePanel rendering polish and markdown (this commit)
 
 ## Durable Grounding
 
@@ -33,20 +33,14 @@
 
 ## Current Handoff
 
-Slice 2 is accepted and committed in the same commit as this recipe update.
-Continue with Slice 3 from the parent roadmap: ActivePanel rendering polish
-and markdown. No detailed Slice 3 plan exists yet. Write and review
-`docs/plans/2026-05-31-codex-style-transcript-polish-slice-3-activepanel-rendering-polish-and-markdown.md`
-before implementation.
+All roadmap slices are complete. Slice 3 rendered the normalized transcript
+display policy in `ActivePanel`: chronological state transitions, lifecycle and
+transition-failure rows, fresh-clear boundaries, subdued reasoning, grouped
+exploration, concise tool/MCP/subagent rows, markdown assistant messages without
+raw HTML activation, and scoped CSS. The slice also added the markdown and DOM
+test dependencies, refreshed the embedded browser UI bundle, and updated public
+reference docs for the richer transcript surface.
 
-Slice 2 added browser transcript display-policy transforms over typed
-`TranscriptItem`s: default/dev visibility, display-only output truncation,
-same-turn exploration grouping, event-id preservation for same-id and folded
-tool rows, and parent-level subagent summary policy. ActivePanel now consumes
-`TranscriptDisplayItem` without completing final Slice 3 rendering polish.
-The final verification for Slice 2 passed the focused web-ui store and
-ActivePanel suites, web-ui typecheck, root typecheck, targeted oxlint, and
-`git diff --check`. Slice 3 should inspect the accepted non-blocking review
-note about the stale `FrameworkNoteRow` orientation comment while planning
-the final renderer changes.
-Worktree mode is disabled; use the current checkout.
+Final verification passed for the focused ActivePanel/App render suites,
+store suite, web-ui typecheck, web-ui build, root typecheck, targeted oxlint,
+and `git diff --check`. No next slice remains.

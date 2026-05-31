@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import ReactMarkdown, { type Components as MarkdownComponents } from 'react-markdown';
 import { Virtuoso, type Components, type VirtuosoHandle } from 'react-virtuoso';
 import type {
   UiState,
@@ -128,8 +129,8 @@ function buildActivePanelTimelineRows(input: {
         entry: input.entryByVisit.get(group.visitId) ?? null,
       });
       const renderableItems = group.items.filter((item) => {
-        // Slice 2 exposes state_change from store visibility; final scoped
-        // state-row handling remains a Slice 3 ActivePanel responsibility.
+        // Scoped state views use visit headers for transitions; keep those
+        // rows in the chronological run transcript only.
         return item.type !== 'state_change';
       });
       if (renderableItems.length === 0) {
@@ -183,7 +184,7 @@ function buildRunTranscriptRows(input: {
       return a.id.localeCompare(b.id);
     }),
     input.devMode,
-  ).filter((item) => item.type !== 'state_change');
+  );
 
   if (
     visible.length === 0 &&
@@ -558,6 +559,10 @@ export const buildNodeDetailRowsForTest = buildNodeDetailRows;
 
 export const activePanelRowForTest = (item: TranscriptDisplayItem) => (
   <ActivePanelRow item={item} />
+);
+
+export const toolCallRowForTest = (item: Extract<TranscriptItem, { type: 'tool_call' }>) => (
+  <ToolCallRow item={item} />
 );
 
 function ActivePanelTimelineRowView({
@@ -1094,7 +1099,7 @@ function ActivePanelRow({ item }: { item: TranscriptDisplayItem }) {
           <header className="msg-head">
             <span className="by">model</span>
           </header>
-          <div className="body" dangerouslySetInnerHTML={{ __html: renderInline(item.text) }} />
+          <MarkdownMessage text={item.text} />
         </article>
       );
     case 'user_message':
@@ -1131,17 +1136,16 @@ function ActivePanelRow({ item }: { item: TranscriptDisplayItem }) {
     case 'compact_status':
       return <CompactStatusRow item={item} />;
     case 'state_change':
-      // Already represented by the graph until Slice 3 adds explicit panel rows.
-      return null;
+      return <StateChangeRow item={item} />;
     case 'transition_failure':
       return <TransitionFailureRow item={item} />;
     case 'fresh_clear_boundary':
       return (
         <div className="fresh-clear-boundary">
           <span className="lead">fresh clear · replacement thread</span>
-          <div>
+          <div className="fresh-clear-detail">
             {shortThread(item.previousThreadId)} → {shortThread(item.nextThreadId)} ·{' '}
-            {item.statePath}
+            {leafOf(item.statePath)}
           </div>
         </div>
       );
@@ -1150,13 +1154,54 @@ function ActivePanelRow({ item }: { item: TranscriptDisplayItem }) {
   }
 }
 
+const markdownComponents: MarkdownComponents = {
+  a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+};
+
+function MarkdownMessage({ text }: { text: string }) {
+  return (
+    <div className="body markdown-body">
+      <ReactMarkdown components={markdownComponents}>{text}</ReactMarkdown>
+    </div>
+  );
+}
+
+function StateChangeRow({ item }: { item: Extract<TranscriptItem, { type: 'state_change' }> }) {
+  const chips: string[] = [];
+  if (item.awaiting) chips.push('awaiting');
+  if (item.open) chips.push('open');
+  if (item.stateKind) chips.push(item.stateKind === 'terminal' ? 'terminal' : item.stateKind);
+  if (item.visitCount !== undefined) chips.push(`visit ${item.visitCount}`);
+  if (item.model) chips.push(`model ${item.model}`);
+  if (item.effort) chips.push(`effort ${item.effort}`);
+  return (
+    <div className="state-change-row">
+      <span className="state-change-kicker">{item.from ? leafOf(item.from) : 'boot'}</span>
+      <span className="state-change-arrow" aria-hidden>
+        →
+      </span>
+      <span className="state-change-target">{leafOf(item.to)}</span>
+      <span className="state-change-cause">{item.cause}</span>
+      {chips.length > 0 ? (
+        <span className="state-change-chips">
+          {chips.map((chip) => (
+            <span key={chip} className="state-chip">
+              {chip}
+            </span>
+          ))}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function ExplorationGroupRow({
   item,
 }: {
   item: Extract<TranscriptDisplayItem, { type: 'exploration_group' }>;
 }) {
   return (
-    <article className="tool-call" data-status={item.status}>
+    <article className="tool-call exploration-row" data-status={item.status}>
       <header className="tc-head">
         <span
           className={`tc-glyph ${item.status === 'completed' ? 'completed' : 'pending'}`}
@@ -1164,15 +1209,21 @@ function ExplorationGroupRow({
         >
           {item.status === 'completed' ? '✓' : '•'}
         </span>
-        <span className="name">{item.title}</span>
+        <span className="name">{item.title.toLowerCase()}</span>
         <span className="badge" data-status={item.status}>
+          {item.status}
+        </span>
+        <span className="badge count">
           {item.children.length} {item.children.length === 1 ? 'item' : 'items'}
         </span>
       </header>
-      <div className="tc-preview">
-        {item.children
-          .map((child) => `${child.displayKind} ${child.preview || child.name}`)
-          .join(' · ')}
+      <div className="exploration-children">
+        {item.children.map((child) => (
+          <span key={child.id} className="exploration-child">
+            <span className="exploration-kind">{child.displayKind}</span>
+            <span className="exploration-preview">{child.preview || child.name}</span>
+          </span>
+        ))}
       </div>
     </article>
   );
@@ -1187,11 +1238,14 @@ function TransitionFailureRow({
     (value): value is string => value !== undefined,
   );
   return (
-    <div className="compact-row" data-kind="transition_failure" data-status={item.status}>
-      <span className="compact-kicker">transition</span>
-      <span className="compact-label">failed</span>
+    <div
+      className="compact-row transition-failure-row"
+      data-kind="transition_failure"
+      data-status={item.status}
+    >
+      <span className="compact-kicker">transition failed</span>
+      <span className="compact-label">{truncate(item.summary, 120)}</span>
       {details.length > 0 ? <span className="compact-status">{details.join(' · ')}</span> : null}
-      <span className="compact-summary">{truncate(item.summary, 120)}</span>
     </div>
   );
 }
@@ -1211,9 +1265,14 @@ function ToolCallRow({ item }: { item: Extract<TranscriptItem, { type: 'tool_cal
       : pending
         ? formatElapsed(Date.now() - startedRef.current)
         : null;
-  const preview = truncate(item.preview, 140);
+  const label = toolPrimaryLabel(item);
+  const preview = toolPreviewLines(item);
   return (
-    <article className={`tool-call ${pending ? 'is-pending' : ''}`} data-status={item.status}>
+    <article
+      className={`tool-call ${pending ? 'is-pending' : ''}`}
+      data-status={item.status}
+      data-display-kind={item.displayKind ?? item.category ?? 'tool'}
+    >
       <header className="tc-head">
         {pending ? (
           <span className="tc-wave" aria-hidden>
@@ -1227,15 +1286,25 @@ function ToolCallRow({ item }: { item: Extract<TranscriptItem, { type: 'tool_cal
             {item.status === 'completed' ? '✓' : item.status === 'failed' ? '✗' : '•'}
           </span>
         )}
-        <span className="name">{prettyToolName(item.name)}</span>
+        <span className="name">{label}</span>
         {item.category === 'subagent' ? <span className="badge subagent">subagent</span> : null}
+        {item.displayKind === 'mcp' ? <span className="badge mcp">mcp</span> : null}
         <span className="badge" data-status={item.status}>
           {item.status}
         </span>
         {elapsed ? <span className="tc-elapsed mono">{elapsed}</span> : null}
       </header>
       {pending ? <div className="tc-scan" aria-hidden /> : null}
-      {preview ? <div className="tc-preview">{preview}</div> : null}
+      {preview.length > 0 ? (
+        <div className="tc-preview">
+          {preview.map((line) => (
+            <div key={line.label} className="tc-preview-line">
+              <span className="tc-preview-label">{line.label}</span>
+              <span className="tc-preview-value">{line.value}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {item.output && item.output.length > 0 ? (
         <div className="tool-output" data-ok={item.ok ?? item.status === 'completed'}>
           <div className="to-head">{item.ok === false ? 'output · failed' : 'output'}</div>
@@ -1244,6 +1313,49 @@ function ToolCallRow({ item }: { item: Extract<TranscriptItem, { type: 'tool_cal
       ) : null}
     </article>
   );
+}
+
+function toolPrimaryLabel(item: Extract<TranscriptItem, { type: 'tool_call' }>): string {
+  if (item.category === 'subagent') {
+    const role = item.agentNickname ?? item.agentRole;
+    const action = item.subagentAction ?? 'subagent';
+    return role ? `${action} ${role}` : action;
+  }
+  if (item.displayKind === 'command')
+    return item.command ?? item.preview ?? prettyToolName(item.name);
+  if (item.displayKind === 'read') return `read ${item.target ?? item.preview ?? item.name}`;
+  if (item.displayKind === 'list') return `list ${item.target ?? item.preview ?? item.name}`;
+  if (item.displayKind === 'search') return `search ${item.target ?? item.preview ?? item.name}`;
+  if (item.displayKind === 'mcp')
+    return item.target ? `mcp ${item.target}` : prettyToolName(item.name);
+  return prettyToolName(item.name);
+}
+
+function toolPreviewLines(
+  item: Extract<TranscriptItem, { type: 'tool_call' }>,
+): Array<{ label: string; value: string }> {
+  const lines: Array<{ label: string; value: string }> = [];
+  const push = (label: string, value: string | undefined) => {
+    const trimmed = value?.trim();
+    if (trimmed) lines.push({ label, value: truncate(trimmed, 180) });
+  };
+
+  if (item.category === 'subagent') {
+    push('prompt', item.promptPreview);
+    push('response', item.responsePreview);
+    push('error', item.errorPreview);
+    if (item.receiverThreadIds && item.receiverThreadIds.length > 0) {
+      push('threads', item.receiverThreadIds.map(shortThread).join(', '));
+    }
+    push('preview', item.preview);
+    return lines;
+  }
+
+  push('command', item.command);
+  push('target', item.target);
+  push('arguments', item.argumentsPreview);
+  push('preview', item.preview);
+  return lines;
 }
 
 function AwaitingCodexPlaceholder() {
@@ -1369,7 +1481,7 @@ function ReasoningRow({ item }: { item: Extract<TranscriptItem, { type: 'reasoni
   const [open, setOpen] = useState(false);
   return (
     <article className="msg reasoning-msg">
-      <button className="reasoning-toggle" onClick={() => setOpen((o) => !o)}>
+      <button className="reasoning-toggle" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
         <span className="caret">{open ? '▾' : '▸'}</span>
         <span>model · reasoning</span>
         <span className="ct quiet">{item.text.length} chars</span>
@@ -1388,9 +1500,4 @@ function prettyToolName(name: string): string {
 
 function shortThread(threadId: string): string {
   return threadId.length <= 12 ? threadId : `${threadId.slice(0, 8)}…${threadId.slice(-4)}`;
-}
-
-function renderInline(text: string): string {
-  const esc = text.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
-  return esc.replace(/`([^`]+?)`/g, '<code>$1</code>');
 }
