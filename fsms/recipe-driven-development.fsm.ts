@@ -155,6 +155,14 @@ function worktreeReady(data: Readonly<Data>, worktreeCreated: boolean): boolean 
   return !data.worktree || (worktreeCreated && isTmpWorktreePath(data.worktreePath));
 }
 
+function workflowCwd(data: Readonly<Data>): string {
+  if (!data.worktree) return process.cwd();
+  if (data.worktreePath === null || data.worktreePath.trim().length === 0) {
+    throw new Error('Worktree mode is enabled but no worktreePath is recorded.');
+  }
+  return data.worktreePath;
+}
+
 function worktreeLine(data: Readonly<Data>): string {
   if (!data.worktree) return 'Worktree mode: disabled; use the current checkout.';
   const status = data.worktreeCreated ? 'created' : 'target';
@@ -583,7 +591,7 @@ export const machine = fsm.machine({
     }),
     planSlice: fsm.state({
       main: true,
-      clearOnEntry: true,
+      clearOnEntry: { cwd: workflowCwd },
       model: DEFAULT_STATE_MODEL,
       prompt: (data) =>
         [
@@ -791,7 +799,7 @@ export const machine = fsm.machine({
     }),
     executeSlice: fsm.state({
       main: true,
-      clearOnEntry: true,
+      clearOnEntry: { cwd: workflowCwd },
       model: DEFAULT_STATE_MODEL,
       prompt: (data) =>
         [
