@@ -2,7 +2,7 @@ export const EXECUTION_MODES = ['subagent-driven', 'inline'] as const;
 
 export type ExecutionMode = (typeof EXECUTION_MODES)[number];
 
-export type GateDecision = 'approved' | 'rejected' | 'blocked';
+export type GateDecision = 'approved' | 'rejected' | 'blocked' | 'fixed';
 export type ReviewDecision = 'approved' | 'changes-requested';
 
 export interface SpecPathRecord {
@@ -28,6 +28,10 @@ export interface WritingPlansArtifactData extends SpecPathRecord {
   readonly proposedPlanPath: string;
   readonly executionMode: ExecutionMode | null;
   readonly authoringSummary: string | null;
+  readonly planFixSummary: string | null;
+  readonly planFindings: readonly string[];
+  readonly planFixCycles: number;
+  readonly maxPlanFixCycles: number;
   readonly lastBroadSpecFinding: string | null;
   readonly lastBlocker: string | null;
   readonly gateDecisions: readonly ReviewSummary[];
@@ -71,6 +75,18 @@ export function renderWritingPlansFinalArtifact(data: WritingPlansArtifactData):
     '## Authoring Summary',
     '',
     data.authoringSummary ?? 'No plan has been accepted yet.',
+    '',
+    '## Plan Fix Summary',
+    '',
+    `Plan fix cycles: ${data.planFixCycles} of ${data.maxPlanFixCycles}`,
+    '',
+    data.planFixSummary ?? 'No plan-quality fix cycle has run.',
+    '',
+    '## Current Plan Findings',
+    '',
+    data.planFindings.length > 0
+      ? data.planFindings.map((finding) => `- ${finding}`).join('\n')
+      : '- None recorded.',
     '',
     '## Gate Decisions',
     '',

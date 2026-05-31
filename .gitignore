@@ -3,6 +3,10 @@
 .ccairgap
 .aharness
 .DS_Store
+.agents
+.claude
+.ccairgap
+.playwright-cli
 
 # Plans
 docs/plans

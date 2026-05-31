@@ -76,6 +76,8 @@ explicitly about those files:
 - Keep changes scoped to the requested behavior.
 - Update relevant docs in the same change when behavior, public API, commands,
   package facts, or user-facing workflows change.
+- Never add FSM tests. When changing FSM behavior, verify with `aharness verify`
+  and direct inspection instead of adding or extending FSM test files.
 - Treat `examples/workflow-references/` as workflow-opinion material that users
   may encode in FSMs, not as framework policy.
 - For runtime architecture questions, inspect `packages/core/src/runtime`,

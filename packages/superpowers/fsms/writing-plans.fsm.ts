@@ -13,6 +13,10 @@ interface WritingPlansData {
   planPath: string | null;
   executionMode: ExecutionMode | null;
   authoringSummary: string | null;
+  planFixSummary: string | null;
+  planFindings: string[];
+  planFixCycles: number;
+  maxPlanFixCycles: number;
   lastBroadSpecFinding: string | null;
   lastBlocker: string | null;
   gateDecisions: ReviewSummary[];
@@ -32,6 +36,10 @@ function recordGate(
   summary: string,
 ): void {
   draft.gateDecisions.push({ gate, decision, summary });
+}
+
+function formatFindings(findings: readonly string[]): string {
+  return findings.length > 0 ? findings.map((finding) => `- ${finding}`).join('\n') : '- none';
 }
 
 function writingPlansOutput(data: Readonly<WritingPlansData>): WritingPlansOutput {
@@ -56,6 +64,10 @@ export const machine = fsm.machine({
       default: './docs/plans/implementation-plan.md',
       complete: 'file',
     }),
+    maxPlanFixCycles: fsm.input.number({
+      description: 'Maximum autonomous plan-quality fix cycles before blocking',
+      default: 1,
+    }),
   },
   data: ({ input }) => ({
     specPath: input.specPath,
@@ -63,6 +75,10 @@ export const machine = fsm.machine({
     planPath: null,
     executionMode: null,
     authoringSummary: null,
+    planFixSummary: null,
+    planFindings: [],
+    planFixCycles: 0,
+    maxPlanFixCycles: input.maxPlanFixCycles,
     lastBroadSpecFinding: null,
     lastBlocker: null,
     gateDecisions: [],
@@ -97,6 +113,9 @@ export const machine = fsm.machine({
           reduce: (draft, payload) => {
             draft.planPath = payload.planPath;
             draft.authoringSummary = payload.summary;
+            draft.planFixSummary = null;
+            draft.planFindings = [];
+            draft.planFixCycles = 0;
             recordGate(draft, 'plan-authoring', 'approved', payload.qualityNotes);
           },
         }),
@@ -170,6 +189,7 @@ export const machine = fsm.machine({
         [
           'Review the implementation plan for structural defects before owner review.',
           `Plan path: ${data.planPath ?? data.proposedPlanPath}`,
+          `Plan fix cycles used: ${data.planFixCycles} of ${data.maxPlanFixCycles}`,
           'Check boundary, current-reality references, buildability, test design, verification gates, and absence of placeholders.',
           'Submit review with approved=false if the plan needs changes.',
         ].join('\n\n'),
@@ -185,12 +205,15 @@ export const machine = fsm.machine({
               if: (_data, payload) => payload.approved,
               to: 'ownerPlanReview',
               reduce: (draft, payload) => {
+                draft.planFindings = [];
                 recordGate(draft, 'plan-quality-review', 'approved', payload.summary);
               },
             },
             {
-              to: 'planAuthoring',
+              if: (data) => data.planFixCycles < data.maxPlanFixCycles,
+              to: 'fixPlan',
               reduce: (draft, payload) => {
+                draft.planFindings = [...payload.requiredChanges];
                 recordGate(
                   draft,
                   'plan-quality-review',
@@ -199,7 +222,52 @@ export const machine = fsm.machine({
                 );
               },
             },
+            {
+              to: 'blocked',
+              reduce: (draft, payload) => {
+                const summary = `Plan quality review still has required changes after ${draft.planFixCycles} fix cycle(s): ${payload.requiredChanges.join('; ')}`;
+                draft.planFindings = [...payload.requiredChanges];
+                draft.lastBlocker = summary;
+                recordGate(draft, 'plan-quality-review', 'blocked', summary);
+              },
+            },
           ],
+        }),
+      },
+    }),
+    fixPlan: fsm.state({
+      prompt: (data) =>
+        [
+          'Fix the current implementation plan based only on the listed plan-quality blockers.',
+          `Spec path: ${data.specPath}`,
+          `Plan path: ${data.planPath ?? data.proposedPlanPath}`,
+          `Plan fix cycles used: ${data.planFixCycles} of ${data.maxPlanFixCycles}`,
+          '',
+          'Plan-quality blockers:',
+          formatFindings(data.planFindings),
+          '',
+          'Do not implement code. Edit only the plan and directly related planning notes needed to resolve these blockers.',
+          'If a finding is invalid, record the dispute with evidence instead of inventing unrelated work.',
+          'Submit fixComplete when the plan has been corrected for another plan-quality review.',
+        ].join('\n'),
+      on: {
+        fixComplete: fsm.submit<{
+          summary: string;
+          changedFiles: string[];
+          verificationCommands: string[];
+          disputedFindings: string[];
+        }>({
+          to: 'planQualityGate',
+          reduce: (draft, payload) => {
+            draft.planFixSummary = [
+              payload.summary,
+              `Changed files: ${payload.changedFiles.join('; ') || 'none recorded'}`,
+              `Verification commands: ${payload.verificationCommands.join('; ') || 'none recorded'}`,
+              `Disputed findings: ${payload.disputedFindings.join('; ') || 'none'}`,
+            ].join('\n');
+            draft.planFixCycles += 1;
+            recordGate(draft, 'plan-quality-fix', 'fixed', payload.summary);
+          },
         }),
       },
     }),

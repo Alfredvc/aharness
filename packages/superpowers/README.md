@@ -52,13 +52,14 @@ Inputs:
 
 - `--spec-path <string>`: approved spec or requirements document to plan from.
 - `--plan-path <string>`: target implementation plan path. Defaults to `./docs/plans/implementation-plan.md`.
+- `--max-plan-fix-cycles <number>`: maximum autonomous plan-quality fix cycles before blocking. Defaults to `1`.
 
 Output:
 
 - `planPath`: the accepted implementation plan path.
 - `executionMode`: either `subagent-driven` or `inline`.
 
-The FSM enforces plan authoring, broad-spec owner decision, plan quality review, owner plan review, and execution-mode choice as typed gates.
+The FSM enforces plan authoring, broad-spec owner decision, plan quality review, bounded plan-quality fixes, owner plan review, and execution-mode choice as typed gates.
 
 ## Bundled Skills
 
