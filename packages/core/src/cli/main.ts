@@ -41,7 +41,7 @@ import { runCompletionInstall, runCompletionUninstall } from './completion.js';
 import { runCompletionBridge } from './completionBridge.js';
 import { runInitCli } from './initCli.js';
 import { runInstallCli } from './installCli.js';
-import { runInstalledCli } from './runInstalledCli.js';
+import { runTargetCli } from './runTargetCli.js';
 import { runListInstalledCli } from './listInstalledCli.js';
 import { runVerifyInstalledCli } from './verifyInstalledCli.js';
 import { runUninstallCli } from './uninstallCli.js';
@@ -386,14 +386,14 @@ if (process.argv[1]?.endsWith('main.js')) {
       }),
     runTarget: ({ target, inputArgs, yolo }) => {
       const opts = {
-        command: target,
+        target,
         cwd: process.cwd(),
         stdout: process.stdout,
         stderr: process.stderr,
         inputArgs,
         ...(yolo ? { yolo: true } : {}),
       };
-      return runInstalledCli(opts);
+      return runTargetCli(opts);
     },
     runListInstalled: () =>
       runListInstalledCli({
