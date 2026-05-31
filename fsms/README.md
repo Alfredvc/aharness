@@ -20,13 +20,16 @@ slice-by-slice until every slice is committed:
 
 Routine phase blockers do not go straight to terminal failure. Each phase routes
 through fix cycles or an autonomous recovery protocol with phase-specific
-guidance, then returns to the failed phase after recovery. The default
-plan/slice fix-cycle budget is 3. Before the FSM reaches the failed final, it
-passes through a failure handoff state that records the terminal blocker in the
-current detailed plan, or in the recipe if no detailed plan exists, so a later
-run can restart from durable context. The FSM reaches failure only when the fix
-cycle budget is exhausted, recovery is exhausted, or the slice safety cap is
-hit.
+guidance, then returns to the failed phase after recovery. Plan-review fixes must
+submit proof-of-fix evidence for the next reviewers to inspect; the plan-review
+budget counts stalled prior-blocker cycles, not productive rounds that resolve
+old findings and uncover new ones. Slice acceptance still uses the default
+fix-cycle budget of 3. Before the FSM reaches the failed final, it passes through
+a failure handoff state that records the terminal blocker in the current
+detailed plan, or in the recipe if no detailed plan exists, so a later run can
+restart from durable context. The FSM reaches failure only when the plan-review
+stall budget or slice fix-cycle budget is exhausted, recovery is exhausted, or
+the slice safety cap is hit.
 
 Live workflow states declare `gpt-5.5` with medium reasoning effort. Recovery
 attempts declare `gpt-5.5` with xhigh effort, and the implementation/review
@@ -46,7 +49,8 @@ aharness fsms/recipe-driven-development.fsm.ts --roadmap-path docs/plans/example
 
 The run continues through additional slices until the roadmap is complete,
 failing if it reaches the `--max-slices` safety cap, which defaults to 10. Use
-`--max-fix-cycles` to override the default budget of 3 plan/slice repair cycles.
+`--max-fix-cycles` to override the default budget of 3 plan-review stalled
+prior-blocker cycles and slice repair cycles.
 
 Run static verification with:
 
