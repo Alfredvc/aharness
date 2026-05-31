@@ -72,18 +72,27 @@ export interface CompletionBridgeOpts {
 const FILE_ENUMERATE_CAP = 1000;
 const TABTAB_FILE_COMPLETION_SENTINEL = '__tabtab_complete_files__';
 const FILE_PATH_SUBCOMMANDS = new Set(['verify', 'visualize']);
-const NON_FILE_PATH_SUBCOMMANDS = new Set([
+const ROOT_SUBCOMMANDS = [
   'completion',
-  'completion-server',
   'doctor',
   'init',
   'install',
   'list',
   'run',
   'uninstall',
-]);
+  'verify',
+  'visualize',
+] as const;
 
 type FlagsMap = Record<string, ArgFlagMeta | undefined>;
+
+type CompletionInputTarget = { readonly kind: 'local'; readonly filePath: string };
+
+type CompletionContext =
+  | { readonly kind: 'root'; readonly partial: string }
+  | { readonly kind: 'direct-file-target' }
+  | { readonly kind: 'post-target-input'; readonly target: CompletionInputTarget }
+  | { readonly kind: 'other-subcommand' };
 
 export async function runCompletionBridge(
   opts: CompletionBridgeOpts,
@@ -97,14 +106,28 @@ export async function runCompletionBridge(
     if (!parsed.complete) return { exitCode: 0 };
 
     const tokens = tokeniseLine(parsed.line, parsed.point);
-    const fsmPath = findFsmPath(tokens, opts.cwd);
-    if (!fsmPath) {
-      if (shouldDelegateFsmPathCompletion(tokens, parsed.last)) {
-        emitShellFileCompletion(opts.stdout);
+    const context = deriveCompletionContext(tokens, parsed.last, opts.cwd);
+    if (context.kind === 'root') {
+      for (const command of ROOT_SUBCOMMANDS) {
+        if (command.startsWith(context.partial)) opts.stdout.write(`${command}\n`);
+      }
+      return { exitCode: 0 };
+    }
+    if (context.kind === 'direct-file-target') {
+      if (!parsed.last.startsWith('--')) {
+        emitNativeFileCompletion(opts.stdout);
+      }
+      return { exitCode: 0 };
+    }
+    if (context.kind === 'other-subcommand') {
+      const firstToken = tokens[1];
+      if (firstToken && FILE_PATH_SUBCOMMANDS.has(firstToken) && parsed.last === '') {
+        emitNativeFileCompletion(opts.stdout);
       }
       return { exitCode: 0 };
     }
 
+    const fsmPath = context.target.filePath;
     const extraction = await extractSchemaSidecar({ filePath: fsmPath });
     const flags: FlagsMap = extraction.inputFlags ?? {};
     const flagNames = Object.keys(flags);
@@ -166,35 +189,55 @@ function tokeniseLine(line: string, point: number): ReadonlyArray<string> {
 }
 
 /**
- * Scan `tokens` (tokens[0] is the binary name) for the first non-flag,
- * `.ts`-suffixed token whose `path.resolve(cwd, token)` exists on disk.
- * Returns null when no candidate matches — the bridge then emits nothing.
- *
- * We do not pre-filter on `.fsm.ts`: the codebase's loader accepts any
- * `.ts` file as an FSM. Pre-filtering would silently break a future
- * extension change.
+ * Classify completion from the command grammar instead of scanning the whole
+ * line for any later `.ts` token. Direct FSM input completion is only active
+ * when the first user token itself resolves to an existing regular `.ts` file.
  */
-function findFsmPath(tokens: ReadonlyArray<string>, cwd: string): string | null {
-  for (let i = 1; i < tokens.length; i++) {
-    const t = tokens[i];
-    if (!t || t.startsWith('--')) continue;
-    if (!t.endsWith('.ts')) continue;
-    const abs = path.resolve(cwd, t);
-    if (fs.existsSync(abs)) return abs;
+function deriveCompletionContext(
+  tokens: ReadonlyArray<string>,
+  last: string,
+  cwd: string,
+): CompletionContext {
+  const firstToken = tokens[1];
+  if (!firstToken) return { kind: 'root', partial: '' };
+
+  if (tokens.length === 2 && last !== '') {
+    if (isPathLikeToken(firstToken)) {
+      const target = resolveLocalInputTarget(firstToken, cwd);
+      return target ? { kind: 'post-target-input', target } : { kind: 'direct-file-target' };
+    }
+    return { kind: 'root', partial: firstToken };
   }
-  return null;
+
+  if (isPathLikeToken(firstToken)) {
+    const target = resolveLocalInputTarget(firstToken, cwd);
+    return target ? { kind: 'post-target-input', target } : { kind: 'direct-file-target' };
+  }
+
+  return { kind: 'other-subcommand' };
 }
 
-function shouldDelegateFsmPathCompletion(tokens: ReadonlyArray<string>, last: string): boolean {
-  if (last.startsWith('--')) return false;
-  const firstNonFlag = tokens.slice(1).find((t) => !t.startsWith('--'));
-  if (!firstNonFlag) return true;
-  if (FILE_PATH_SUBCOMMANDS.has(firstNonFlag)) return true;
-  if (NON_FILE_PATH_SUBCOMMANDS.has(firstNonFlag)) return false;
-  return true;
+function resolveLocalInputTarget(token: string, cwd: string): CompletionInputTarget | null {
+  if (!token.endsWith('.ts')) return null;
+  const abs = path.resolve(cwd, token);
+  try {
+    if (!fs.statSync(abs).isFile()) return null;
+  } catch {
+    return null;
+  }
+  return { kind: 'local', filePath: abs };
 }
 
-function emitShellFileCompletion(stdout: NodeJS.WritableStream): void {
+function isPathLikeToken(token: string): boolean {
+  return (
+    token.startsWith('./') ||
+    token.startsWith('../') ||
+    token.startsWith('/') ||
+    token.includes('/')
+  );
+}
+
+function emitNativeFileCompletion(stdout: NodeJS.WritableStream): void {
   stdout.write(`${TABTAB_FILE_COMPLETION_SENTINEL}\n`);
 }
 
@@ -209,8 +252,9 @@ function lookupFlagByKebab(flags: FlagsMap, kebabFlag: string): ArgFlagMeta | un
 }
 
 /**
- * Dispatch on a flag's `completion` static kind. `'file'`/`'directory'`
- * enumerate the filesystem; `{values: [...]}` emits prefix matches;
+ * Dispatch on a flag's `completion` static kind. `'file'` delegates to native
+ * shell file completion, `'directory'` enumerates directories locally,
+ * `{values: [...]}` emits prefix matches;
  * `{dynamic: true}` escalates to `loadFsm()` so the live callback (which
  * the JSON sidecar reduces to a `{dynamic: true}` sentinel) can be
  * resolved off `machine.config.input?.[field]?.meta?.completion?.dynamic`
@@ -231,7 +275,7 @@ async function emitValueCompletion(
   const c: StaticCompletionKind | undefined = meta?.completion;
   if (c === undefined) return;
   if (c === 'file') {
-    enumerateFs(partial, false, stdout);
+    emitNativeFileCompletion(stdout);
     return;
   }
   if (c === 'directory') {

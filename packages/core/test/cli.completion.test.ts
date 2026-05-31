@@ -86,13 +86,47 @@ function makeEnv(line: string, point?: number): NodeJS.ProcessEnv {
   } as NodeJS.ProcessEnv;
 }
 
-async function captureBridge(line: string): Promise<string[]> {
+async function captureBridge(
+  line: string,
+  opts: { readonly cwd?: string; readonly env?: NodeJS.ProcessEnv } = {},
+): Promise<string[]> {
   const out = new PassThrough();
   const chunks: string[] = [];
   out.on('data', (c) => chunks.push(c.toString()));
-  await runCompletionBridge({ env: makeEnv(line), cwd: process.cwd(), stdout: out });
+  await runCompletionBridge({
+    env: { ...makeEnv(line), ...opts.env },
+    cwd: opts.cwd ?? process.cwd(),
+    stdout: out,
+  });
   return chunks.join('').split('\n').filter(Boolean);
 }
+
+describe('runCompletionBridge — root completion', () => {
+  it('emits sorted root subcommands when completing after aharness', async () => {
+    const lines = await captureBridge('aharness ');
+    expect(lines).toEqual([
+      'completion',
+      'doctor',
+      'init',
+      'install',
+      'list',
+      'run',
+      'uninstall',
+      'verify',
+      'visualize',
+    ]);
+  });
+
+  it('filters root subcommands by partial', async () => {
+    const lines = await captureBridge('aharness ru');
+    expect(lines).toEqual(['run']);
+  });
+
+  it('delegates path-like first tokens to native file completion', async () => {
+    const lines = await captureBridge('aharness ./');
+    expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+});
 
 describe('runCompletionBridge — flag-name completion', () => {
   it('emits matching --<kebab-name> when cursor is on --<partial>', async () => {
@@ -106,6 +140,11 @@ describe('runCompletionBridge — flag-name completion', () => {
     expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
   });
 
+  it('does not scan later .ts flag values for direct FSM input completion', async () => {
+    const lines = await captureBridge(`aharness build --spec ${fixture} --`);
+    expect(lines).toEqual([]);
+  });
+
   it('emits all flag names when cursor is empty after fsm path', async () => {
     const lines = await captureBridge(`aharness ${fixture} `);
     const names = lines.map((l) => l.split(':')[0]).sort();
@@ -114,11 +153,6 @@ describe('runCompletionBridge — flag-name completion', () => {
 });
 
 describe('runCompletionBridge — FSM path completion', () => {
-  it('delegates to shell file completion when the cursor is after aharness', async () => {
-    const lines = await captureBridge('aharness ');
-    expect(lines).toEqual(['__tabtab_complete_files__']);
-  });
-
   it('delegates to shell file completion while completing a direct FSM path', async () => {
     const lines = await captureBridge('aharness packages/core/test/fixtures/args/');
     expect(lines).toEqual(['__tabtab_complete_files__']);
@@ -135,6 +169,11 @@ describe('runCompletionBridge — static value completion', () => {
     const lines = await captureBridge(`aharness ${fixture} --choice a`);
     const names = lines.map((l) => l.split(':')[0]);
     expect(names).toContain('a');
+  });
+
+  it('delegates file-valued input completion to native file completion', async () => {
+    const lines = await captureBridge(`aharness ${fixture} --ideafile-path `);
+    expect(lines).toEqual(['__tabtab_complete_files__']);
   });
 });
 
