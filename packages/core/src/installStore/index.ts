@@ -37,6 +37,10 @@ export {
   type ResolvedInstalledCommand,
   type ResolvedInstalledPackage,
 } from './runtime.js';
+export {
+  readInstalledCompletionSnapshot,
+  type ReadInstalledCompletionSnapshotOptions,
+} from './completionSnapshot.js';
 export { ensureManagedProject, readManagedProjectDependencies } from './managedProject.js';
 export {
   runNpmInstall,
