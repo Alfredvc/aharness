@@ -28,6 +28,11 @@ import { camelToKebab, kebabToCamel } from '../loader/inputFlags.js';
 import type { ArgFlagMeta, StaticCompletionKind } from '../loader/inputSchema.js';
 import { loadFsm } from '../loader/index.js';
 import type { ArgSentinel } from '../state/args.js';
+import {
+  readInstalledCompletionSnapshot,
+  type InstalledRuntimeSnapshot,
+  type TrustedCommandIndexEntry,
+} from '../installStore/index.js';
 
 /**
  * Reachable shape of `machine.config.input` after `loadFsm()` returns. Phase 3
@@ -90,6 +95,7 @@ type CompletionInputTarget = { readonly kind: 'local'; readonly filePath: string
 
 type CompletionContext =
   | { readonly kind: 'root'; readonly partial: string }
+  | { readonly kind: 'run-target'; readonly partial: string }
   | { readonly kind: 'direct-file-target' }
   | { readonly kind: 'post-target-input'; readonly target: CompletionInputTarget }
   | { readonly kind: 'other-subcommand' };
@@ -111,6 +117,22 @@ export async function runCompletionBridge(
       for (const command of ROOT_SUBCOMMANDS) {
         if (command.startsWith(context.partial)) opts.stdout.write(`${command}\n`);
       }
+      return { exitCode: 0 };
+    }
+    if (context.kind === 'run-target') {
+      const suggestions = new Set<string>();
+      for (const candidate of enumerateLocalRunTargets(context.partial, opts.cwd)) {
+        suggestions.add(candidate);
+      }
+      const snapshot = await readInstalledCompletionSnapshot({ env: opts.env });
+      for (const candidate of buildInstalledCommandSuggestions(
+        snapshot,
+        context.partial,
+        opts.cwd,
+      )) {
+        suggestions.add(candidate);
+      }
+      for (const suggestion of suggestions) opts.stdout.write(`${suggestion}\n`);
       return { exitCode: 0 };
     }
     if (context.kind === 'direct-file-target') {
@@ -201,6 +223,11 @@ function deriveCompletionContext(
   const firstToken = tokens[1];
   if (!firstToken) return { kind: 'root', partial: '' };
 
+  if (firstToken === 'run') {
+    const runTarget = deriveRunTargetCompletionContext(tokens, last);
+    if (runTarget) return runTarget;
+  }
+
   if (tokens.length === 2 && last !== '') {
     if (isPathLikeToken(firstToken)) {
       const target = resolveLocalInputTarget(firstToken, cwd);
@@ -215,6 +242,22 @@ function deriveCompletionContext(
   }
 
   return { kind: 'other-subcommand' };
+}
+
+function deriveRunTargetCompletionContext(
+  tokens: ReadonlyArray<string>,
+  last: string,
+): CompletionContext | null {
+  const afterRun = tokens.slice(2);
+  if (afterRun.length === 0) {
+    return last === '' ? { kind: 'run-target', partial: '' } : null;
+  }
+
+  const positional = afterRun.filter((token) => !token.startsWith('--'));
+  const partial = positional.at(-1);
+  if (partial !== undefined) return { kind: 'run-target', partial };
+  if (last === '') return { kind: 'run-target', partial: '' };
+  return null;
 }
 
 function resolveLocalInputTarget(token: string, cwd: string): CompletionInputTarget | null {
@@ -239,6 +282,105 @@ function isPathLikeToken(token: string): boolean {
 
 function emitNativeFileCompletion(stdout: NodeJS.WritableStream): void {
   stdout.write(`${TABTAB_FILE_COMPLETION_SENTINEL}\n`);
+}
+
+function enumerateLocalRunTargets(partial: string, cwd: string): readonly string[] {
+  const { dirPart, displayDir, prefix } = splitRunTargetPartial(partial);
+  const absDir = path.resolve(cwd, dirPart);
+  const out: string[] = [];
+  try {
+    const dirents = fs.readdirSync(absDir, { withFileTypes: true });
+    let matched = 0;
+    for (const dirent of dirents) {
+      if (!dirent.name.startsWith(prefix)) continue;
+      if (!dirent.isDirectory() && !dirent.isFile()) continue;
+      if (dirent.isFile() && !dirent.name.endsWith('.fsm.ts')) continue;
+      out.push(`${displayDir}${dirent.name}`);
+      if (++matched >= FILE_ENUMERATE_CAP) break;
+    }
+  } catch {
+    return [];
+  }
+  return out.sort((a, b) => a.localeCompare(b));
+}
+
+function splitRunTargetPartial(partial: string): {
+  readonly dirPart: string;
+  readonly displayDir: string;
+  readonly prefix: string;
+} {
+  if (!partial.includes('/')) {
+    return { dirPart: '.', displayDir: '', prefix: partial };
+  }
+  if (partial.endsWith('/')) {
+    return { dirPart: partial, displayDir: partial, prefix: '' };
+  }
+  const slash = partial.lastIndexOf('/');
+  const displayDir = partial.slice(0, slash + 1);
+  return {
+    dirPart: displayDir,
+    displayDir,
+    prefix: partial.slice(slash + 1),
+  };
+}
+
+interface InstalledSuggestion {
+  readonly value: string;
+  readonly output: string;
+  readonly commandName: string;
+}
+
+function buildInstalledCommandSuggestions(
+  snapshot: InstalledRuntimeSnapshot,
+  partial: string,
+  cwd: string,
+): readonly string[] {
+  const commands = snapshot.commands.commands;
+  const bareCounts = new Map<string, number>();
+  for (const entry of Object.values(commands)) {
+    bareCounts.set(entry.commandName, (bareCounts.get(entry.commandName) ?? 0) + 1);
+  }
+
+  const bare: InstalledSuggestion[] = [];
+  const qualified: InstalledSuggestion[] = [];
+  for (const [identity, entry] of Object.entries(commands)) {
+    if ((bareCounts.get(entry.commandName) ?? 0) === 1) {
+      bare.push(formatInstalledSuggestion(entry.commandName, entry));
+    }
+    qualified.push(formatInstalledSuggestion(identity, entry));
+  }
+
+  return [...bare.sort(byValue), ...qualified.sort(byValue)]
+    .filter((suggestion) => matchesInstalledPartial(suggestion, partial))
+    .filter((suggestion) => !isExistingRegularFileSync(cwd, suggestion.value))
+    .map((suggestion) => suggestion.output);
+}
+
+function formatInstalledSuggestion(
+  value: string,
+  entry: TrustedCommandIndexEntry,
+): InstalledSuggestion {
+  return {
+    value,
+    output: entry.description ? `${value}:${entry.description}` : value,
+    commandName: entry.commandName,
+  };
+}
+
+function matchesInstalledPartial(suggestion: InstalledSuggestion, partial: string): boolean {
+  return suggestion.value.startsWith(partial) || suggestion.commandName.startsWith(partial);
+}
+
+function byValue(a: InstalledSuggestion, b: InstalledSuggestion): number {
+  return a.value.localeCompare(b.value);
+}
+
+function isExistingRegularFileSync(cwd: string, target: string): boolean {
+  try {
+    return fs.statSync(path.resolve(cwd, target)).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /**

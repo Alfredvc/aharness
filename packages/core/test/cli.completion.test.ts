@@ -27,6 +27,11 @@ import { spawnSync } from 'node:child_process';
 import * as tabtab from '@pnpm/tabtab';
 import { runCompletionInstall, runCompletionUninstall } from '../src/cli/completion.js';
 import { enumerateFs, runCompletionBridge } from '../src/cli/completionBridge.js';
+import {
+  INSTALL_STORE_SCHEMA_VERSION,
+  type TrustedCommandIndexEntry,
+  type TrustedInstallRecord,
+} from '../src/installStore/index.js';
 
 vi.mock('@pnpm/tabtab', { spy: true });
 
@@ -86,6 +91,10 @@ function makeEnv(line: string, point?: number): NodeJS.ProcessEnv {
   } as NodeJS.ProcessEnv;
 }
 
+function makeEnvWithHome(line: string, storeRoot: string): NodeJS.ProcessEnv {
+  return { ...makeEnv(line), AHARNESS_HOME: storeRoot };
+}
+
 async function captureBridge(
   line: string,
   opts: { readonly cwd?: string; readonly env?: NodeJS.ProcessEnv } = {},
@@ -99,6 +108,48 @@ async function captureBridge(
     stdout: out,
   });
   return chunks.join('').split('\n').filter(Boolean);
+}
+
+function writeCompletionStore(
+  storeRoot: string,
+  opts: {
+    readonly installs: Record<string, TrustedInstallRecord>;
+    readonly commands: Record<string, TrustedCommandIndexEntry>;
+    readonly generation: string;
+  },
+): void {
+  fs.mkdirSync(storeRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(storeRoot, 'installs.json'),
+    JSON.stringify({
+      schemaVersion: INSTALL_STORE_SCHEMA_VERSION,
+      generation: opts.generation,
+      installs: opts.installs,
+    }),
+  );
+  fs.writeFileSync(
+    path.join(storeRoot, 'commands.json'),
+    JSON.stringify({
+      schemaVersion: INSTALL_STORE_SCHEMA_VERSION,
+      generation: opts.generation,
+      commands: opts.commands,
+    }),
+  );
+}
+
+function commandIndexEntry(
+  packageName: string,
+  commandName: string,
+  description?: string,
+): TrustedCommandIndexEntry {
+  return {
+    packageName,
+    commandName,
+    entry: `${commandName}.fsm.ts`,
+    packageRoot: `/virtual/${packageName}`,
+    lockFingerprint: `${packageName}-${commandName}-lock`,
+    ...(description !== undefined ? { description } : {}),
+  };
 }
 
 describe('runCompletionBridge — root completion', () => {
@@ -125,6 +176,143 @@ describe('runCompletionBridge — root completion', () => {
   it('delegates path-like first tokens to native file completion', async () => {
     const lines = await captureBridge('aharness ./');
     expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+});
+
+describe('runCompletionBridge — run target completion', () => {
+  let cwd: string;
+  let storeRoot: string;
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-run-completion-cwd-'));
+    storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-run-completion-store-'));
+    fs.writeFileSync(path.join(cwd, 'alpha.fsm.ts'), '');
+    fs.writeFileSync(path.join(cwd, 'alpha.txt'), '');
+    fs.mkdirSync(path.join(cwd, 'nested'));
+  });
+  afterEach(() => {
+    fs.rmSync(cwd, { recursive: true, force: true });
+    fs.rmSync(storeRoot, { recursive: true, force: true });
+  });
+
+  it('includes local .fsm.ts files and directories after run', async () => {
+    const lines = await captureBridge('aharness run ', { cwd });
+    expect(lines).toContain('alpha.fsm.ts');
+    expect(lines).toContain('nested');
+    expect(lines).not.toContain('alpha.txt');
+  });
+
+  it('filters local run targets by partial', async () => {
+    const lines = await captureBridge('aharness run a', { cwd });
+    expect(lines).toContain('alpha.fsm.ts');
+    expect(lines).not.toContain('nested');
+  });
+
+  it('includes local run targets after run flags', async () => {
+    const lines = await captureBridge('aharness run --yolo ', { cwd });
+    expect(lines).toContain('alpha.fsm.ts');
+  });
+
+  it('includes unique bare installed names and fully qualified installed identities', async () => {
+    writeCompletionStore(storeRoot, {
+      installs: {},
+      generation: 'test-generation',
+      commands: {
+        '@scope/tools/build': commandIndexEntry('@scope/tools', 'build'),
+        '@scope/tools/deploy': commandIndexEntry('@scope/tools', 'deploy'),
+      },
+    });
+
+    const lines = await captureBridge('aharness run ', {
+      cwd,
+      env: makeEnvWithHome('aharness run ', storeRoot),
+    });
+    expect(lines).toContain('build');
+    expect(lines).toContain('deploy');
+    expect(lines).toContain('@scope/tools/build');
+    expect(lines).toContain('@scope/tools/deploy');
+  });
+
+  it('filters installed identities by scoped partial', async () => {
+    writeCompletionStore(storeRoot, {
+      installs: {},
+      generation: 'test-generation',
+      commands: {
+        '@scope/tools/build': commandIndexEntry('@scope/tools', 'build'),
+        '@scope/tools/deploy': commandIndexEntry('@scope/tools', 'deploy'),
+      },
+    });
+
+    const lines = await captureBridge('aharness run @scope/', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/', storeRoot),
+    });
+    expect(lines).toContain('@scope/tools/build');
+    expect(lines).toContain('@scope/tools/deploy');
+  });
+
+  it('omits ambiguous bare installed names and keeps qualified alternatives', async () => {
+    writeCompletionStore(storeRoot, {
+      installs: {},
+      generation: 'test-generation',
+      commands: {
+        '@scope/tools/build': commandIndexEntry('@scope/tools', 'build'),
+        '@other/tools/build': commandIndexEntry('@other/tools', 'build'),
+      },
+    });
+
+    const lines = await captureBridge('aharness run b', {
+      cwd,
+      env: makeEnvWithHome('aharness run b', storeRoot),
+    });
+    expect(lines).not.toContain('build');
+    expect(lines).toContain('@scope/tools/build');
+    expect(lines).toContain('@other/tools/build');
+  });
+
+  it('suppresses installed bare names that collide with local regular files', async () => {
+    fs.writeFileSync(path.join(cwd, 'build'), '');
+    writeCompletionStore(storeRoot, {
+      installs: {},
+      generation: 'test-generation',
+      commands: {
+        '@scope/tools/build': commandIndexEntry('@scope/tools', 'build'),
+      },
+    });
+
+    const lines = await captureBridge('aharness run b', {
+      cwd,
+      env: makeEnvWithHome('aharness run b', storeRoot),
+    });
+    expect(lines).not.toContain('build');
+    expect(lines).toContain('@scope/tools/build');
+  });
+
+  it('omits installed suggestions and does not create or rewrite store files for malformed or missing stores', async () => {
+    const missingLines = await captureBridge('aharness run b', {
+      cwd,
+      env: makeEnvWithHome('aharness run b', storeRoot),
+    });
+    expect(missingLines).not.toContain('build');
+    expect(fs.existsSync(path.join(storeRoot, 'commands.json'))).toBe(false);
+
+    const malformedInstalls = '{ "schemaVersion": 1, "generation": "", "installs": {} }';
+    const commands = JSON.stringify({
+      schemaVersion: INSTALL_STORE_SCHEMA_VERSION,
+      generation: 'test-generation',
+      commands: {
+        '@scope/tools/build': commandIndexEntry('@scope/tools', 'build'),
+      },
+    });
+    fs.writeFileSync(path.join(storeRoot, 'installs.json'), malformedInstalls);
+    fs.writeFileSync(path.join(storeRoot, 'commands.json'), commands);
+
+    const malformedLines = await captureBridge('aharness run b', {
+      cwd,
+      env: makeEnvWithHome('aharness run b', storeRoot),
+    });
+    expect(malformedLines).not.toContain('build');
+    expect(malformedLines).not.toContain('@scope/tools/build');
+    expect(fs.readFileSync(path.join(storeRoot, 'commands.json'), 'utf8')).toBe(commands);
   });
 });
 
