@@ -44,6 +44,25 @@ Notes:
 - Package-local changes may need package-local scripts in addition to the root
   checks.
 
+## Dev-Only Event Log Replay
+
+For UI visualization work, use the spike replay helper to open the browser UI
+against the first N canonical events from an existing run log:
+
+```bash
+node scripts/spikes/replay-run-prefix-ui.mjs .aharness/runs/<run-id> 120
+```
+
+The first argument can be a run directory or an `events.jsonl` file. The second
+argument is the number of non-empty events to load immediately; there is no
+timed playback. Open the printed URL in a browser to inspect the run transcript
+and visualizations.
+
+This helper is intentionally not a public CLI command. It starts only a local
+UI server for dev/test inspection, does not launch Codex, and replays the
+selected prefix through the run-scoped SSE reducer path. If source changes need
+fresh built server or UI assets, run `pnpm run build` first.
+
 ## Publishing
 
 The normal npm release path is `.github/workflows/release.yml`. It runs on

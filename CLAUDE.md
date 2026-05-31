@@ -50,6 +50,11 @@ plans unless the task explicitly asks for historical context.
   evidence and can contain raw owner input, browser replies, tool arguments and
   results, command output, file diffs, approval data, token usage, and sub-thread
   activity.
+- Dev-only UI replay for visualization work lives in
+  `scripts/spikes/replay-run-prefix-ui.mjs`. It accepts a run directory or
+  `events.jsonl` plus an event count, starts a local UI server, replays the first
+  N events immediately through run-scoped SSE, and does not launch Codex. See
+  `CONTRIBUTING.md` before using or changing it.
 
 ## Files to avoid editing
 
