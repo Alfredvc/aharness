@@ -15,7 +15,7 @@
  *     watchdog so a stuck import never hangs the user's shell. Bare
  *     `aharness completion` remains a compatibility alias for the bridge.
  *   - `aharness install <source>` — npm-backed installed package mutation.
- *   - `aharness run <command>` — installed package command execution.
+ *   - `aharness run [--yolo] <file.fsm.ts|command>` — target execution.
  *   - `aharness list` — installed package command listing.
  *   - `aharness uninstall <package-name>` — npm-backed package removal.
  *   - `aharness visualize <file.fsm.ts>` — browser-only FSM inspection.
@@ -81,8 +81,8 @@ export interface Dispatcher {
     pm?: 'npm' | 'pnpm' | 'yarn' | 'bun';
   }) => Promise<{ exitCode: number }>;
   readonly runInstall: (o: { source: string }) => Promise<{ exitCode: number }>;
-  readonly runInstalled: (o: {
-    command: string;
+  readonly runTarget: (o: {
+    target: string;
     inputArgs: ReadonlyArray<string>;
     yolo?: boolean;
   }) => Promise<{ exitCode: number }>;
@@ -137,10 +137,10 @@ export async function dispatch(
     return d.runInstall({ source });
   }
   if (cmd === 'run') {
-    const parsed = parseFsmPathAndInputArgs(rest, { consumeYolo: true });
+    const parsed = parseRunTargetAndInputArgs(rest);
     if (!parsed) return { exitCode: usage(stderr) };
-    return d.runInstalled({
-      command: parsed.fsmPath,
+    return d.runTarget({
+      target: parsed.target,
       inputArgs: parsed.inputArgs,
       ...(parsed.yolo ? { yolo: true } : {}),
     });
@@ -243,6 +243,33 @@ function parseFsmPathAndInputArgs(
   return { fsmPath: positional[0]!, inputArgs, ...(yolo ? { yolo: true } : {}) };
 }
 
+function parseRunTargetAndInputArgs(
+  argv: ReadonlyArray<string>,
+): { target: string; inputArgs: ReadonlyArray<string>; yolo?: boolean } | null {
+  let index = 0;
+  let yolo = false;
+
+  if (argv[index] === '--yolo') {
+    yolo = true;
+    index++;
+  }
+
+  const target = argv[index];
+  if (!target || target.startsWith('-')) return null;
+  index++;
+
+  const inputArgs = argv.slice(index);
+  for (let i = 0; i < inputArgs.length; i++) {
+    const current = inputArgs[i]!;
+    if (!current.startsWith('--')) return null;
+    if (current === '--yolo') return null;
+    const next = inputArgs[i + 1];
+    if (next !== undefined && !next.startsWith('--')) i++;
+  }
+
+  return { target, inputArgs, ...(yolo ? { yolo: true } : {}) };
+}
+
 function parseInitArgs(args: ReadonlyArray<string>): {
   dir: string;
   force: boolean;
@@ -297,7 +324,7 @@ function usage(stderr: NodeJS.WritableStream): number {
       '  aharness verify <file.fsm.ts>\n' +
       '  aharness verify <package-name>\n' +
       '  aharness verify <package-name>/<command-name>\n' +
-      '  aharness run [--yolo] <command> [--<flag> <value>]...\n' +
+      '  aharness run [--yolo] <file.fsm.ts|command> [--<flag> <value>]...\n' +
       '  aharness list\n' +
       '  aharness uninstall <package-name>\n' +
       '  aharness doctor\n' +
@@ -357,9 +384,9 @@ if (process.argv[1]?.endsWith('main.js')) {
         stdout: process.stdout,
         stderr: process.stderr,
       }),
-    runInstalled: ({ command, inputArgs, yolo }) => {
+    runTarget: ({ target, inputArgs, yolo }) => {
       const opts = {
-        command,
+        command: target,
         cwd: process.cwd(),
         stdout: process.stdout,
         stderr: process.stderr,

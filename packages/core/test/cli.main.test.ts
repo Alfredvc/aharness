@@ -65,8 +65,8 @@ function buildStubs() {
       void o;
       return { exitCode: 0 };
     }),
-    runInstalled: vi.fn(
-      async (o: { command: string; inputArgs: ReadonlyArray<string>; yolo?: boolean }) => {
+    runTarget: vi.fn(
+      async (o: { target: string; inputArgs: ReadonlyArray<string>; yolo?: boolean }) => {
         void o;
         return { exitCode: 0 };
       },
@@ -253,40 +253,70 @@ describe('dispatch', () => {
     expect(s.runInstall).not.toHaveBeenCalled();
   });
 
-  it('routes "run <command>" to installed command execution with author input flags', async () => {
+  it('routes "run <command>" to target execution with author input flags', async () => {
     const s = buildStubs();
-    const r = await dispatch(['run', '@scope/tools/build', '--topic', 'auth', '--dry-run'], s);
+    const r = await dispatch(['run', '@scope/tools/build', '--topic', 'auth'], s);
 
     expect(r).toEqual({ exitCode: 0 });
-    expect(s.runInstalled).toHaveBeenCalledWith({
-      command: '@scope/tools/build',
-      inputArgs: ['--topic', 'auth', '--dry-run'],
+    expect(s.runTarget).toHaveBeenCalledWith({
+      target: '@scope/tools/build',
+      inputArgs: ['--topic', 'auth'],
     });
     expect(s.runDefault).not.toHaveBeenCalled();
   });
 
-  it('routes "run --yolo <command>" with yolo enabled and clean input args', async () => {
+  it('routes "run --yolo <target>" with yolo enabled and clean input args', async () => {
     const s = buildStubs();
-    const r = await dispatch(['run', '--yolo', '@scope/tools/build', '--topic', 'auth'], s);
+    const r = await dispatch(['run', '--yolo', './workflow.fsm.ts', '--topic', 'auth'], s);
 
     expect(r).toEqual({ exitCode: 0 });
-    expect(s.runInstalled).toHaveBeenCalledWith({
-      command: '@scope/tools/build',
+    expect(s.runTarget).toHaveBeenCalledWith({
+      target: './workflow.fsm.ts',
       inputArgs: ['--topic', 'auth'],
       yolo: true,
     });
   });
 
-  it('routes "run <command> --yolo" with yolo enabled and clean input args', async () => {
+  it('returns usage when run input flags appear before the target', async () => {
     const s = buildStubs();
-    const r = await dispatch(['run', '@scope/tools/build', '--yolo', '--topic', 'auth'], s);
-
-    expect(r).toEqual({ exitCode: 0 });
-    expect(s.runInstalled).toHaveBeenCalledWith({
-      command: '@scope/tools/build',
-      inputArgs: ['--topic', 'auth'],
-      yolo: true,
+    const cap = captureStderr();
+    const r = await dispatch(['run', '--topic', 'auth', './workflow.fsm.ts'], {
+      ...s,
+      stderr: cap.stream,
     });
+
+    expect(r).toEqual({ exitCode: 2 });
+    expect(s.runTarget).not.toHaveBeenCalled();
+    expect(cap.text()).toContain(
+      'aharness run [--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+    );
+  });
+
+  it('returns usage when run --yolo appears after the target', async () => {
+    const s = buildStubs();
+    const cap = captureStderr();
+    const r = await dispatch(['run', './workflow.fsm.ts', '--yolo'], {
+      ...s,
+      stderr: cap.stream,
+    });
+
+    expect(r).toEqual({ exitCode: 2 });
+    expect(s.runTarget).not.toHaveBeenCalled();
+    expect(cap.text()).toContain(
+      'aharness run [--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+    );
+  });
+
+  it('returns usage for unknown run framework flags before the target', async () => {
+    const s = buildStubs();
+    const cap = captureStderr();
+    const r = await dispatch(['run', '-x', 'build'], { ...s, stderr: cap.stream });
+
+    expect(r).toEqual({ exitCode: 2 });
+    expect(s.runTarget).not.toHaveBeenCalled();
+    expect(cap.text()).toContain(
+      'aharness run [--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+    );
   });
 
   it('returns usage for malformed run invocations', async () => {
@@ -302,8 +332,10 @@ describe('dispatch', () => {
       const r = await dispatch(argv, { ...s, stderr: cap.stream });
 
       expect(r).toEqual({ exitCode: 2 });
-      expect(s.runInstalled).not.toHaveBeenCalled();
-      expect(cap.text()).toContain('aharness run [--yolo] <command>');
+      expect(s.runTarget).not.toHaveBeenCalled();
+      expect(cap.text()).toContain(
+        'aharness run [--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+      );
     }
   });
 
@@ -392,7 +424,7 @@ describe('dispatch', () => {
     expect(s.runDefault).toHaveBeenNthCalledWith(6, { fsmPath: 'verify.fsm.ts', inputArgs: [] });
     expect(s.runDefault).toHaveBeenNthCalledWith(7, { fsmPath: './uninstall', inputArgs: [] });
     expect(s.runDefault).toHaveBeenNthCalledWith(8, { fsmPath: 'uninstall.fsm.ts', inputArgs: [] });
-    expect(s.runInstalled).not.toHaveBeenCalled();
+    expect(s.runTarget).not.toHaveBeenCalled();
     expect(s.runListInstalled).not.toHaveBeenCalled();
     expect(s.runVerifyInstalled).not.toHaveBeenCalled();
     expect(s.runUninstall).not.toHaveBeenCalled();
@@ -486,7 +518,9 @@ describe('dispatch', () => {
     expect(cap.text()).not.toContain('aharness package verify');
     expect(cap.text()).toContain('aharness install <source>');
     expect(cap.text()).toContain('aharness [--yolo] <file.fsm.ts> [--<flag> <value>]...');
-    expect(cap.text()).toContain('aharness run [--yolo] <command> [--<flag> <value>]...');
+    expect(cap.text()).toContain(
+      'aharness run [--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+    );
     expect(cap.text()).toContain('aharness list');
     expect(cap.text()).toContain('aharness uninstall <package-name>');
     expect(cap.text()).toContain('aharness verify <package-name>');
