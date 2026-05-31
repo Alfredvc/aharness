@@ -242,6 +242,9 @@ async function deriveCompletionContext(
     if (runTarget) return runTarget;
   }
 
+  const directRun = deriveDirectRunCompletionContext(tokens, last, cwd);
+  if (directRun) return directRun;
+
   if (tokens.length === 2 && last !== '') {
     if (isPathLikeToken(firstToken)) {
       const target = resolveLocalInputTarget(firstToken, cwd);
@@ -258,6 +261,29 @@ async function deriveCompletionContext(
   return { kind: 'other-subcommand' };
 }
 
+function deriveDirectRunCompletionContext(
+  tokens: ReadonlyArray<string>,
+  last: string,
+  cwd: string,
+): CompletionContext | null {
+  const args = tokens.slice(1);
+  let targetIndex = 0;
+
+  if (args[targetIndex] === '--yolo') targetIndex++;
+
+  const targetToken = args[targetIndex];
+  if (!targetToken || targetToken.startsWith('--')) return null;
+
+  const cursorIsOnTarget = targetIndex === args.length - 1 && last === targetToken && last !== '';
+  if (cursorIsOnTarget) return null;
+
+  const inputArgs = args.slice(targetIndex + 1);
+  if (!isValidInputCompletionTail(inputArgs)) return null;
+
+  const target = resolveLocalInputTarget(targetToken, cwd);
+  return target ? { kind: 'post-target-input', target } : null;
+}
+
 async function deriveRunTargetCompletionContext(
   tokens: ReadonlyArray<string>,
   last: string,
@@ -265,25 +291,39 @@ async function deriveRunTargetCompletionContext(
   env: NodeJS.ProcessEnv,
 ): Promise<CompletionContext | null> {
   const afterRun = tokens.slice(2);
-  if (afterRun.length === 0) {
+  let targetIndex = 0;
+
+  if (afterRun[targetIndex] === '--yolo') targetIndex++;
+
+  if (targetIndex === afterRun.length) {
     return last === '' ? { kind: 'run-target', partial: '' } : null;
   }
 
-  const targetIndex = afterRun.findIndex((token) => !token.startsWith('--'));
-  if (targetIndex >= 0) {
-    const targetToken = afterRun[targetIndex]!;
-    const cursorIsOnTarget =
-      targetIndex === afterRun.length - 1 && last === targetToken && last !== '';
-    if (cursorIsOnTarget) return { kind: 'run-target', partial: targetToken };
+  const targetToken = afterRun[targetIndex]!;
+  if (targetToken.startsWith('--')) return null;
 
-    const target = await resolveCompletionInputTarget({ targetToken, cwd, env });
-    if (target) return { kind: 'post-target-input', target };
-    if (targetIndex === afterRun.length - 1) return { kind: 'run-target', partial: targetToken };
-    return null;
-  }
+  const cursorIsOnTarget =
+    targetIndex === afterRun.length - 1 && last === targetToken && last !== '';
+  if (cursorIsOnTarget) return { kind: 'run-target', partial: targetToken };
 
-  if (last === '') return { kind: 'run-target', partial: '' };
+  const inputArgs = afterRun.slice(targetIndex + 1);
+  if (!isValidInputCompletionTail(inputArgs)) return null;
+
+  const target = await resolveCompletionInputTarget({ targetToken, cwd, env });
+  if (target) return { kind: 'post-target-input', target };
+  if (targetIndex === afterRun.length - 1) return { kind: 'run-target', partial: targetToken };
   return null;
+}
+
+function isValidInputCompletionTail(inputArgs: ReadonlyArray<string>): boolean {
+  for (let i = 0; i < inputArgs.length; i++) {
+    const current = inputArgs[i]!;
+    if (!current.startsWith('--')) return false;
+    if (current === '--yolo') return false;
+    const next = inputArgs[i + 1];
+    if (next !== undefined && !next.startsWith('--')) i++;
+  }
+  return true;
 }
 
 async function resolveCompletionInputTarget(args: {

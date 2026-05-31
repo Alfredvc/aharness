@@ -143,6 +143,7 @@ async function writeInstalledCompletionFixture(
   opts: {
     readonly source: string;
     readonly lockFingerprint?: string;
+    readonly commandName?: string;
   },
 ): Promise<{
   readonly managedProjectRoot: string;
@@ -150,9 +151,10 @@ async function writeInstalledCompletionFixture(
   readonly entryFile: string;
   readonly lockFingerprint: string;
 }> {
+  const commandName = opts.commandName ?? 'build';
   const managedProjectRoot = path.join(storeRoot, 'packages');
   const packageRoot = path.join(managedProjectRoot, 'node_modules/@scope/tools');
-  const entryFile = path.join(packageRoot, 'fsms/build.fsm.ts');
+  const entryFile = path.join(packageRoot, `fsms/${commandName}.fsm.ts`);
   fs.mkdirSync(path.dirname(entryFile), { recursive: true });
   fs.writeFileSync(entryFile, opts.source);
   fs.writeFileSync(
@@ -191,9 +193,9 @@ async function writeInstalledCompletionFixture(
     sourceIntentKey: 'registry:@scope/tools@1.0.0',
     lockFingerprint,
     commands: {
-      build: {
-        commandName: 'build',
-        entry: 'fsms/build.fsm.ts',
+      [commandName]: {
+        commandName,
+        entry: `fsms/${commandName}.fsm.ts`,
       },
     },
   };
@@ -203,10 +205,10 @@ async function writeInstalledCompletionFixture(
     },
     generation: 'test-generation',
     commands: {
-      '@scope/tools/build': {
+      [`@scope/tools/${commandName}`]: {
         packageName: '@scope/tools',
-        commandName: 'build',
-        entry: 'fsms/build.fsm.ts',
+        commandName,
+        entry: `fsms/${commandName}.fsm.ts`,
         packageRoot,
         packageVersion: '1.0.0',
         lockFingerprint,
@@ -460,6 +462,26 @@ describe('runCompletionBridge — flag-name completion', () => {
     expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
   });
 
+  it('emits direct FSM flags for a cwd-relative .ts target that is not path-like', async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-direct-completion-cwd-'));
+    try {
+      const source = fs.readFileSync(fixture, 'utf8');
+      fs.writeFileSync(path.join(cwd, 'workflow.fsm.ts'), source);
+
+      const lines = await captureBridge('aharness workflow.fsm.ts --', { cwd });
+      const names = lines.map((l) => l.split(':')[0]).sort();
+      expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('emits direct FSM flags after leading --yolo', async () => {
+    const lines = await captureBridge(`aharness --yolo ${fixture} --`);
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
+  });
+
   it('does not scan later .ts flag values for direct FSM input completion', async () => {
     const lines = await captureBridge(`aharness build --spec ${fixture} --`);
     expect(lines).toEqual([]);
@@ -468,6 +490,26 @@ describe('runCompletionBridge — flag-name completion', () => {
   it('does not treat a later run --spec value as the run target', async () => {
     const lines = await captureBridge(`aharness run build --spec ./other.fsm.ts --`);
     expect(lines).toEqual([]);
+  });
+
+  it('emits nothing for malformed run input flags before the target', async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-run-malformed-cwd-'));
+    const storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-run-malformed-store-'));
+    try {
+      await writeInstalledCompletionFixture(storeRoot, {
+        source: staticInstalledFsmSource(),
+        commandName: 'auth',
+      });
+
+      const lines = await captureBridge('aharness run --topic auth --', {
+        cwd,
+        env: makeEnvWithHome('aharness run --topic auth --', storeRoot),
+      });
+      expect(lines).toEqual([]);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+      fs.rmSync(storeRoot, { recursive: true, force: true });
+    }
   });
 
   it('emits all flag names when cursor is empty after fsm path', async () => {
