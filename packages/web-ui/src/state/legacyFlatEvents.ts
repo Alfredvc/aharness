@@ -88,6 +88,8 @@ export function hydrateFromSnapshot(snapshot: UiSnapshot): UiState {
       : {},
     rowPageCursors: {},
     rowLoadStatus: {},
+    recentRowsCursor: null,
+    recentRowsLoadStatus: { loading: false, loaded: false, error: null },
     aggregateStats: {
       turnCount: snapshot.state.completedTurns.length,
       ...(snapshot.state.activeTurn?.turnId === undefined

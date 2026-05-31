@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, normalize, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  applyRecentRowPage,
   applyRunEvent,
   applyVisitRowPage,
   createConnectingUiState,
@@ -981,6 +982,125 @@ describe('headless production store helpers', () => {
     expect(merged.transcript).toContainEqual(
       expect.objectContaining({ id: 'msg-live', eventIds: ['run-1:8'] }),
     );
+  });
+
+  it('merges run-level recent row pages in chronological order without duplicating live rows', () => {
+    const initial = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      recentRows: [
+        row({
+          id: 'row-1',
+          eventId: 'run-1:1',
+          seq: 1,
+          stateVisitId: 'workflow.collect#1',
+          text: 'oldest',
+        }),
+      ],
+    });
+    const live = applyRunEvent(initial, {
+      schema: 'aharness.event.v1',
+      runId: 'run-1',
+      id: 'run-1:2',
+      seq: 2,
+      time: '2026-05-29T00:00:02.000Z',
+      type: 'model.delta',
+      stateVisitId: 'workflow.review#1',
+      itemId: 'msg-live',
+      offset: 0,
+      lineBytes: 1,
+      data: { delta: 'live' },
+    });
+
+    const merged = applyRecentRowPage(
+      live,
+      rowPage([
+        row({
+          id: 'row-2',
+          eventId: 'run-1:2',
+          seq: 2,
+          stateVisitId: 'workflow.review#1',
+          text: 'live',
+        }),
+        row({
+          id: 'row-3',
+          eventId: 'run-1:3',
+          seq: 3,
+          stateVisitId: 'workflow.ship#1',
+          text: 'newest',
+        }),
+      ]),
+    );
+
+    expect(merged.transcript.map((item) => item.seq)).toEqual([1, 2, 3]);
+    expect(merged.transcript.filter((item) => item.eventIds?.includes('run-1:2'))).toHaveLength(1);
+    expect(merged.recentRowsCursor).toBeNull();
+    expect(merged.recentRowsLoadStatus).toEqual({
+      loading: false,
+      loaded: true,
+      error: null,
+      storedRows: 2,
+    });
+  });
+
+  it('keeps global recent rows that do not belong to a state visit', () => {
+    const state = applyRecentRowPage(
+      hydrateFromBootstrap({ ...runScopedBootstrap(), recentRows: [] }),
+      rowPage([
+        row({
+          id: 'run-row-1',
+          eventId: 'run-1:9',
+          seq: 9,
+          kind: 'framework_note',
+          text: 'run-level note',
+        }),
+      ]),
+    );
+
+    expect(state.transcript).toEqual([
+      expect.objectContaining({
+        id: 'run-row-1',
+        text: 'run-level note',
+        stateVisitId: '__run',
+      }),
+    ]);
+  });
+
+  it('resets global recent-row paging after a fresh-clear boundary', () => {
+    const loaded = applyRecentRowPage(
+      hydrateFromBootstrap({ ...runScopedBootstrap(), recentRows: [] }),
+      rowPage(
+        [row({ id: 'row-1', eventId: 'run-1:1', seq: 1, stateVisitId: 'workflow.collect#1' })],
+        'row-1',
+      ),
+    );
+
+    const cleared = applyRunEvent(loaded, {
+      schema: 'aharness.event.v1',
+      runId: 'run-1',
+      id: 'run-1:2',
+      seq: 2,
+      time: '2026-05-29T00:00:02.000Z',
+      type: 'fresh_clear.boundary',
+      offset: 0,
+      lineBytes: 1,
+      data: {
+        row: {
+          kind: 'fresh_clear',
+          label: 'workflow.review',
+          status: 'clearOnEntry',
+          data: { previousThreadId: 'old-thread', nextThreadId: 'new-thread' },
+        },
+      },
+    });
+
+    expect(cleared.transcript.map((item) => item.type)).toEqual(['fresh_clear_boundary']);
+    expect(cleared.recentRowsCursor).toBeNull();
+    expect(cleared.recentRowsLoadStatus).toEqual({
+      loading: false,
+      loaded: false,
+      error: null,
+      storedRows: 0,
+    });
   });
 
   it('ignores unsupported compact row kinds with bounded diagnostics instead of throwing', () => {

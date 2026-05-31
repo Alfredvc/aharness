@@ -25,6 +25,7 @@ const {
   createGraphZoomBehavior,
   createLayoutRequestController,
   clampGraphTooltipPoint,
+  clearGraphSelectionFromCanvasClick,
   edgeClassName,
   edgeGroupInteractionClassName,
   edgeGroupTooltipText,
@@ -43,6 +44,7 @@ const {
   pruneSelectedNodeId,
   pruneExpandedEmbedIds,
   renderableEdges,
+  shouldClearGraphSelection,
   startGraphLayoutRequest,
   stopEmbedTogglePointerEvent,
   truncateEdgeLabel,
@@ -585,6 +587,56 @@ describe('Graph interaction helpers', () => {
     expect(pointerMovedBeyondThreshold({ x: 0, y: 0 }, { x: 2, y: 2 }, 4)).toBe(false);
     expect(pointerMovedBeyondThreshold({ x: 0, y: 0 }, { x: 5, y: 0 }, 4)).toBe(true);
     expect(pointerMovedBeyondThreshold(null, { x: 20, y: 20 }, 4)).toBe(false);
+  });
+
+  it('clears external panel scope for true blank-canvas clicks', () => {
+    const clearLocalSelection = vi.fn();
+    const onSelectionClear = vi.fn();
+
+    expect(
+      clearGraphSelectionFromCanvasClick({
+        target: null,
+        pointerStart: { x: 0, y: 0 },
+        pointerEnd: { x: 1, y: 1 },
+        clearLocalSelection,
+        onSelectionClear,
+      }),
+    ).toBe(true);
+    expect(clearLocalSelection).toHaveBeenCalledTimes(1);
+    expect(onSelectionClear).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not clear external panel scope after a canvas drag', () => {
+    const onSelectionClear = vi.fn();
+
+    expect(
+      clearGraphSelectionFromCanvasClick({
+        target: null,
+        pointerStart: { x: 0, y: 0 },
+        pointerEnd: { x: 8, y: 0 },
+        clearLocalSelection: vi.fn(),
+        onSelectionClear,
+      }),
+    ).toBe(false);
+    expect(onSelectionClear).not.toHaveBeenCalled();
+  });
+
+  it('does not clear external panel scope from node or edge interaction targets', () => {
+    class FakeElement {
+      closest(selector: string) {
+        return selector.includes('.node') ? this : null;
+      }
+    }
+    vi.stubGlobal('Element', FakeElement);
+    const node = new FakeElement() as unknown as EventTarget;
+
+    expect(
+      shouldClearGraphSelection({
+        target: node,
+        pointerStart: { x: 0, y: 0 },
+        pointerEnd: { x: 1, y: 1 },
+      }),
+    ).toBe(false);
   });
 
   it('clamps tooltip positions so right-edge hovers keep readable width', () => {

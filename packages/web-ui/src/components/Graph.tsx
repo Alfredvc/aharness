@@ -42,6 +42,7 @@ type Props = {
   awaitsOwner: boolean;
   isTerminal: boolean;
   onNodeClick?: (id: string) => void;
+  onSelectionClear?: () => void;
 };
 
 type Layout = GraphElkLayout;
@@ -633,6 +634,28 @@ function isGraphInteractionTarget(target: EventTarget | null): boolean {
   return Boolean(target.closest('.node, .edge, .edge-hit-area, .edge-label-group, .embed-toggle'));
 }
 
+function shouldClearGraphSelection(input: {
+  target: EventTarget | null;
+  pointerStart: GraphPointerPoint | null;
+  pointerEnd: GraphPointerPoint;
+}): boolean {
+  if (isGraphInteractionTarget(input.target)) return false;
+  return !pointerMovedBeyondThreshold(input.pointerStart, input.pointerEnd);
+}
+
+function clearGraphSelectionFromCanvasClick(input: {
+  target: EventTarget | null;
+  pointerStart: GraphPointerPoint | null;
+  pointerEnd: GraphPointerPoint;
+  clearLocalSelection: () => void;
+  onSelectionClear?: () => void;
+}): boolean {
+  if (!shouldClearGraphSelection(input)) return false;
+  input.clearLocalSelection();
+  input.onSelectionClear?.();
+  return true;
+}
+
 export function Graph({
   topology,
   activeStateId,
@@ -640,6 +663,7 @@ export function Graph({
   awaitsOwner,
   isTerminal,
   onNodeClick,
+  onSelectionClear,
 }: Props) {
   const [layout, setLayout] = useState<Layout | null>(null);
   const [expandedEmbedIds, setExpandedEmbedIds] = useState<Set<string>>(() => new Set());
@@ -907,16 +931,16 @@ export function Graph({
   function handleGraphClick(event: ReactMouseEvent<SVGSVGElement>) {
     const pointerStart = canvasPointerStartRef.current;
     canvasPointerStartRef.current = null;
-    if (isGraphInteractionTarget(event.target)) return;
-    if (
-      pointerMovedBeyondThreshold(pointerStart, {
+    clearGraphSelectionFromCanvasClick({
+      target: event.target,
+      pointerStart,
+      pointerEnd: {
         x: event.clientX,
         y: event.clientY,
-      })
-    ) {
-      return;
-    }
-    setSelectedNodeId(null);
+      },
+      clearLocalSelection: () => setSelectedNodeId(null),
+      onSelectionClear,
+    });
   }
 
   return (
@@ -1470,6 +1494,8 @@ export const graphInternalsForTest = {
   clampGraphTooltipPoint,
   nodeClassName,
   pointerMovedBeyondThreshold,
+  shouldClearGraphSelection,
+  clearGraphSelectionFromCanvasClick,
   pruneSelectedNodeId,
   createGraphZoomBehavior,
   fitGraphTransform,
