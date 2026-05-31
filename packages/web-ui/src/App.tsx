@@ -72,6 +72,7 @@ export function AharnessShell({ session }: { session: ReturnType<typeof useAharn
                   session.setScope(id);
                 }
               }}
+              onSelectionClear={() => session.setScope(null)}
             />
           </div>
           <div className="panel-pane">
