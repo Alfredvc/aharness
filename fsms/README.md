@@ -23,6 +23,11 @@ through an autonomous recovery protocol with phase-specific guidance, then
 returns to the failed phase after recovery. The FSM reaches failure only when
 recovery is exhausted or the slice safety cap is hit.
 
+Live workflow states declare `gpt-5.5` with medium reasoning effort. Recovery
+attempts declare `gpt-5.5` with xhigh effort, and the implementation/review
+prompts require delegated subagents to use `gpt-5.5` with high or xhigh effort,
+respectively.
+
 The first state stores required context files such as idea files, specs,
 architecture docs, parent plans, API contracts, and migration notes. Later
 states and recovery prompts include that list so the model can reload the

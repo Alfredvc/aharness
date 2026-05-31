@@ -126,6 +126,12 @@ interface RecoveryOutput {
 const fsm = createFsm<Data>();
 const recovery = createFsm<RecoveryData>();
 
+const RECIPE_MODEL = 'gpt-5.5';
+const DEFAULT_STATE_MODEL = { name: RECIPE_MODEL, effort: 'medium' } as const;
+const RECOVERY_STATE_MODEL = { name: RECIPE_MODEL, effort: 'xhigh' } as const;
+const IMPLEMENTATION_SUBAGENT_LINE = `When delegating implementation work, spawn subagents with model ${RECIPE_MODEL} and high reasoning effort.`;
+const REVIEW_SUBAGENT_LINE = `When delegating review work, spawn subagents with model ${RECIPE_MODEL} and xhigh reasoning effort.`;
+
 function worktreeSlug(roadmapPath: string): string {
   const basename = roadmapPath.split('/').pop() ?? 'roadmap';
   const withoutExtension = basename.replace(/\.[^.]*$/, '');
@@ -459,7 +465,7 @@ export const machine = fsm.machine({
   initial: 'routeFromRecipe',
   states: {
     routeFromRecipe: fsm.state({
-      main: true,
+      model: DEFAULT_STATE_MODEL,
       prompt: (data) =>
         [
           'Route the recipe-driven-development workflow from durable repository evidence.',
@@ -578,6 +584,7 @@ export const machine = fsm.machine({
     planSlice: fsm.state({
       main: true,
       clearOnEntry: true,
+      model: DEFAULT_STATE_MODEL,
       prompt: (data) =>
         [
           'Plan the current recipe slice only.',
@@ -633,6 +640,7 @@ export const machine = fsm.machine({
     }),
     reviewPlan: fsm.state({
       main: true,
+      model: DEFAULT_STATE_MODEL,
       prompt: (data) =>
         [
           'Run one bounded plan-review round before execution.',
@@ -644,6 +652,7 @@ export const machine = fsm.machine({
           `Plan fix cycles used: ${data.planFixCycles} of ${data.maxFixCycles}`,
           '',
           'Use a structural plan reviewer and a code-feasibility reviewer. Review only the current slice plan.',
+          REVIEW_SUBAGENT_LINE,
           'Blocking findings must be critical or important and include concrete evidence, why they block this slice, the minimal required fix, and a verification signal.',
           'Suggestions, style preferences, broad cleanup, and speculative improvements are non-blocking.',
           'Submit approved=true only when there are no blocking findings.',
@@ -723,6 +732,7 @@ export const machine = fsm.machine({
       },
     }),
     fixPlan: fsm.state({
+      model: DEFAULT_STATE_MODEL,
       prompt: (data) =>
         [
           'Fix the current detailed plan based only on the listed plan-review blockers.',
@@ -782,6 +792,7 @@ export const machine = fsm.machine({
     executeSlice: fsm.state({
       main: true,
       clearOnEntry: true,
+      model: DEFAULT_STATE_MODEL,
       prompt: (data) =>
         [
           'Execute the current slice end to end from the reviewed plan.',
@@ -792,6 +803,7 @@ export const machine = fsm.machine({
           currentPlanLine(data),
           '',
           'Use the recipe-driven-development workflow and the current detailed plan. Use subagents only when they are actually useful for this slice.',
+          IMPLEMENTATION_SUBAGENT_LINE,
           'Implement only the current slice. Preserve existing behavior unless the plan intentionally changes it.',
           'Update relevant documentation in the same slice as behavior changes.',
           'Run the planned verification commands as part of execution. Fix ordinary implementation or test failures before submitting.',
@@ -885,6 +897,7 @@ export const machine = fsm.machine({
     }),
     acceptSlice: fsm.state({
       main: true,
+      model: DEFAULT_STATE_MODEL,
       prompt: (data) =>
         [
           'Accept or reject the completed slice.',
@@ -901,6 +914,7 @@ export const machine = fsm.machine({
           ...formatList(data.verificationCommands),
           '',
           'Use agentfiles:reviewing-code when useful. Blocking findings must be critical or important and concrete.',
+          REVIEW_SUBAGENT_LINE,
           'Do not block on style preferences, speculative cleanup, later-slice work, or non-issues. Submit approved=true only when no blocking findings remain and verification evidence is credible.',
           'Submit needsRecovery only if the acceptance basis itself cannot be reconstructed.',
         ].join('\n'),
@@ -980,6 +994,7 @@ export const machine = fsm.machine({
       },
     }),
     fixSlice: fsm.state({
+      model: DEFAULT_STATE_MODEL,
       prompt: (data) =>
         [
           'Fix only the concrete current-slice blockers from acceptance or verification.',
@@ -998,6 +1013,7 @@ export const machine = fsm.machine({
           ...formatList(data.failingCommands),
           '',
           'Fix only listed blockers or failing commands. Do not perform opportunistic cleanup, unrelated refactors, or later-slice work.',
+          IMPLEMENTATION_SUBAGENT_LINE,
           'If a finding is invalid, record the dispute with evidence instead of changing code to satisfy it.',
           'Rerun the relevant verification commands and return to acceptance.',
         ].join('\n'),
@@ -1052,6 +1068,7 @@ export const machine = fsm.machine({
     }),
     finishSlice: fsm.state({
       main: true,
+      model: DEFAULT_STATE_MODEL,
       prompt: (data) =>
         [
           'Finish the accepted slice.',
@@ -1182,7 +1199,7 @@ export const machine = fsm.machine({
     }),
     worktreeHandoff: fsm.state({
       mode: 'open',
-      main: true,
+      model: DEFAULT_STATE_MODEL,
       prompt: (data) =>
         [
           'The recipe-driven-development run is complete in worktree mode.',
@@ -1240,6 +1257,7 @@ export const machine = fsm.machine({
         initial: 'attemptRecovery',
         states: {
           attemptRecovery: recovery.state({
+            model: RECOVERY_STATE_MODEL,
             prompt: (data) =>
               [
                 `Autonomous recovery attempt ${data.attempt} of ${data.maxAttempts}.`,
