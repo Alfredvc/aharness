@@ -54,6 +54,46 @@ describe('notification router (Phase 1)', () => {
     router.close();
   });
 
+  it('joins normalized thread metadata onto receiver-thread correlation', () => {
+    const c = makeStubClient();
+    const activeThreadBinding = createActiveThreadBinding('parent-1');
+    const router = startNotificationRouter({
+      client: c as unknown as JsonRpcClient,
+      activeThreadBinding,
+      onTurnCompleted: () => {},
+      onItemStarted: () => {},
+      onItemCompleted: () => {},
+    });
+
+    c.fire('thread/started', {
+      thread: {
+        id: 'child-A',
+        ephemeral: false,
+        agentNickname: 'Researcher',
+        agentRole: 'review',
+        ignoredRawField: { secret: 'must stay out' },
+      },
+    });
+    c.fire('item/completed', {
+      threadId: 'parent-1',
+      item: { type: 'collabAgentToolCall', id: 'collab-1', receiverThreadIds: ['child-A'] },
+    });
+
+    expect(router.getSubThreadCorrelation('child-A')).toEqual(
+      expect.objectContaining({
+        receiverThreadId: 'child-A',
+        parentThreadId: 'parent-1',
+        parentItemId: 'collab-1',
+        agentNickname: 'Researcher',
+        agentRole: 'review',
+      }),
+    );
+    expect(JSON.stringify(router.getSubThreadCorrelation('child-A'))).not.toContain(
+      'must stay out',
+    );
+    router.close();
+  });
+
   it('forwards turn/completed only for the parent thread', () => {
     const c = makeStubClient();
     const onTurnCompleted = vi.fn();

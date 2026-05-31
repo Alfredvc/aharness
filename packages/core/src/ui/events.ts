@@ -19,6 +19,10 @@ export type FsmState = {
   path: string;
   leaf: string;
   kind: 'stateful' | 'terminal' | 'passive' | 'final';
+  open?: boolean;
+  awaiting?: boolean;
+  model?: string;
+  effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
   awaitsOwnerText?: { messageToUser: string };
   exits: Array<{ name: string; kind: 'submit' | 'await'; branchCount?: number }>;
   visitCount: number;

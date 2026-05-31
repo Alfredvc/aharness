@@ -119,7 +119,12 @@ import {
   buildAbandonedToolRequestUserInputResponse,
 } from '../runtime/abandonedThreadResponses.js';
 import { createDriveForward, type DriveForwardHandle } from '../runtime/driveForward.js';
-import { createSubmitDispatcher } from '../runtime/dispatchSubmit.js';
+import {
+  createSubmitDispatcher,
+  publicSubmitFailureMetadataSymbol,
+  type PublicSubmitFailureMetadata,
+  type SubmitFailureMetadataCarrier,
+} from '../runtime/dispatchSubmit.js';
 import { makeSerializeDispatch } from '../runtime/serializeDispatch.js';
 import { scheduleCrossStateDance } from '../runtime/crossStateDance.js';
 import { createStateModelSettings } from '../runtime/stateModelSettings.js';
@@ -736,7 +741,13 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   const threadItemToolNames = new Map<string, string>();
   const cacheMetrics = new CacheMetrics();
   const publishThreadItemStartedForUi = (item: unknown, params?: unknown): void => {
-    recordRunEvent(threadItemRunEvent('started', params, item));
+    recordRunEvent(
+      threadItemRunEvent('started', params, item, {
+        toolNames: threadItemToolNames,
+        subThreadCorrelation: (threadId) =>
+          notificationRouter.current?.getSubThreadCorrelation(threadId),
+      }),
+    );
     const event = threadItemStartedEventForUi(item);
     if (!event) return;
     if (event.type === 'function_call') {
@@ -745,13 +756,19 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     publishUiEventNonRecording(event);
   };
   const publishThreadItemCompletedForUi = (item: unknown, params?: unknown): void => {
-    recordRunEvent(threadItemRunEvent('completed', params, item));
+    recordRunEvent(
+      threadItemRunEvent('completed', params, item, {
+        toolNames: threadItemToolNames,
+        subThreadCorrelation: (threadId) =>
+          notificationRouter.current?.getSubThreadCorrelation(threadId),
+      }),
+    );
     const event = threadItemCompletedEventForUi(item, threadItemToolNames);
     if (!event) return;
     publishUiEventNonRecording(event);
   };
   const publishRawResponseItemForUi = (params: unknown): void => {
-    const input = rawResponseItemRunEvent(params);
+    const input = rawResponseItemRunEvent(params, rawResponseCallNames);
     if (input !== null) recordRunEvent(input);
     const event = rawResponseItemEventForUi(params, rawResponseCallNames);
     if (!event) return;
@@ -1686,6 +1703,115 @@ function errorCode(body: unknown): string | undefined {
   return typeof error === 'string' ? error : undefined;
 }
 
+function normalizedText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function truncateCodePoints(value: string, max: number): string {
+  const chars = [...value];
+  return chars.length <= max ? value : chars.slice(0, max).join('');
+}
+
+function publicTransitionFailureSummary(metadata: PublicSubmitFailureMetadata | undefined): string {
+  if (metadata === undefined) return 'Transition failed';
+  const summary = truncateCodePoints(normalizedText(metadata.summary), 240);
+  return summary.length > 0 ? summary : 'Transition failed';
+}
+
+function safeSubmitArgs(params: DynamicToolCallParams): { state?: string; exit?: string } {
+  const value = params.arguments;
+  let parsed: unknown = value;
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value) as unknown;
+    } catch {
+      return {};
+    }
+  }
+  const record = asUiRecord(parsed);
+  if (record === null) return {};
+  return {
+    ...(typeof record['state'] === 'string' ? { state: record['state'] } : {}),
+    ...(typeof record['exit'] === 'string' ? { exit: record['exit'] } : {}),
+  };
+}
+
+function submitFailureMetadata(
+  response: DynamicToolCallResponse,
+): PublicSubmitFailureMetadata | undefined {
+  return (response as DynamicToolCallResponse & SubmitFailureMetadataCarrier)[
+    publicSubmitFailureMetadataSymbol
+  ];
+}
+
+function displayKindForToolName(toolName: string | undefined): string | undefined {
+  if (toolName === undefined) return undefined;
+  const normalized = toolName.toLowerCase();
+  if (normalized === 'bash' || normalized.includes('exec') || normalized.includes('shell')) {
+    return 'command';
+  }
+  if (normalized.startsWith('mcp:')) return 'mcp';
+  if (normalized.includes('agent')) return 'subagent';
+  if (normalized.includes('read') || normalized === 'cat') return 'read';
+  if (normalized.includes('list') || normalized === 'ls') return 'list';
+  if (normalized.includes('search') || normalized.includes('grep') || normalized === 'rg') {
+    return 'search';
+  }
+  return 'tool';
+}
+
+function threadToolDisplayData(
+  item: Record<string, unknown>,
+  itemType: string,
+  toolName: string | undefined,
+  receiverThreadIds: ReadonlyArray<string>,
+  receiverCorrelations: ReadonlyArray<SubThreadCorrelation>,
+): RunEventPayload {
+  if (itemType === 'commandExecution' || itemType === 'execCommand') {
+    return compactRunEventPayload({
+      displayKind: 'command',
+      command:
+        readStringField(item, 'command') ??
+        readNestedStringField(item, ['params', 'command']) ??
+        readStringField(item, 'cmd'),
+      argumentsPreview: truncateCodePoints(readUiToolArguments(item, itemType), 240),
+    });
+  }
+  if (itemType === 'mcpToolCall') {
+    return compactRunEventPayload({
+      displayKind: 'mcp',
+      target: toolName,
+    });
+  }
+  if (itemType === 'spawnAgentToolCall' || itemType === 'collabAgentToolCall') {
+    const firstMetadata = receiverCorrelations.find(
+      (entry) => entry.agentNickname !== undefined || entry.agentRole !== undefined,
+    );
+    return compactRunEventPayload({
+      displayKind: 'subagent',
+      subagentAction: itemType === 'spawnAgentToolCall' ? 'spawn' : 'send',
+      agentNickname: firstMetadata?.agentNickname,
+      agentRole: firstMetadata?.agentRole,
+      receiverThreadIds: receiverThreadIds.length > 0 ? receiverThreadIds : undefined,
+      promptPreview: cappedText(readItemText(item), 160),
+      responsePreview: cappedText(
+        readStringField(item, 'response') ?? readStringField(item, 'result'),
+        240,
+      ),
+      errorPreview: cappedText(readStringField(item, 'error'), 160),
+    });
+  }
+  return compactRunEventPayload({
+    displayKind: displayKindForToolName(toolName),
+  });
+}
+
+function cappedText(value: string | undefined, max: number): string | undefined {
+  if (value === undefined) return undefined;
+  const normalized = normalizedText(value);
+  return normalized.length > 0 ? truncateCodePoints(normalized, max) : undefined;
+}
+
 function dynamicToolCallRunEvent(params: DynamicToolCallParams): RunEventAppendInput {
   const internal = params.tool === SUBMIT_TOOL_NAME;
   return {
@@ -1708,6 +1834,7 @@ function dynamicToolCallRunEvent(params: DynamicToolCallParams): RunEventAppendI
             label: params.tool,
             status: 'pending',
             summary: params.tool,
+            data: { displayKind: 'tool' },
           },
     }),
     meta: { source: METHOD.toolDynamicCall },
@@ -1720,6 +1847,9 @@ function dynamicToolResultRunEvent(
   response: DynamicToolCallResponse,
 ): RunEventAppendInput {
   const internal = params.tool === SUBMIT_TOOL_NAME;
+  const failureMetadata =
+    internal && !response.success ? submitFailureMetadata(response) : undefined;
+  const submitArgs = internal && !response.success ? safeSubmitArgs(params) : {};
   return {
     type: 'item.completed',
     threadId: params.threadId,
@@ -1735,12 +1865,25 @@ function dynamicToolResultRunEvent(
       ok: response.success,
       internal,
       row: internal
-        ? undefined
+        ? response.success
+          ? undefined
+          : {
+              kind: 'transition_failure',
+              label: 'transition failed',
+              status: 'failed',
+              summary: publicTransitionFailureSummary(failureMetadata),
+              data: compactRunEventPayload({
+                toolName: SUBMIT_TOOL_NAME,
+                state: submitArgs.state,
+                exit: submitArgs.exit,
+              }),
+            }
         : {
             kind: 'tool',
             label: params.tool,
             status: response.success ? 'completed' : 'failed',
             summary: params.tool,
+            data: { displayKind: 'tool' },
           },
     }),
     meta: { source: METHOD.toolDynamicCall },
@@ -1748,10 +1891,16 @@ function dynamicToolResultRunEvent(
   };
 }
 
+interface ThreadItemRunEventOptions {
+  readonly toolNames: ReadonlyMap<string, string>;
+  readonly subThreadCorrelation: (threadId: string) => SubThreadCorrelation | undefined;
+}
+
 function threadItemRunEvent(
   phase: 'started' | 'completed',
   params: unknown,
   item: unknown,
+  options?: ThreadItemRunEventOptions,
 ): RunEventAppendInput {
   const paramsRecord = asUiRecord(params);
   const itemRecord = asUiRecord(item);
@@ -1759,8 +1908,17 @@ function threadItemRunEvent(
   const turnId = readStringField(paramsRecord ?? {}, 'turnId');
   const itemType = itemRecord ? readStringField(itemRecord, 'type') : undefined;
   const itemId = itemRecord ? (readItemId(itemRecord) ?? undefined) : undefined;
-  const toolName = itemRecord && itemType ? readUiToolName(itemRecord, itemType) : undefined;
+  const toolName =
+    itemId !== undefined && phase === 'completed'
+      ? (options?.toolNames.get(itemId) ??
+        (itemRecord && itemType ? readUiToolName(itemRecord, itemType) : undefined))
+      : itemRecord && itemType
+        ? readUiToolName(itemRecord, itemType)
+        : undefined;
   const receiverThreadIds = itemRecord ? readReceiverThreadIds(itemRecord) : [];
+  const receiverCorrelations = receiverThreadIds
+    .map((threadId) => options?.subThreadCorrelation(threadId))
+    .filter((entry): entry is SubThreadCorrelation => entry !== undefined);
   const status =
     phase === 'started'
       ? 'started'
@@ -1784,7 +1942,15 @@ function threadItemRunEvent(
       status,
       ok: phase === 'completed' && itemRecord ? readUiToolOk(itemRecord) : undefined,
       receiverThreadIds: receiverThreadIds.length > 0 ? receiverThreadIds : undefined,
-      row: threadItemRowData(phase, itemRecord, itemType, toolName, status),
+      row: threadItemRowData(
+        phase,
+        itemRecord,
+        itemType,
+        toolName,
+        status,
+        receiverThreadIds,
+        receiverCorrelations,
+      ),
     }),
     meta: { source: phase === 'started' ? METHOD.itemStarted : METHOD.itemCompleted },
     raw: { params },
@@ -1797,6 +1963,8 @@ function threadItemRowData(
   itemType: string | undefined,
   toolName: string | undefined,
   status: string,
+  receiverThreadIds: ReadonlyArray<string>,
+  receiverCorrelations: ReadonlyArray<SubThreadCorrelation>,
 ): RunEventPayload | undefined {
   if (item === null || itemType === undefined) return undefined;
   if (isUiToolThreadItemType(itemType)) {
@@ -1805,6 +1973,13 @@ function threadItemRowData(
       label: toolName ?? itemType,
       status: phase === 'started' ? 'pending' : status,
       summary: toolName ?? itemType,
+      data: threadToolDisplayData(
+        item,
+        itemType,
+        toolName,
+        receiverThreadIds,
+        receiverCorrelations,
+      ),
     });
   }
   if (itemType === 'agentMessage' || itemType === 'userMessage' || itemType === 'reasoning') {
@@ -1823,7 +1998,10 @@ function threadItemRowData(
   });
 }
 
-function rawResponseItemRunEvent(params: unknown): RunEventAppendInput | null {
+function rawResponseItemRunEvent(
+  params: unknown,
+  callNames?: ReadonlyMap<string, string>,
+): RunEventAppendInput | null {
   const paramsRecord = asUiRecord(params);
   const item = asUiRecord(paramsRecord?.['item']);
   if (paramsRecord === null || item === null) return null;
@@ -1850,6 +2028,9 @@ function rawResponseItemRunEvent(params: unknown): RunEventAppendInput | null {
           label: name ?? 'function_call',
           status: 'pending',
           summary: name ?? 'function_call',
+          data: compactRunEventPayload({
+            displayKind: displayKindForToolName(name),
+          }),
         },
       }),
       meta: { source: METHOD.rawResponseItemCompleted },
@@ -1859,7 +2040,7 @@ function rawResponseItemRunEvent(params: unknown): RunEventAppendInput | null {
   if (itemType === 'function_call_output') {
     const callId = readStringField(item, 'call_id');
     if (callId === undefined) return null;
-    const name = readStringField(item, 'name');
+    const name = readStringField(item, 'name') ?? callNames?.get(callId);
     const ok = readUiToolOk(item);
     return {
       type: 'item.completed',
@@ -1878,6 +2059,9 @@ function rawResponseItemRunEvent(params: unknown): RunEventAppendInput | null {
           label: name ?? 'function_call',
           status: ok ? 'completed' : 'failed',
           summary: name ?? 'function_call',
+          data: compactRunEventPayload({
+            displayKind: displayKindForToolName(name),
+          }),
         },
       }),
       meta: { source: METHOD.rawResponseItemCompleted },
@@ -2948,11 +3132,16 @@ function deriveUiFsmState(host: ActorHost): FsmState {
   } catch (e) {
     entryPrompt = `(aharness: error computing entryPrompt: ${(e as Error).message})`;
   }
+  const stateModel = resolveStateModelOptions(meta.model);
 
   return {
     path,
     leaf: leafFromStatePath(path),
     kind: 'stateful',
+    ...(typeof meta.open === 'boolean' ? { open: meta.open } : {}),
+    awaiting: awaitsOwnerText !== undefined,
+    ...(stateModel.model !== undefined ? { model: stateModel.model } : {}),
+    ...(stateModel.effort !== undefined ? { effort: stateModel.effort } : {}),
     ...(awaitsOwnerText !== undefined ? { awaitsOwnerText } : {}),
     exits,
     visitCount,

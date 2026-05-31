@@ -114,6 +114,8 @@ export type ThreadSettingsUpdateResponse = Record<string, never>;
 export interface ThreadSnapshot {
   id: string;
   ephemeral: boolean;
+  agentNickname?: string | null;
+  agentRole?: string | null;
 }
 
 /**

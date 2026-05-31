@@ -39,6 +39,8 @@ export interface SubThreadCorrelation {
   readonly parentItemId?: string;
   readonly toolKind?: string;
   readonly toolName?: string;
+  readonly agentNickname?: string;
+  readonly agentRole?: string;
 }
 
 export interface SubThreadNotification {
@@ -64,6 +66,10 @@ export interface NotificationRouterHandle {
 export function startNotificationRouter(o: NotificationRouterOpts): NotificationRouterHandle {
   const subThreadIds = new Set<string>();
   const subThreadCorrelations = new Map<string, SubThreadCorrelation>();
+  const threadMetadata = new Map<
+    string,
+    { readonly agentNickname?: string; readonly agentRole?: string }
+  >();
   let currentTurnId: string | null = null;
 
   const isFromParent = (params: unknown): boolean => {
@@ -119,6 +125,7 @@ export function startNotificationRouter(o: NotificationRouterOpts): Notification
       if (typeof id !== 'string') continue;
       subThreadIds.add(id);
       if (parentThreadId !== undefined) {
+        const metadata = threadMetadata.get(id);
         subThreadCorrelations.set(id, {
           receiverThreadId: id,
           parentThreadId,
@@ -126,10 +133,40 @@ export function startNotificationRouter(o: NotificationRouterOpts): Notification
           ...(parentItemId !== undefined ? { parentItemId } : {}),
           ...(typeof i.type === 'string' ? { toolKind: i.type } : {}),
           ...(toolName !== undefined ? { toolName } : {}),
+          ...(metadata?.agentNickname !== undefined
+            ? { agentNickname: metadata.agentNickname }
+            : {}),
+          ...(metadata?.agentRole !== undefined ? { agentRole: metadata.agentRole } : {}),
         });
       }
     }
   };
+
+  const cacheThreadMetadata = (params: unknown): void => {
+    const thread = asRecord((params as { thread?: unknown } | null)?.thread);
+    if (thread === null) return;
+    const id = readStringField(thread, 'id');
+    if (id === undefined) return;
+    const agentNickname = readNullableStringField(thread, 'agentNickname');
+    const agentRole = readNullableStringField(thread, 'agentRole');
+    if (agentNickname === undefined && agentRole === undefined) return;
+    threadMetadata.set(id, {
+      ...(agentNickname !== undefined ? { agentNickname } : {}),
+      ...(agentRole !== undefined ? { agentRole } : {}),
+    });
+    const existing = subThreadCorrelations.get(id);
+    if (existing !== undefined) {
+      subThreadCorrelations.set(id, {
+        ...existing,
+        ...(agentNickname !== undefined ? { agentNickname } : {}),
+        ...(agentRole !== undefined ? { agentRole } : {}),
+      });
+    }
+  };
+
+  const off0 = o.client.onNotification(METHOD.threadStarted, (params) => {
+    cacheThreadMetadata(params);
+  });
 
   const off1 = o.client.onNotification(METHOD.turnStarted, (params) => {
     if (!isFromParent(params)) {
@@ -187,6 +224,7 @@ export function startNotificationRouter(o: NotificationRouterOpts): Notification
 
   return {
     close() {
+      off0();
       off1();
       off2();
       off3();
@@ -219,6 +257,24 @@ function readThreadId(params: unknown): string | undefined {
   if (params === null || typeof params !== 'object') return undefined;
   const tid = (params as { threadId?: unknown }).threadId;
   return typeof tid === 'string' ? tid : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function readStringField(record: Record<string, unknown>, field: string): string | undefined {
+  const value = record[field];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function readNullableStringField(
+  record: Record<string, unknown>,
+  field: string,
+): string | undefined {
+  const value = record[field];
+  return typeof value === 'string' ? value : undefined;
 }
 
 function readTurnId(params: unknown): string | null {

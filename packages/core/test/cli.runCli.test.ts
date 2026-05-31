@@ -2137,6 +2137,18 @@ describe('runCliForTest — pre-spawn gates', () => {
       });
       transport.onMessage?.({
         jsonrpc: '2.0',
+        method: METHOD.threadStarted,
+        params: {
+          thread: {
+            id: 'child-thread',
+            ephemeral: false,
+            agentNickname: 'Researcher',
+            agentRole: 'review',
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
         method: METHOD.itemStarted,
         params: {
           threadId,
@@ -2171,6 +2183,36 @@ describe('runCliForTest — pre-spawn gates', () => {
           },
         },
       });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: 9299,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          callId: 'call-bad-submit',
+          tool: 'aharness_submit',
+          arguments: { state: 'greet', exit: 'missing', data: { secret: 'do not show' } },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: 9298,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          callId: 'call-malformed-submit',
+          tool: 'aharness_submit',
+          arguments: '{"state":"greet","exit":"finish","data":"parser sentinel must stay out"',
+        },
+      });
+      const badSubmitReply = await waitForOutbound(
+        (msg) => msg.id === 9299 && msg.result !== undefined,
+      );
+      await waitForOutbound((msg) => msg.id === 9298 && msg.result !== undefined);
+      expect(JSON.stringify(badSubmitReply.result)).not.toContain('publicFailure');
+      expect(JSON.stringify(badSubmitReply.result)).not.toContain('do not show');
       transport.onMessage?.({
         jsonrpc: '2.0',
         id: 9300,
@@ -2237,6 +2279,15 @@ describe('runCliForTest — pre-spawn gates', () => {
           data: expect.objectContaining({
             receiverThreadIds: ['child-thread'],
             toolName: 'spawn_agent',
+            row: expect.objectContaining({
+              data: expect.objectContaining({
+                displayKind: 'subagent',
+                subagentAction: 'spawn',
+                agentNickname: 'Researcher',
+                agentRole: 'review',
+                receiverThreadIds: ['child-thread'],
+              }),
+            }),
           }),
           raw: {
             params: expect.objectContaining({
@@ -2292,8 +2343,39 @@ describe('runCliForTest — pre-spawn gates', () => {
             }),
           },
         }),
+        expect.objectContaining({
+          type: 'item.completed',
+          itemId: 'call-bad-submit',
+          data: expect.objectContaining({
+            itemType: 'dynamicToolCall',
+            toolName: 'aharness_submit',
+            internal: true,
+            row: expect.objectContaining({
+              kind: 'transition_failure',
+              summary: expect.stringContaining('Off-exit submit'),
+              data: expect.objectContaining({
+                toolName: 'aharness_submit',
+                state: 'greet',
+                exit: 'missing',
+              }),
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          type: 'item.completed',
+          itemId: 'call-malformed-submit',
+          data: expect.objectContaining({
+            row: expect.objectContaining({
+              kind: 'transition_failure',
+              summary: 'Transition failed',
+            }),
+          }),
+        }),
       ]),
     );
+    const compactRows = eventEntries.map((entry) => entry.data?.row).filter(Boolean);
+    expect(JSON.stringify(compactRows)).not.toContain('do not show');
+    expect(JSON.stringify(compactRows)).not.toContain('parser sentinel must stay out');
   });
 
   it('routes browser replies, notifications, metadata, and file-change correlation through the active binding', async () => {

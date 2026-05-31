@@ -186,6 +186,31 @@ export type SubmitDispatcher = (
   meta?: ServerRequestMeta,
 ) => Promise<DynamicToolCallResponse>;
 
+export interface PublicSubmitFailureMetadata {
+  readonly summary: string;
+}
+
+export const publicSubmitFailureMetadataSymbol: unique symbol = Symbol(
+  'aharness.publicSubmitFailureMetadata',
+);
+
+export type SubmitFailureMetadataCarrier = {
+  readonly [publicSubmitFailureMetadataSymbol]?: PublicSubmitFailureMetadata;
+};
+
+function attachPublicFailureMetadata(
+  response: DynamicToolCallResponse,
+  metadata: PublicSubmitFailureMetadata | undefined,
+): DynamicToolCallResponse {
+  if (metadata === undefined) return response;
+  Object.defineProperty(response, publicSubmitFailureMetadataSymbol, {
+    value: metadata,
+    enumerable: false,
+    configurable: false,
+  });
+  return response;
+}
+
 /**
  * Build a submit dispatcher closed over one run's host + sidecar. The
  * returned function is the JSON-RPC server-request handler the runtime
@@ -224,6 +249,7 @@ async function dispatch(
   if (state !== cur) {
     return errReply(
       `Off-state submit. Current state is '${cur}'; you submitted for '${state}'. Re-call submit with state='${cur}'.`,
+      `Off-state submit. Current state is '${cur}'; submitted state was '${state}'.`,
     );
   }
 
@@ -246,6 +272,7 @@ async function dispatch(
     return errReply(
       `Off-exit submit. State '${cur}' has no submit exit named '${exit}'. ` +
         `Valid submit exits: ${validSubmitExits || '(none)'}.`,
+      `Off-exit submit. State '${cur}' has no submit exit named '${exit}'.`,
     );
   }
 
@@ -259,7 +286,10 @@ async function dispatch(
     const lines = validation.errors
       .map((e) => `  - ${humanizeAjvPath(e.path)} ${e.message}`)
       .join('\n');
-    return errReply(`Schema validation failed:\n${lines}`);
+    return errReply(
+      `Schema validation failed:\n${lines}`,
+      publicSchemaFailureSummary(validation.errors),
+    );
   }
 
   // Step 5: dry-run + projected orientation/posture resolution. If
@@ -386,6 +416,7 @@ async function dispatch(
         `'${dry.nextStateId}', which is passive. Passive states have no exits and ` +
         `cannot be submit targets. This is an authoring error in the FSM — submit ` +
         `not applied.`,
+      `Submit rejected: exit '${exit}' on state '${cur}' targets passive state '${dry.nextStateId}'.`,
     );
   }
 
@@ -712,8 +743,19 @@ function currentStateDeclaresClearOnEntry(host: ActorHost): boolean {
   return meta !== undefined && Object.prototype.hasOwnProperty.call(meta, 'clearOnEntry');
 }
 
-function errReply(text: string): DynamicToolCallResponse {
-  return { success: false, contentItems: [{ type: 'inputText', text }] };
+function errReply(text: string, publicSummary?: string): DynamicToolCallResponse {
+  return attachPublicFailureMetadata(
+    { success: false, contentItems: [{ type: 'inputText', text }] },
+    publicSummary === undefined ? undefined : { summary: publicSummary },
+  );
+}
+
+function publicSchemaFailureSummary(
+  errors: ReadonlyArray<{ path: string; message: string }>,
+): string {
+  const first = errors[0];
+  if (first === undefined) return 'Schema validation failed';
+  return `Schema validation failed at ${humanizeAjvPath(first.path)}: ${first.message}`;
 }
 
 function selectCanonicalSubmitBranch(

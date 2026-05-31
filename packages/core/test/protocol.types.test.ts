@@ -120,7 +120,12 @@ describe('protocol request/response types', () => {
     expectTypeOf<ThreadStartResponse>().toMatchTypeOf<{
       thread: ThreadSnapshot;
     }>();
-    expectTypeOf<ThreadSnapshot>().toMatchTypeOf<{ id: string; ephemeral: boolean }>();
+    expectTypeOf<ThreadSnapshot>().toMatchTypeOf<{
+      id: string;
+      ephemeral: boolean;
+      agentNickname?: string | null;
+      agentRole?: string | null;
+    }>();
   });
 
   it('config/read request and response expose effective model fields', () => {

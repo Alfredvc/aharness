@@ -30,6 +30,10 @@ const fsmState: FsmState = {
   path: 'root.work',
   leaf: 'work',
   kind: 'stateful',
+  open: true,
+  awaiting: true,
+  model: 'gpt-5-codex',
+  effort: 'high',
   awaitsOwnerText: { messageToUser: 'secret owner-facing prompt' },
   exits: [
     { name: 'done', kind: 'submit', branchCount: 2 },
@@ -443,6 +447,98 @@ describe('run event adapter', () => {
             ok: false,
             resultId: 'call-1:output',
           }),
+        }),
+      }),
+    );
+  });
+
+  it('adds safe display metadata to state-change and tool compact rows', () => {
+    const stateInput = appEventToRunEventAppendInput({
+      kind: 'StateChange',
+      from: 'root.plan',
+      to: 'root.work',
+      cause: 'submit',
+      newState: fsmState,
+    });
+    expect(stateInput?.data?.['row']).toEqual(
+      expect.objectContaining({
+        kind: 'state_change',
+        data: expect.objectContaining({
+          from: 'root.plan',
+          to: 'root.work',
+          cause: 'submit',
+          visitCount: 3,
+          stateKind: 'stateful',
+          open: true,
+          awaiting: true,
+          model: 'gpt-5-codex',
+          effort: 'high',
+        }),
+      }),
+    );
+
+    const toolInput = appEventToRunEventAppendInput({
+      kind: 'ItemStarted',
+      id: 'call-safe-tool',
+      type: 'function_call',
+      name: 'bash',
+      arguments: 'tool arguments must stay out',
+    });
+    expect(toolInput?.data?.['row']).toEqual(
+      expect.objectContaining({
+        kind: 'tool',
+        data: { displayKind: 'command' },
+      }),
+    );
+    expectNoSensitivePayload(toolInput);
+  });
+
+  it('records lifecycle compact rows for live and legacy terminal writes', () => {
+    const runDir = tempRunDir('run-lifecycle-rows');
+    const uiEventLog = createUiEventLog({ run: { ...runMeta, runId: runDir.runId } });
+    const publisher = createLiveRunEventPublisher({
+      runDir,
+      runMeta: { ...runMeta, runId: runDir.runId },
+      uiEventLog,
+      stderr: { write: () => true } as unknown as NodeJS.WritableStream,
+    });
+
+    publisher.publishRunStarted();
+    publisher.publishRunTerminal({ state: 'done', terminal: 'success' });
+
+    const envelopes = readFileSync(runDir.eventsPath, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(envelopes).toEqual([
+      expect.objectContaining({
+        type: 'run.started',
+        data: expect.objectContaining({
+          row: expect.objectContaining({ kind: 'run_lifecycle', status: 'started' }),
+        }),
+      }),
+      expect.objectContaining({
+        type: 'run.completed',
+        data: expect.objectContaining({
+          status: 'success',
+          terminal: 'success',
+          row: expect.objectContaining({ kind: 'run_lifecycle', status: 'completed' }),
+        }),
+      }),
+    ]);
+
+    expect(
+      legacyEventInputToRunEventAppendInput({
+        kind: 'terminal',
+        state: 'failed',
+        terminal: 'failure',
+      }),
+    ).toEqual(
+      expect.objectContaining({
+        type: 'run.failed',
+        data: expect.objectContaining({
+          status: 'failure',
+          row: expect.objectContaining({ kind: 'run_lifecycle', status: 'failed' }),
         }),
       }),
     );

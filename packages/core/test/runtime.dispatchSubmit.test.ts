@@ -42,7 +42,11 @@ import { aharness, state, terminal, passive, exit, createFsm } from '@aharness/c
 import type { SchemaSidecar } from '@aharness/core';
 
 import { ActorHost } from '../src/runtime/actorHost.js';
-import { createSubmitDispatcher } from '../src/runtime/dispatchSubmit.js';
+import {
+  createSubmitDispatcher,
+  publicSubmitFailureMetadataSymbol,
+  type SubmitFailureMetadataCarrier,
+} from '../src/runtime/dispatchSubmit.js';
 import { composeStateNudge } from '../src/runtime/nudge.js';
 import type { DynamicToolCallParams } from '../src/protocol/types.js';
 import type { ClearOnEntryMeta } from '../src/state/exits.js';
@@ -74,6 +78,10 @@ function call(args: unknown): DynamicToolCallParams {
     tool: 'aharness_submit',
     arguments: args as DynamicToolCallParams['arguments'],
   };
+}
+
+function publicFailureSummary(response: unknown): string | undefined {
+  return (response as SubmitFailureMetadataCarrier)[publicSubmitFailureMetadataSymbol]?.summary;
 }
 
 // Two-state machine `a → b` where `b` is terminal. Exercises the
@@ -591,6 +599,8 @@ describe('createSubmitDispatcher — Phase 1', () => {
     expect(text).toMatch(/Off-state submit/);
     expect(text).toContain("'a'");
     expect(text).toContain("'WRONG'");
+    expect(publicFailureSummary(r)).toContain('Off-state submit');
+    expect(JSON.stringify(r)).not.toContain('publicSubmitFailureMetadata');
     expect(host.currentStateId()).toBe('a');
     expect(flush).not.toHaveBeenCalled();
   });
@@ -610,6 +620,9 @@ describe('createSubmitDispatcher — Phase 1', () => {
     expect(text).toMatch(/Off-exit submit/);
     expect(text).toContain("'a'");
     expect(text).toContain("'NOT_AN_EXIT'");
+    expect(publicFailureSummary(r)).toBe(
+      "Off-exit submit. State 'a' has no submit exit named 'NOT_AN_EXIT'.",
+    );
     expect(host.currentStateId()).toBe('a');
     expect(flush).not.toHaveBeenCalled();
   });
@@ -628,6 +641,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
     );
     expect(r.success).toBe(false);
     const text = r.contentItems[0]?.type === 'inputText' ? r.contentItems[0].text : '';
+    expect(publicFailureSummary(r)).toContain('Schema validation failed');
     expect(text).toMatch(/Schema validation failed/);
     expect(text).toContain('data.inc must be number');
     expect(host.currentStateId()).toBe('a');
@@ -845,6 +859,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
       type: 'inputText',
       text: expect.stringContaining('submit exploded'),
     });
+    expect(publicFailureSummary(r)).toBeUndefined();
     expect(host.currentStateId()).toBe('a');
     expect(host.currentContext()).toMatchObject({ nested: { marks: [] } });
   });

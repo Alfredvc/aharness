@@ -25,6 +25,24 @@ export function compactRunEventPayload<T extends Record<string, unknown>>(
   return compactRecord(record);
 }
 
+export function runLifecycleRow(input: {
+  readonly event: 'run.started' | 'run.completed' | 'run.failed';
+  readonly status: 'started' | 'completed' | 'failed';
+  readonly summary?: string;
+}): RunEventPayload {
+  return compactRecord({
+    kind: 'run_lifecycle',
+    label:
+      input.event === 'run.started'
+        ? 'run started'
+        : input.event === 'run.completed'
+          ? 'run completed'
+          : 'run failed',
+    status: input.status,
+    summary: input.summary,
+  });
+}
+
 export function enrichRunEventAppendInput(
   input: RunEventAppendInput | null,
   additions: Partial<RunEventAppendInput>,
@@ -107,6 +125,45 @@ function stateIdentity(state: FsmState): RunEventPayload {
       }),
     ),
   });
+}
+
+function stateRowData(event: Extract<AppEvent, { kind: 'StateChange' }>): RunEventPayload {
+  const state = event.newState;
+  return compactRecord({
+    from: event.from,
+    to: event.to,
+    cause: event.cause,
+    visitCount: state.visitCount,
+    stateKind: state.kind,
+    open: typeof state.open === 'boolean' ? state.open : undefined,
+    awaiting: typeof state.awaiting === 'boolean' ? state.awaiting : undefined,
+    model: typeof state.model === 'string' && state.model.length > 0 ? state.model : undefined,
+    effort:
+      state.effort === 'none' ||
+      state.effort === 'minimal' ||
+      state.effort === 'low' ||
+      state.effort === 'medium' ||
+      state.effort === 'high' ||
+      state.effort === 'xhigh'
+        ? state.effort
+        : undefined,
+  });
+}
+
+function displayKindForToolName(toolName: string | undefined): string | undefined {
+  if (toolName === undefined) return undefined;
+  const normalized = toolName.toLowerCase();
+  if (normalized === 'bash' || normalized.includes('exec') || normalized.includes('shell')) {
+    return 'command';
+  }
+  if (normalized.includes('read') || normalized === 'cat') return 'read';
+  if (normalized.includes('list') || normalized === 'ls') return 'list';
+  if (normalized.includes('search') || normalized.includes('grep') || normalized === 'rg') {
+    return 'search';
+  }
+  if (normalized.startsWith('mcp:')) return 'mcp';
+  if (normalized.includes('agent')) return 'subagent';
+  return 'tool';
 }
 
 function ownerInputRequestData(event: OwnerInputRequest): RunEventPayload {
@@ -291,6 +348,9 @@ function itemInput(event: ItemStarted): RunEventAppendInput {
           label: event.name,
           status: 'pending',
           summary: event.name,
+          data: compactRecord({
+            displayKind: displayKindForToolName(event.name),
+          }),
         },
       }),
     };
@@ -316,6 +376,9 @@ function itemInput(event: ItemStarted): RunEventAppendInput {
           output: event.output,
           ok: event.ok,
           resultId: event.id,
+          data: compactRecord({
+            displayKind: displayKindForToolName(event.name),
+          }),
         },
       }),
     };
@@ -384,6 +447,7 @@ export function appEventToRunEventAppendInput(event: AppEvent): RunEventAppendIn
             label: event.to,
             status: event.cause,
             summary: event.from === null ? event.to : `${event.from} -> ${event.to}`,
+            data: stateRowData(event),
           },
         }),
       };
@@ -574,6 +638,11 @@ export function legacyEventInputToRunEventAppendInput(
           state: input.state,
           terminal: input.terminal,
           status: input.terminal,
+          row: runLifecycleRow({
+            event: input.terminal === 'failure' ? 'run.failed' : 'run.completed',
+            status: input.terminal === 'failure' ? 'failed' : 'completed',
+            summary: `Run ${input.terminal === 'failure' ? 'failed' : 'completed'} at ${input.state}`,
+          }),
         },
       };
     case 'abandonedThreadResidue':

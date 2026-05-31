@@ -250,9 +250,11 @@ These routes return compact JSONL-backed projections and canonical run-event
 SSE frames for bootstrap, row, diagnostic event, stream, and reply workflows.
 API and SSE responses omit raw payloads; use the sensitive `events.jsonl` file
 only when raw runtime evidence is needed. The React browser now uses the
-run-scoped bootstrap, row, stream, and reply surface. It renders compact rows
-and aggregate running-time/token/context stats in the header and bottom status
-bar instead of a top turn count or bottom turn ribbon. The old flat
+run-scoped bootstrap, row, stream, and reply surface. Compact rows include
+durable run lifecycle status and safe transition-failure summaries for failed
+internal submit attempts. It renders compact rows and aggregate
+running-time/token/context stats in the header and bottom status bar instead of
+a top turn count or bottom turn ribbon. The old flat
 `/api/state`, `/api/stream`, and `/api/reply` browser routes are no longer
 served for new runs. Production live runs do not write `snapshot.json`; retained
 snapshot helper exports are legacy/internal compatibility only.

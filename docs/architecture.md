@@ -124,9 +124,11 @@ directories should therefore be handled as sensitive material.
 Run-scoped routes under `/api/runs/:runId/` serve compact JSONL-backed
 projections for bootstrap state, visit rows, recent rows, diagnostic event
 pages, canonical run-event SSE, and replies. These HTTP/SSE responses omit raw
-payloads; raw evidence remains in `events.jsonl`. The React browser uses the
-run-scoped bootstrap, row, stream, and reply routes after the CLI hands it
-`token` and `runId` query params. Its shell defaults to compact JSONL-backed
+payloads; raw evidence remains in `events.jsonl`. Compact rows include durable
+run lifecycle status and normalized transition-failure summaries for failed
+internal submit attempts without exposing submitted payloads. The React browser
+uses the run-scoped bootstrap, row, stream, and reply routes after the CLI hands
+it `token` and `runId` query params. Its shell defaults to compact JSONL-backed
 chronological run rows, supports selected-state visit grouping, and shows
 aggregate running-time, token, and context-window stats; the old top turn count
 and bottom turn ribbon are no longer user-facing chrome. The old flat

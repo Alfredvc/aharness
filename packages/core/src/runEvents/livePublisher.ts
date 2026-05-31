@@ -1,7 +1,7 @@
 import type { RunDir } from '../types.js';
 import type { AppEvent, FrameworkNote, ReplayableAppEvent, RunMeta } from '../ui/events.js';
 import type { UiEventLog } from '../ui/sse.js';
-import { appEventToRunEventAppendInput } from './adapter.js';
+import { appEventToRunEventAppendInput, runLifecycleRow } from './adapter.js';
 import { appendRunEvent, type RunEventRecorder } from './recorder.js';
 import type { RunEventAppendInput, RunEventEnvelope, RunEventWithOffset } from './types.js';
 import type { RunEventAppendResult, RunEventWriterWarning } from './writer.js';
@@ -134,6 +134,11 @@ export function createLiveRunEventPublisher(
           fsmHash6: options.runMeta.fsmHash6,
           codexPin: options.runMeta.codexPin,
           startedAt: options.runMeta.startedAt,
+          row: runLifecycleRow({
+            event: 'run.started',
+            status: 'started',
+            summary: 'Run started',
+          }),
         },
       });
     },
@@ -144,6 +149,11 @@ export function createLiveRunEventPublisher(
           state: input.state,
           terminal: input.terminal,
           status: input.terminal,
+          row: runLifecycleRow({
+            event: input.terminal === 'failure' ? 'run.failed' : 'run.completed',
+            status: input.terminal === 'failure' ? 'failed' : 'completed',
+            summary: `Run ${input.terminal === 'failure' ? 'failed' : 'completed'} at ${input.state}`,
+          }),
         },
       });
     },
@@ -153,6 +163,11 @@ export function createLiveRunEventPublisher(
         data: {
           status: 'failed',
           message,
+          row: runLifecycleRow({
+            event: 'run.failed',
+            status: 'failed',
+            summary: 'Run failed',
+          }),
         },
       });
     },
