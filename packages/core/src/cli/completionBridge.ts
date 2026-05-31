@@ -157,10 +157,6 @@ export async function runCompletionBridge(
       return { exitCode: 0 };
     }
     if (context.kind === 'other-subcommand') {
-      const firstToken = tokens[1];
-      if (firstToken && FILE_PATH_SUBCOMMANDS.has(firstToken) && parsed.last === '') {
-        emitNativeFileCompletion(opts.stdout);
-      }
       return { exitCode: 0 };
     }
 

@@ -482,6 +482,12 @@ describe('runCompletionBridge — flag-name completion', () => {
     expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
   });
 
+  it('emits visualize FSM flags after the target', async () => {
+    const lines = await captureBridge(`aharness visualize ${fixture} --`);
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
+  });
+
   it('does not scan later .ts flag values for direct FSM input completion', async () => {
     const lines = await captureBridge(`aharness build --spec ${fixture} --`);
     expect(lines).toEqual([]);
@@ -663,6 +669,16 @@ describe('runCompletionBridge — FSM path completion', () => {
   it('delegates to shell file completion while completing a verify target path', async () => {
     const lines = await captureBridge('aharness verify ./');
     expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+
+  it('does not delegate to shell file completion after a verify target', async () => {
+    const lines = await captureBridge(`aharness verify ${fixture} `);
+    expect(lines).toEqual([]);
+  });
+
+  it('does not delegate to shell file completion after a visualize target', async () => {
+    const lines = await captureBridge(`aharness visualize ${fixture} `);
+    expect(lines).not.toContain('__tabtab_complete_files__');
   });
 });
 
