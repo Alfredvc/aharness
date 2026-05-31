@@ -210,6 +210,14 @@ Machine inputs become kebab-case flags for `aharness <file.fsm.ts>` and
 provided flags are checked for name/type validity but are not used to start an
 actor.
 
+`aharness completion install` delegates to `@pnpm/tabtab` and writes the
+shell-side completion delegate for bash, zsh, or fish. That delegate invokes
+the hidden `aharness completion-server` bridge on every Tab press; bare
+`aharness completion` is kept as a compatibility alias for the same bridge.
+Before an FSM path is resolved, completion delegates to the shell's file
+completion; after an FSM path is resolved, it suggests that FSM's input flags
+and supported flag values.
+
 `aharness verify` checks an FSM without starting a run. `aharness doctor` checks
 the Codex CLI version gate and reports active run health from `.aharness/runs`.
 `aharness visualize` verifies and opens the browser graph/details UI in

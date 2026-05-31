@@ -33,6 +33,22 @@ function buildStubs() {
       void o;
       return { exitCode: 0 };
     }),
+    runCompletionInstall: vi.fn(
+      async (o: { name?: string; completer?: string; shell?: 'bash' | 'zsh' | 'fish' }) => {
+        void o;
+        return { exitCode: 0 };
+      },
+    ),
+    runCompletionUninstall: vi.fn(async (o: { name?: string }) => {
+      void o;
+      return { exitCode: 0 };
+    }),
+    runCompletionBridge: vi.fn(
+      async (o: { env: NodeJS.ProcessEnv; cwd: string; stdout: NodeJS.WritableStream }) => {
+        void o;
+        return { exitCode: 0 };
+      },
+    ),
     runInit: vi.fn(
       async (o: {
         dir: string;
@@ -497,6 +513,20 @@ describe('dispatch', () => {
     expect(r).toEqual({ exitCode: 0 });
     expect(elapsed).toBeLessThan(600);
     expect(runCompletionBridge).toHaveBeenCalledOnce();
+  });
+
+  it('routes tabtab completion-server invocations to the completion bridge', async () => {
+    const s = buildStubs();
+    const cap = captureStderr();
+    const r = await dispatch(['completion-server', '--', 'aharness', 'visualize'], {
+      ...s,
+      stderr: cap.stream,
+    });
+
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runCompletionBridge).toHaveBeenCalledOnce();
+    expect(s.runDefault).not.toHaveBeenCalled();
+    expect(cap.text()).toBe('');
   });
 });
 

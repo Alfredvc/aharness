@@ -10,9 +10,10 @@
  *     shell-completion setup via `@pnpm/tabtab`.
  *   - `aharness completion uninstall` — removes the tabtab-installed
  *     completion script(s).
- *   - `aharness completion` — per-Tab bridge invoked by the shell-side
- *     delegate script that tabtab installs. Bounded by a 500 ms
- *     watchdog so a stuck import never hangs the user's shell.
+ *   - `aharness completion-server` — per-Tab bridge invoked by the
+ *     shell-side delegate script that tabtab installs. Bounded by a 500 ms
+ *     watchdog so a stuck import never hangs the user's shell. Bare
+ *     `aharness completion` remains a compatibility alias for the bridge.
  *   - `aharness install <source>` — npm-backed installed package mutation.
  *   - `aharness run <command>` — installed package command execution.
  *   - `aharness list` — installed package command listing.
@@ -107,6 +108,9 @@ export async function dispatch(
   if (cmd === 'doctor') {
     return d.runDoctor();
   }
+  if (cmd === 'completion-server') {
+    return runCompletionBridgeWithWatchdog(d);
+  }
   if (cmd === 'completion') {
     const sub = rest[0];
     if (sub === 'install') {
@@ -118,18 +122,7 @@ export async function dispatch(
     }
     if (sub === 'uninstall') return d.runCompletionUninstall({});
     if (sub === undefined) {
-      // Per-Tab bridge — wrap in a 500 ms watchdog at the dispatcher level.
-      // process.exit lives at the binary's `.then` handler, NOT inside
-      // runCompletionBridge — putting `process.exit` in the bridge would
-      // kill the test runner when the bridge is unit-tested.
-      const WATCHDOG_MS = 500;
-      const result = await Promise.race([
-        d.runCompletionBridge({ env: process.env, cwd: process.cwd(), stdout: process.stdout }),
-        new Promise<{ exitCode: number }>((resolve) =>
-          setTimeout(() => resolve({ exitCode: 0 }), WATCHDOG_MS),
-        ),
-      ]);
-      return result;
+      return runCompletionBridgeWithWatchdog(d);
     }
     return { exitCode: usage(stderr) };
   }
@@ -201,6 +194,20 @@ function isDirectVerifyTarget(target: string): boolean {
     target.startsWith('../') ||
     isAbsolute(target)
   );
+}
+
+async function runCompletionBridgeWithWatchdog(d: Dispatcher): Promise<{ exitCode: number }> {
+  // Per-Tab bridge — wrap in a 500 ms watchdog at the dispatcher level.
+  // process.exit lives at the binary's `.then` handler, NOT inside
+  // runCompletionBridge — putting `process.exit` in the bridge would
+  // kill the test runner when the bridge is unit-tested.
+  const WATCHDOG_MS = 500;
+  return Promise.race([
+    d.runCompletionBridge({ env: process.env, cwd: process.cwd(), stdout: process.stdout }),
+    new Promise<{ exitCode: number }>((resolve) =>
+      setTimeout(() => resolve({ exitCode: 0 }), WATCHDOG_MS),
+    ),
+  ]);
 }
 
 function parseFsmPathAndInputArgs(

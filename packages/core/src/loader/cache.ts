@@ -60,7 +60,7 @@ import type { ArgFlagMeta } from './inputSchema.js';
  *
  * v3 (2026-05-08): adds optional `inputSchema` + `inputFlags` fields for
  *   `arg<T>()` / `input` declarations on the root machine config. Phase 4's
- *   `aharness __complete` consumes these for shell completion.
+ *   `aharness completion-server` bridge consumes these for shell completion.
  *
  *   The `inputFlags` value persists `{dynamic: true}` as a sentinel for
  *   `completion: {dynamic: <fn>}` — the function reference is not

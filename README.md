@@ -301,6 +301,13 @@ aharness completion uninstall
 Machine inputs become kebab-case flags, so `fixtureRoot` becomes
 `--fixture-root`.
 
+`aharness completion install` uses `@pnpm/tabtab`; the installed shell delegate
+calls the hidden `aharness completion-server` bridge on each Tab press. Bare
+`aharness completion` remains a compatibility alias for the same bridge. Before
+an FSM path is resolved, completion delegates to the shell's file completion;
+after an FSM path is resolved, it suggests that FSM's input flags and supported
+flag values.
+
 `--yolo` is a dangerous live-runtime flag for direct FSM runs and installed
 command runs. It starts Codex with `approval_policy="never"` and
 `sandbox_mode="danger-full-access"`, mirroring Codex's dangerous bypass mode.

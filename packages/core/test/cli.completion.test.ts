@@ -113,6 +113,23 @@ describe('runCompletionBridge — flag-name completion', () => {
   });
 });
 
+describe('runCompletionBridge — FSM path completion', () => {
+  it('delegates to shell file completion when the cursor is after aharness', async () => {
+    const lines = await captureBridge('aharness ');
+    expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+
+  it('delegates to shell file completion while completing a direct FSM path', async () => {
+    const lines = await captureBridge('aharness packages/core/test/fixtures/args/');
+    expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+
+  it('delegates to shell file completion after the visualize subcommand', async () => {
+    const lines = await captureBridge('aharness visualize ');
+    expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+});
+
 describe('runCompletionBridge — static value completion', () => {
   it('emits matching values for completion: {values: [...]}', async () => {
     const lines = await captureBridge(`aharness ${fixture} --choice a`);

@@ -70,6 +70,18 @@ export interface CompletionBridgeOpts {
  * either time out or produce visibly slow Tab feel.
  */
 const FILE_ENUMERATE_CAP = 1000;
+const TABTAB_FILE_COMPLETION_SENTINEL = '__tabtab_complete_files__';
+const FILE_PATH_SUBCOMMANDS = new Set(['verify', 'visualize']);
+const NON_FILE_PATH_SUBCOMMANDS = new Set([
+  'completion',
+  'completion-server',
+  'doctor',
+  'init',
+  'install',
+  'list',
+  'run',
+  'uninstall',
+]);
 
 type FlagsMap = Record<string, ArgFlagMeta | undefined>;
 
@@ -86,7 +98,12 @@ export async function runCompletionBridge(
 
     const tokens = tokeniseLine(parsed.line, parsed.point);
     const fsmPath = findFsmPath(tokens, opts.cwd);
-    if (!fsmPath) return { exitCode: 0 };
+    if (!fsmPath) {
+      if (shouldDelegateFsmPathCompletion(tokens, parsed.last)) {
+        emitShellFileCompletion(opts.stdout);
+      }
+      return { exitCode: 0 };
+    }
 
     const extraction = await extractSchemaSidecar({ filePath: fsmPath });
     const flags: FlagsMap = extraction.inputFlags ?? {};
@@ -166,6 +183,19 @@ function findFsmPath(tokens: ReadonlyArray<string>, cwd: string): string | null 
     if (fs.existsSync(abs)) return abs;
   }
   return null;
+}
+
+function shouldDelegateFsmPathCompletion(tokens: ReadonlyArray<string>, last: string): boolean {
+  if (last.startsWith('--')) return false;
+  const firstNonFlag = tokens.slice(1).find((t) => !t.startsWith('--'));
+  if (!firstNonFlag) return true;
+  if (FILE_PATH_SUBCOMMANDS.has(firstNonFlag)) return true;
+  if (NON_FILE_PATH_SUBCOMMANDS.has(firstNonFlag)) return false;
+  return true;
+}
+
+function emitShellFileCompletion(stdout: NodeJS.WritableStream): void {
+  stdout.write(`${TABTAB_FILE_COMPLETION_SENTINEL}\n`);
 }
 
 /**
