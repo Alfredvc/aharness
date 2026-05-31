@@ -175,7 +175,7 @@ export type UiState = {
   replyError: string | null;
   rowLoadError: string | null;
   activeVisitId: string | null;
-  scopedPath: string | null; // user-pinned scope by state path (covers all visits); null = follow active
+  scopedPath: string | null; // selected state path (covers all visits); null = run transcript
   devMode: boolean;
 };
 
