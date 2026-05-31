@@ -366,6 +366,19 @@ changes the managed package tree, unverified commands are not indexed; see
 [`docs/troubleshooting.md`](docs/troubleshooting.md) for recovery and lock
 fingerprint mismatch guidance.
 
+
+## Possible upcoming features
+- [ ] Separate aharness engine and visualization to support `aharness submit X` to run in background. Single UI to show all running `aharness`.
+- [ ] Support sending events to remote UI. This will allow to consolidate runs from multiple machines into same UI.
+- [ ] Release `@aharness/supowerpowers` package for easy adoption for current supowerpowers users.
+- [ ] Better validator / runtime support for:
+  - Fully autonomous runs
+  - Last resort human escalation runs
+- [ ] Index of community published FSMs.
+- [ ] Claude code / OpenCode / Pi support.
+
+
+
 ## Documentation
 
 - [`docs/authoring.md`](docs/authoring.md) teaches the coding-workflow mental
