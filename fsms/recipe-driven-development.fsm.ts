@@ -82,6 +82,7 @@ interface Data {
   sliceFixCycles: number;
   finalSummary: string | null;
   blocker: string | null;
+  failureHandoffSummary: string | null;
   recoveryPhase: RecoveryPhase | null;
   recoveryReason: string | null;
   recoveryEvidence: string | null;
@@ -236,6 +237,7 @@ function resetSliceRuntime(draft: Data): void {
   draft.nextSlice = null;
   draft.planFixCycles = 0;
   draft.sliceFixCycles = 0;
+  draft.failureHandoffSummary = null;
   resetRecovery(draft);
 }
 
@@ -372,6 +374,7 @@ function renderReport(data: Readonly<Data>): string {
     `Acceptance: ${data.acceptanceSummary ?? 'not recorded'}`,
     `Verification: ${data.verificationSummary ?? 'not recorded'}`,
     `Fix: ${data.fixSummary ?? 'not recorded'}`,
+    `Failure handoff: ${data.failureHandoffSummary ?? 'not recorded'}`,
     `Changed files: ${data.changedFiles.length > 0 ? data.changedFiles.join(', ') : 'none'}`,
     `Staged files: ${data.stagedFiles.length > 0 ? data.stagedFiles.join(', ') : 'none'}`,
     `Verification commands: ${
@@ -407,7 +410,7 @@ export const machine = fsm.machine({
     }),
     maxFixCycles: fsm.input.number({
       description: 'Maximum plan/slice fix cycles before blocking for owner review',
-      default: 1,
+      default: 3,
     }),
     maxRecoveryAttempts: fsm.input.number({
       description: 'Autonomous recovery attempts before terminal failure',
@@ -454,6 +457,7 @@ export const machine = fsm.machine({
     sliceFixCycles: 0,
     finalSummary: null,
     blocker: null,
+    failureHandoffSummary: null,
     recoveryPhase: null,
     recoveryReason: null,
     recoveryEvidence: null,
@@ -700,7 +704,7 @@ export const machine = fsm.machine({
               },
             },
             {
-              to: 'failed',
+              to: 'recordFailureHandoff',
               reduce: (draft, payload) => {
                 const summary = `Plan review still has blocking findings after ${draft.planFixCycles} fix cycle(s): ${payload.blockingFindings.join('; ')}`;
                 draft.currentPhase = 'review-plan';
@@ -862,7 +866,7 @@ export const machine = fsm.machine({
               },
             },
             {
-              to: 'failed',
+              to: 'recordFailureHandoff',
               reduce: (draft, payload) => {
                 const summary = `Verification still failed before acceptance and fix-cycle budget is exhausted: ${payload.failingCommands.join('; ')}`;
                 draft.currentPhase = 'execute';
@@ -962,7 +966,7 @@ export const machine = fsm.machine({
               },
             },
             {
-              to: 'failed',
+              to: 'recordFailureHandoff',
               reduce: (draft, payload) => {
                 const summary = `Acceptance still has blocking findings after ${draft.sliceFixCycles} fix cycle(s): ${payload.blockingFindings.join('; ')}`;
                 draft.currentPhase = 'accept';
@@ -1098,9 +1102,8 @@ export const machine = fsm.machine({
           route: [
             {
               if: (data, payload) =>
-                hasNextSlice(payload.nextSlice) &&
-                data.completedSlices + 1 >= data.maxSlices,
-              to: 'failed',
+                hasNextSlice(payload.nextSlice) && data.completedSlices + 1 >= data.maxSlices,
+              to: 'recordFailureHandoff',
               reduce: (draft, payload) => {
                 const summary = `Reached maxSlices before ${payload.nextSlice}. Last commit: ${payload.commitSha}`;
                 draft.stagedFiles = payload.stagedFiles;
@@ -1361,7 +1364,7 @@ export const machine = fsm.machine({
             },
           },
           exhausted: {
-            to: 'failed',
+            to: 'recordFailureHandoff',
             reduce: (draft, output) => {
               const summary = `Recovery exhausted for ${output.phase}: ${output.summary}`;
               draft.changedFiles = appendUnique(draft.changedFiles, output.changedFiles);
@@ -1405,6 +1408,41 @@ export const machine = fsm.machine({
         },
         { target: 'routeFromRecipe' },
       ],
+    }),
+    recordFailureHandoff: fsm.state({
+      model: DEFAULT_STATE_MODEL,
+      prompt: (data) =>
+        [
+          'Record the terminal failure reason before this run enters the failed final state.',
+          `Roadmap: ${data.roadmapPath}`,
+          `Recipe: ${data.recipePath ?? 'not recorded'}`,
+          worktreeLine(data),
+          currentSliceLine(data),
+          currentPlanLine(data),
+          `Current phase: ${data.currentPhase ?? 'not recorded'}`,
+          '',
+          'Failure reason:',
+          data.blocker ?? data.finalSummary ?? 'No failure reason recorded.',
+          '',
+          'Update the current detailed plan with a restart handoff section containing the exact failure reason, current phase, current slice, and the next action needed to restart safely.',
+          'Use a stable heading such as "## Restart Blocker", or update an existing restart/failure handoff section if one is already present.',
+          'If no current detailed plan exists, update the recipe handoff notes instead.',
+          'Do not change implementation code, broaden the plan scope, stage files, or commit.',
+          'Submit failureRecorded only after the durable handoff has been written, and list the files changed for that handoff.',
+        ].join('\n'),
+      on: {
+        failureRecorded: fsm.submit<{
+          summary: string;
+          changedFiles: string[];
+        }>({
+          to: 'failed',
+          reduce: (draft, payload) => {
+            draft.failureHandoffSummary = payload.summary;
+            draft.changedFiles = appendUnique(draft.changedFiles, payload.changedFiles);
+            record(draft, 'failure-handoff', 'done', payload.summary);
+          },
+        }),
+      },
     }),
     complete: fsm.final({
       main: true,
