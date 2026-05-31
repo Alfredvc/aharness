@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import {
   fetchBootstrap,
+  fetchRecentRows,
   fetchVisitRows,
   postReply,
   readBootRunId,
@@ -48,6 +49,7 @@ export const RESERVED_TOOLS = new Set<string>([
 ]);
 const DIAGNOSTIC_LIMIT = 100;
 const UNKNOWN_ROW_DIAGNOSTIC_LIMIT = 25;
+const RUN_LEVEL_VISIT_ID = '__run';
 
 export function isReservedToolName(name: string): boolean {
   return RESERVED_TOOLS.has(name) || /^mcp__aharness(?:_|-).*__submit$/.test(name);
@@ -159,6 +161,13 @@ export type UiState = {
     string,
     { loading: boolean; loaded: boolean; error: string | null; storedRows?: number }
   >;
+  recentRowsCursor: string | null;
+  recentRowsLoadStatus: {
+    loading: boolean;
+    loaded: boolean;
+    error: string | null;
+    storedRows?: number;
+  };
   aggregateStats: RunScopedAggregateStats;
   history: Array<{ at: number; from: string | null; to: string; cause: string; visitId: string }>;
   turns: TurnRecord[];
@@ -228,6 +237,8 @@ export function createConnectingUiState(): UiState {
     statePathVisits: {},
     rowPageCursors: {},
     rowLoadStatus: {},
+    recentRowsCursor: null,
+    recentRowsLoadStatus: { loading: false, loaded: false, error: null },
     aggregateStats: emptyAggregateStats(),
     history: [],
     turns: [],
@@ -374,7 +385,7 @@ export function hydrateFromBootstrap(bootstrap: RunScopedBootstrap): UiState {
       : runScopedCurrentStateToFsmState(bootstrap.currentState);
   const activeVisitId = bootstrap.currentStateVisit?.id ?? null;
   const transcriptResult = transcriptFromCompactRows(bootstrap.recentRows, {
-    fallbackVisitId: activeVisitId,
+    fallbackVisitId: RUN_LEVEL_VISIT_ID,
     live: false,
   });
   return {
@@ -395,6 +406,13 @@ export function hydrateFromBootstrap(bootstrap: RunScopedBootstrap): UiState {
     statePathVisits: cloneStatePathVisits(bootstrap.statePathVisits),
     rowPageCursors: {},
     rowLoadStatus: {},
+    recentRowsCursor: null,
+    recentRowsLoadStatus: {
+      loading: false,
+      loaded: false,
+      error: null,
+      storedRows: bootstrap.recentRows.length,
+    },
     aggregateStats: { ...bootstrap.aggregateStats },
     history: historyFromStateVisits(bootstrap.stateVisits),
     turns: [],
@@ -419,6 +437,10 @@ export function applyVisitRowPage(
   return mergeRowPage(state, visitId, page);
 }
 
+export function applyRecentRowPage(state: UiState, page: RunScopedRowPage): UiState {
+  return mergeRecentRowPage(state, page);
+}
+
 export function markConnectionLost(state: UiState): UiState {
   if (state.posture.isTerminal) return state;
   return { ...state, connection: 'lost' };
@@ -436,6 +458,9 @@ type Action =
   | { type: 'rowLoadStarted'; visitId: string }
   | { type: 'rowPageLoaded'; visitId: string; page: RunScopedRowPage }
   | { type: 'rowLoadFailed'; visitId: string; error: string }
+  | { type: 'recentRowsLoadStarted' }
+  | { type: 'recentRowsPageLoaded'; page: RunScopedRowPage }
+  | { type: 'recentRowsLoadFailed'; error: string }
   | { type: 'toggleDevMode' }
   | { type: 'setScope'; path: string | null };
 
@@ -512,7 +537,7 @@ function rowVisitId(
   options: { fallbackVisitId: string | null; live: boolean },
 ): string | null {
   if (row.stateVisitId !== undefined) return row.stateVisitId;
-  return options.live ? options.fallbackVisitId : null;
+  return options.fallbackVisitId;
 }
 
 function compactRowDiagnostic(row: RunScopedCompactRow): AbandonedThreadDiagnostic {
@@ -727,6 +752,26 @@ function mergeRowPage(state: UiState, visitId: string, page: RunScopedRowPage): 
     rowLoadStatus: {
       ...state.rowLoadStatus,
       [visitId]: { loading: false, loaded: true, error: null, storedRows: page.rows.length },
+    },
+    rowLoadError: null,
+  };
+}
+
+function mergeRecentRowPage(state: UiState, page: RunScopedRowPage): UiState {
+  const converted = transcriptFromCompactRows(page.rows, {
+    fallbackVisitId: RUN_LEVEL_VISIT_ID,
+    live: false,
+  });
+  return {
+    ...state,
+    transcript: mergeTranscriptItems(state.transcript, converted.items),
+    diagnostics: [...state.diagnostics, ...converted.diagnostics].slice(-DIAGNOSTIC_LIMIT),
+    recentRowsCursor: page.nextCursor,
+    recentRowsLoadStatus: {
+      loading: false,
+      loaded: true,
+      error: null,
+      storedRows: page.rows.length,
     },
     rowLoadError: null,
   };
@@ -972,7 +1017,7 @@ function appendRunEventRow(state: UiState, e: RunScopedApiEvent): UiState {
   const row = compactRowFromRunEvent(e);
   if (row === null) return state;
   const converted = transcriptFromCompactRows([row], {
-    fallbackVisitId: state.activeVisitId,
+    fallbackVisitId: state.activeVisitId ?? RUN_LEVEL_VISIT_ID,
     live: true,
   });
   return {
@@ -1266,6 +1311,8 @@ function reduceRunEvent(previous: UiState, e: RunScopedApiEvent): UiState {
         pending: emptyPending(),
         turns: [],
         transcript: next.transcript.filter((item) => item.type === 'fresh_clear_boundary'),
+        recentRowsCursor: null,
+        recentRowsLoadStatus: { loading: false, loaded: false, error: null, storedRows: 0 },
         activeTurnId: null,
         posture: { ...next.posture, isAwaiting: false, submittedThisTurn: false },
       };
@@ -1372,6 +1419,37 @@ function reducer(s: UiState, a: Action): UiState {
       },
     };
   }
+  if (a.type === 'recentRowsLoadStarted') {
+    return {
+      ...s,
+      rowLoadError: null,
+      recentRowsLoadStatus: {
+        loading: true,
+        loaded: s.recentRowsLoadStatus.loaded,
+        error: null,
+        ...(s.recentRowsLoadStatus.storedRows === undefined
+          ? {}
+          : { storedRows: s.recentRowsLoadStatus.storedRows }),
+      },
+    };
+  }
+  if (a.type === 'recentRowsPageLoaded') {
+    return mergeRecentRowPage(s, a.page);
+  }
+  if (a.type === 'recentRowsLoadFailed') {
+    return {
+      ...s,
+      rowLoadError: a.error,
+      recentRowsLoadStatus: {
+        loading: false,
+        loaded: s.recentRowsLoadStatus.loaded,
+        error: a.error,
+        ...(s.recentRowsLoadStatus.storedRows === undefined
+          ? {}
+          : { storedRows: s.recentRowsLoadStatus.storedRows }),
+      },
+    };
+  }
   if (a.type === 'toggleDevMode') {
     return { ...s, devMode: !s.devMode };
   }
@@ -1387,6 +1465,7 @@ function reducer(s: UiState, a: Action): UiState {
 export type UiActions = {
   reply: (p: ReplyPayload) => Promise<void>;
   requestRowsForStatePath?: (path: string) => Promise<void>;
+  requestRecentRows?: () => Promise<void>;
   toggleDevMode: () => void;
   setScope: (path: string | null) => void;
 };
@@ -1536,10 +1615,40 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
     [s.rowLoadStatus, s.rowPageCursors, s.run?.runId, s.statePathVisits, uiToken],
   );
 
+  const requestRecentRows = useCallback(async () => {
+    if (!uiToken) throw new Error('UI token is unavailable');
+    const runId = s.run?.runId;
+    if (!runId) throw new Error('runId is unavailable');
+    if (s.recentRowsLoadStatus.loading) return;
+    if (s.recentRowsLoadStatus.loaded && s.recentRowsCursor === null) return;
+
+    dispatch({ type: 'recentRowsLoadStarted' });
+    try {
+      const page = await fetchRecentRows({
+        runId,
+        uiToken,
+        cursor: s.recentRowsCursor,
+      });
+      dispatch({ type: 'recentRowsPageLoaded', page });
+    } catch (error) {
+      dispatch({
+        type: 'recentRowsLoadFailed',
+        error: error instanceof Error ? error.message : 'Recent row load failed',
+      });
+    }
+  }, [
+    s.recentRowsCursor,
+    s.recentRowsLoadStatus.loaded,
+    s.recentRowsLoadStatus.loading,
+    s.run?.runId,
+    uiToken,
+  ]);
+
   return {
     ...s,
     reply,
     requestRowsForStatePath,
+    requestRecentRows,
     toggleDevMode: () => dispatch({ type: 'toggleDevMode' }),
     setScope: (path: string | null) => dispatch({ type: 'setScope', path }),
   };

@@ -84,6 +84,8 @@ function baseSession(overrides: Partial<TestSession> = {}): TestSession {
     },
     rowPageCursors: {},
     rowLoadStatus: {},
+    recentRowsCursor: null,
+    recentRowsLoadStatus: { loading: false, loaded: false, error: null },
     aggregateStats: { turnCount: 0 },
     history: [
       {
@@ -110,6 +112,7 @@ function baseSession(overrides: Partial<TestSession> = {}): TestSession {
     devMode: false,
     reply: () => Promise.resolve(),
     requestRowsForStatePath: () => Promise.resolve(),
+    requestRecentRows: () => Promise.resolve(),
     toggleDevMode: () => undefined,
     setScope: () => undefined,
     ...overrides,
