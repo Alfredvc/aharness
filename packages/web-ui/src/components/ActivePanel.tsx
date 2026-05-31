@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Virtuoso, type Components, type VirtuosoHandle } from 'react-virtuoso';
-import type { UiState, UiActions, TranscriptItem, ReplyPayload } from '../state/store';
+import type {
+  UiState,
+  UiActions,
+  TranscriptItem,
+  TranscriptDisplayItem,
+  ReplyPayload,
+} from '../state/store';
 import type {
   FileChangeApproval,
   CommandApproval,
@@ -8,7 +14,7 @@ import type {
   ElicitationRequest,
 } from '../types/events';
 import type { VizNode } from '../types/topology';
-import { hasVisibleContent, visibleItems } from '../state/store';
+import { displayItems, hasVisibleContent } from '../state/store';
 import { deriveActivity, formatElapsed } from '../state/activity';
 import type { Activity } from '../state/activity';
 import { InteractionSlot } from './InteractionSlot';
@@ -19,7 +25,7 @@ type VisitGroup = {
   visitId: string;
   visit: number;
   rowCount: number;
-  items: TranscriptItem[];
+  items: TranscriptDisplayItem[];
   loadStatus: UiState['rowLoadStatus'][string] | undefined;
 };
 export type ActivePanelTimelineRow =
@@ -32,7 +38,7 @@ export type ActivePanelTimelineRow =
       visit: number;
       entry: (UiState['history'][number] & { visitId: string }) | null;
     }
-  | { kind: 'transcript'; key: string; item: TranscriptItem }
+  | { kind: 'transcript'; key: string; item: TranscriptDisplayItem }
   | { kind: 'inline_indicator'; key: string; activity: Activity }
   | { kind: 'approvals'; key: string };
 
@@ -121,15 +127,19 @@ function buildActivePanelTimelineRows(input: {
         visit: group.visit,
         entry: input.entryByVisit.get(group.visitId) ?? null,
       });
-      if (group.items.length === 0) {
+      const renderableItems = group.items.filter((item) => {
+        // Slice 2 exposes state_change from store visibility; final scoped
+        // state-row handling remains a Slice 3 ActivePanel responsibility.
+        return item.type !== 'state_change';
+      });
+      if (renderableItems.length === 0) {
         rows.push({
           kind: 'empty',
           key: `${group.visitId}:empty`,
           text: emptyVisitMessage(group),
         });
       } else {
-        for (const item of group.items) {
-          if (item.type === 'state_change') continue;
+        for (const item of renderableItems) {
           rows.push({ kind: 'transcript', key: item.id, item });
         }
       }
@@ -165,7 +175,7 @@ function buildRunTranscriptRows(input: {
       },
     ];
   }
-  const visible = visibleItems(
+  const visible = displayItems(
     [...input.items].sort((a, b) => {
       const aSeq = a.seq ?? Number.MAX_SAFE_INTEGER;
       const bSeq = b.seq ?? Number.MAX_SAFE_INTEGER;
@@ -237,7 +247,7 @@ export function ActivePanel({ session }: Props) {
         buckets.get(visitId)?.length ?? 0,
         session.rowLoadStatus[visitId]?.storedRows ?? 0,
       ),
-      items: visibleItems(buckets.get(visitId) ?? [], session.devMode),
+      items: displayItems(buckets.get(visitId) ?? [], session.devMode),
       loadStatus: session.rowLoadStatus[visitId],
     }));
   }, [
@@ -546,7 +556,9 @@ function buildNodeDetailRows(node: VizNode): DetailRow[] {
 
 export const buildNodeDetailRowsForTest = buildNodeDetailRows;
 
-export const activePanelRowForTest = (item: TranscriptItem) => <ActivePanelRow item={item} />;
+export const activePanelRowForTest = (item: TranscriptDisplayItem) => (
+  <ActivePanelRow item={item} />
+);
 
 function ActivePanelTimelineRowView({
   row,
@@ -1072,8 +1084,10 @@ function PostureChip({
   );
 }
 
-function ActivePanelRow({ item }: { item: TranscriptItem }) {
+function ActivePanelRow({ item }: { item: TranscriptDisplayItem }) {
   switch (item.type) {
+    case 'exploration_group':
+      return <ExplorationGroupRow item={item} />;
     case 'agent_message':
       return (
         <article className={`msg agent-msg${item.streaming ? ' streaming' : ''}`}>
@@ -1117,7 +1131,7 @@ function ActivePanelRow({ item }: { item: TranscriptItem }) {
     case 'compact_status':
       return <CompactStatusRow item={item} />;
     case 'state_change':
-      // Already represented by the graph; skip in panel.
+      // Already represented by the graph until Slice 3 adds explicit panel rows.
       return null;
     case 'transition_failure':
       return <TransitionFailureRow item={item} />;
@@ -1134,6 +1148,34 @@ function ActivePanelRow({ item }: { item: TranscriptItem }) {
     default:
       return null;
   }
+}
+
+function ExplorationGroupRow({
+  item,
+}: {
+  item: Extract<TranscriptDisplayItem, { type: 'exploration_group' }>;
+}) {
+  return (
+    <article className="tool-call" data-status={item.status}>
+      <header className="tc-head">
+        <span
+          className={`tc-glyph ${item.status === 'completed' ? 'completed' : 'pending'}`}
+          aria-hidden
+        >
+          {item.status === 'completed' ? '✓' : '•'}
+        </span>
+        <span className="name">{item.title}</span>
+        <span className="badge" data-status={item.status}>
+          {item.children.length} {item.children.length === 1 ? 'item' : 'items'}
+        </span>
+      </header>
+      <div className="tc-preview">
+        {item.children
+          .map((child) => `${child.displayKind} ${child.preview || child.name}`)
+          .join(' · ')}
+      </div>
+    </article>
+  );
 }
 
 function TransitionFailureRow({

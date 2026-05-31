@@ -211,8 +211,9 @@ export function deriveActivity(s: UiState): Activity {
   // codex app-server is spawned, so the UI lands on the live shell with
   // state in hand but nothing visible on the wire. Codex spawn + WS
   // handshake + thread/start typically take 5–15s; surface that wait
-  // explicitly. Count framework orientation notes and state_change
-  // markers as invisible — they fire automatically during boot.
+  // explicitly. hasVisibleContent still treats framework orientation notes and
+  // state_change markers as invisible for this ActivePanel-renderability
+  // heuristic until Slice 3 renders state transitions in the panel.
   if (s.turns.length === 0 && !hasVisibleContent(s.transcript)) {
     return {
       kind: 'boot.awaiting_codex',

@@ -193,6 +193,44 @@ describe('ActivePanel tool rows', () => {
     expect(html).toContain('tool-output');
     expect(html).not.toContain('tool-result');
   });
+
+  it('renders a neutral exploration group row without final Slice 3 polish', () => {
+    const html = renderToStaticMarkup(
+      createElement(() =>
+        activePanelRowForTest({
+          id: 'exploration:read:list',
+          type: 'exploration_group',
+          stateVisitId: 'workflow.collect#2',
+          turnId: 'turn-1',
+          eventIds: ['run-1:1', 'run-1:2'],
+          status: 'completed',
+          title: 'Explored',
+          children: [
+            {
+              id: 'read',
+              displayKind: 'read',
+              name: 'read_file',
+              preview: 'src/a.ts',
+              status: 'completed',
+              eventIds: ['run-1:1'],
+            },
+            {
+              id: 'list',
+              displayKind: 'list',
+              name: 'list_files',
+              preview: 'src',
+              status: 'completed',
+              eventIds: ['run-1:2'],
+            },
+          ],
+        }),
+      ),
+    );
+
+    expect(html).toContain('Explored');
+    expect(html).toContain('read src/a.ts');
+    expect(html).toContain('list src');
+  });
 });
 
 describe('ActivePanel timeline rows', () => {
@@ -211,7 +249,7 @@ describe('ActivePanel timeline rows', () => {
     expect(rows.map((row) => row.kind)).toEqual(['approvals']);
   });
 
-  it('keeps state transitions hidden in the Slice 0 run timeline while appending tail rows', () => {
+  it('keeps state transitions hidden in the Slice 2 run timeline while appending tail rows', () => {
     const rows = buildRunTranscriptRowsForTest({
       mode: 'run',
       turnsLength: 1,
@@ -249,6 +287,50 @@ describe('ActivePanel timeline rows', () => {
     expect(rows.some((row) => row.kind === 'transcript' && row.item.id === 'state-change-1')).toBe(
       false,
     );
+  });
+
+  it('groups same-turn exploration rows through the run row builder', () => {
+    const rows = buildRunTranscriptRowsForTest({
+      mode: 'run',
+      turnsLength: 1,
+      hasAnyVisibleContent: true,
+      devMode: false,
+      items: [
+        {
+          id: 'read-1',
+          type: 'tool_call',
+          name: 'read_file',
+          preview: 'src/a.ts',
+          status: 'completed',
+          reserved: false,
+          displayKind: 'read',
+          stateVisitId: 'workflow.collect#2',
+          turnId: 'turn-1',
+          eventIds: ['run-1:1'],
+        },
+        {
+          id: 'search-1',
+          type: 'tool_call',
+          name: 'search',
+          preview: 'needle',
+          status: 'completed',
+          reserved: false,
+          displayKind: 'search',
+          stateVisitId: 'workflow.collect#2',
+          turnId: 'turn-1',
+          eventIds: ['run-1:2'],
+        },
+      ],
+      showInlineIndicator: false,
+      activity: { kind: 'idle', label: 'idle', tone: 'muted', motion: 'still' },
+      showApprovals: false,
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.kind).toBe('transcript');
+    if (rows[0]?.kind !== 'transcript') throw new Error('expected transcript row');
+    expect(rows[0].key).toBe('exploration:read-1:search-1');
+    expect(rows[0].item.type).toBe('exploration_group');
   });
 });
 
@@ -628,6 +710,29 @@ describe('ActivePanel historical visits', () => {
     expect(html).toContain('activity hidden in this view');
     expect(html).not.toContain('no activity in this visit');
     expect(html).not.toContain('no activity yet in this visit');
+  });
+
+  it('renders default display transforms without mutating canonical transcript items', () => {
+    const output = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`).join('\n');
+    const session = baseSession({
+      transcript: [
+        {
+          id: 'tool-long-output',
+          type: 'tool_call',
+          name: 'bash',
+          preview: 'script',
+          status: 'completed',
+          reserved: false,
+          stateVisitId: 'workflow.collect#2',
+          output,
+        },
+      ],
+    });
+    const html = renderActivePanel(session);
+
+    expect(html).toContain('... +2 lines (dev mode for full output)');
+    expect(html).not.toContain('line 6');
+    expect(session.transcript[0]).toEqual(expect.objectContaining({ output }));
   });
 
   it('does not claim emptiness when loaded row pages only produced unsupported diagnostics', () => {

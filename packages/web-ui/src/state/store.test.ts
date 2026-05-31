@@ -6,6 +6,7 @@ import {
   applyRunEvent,
   applyVisitRowPage,
   createConnectingUiState,
+  displayItems,
   hasVisibleContent,
   hydrateFromBootstrap,
   markConnectionLost,
@@ -1730,7 +1731,57 @@ describe('headless production store helpers', () => {
     expect(deriveActivity(withCall).kind).not.toBe('streaming.message');
   });
 
-  it('hides runtime orientation user messages and empty reasoning rows from visible transcript rows', () => {
+  it('applies default and dev visibility without treating state changes as globally hidden', () => {
+    const items: ReturnType<typeof hydrateFromSnapshot>['transcript'] = [
+      {
+        id: 'orientation-user-1',
+        type: 'user_message',
+        text: '[aharness] Now in state "execute".',
+        synthetic: true,
+        stateVisitId: 'workflow.collect#2',
+      },
+      {
+        id: 'framework-info-1',
+        type: 'framework_note',
+        text: 'framework info',
+        variant: 'info',
+        stateVisitId: 'workflow.collect#2',
+      },
+      {
+        id: 'framework-orientation-1',
+        type: 'framework_note',
+        text: 'orientation',
+        variant: 'orientation',
+        stateVisitId: 'workflow.collect#2',
+      },
+      {
+        id: 'state-change-1',
+        type: 'state_change',
+        from: null,
+        to: 'workflow.collect',
+        cause: 'boot',
+        stateVisitId: 'workflow.collect#2',
+      },
+      {
+        id: 'reasoning-empty-1',
+        type: 'reasoning',
+        text: '',
+        streaming: false,
+        stateVisitId: 'workflow.collect#2',
+      },
+    ];
+
+    expect(visibleItems(items, false).map((item) => item.id)).toEqual(['state-change-1']);
+    expect(visibleItems(items, true).map((item) => item.id)).toEqual([
+      'orientation-user-1',
+      'framework-info-1',
+      'framework-orientation-1',
+      'state-change-1',
+    ]);
+    expect(hasVisibleContent([items[3]])).toBe(false);
+  });
+
+  it('hides runtime orientation user messages and empty reasoning rows from default transcript rows', () => {
     const initial = hydrateFromSnapshot(snapshot());
     const withRuntimeOrientation = applyAppEvent(initial, {
       kind: 'ItemStarted',
@@ -1772,6 +1823,9 @@ describe('headless production store helpers', () => {
         }),
       ]),
     );
+    expect(visibleInDevMode).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'orientation-user-1' })]),
+    );
     expect(visibleInDevMode).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'reasoning-empty-1' })]),
     );
@@ -1783,6 +1837,247 @@ describe('headless production store helpers', () => {
       ),
     ).toBe(false);
     expect(hasVisibleContent(withReasoningText.transcript)).toBe(true);
+  });
+
+  it('preserves provenance for same-id compact tool replacements and folded tool results', () => {
+    const state = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      recentRows: [
+        row({
+          id: 'tool-start',
+          eventId: 'run-1:20',
+          seq: 20,
+          stateVisitId: 'workflow.collect#2',
+          itemId: 'tool-shared',
+          kind: 'tool',
+          label: 'bash',
+          status: 'pending',
+          summary: 'pnpm test',
+          data: { displayKind: 'command', command: 'pnpm test' },
+        }),
+        row({
+          id: 'tool-complete',
+          eventId: 'run-1:21',
+          seq: 21,
+          stateVisitId: 'workflow.collect#2',
+          itemId: 'tool-shared',
+          kind: 'tool',
+          label: 'bash',
+          status: 'completed',
+          summary: 'pnpm test',
+          output: 'done',
+          ok: true,
+          resultId: 'tool-shared:output',
+        }),
+      ],
+    });
+
+    expect(state.transcript).toContainEqual(
+      expect.objectContaining({
+        id: 'tool-shared',
+        status: 'completed',
+        displayKind: 'command',
+        command: 'pnpm test',
+        output: 'done',
+        eventIds: ['run-1:20', 'run-1:21'],
+      }),
+    );
+
+    const folded = visibleItems(
+      [
+        {
+          id: 'call-1',
+          type: 'tool_call',
+          name: 'bash',
+          preview: 'pnpm test',
+          status: 'pending',
+          reserved: false,
+          stateVisitId: 'workflow.collect#2',
+          eventId: 'run-1:30',
+        },
+        {
+          id: 'call-1:output',
+          type: 'tool_result',
+          name: 'bash',
+          output: 'ok',
+          ok: true,
+          reserved: false,
+          stateVisitId: 'workflow.collect#2',
+          eventId: 'run-1:31',
+        },
+      ],
+      false,
+    );
+
+    expect(folded).toContainEqual(
+      expect.objectContaining({
+        id: 'call-1',
+        type: 'tool_call',
+        status: 'completed',
+        output: 'ok',
+        eventIds: ['run-1:30', 'run-1:31'],
+      }),
+    );
+  });
+
+  it('applies display-only output truncation in default mode', () => {
+    const output = Array.from({ length: 12 }, (_, idx) => `line ${idx + 1}`).join('\n');
+    const canonical = [
+      {
+        id: 'tool-1',
+        type: 'tool_call' as const,
+        name: 'bash',
+        preview: 'script',
+        status: 'completed' as const,
+        reserved: false,
+        stateVisitId: 'workflow.collect#2',
+        output,
+      },
+    ];
+
+    const defaultDisplay = displayItems(canonical, false);
+    const devDisplay = displayItems(canonical, true);
+
+    expect(defaultDisplay).toContainEqual(
+      expect.objectContaining({
+        id: 'tool-1',
+        output:
+          'line 1\nline 2\nline 3\nline 4\nline 5\n... +2 lines (dev mode for full output)\nline 8\nline 9\nline 10\nline 11\nline 12',
+      }),
+    );
+    expect(devDisplay).toContainEqual(expect.objectContaining({ id: 'tool-1', output }));
+    expect(canonical[0].output).toBe(output);
+  });
+
+  it('groups only consecutive same-turn successful exploration display rows', () => {
+    const items: ReturnType<typeof hydrateFromSnapshot>['transcript'] = [
+      {
+        id: 'read-1',
+        type: 'tool_call',
+        name: 'read_file',
+        preview: 'src/a.ts',
+        status: 'completed',
+        reserved: false,
+        displayKind: 'read',
+        stateVisitId: 'workflow.collect#2',
+        turnId: 'turn-1',
+        eventIds: ['run-1:40'],
+      },
+      {
+        id: 'list-1',
+        type: 'tool_call',
+        name: 'list_files',
+        preview: 'src',
+        status: 'pending',
+        reserved: false,
+        displayKind: 'list',
+        stateVisitId: 'workflow.collect#2',
+        turnId: 'turn-1',
+        eventIds: ['run-1:41'],
+      },
+      {
+        id: 'failed-search',
+        type: 'tool_call',
+        name: 'search',
+        preview: 'needle',
+        status: 'failed',
+        reserved: false,
+        displayKind: 'search',
+        stateVisitId: 'workflow.collect#2',
+        turnId: 'turn-1',
+        eventIds: ['run-1:42'],
+      },
+      {
+        id: 'read-no-turn',
+        type: 'tool_call',
+        name: 'read_file',
+        preview: 'src/b.ts',
+        status: 'completed',
+        reserved: false,
+        displayKind: 'read',
+        stateVisitId: 'workflow.collect#2',
+        eventIds: ['run-1:43'],
+      },
+    ];
+
+    const displayed = displayItems(items, false);
+
+    expect(displayed[0]).toEqual(
+      expect.objectContaining({
+        type: 'exploration_group',
+        id: 'exploration:read-1:list-1',
+        status: 'pending',
+        title: 'Exploring',
+        eventIds: ['run-1:40', 'run-1:41'],
+        children: [
+          expect.objectContaining({ id: 'read-1', displayKind: 'read' }),
+          expect.objectContaining({ id: 'list-1', displayKind: 'list' }),
+        ],
+      }),
+    );
+    expect(displayed).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'failed-search', type: 'tool_call' }),
+        expect.objectContaining({ id: 'read-no-turn', type: 'tool_call' }),
+      ]),
+    );
+  });
+
+  it('applies parent subagent summary policy and display preview caps', () => {
+    const longPrompt = 'p'.repeat(200);
+    const longResponse = 'r'.repeat(280);
+    const longError = 'e'.repeat(200);
+    const subagent = (
+      id: string,
+      subagentAction: 'spawn' | 'send' | 'wait' | 'resume' | 'close',
+      status: 'pending' | 'completed',
+    ) => ({
+      id,
+      type: 'tool_call' as const,
+      name: 'spawn_agent',
+      preview: `${subagentAction} ${status}`,
+      status,
+      reserved: false,
+      category: 'subagent' as const,
+      displayKind: 'subagent' as const,
+      subagentAction,
+      stateVisitId: 'workflow.collect#2',
+      promptPreview: longPrompt,
+      responsePreview: longResponse,
+      errorPreview: longError,
+    });
+
+    const items = [
+      subagent('spawn-pending', 'spawn', 'pending'),
+      subagent('send-pending', 'send', 'pending'),
+      subagent('close-pending', 'close', 'pending'),
+      subagent('wait-pending', 'wait', 'pending'),
+      subagent('resume-pending', 'resume', 'pending'),
+      subagent('spawn-completed', 'spawn', 'completed'),
+    ];
+
+    expect(visibleItems(items, false).map((item) => item.id)).toEqual([
+      'wait-pending',
+      'resume-pending',
+      'spawn-completed',
+    ]);
+    expect(visibleItems(items, true).map((item) => item.id)).toEqual([
+      'spawn-pending',
+      'send-pending',
+      'close-pending',
+      'wait-pending',
+      'resume-pending',
+      'spawn-completed',
+    ]);
+
+    const capped = displayItems([subagent('spawn-completed', 'spawn', 'completed')], false)[0];
+    expect(capped).toEqual(
+      expect.objectContaining({
+        promptPreview: `${'p'.repeat(159)}…`,
+        responsePreview: `${'r'.repeat(239)}…`,
+        errorPreview: `${'e'.repeat(159)}…`,
+      }),
+    );
   });
 
   it('hydrates topology from the legacy flat snapshot fixture contract', () => {

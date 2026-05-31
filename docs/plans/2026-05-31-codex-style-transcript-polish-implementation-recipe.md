@@ -1,11 +1,11 @@
 # Codex-Style Transcript Polish Implementation Recipe
 
 **Parent roadmap:** `docs/plans/2026-05-31-codex-style-transcript-polish-roadmap.md`
-**Current slice:** Slice 2 - transcript display-policy transforms
+**Current slice:** Slice 3 - ActivePanel rendering polish and markdown
 **Current phase:** write-plan
-**Current detailed plan:** `docs/plans/2026-05-31-codex-style-transcript-polish-slice-2-transcript-display-policy-transforms.md`
+**Current detailed plan:** `docs/plans/2026-05-31-codex-style-transcript-polish-slice-3-activepanel-rendering-polish-and-markdown.md`
 **Current fix source:** none
-**Last completed:** Slice 1 - durable core/API compact row enrichment (this commit)
+**Last completed:** Slice 2 - transcript display-policy transforms (this commit)
 
 ## Durable Grounding
 
@@ -33,16 +33,20 @@
 
 ## Current Handoff
 
-Slice 1 is accepted and committed in the same commit as this recipe update.
-Continue with Slice 2 from the parent roadmap: transcript display-policy
-transforms. No detailed Slice 2 plan exists yet. Write and review
-`docs/plans/2026-05-31-codex-style-transcript-polish-slice-2-transcript-display-policy-transforms.md`
+Slice 2 is accepted and committed in the same commit as this recipe update.
+Continue with Slice 3 from the parent roadmap: ActivePanel rendering polish
+and markdown. No detailed Slice 3 plan exists yet. Write and review
+`docs/plans/2026-05-31-codex-style-transcript-polish-slice-3-activepanel-rendering-polish-and-markdown.md`
 before implementation.
 
-Slice 1 added durable core/API compact-row enrichment: run lifecycle rows,
-safe failed-submit transition-failure rows, state display metadata including
-target model/effort, and conservative tool/subagent display hints from
-normalized sources. The final verification for Slice 1 passed the focused
-core adapter/index/query/server suites, runtime/CLI suites, web-ui
-store/ActivePanel guard suites, root typecheck, and web-ui typecheck.
+Slice 2 added browser transcript display-policy transforms over typed
+`TranscriptItem`s: default/dev visibility, display-only output truncation,
+same-turn exploration grouping, event-id preservation for same-id and folded
+tool rows, and parent-level subagent summary policy. ActivePanel now consumes
+`TranscriptDisplayItem` without completing final Slice 3 rendering polish.
+The final verification for Slice 2 passed the focused web-ui store and
+ActivePanel suites, web-ui typecheck, root typecheck, targeted oxlint, and
+`git diff --check`. Slice 3 should inspect the accepted non-blocking review
+note about the stale `FrameworkNoteRow` orientation comment while planning
+the final renderer changes.
 Worktree mode is disabled; use the current checkout.

@@ -160,6 +160,34 @@ export type TranscriptItem =
       statePath: string;
     });
 
+export type ExplorationGroupChild = {
+  id: string;
+  displayKind: 'read' | 'list' | 'search';
+  name: string;
+  preview: string;
+  status: Extract<TranscriptItem, { type: 'tool_call' }>['status'];
+  eventIds: string[];
+};
+
+export type ExplorationGroupItem = {
+  type: 'exploration_group';
+  id: string;
+  stateVisitId: string;
+  turnId?: string;
+  seq?: number;
+  eventIds: string[];
+  status: 'pending' | 'completed';
+  title: 'Exploring' | 'Explored';
+  children: ExplorationGroupChild[];
+};
+
+export type TranscriptDisplayItem = TranscriptItem | ExplorationGroupItem;
+
+type GroupableExplorationTool = Extract<TranscriptItem, { type: 'tool_call' }> & {
+  displayKind: 'read' | 'list' | 'search';
+  turnId: string;
+};
+
 export type TurnRecord = {
   turnId: string;
   finishReason: 'stop' | 'tool_calls' | 'length' | 'abort';
@@ -821,7 +849,7 @@ function transcriptFromCompactRows(
     }
     items.push(item);
   }
-  return { items, diagnostics };
+  return { items: mergeTranscriptItems([], items), diagnostics };
 }
 
 function mergeTranscriptItems(
@@ -851,7 +879,16 @@ function mergeTranscriptItems(
       }
       continue;
     }
-    byKey.set(item.id, item);
+    const existingItem = byKey.get(item.id);
+    const nextItem: TranscriptItem =
+      existingItem === undefined
+        ? item
+        : ({
+            ...existingItem,
+            ...item,
+            eventIds: mergeEventIds(transcriptEventIds(existingItem), transcriptEventIds(item)),
+          } as TranscriptItem);
+    byKey.set(item.id, nextItem);
     recordEventIds(item.id, item);
   }
   return [...byKey.values()].sort((a, b) => {
@@ -1783,11 +1820,9 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
 }
 
 /**
- * Returns items the ActivePanel should render for a given scope. Drops
- * reserved tool calls + their outputs, synthetic orientation user_messages,
- * and framework info notes — unless `devMode` is on. Orientation notes are
- * always hidden because their content is surfaced in the dev-mode context
- * inspector instead.
+ * Returns normalized transcript rows visible under default/dev policy. This is
+ * still canonical item output: display-only grouping, truncation, and preview
+ * caps happen in displayItems().
  */
 export function visibleItems(items: TranscriptItem[], devMode: boolean): TranscriptItem[] {
   return foldToolResults(items).filter((i) => {
@@ -1795,6 +1830,13 @@ export function visibleItems(items: TranscriptItem[], devMode: boolean): Transcr
     if (devMode) return true;
     return isVisibleTranscriptItem(i);
   });
+}
+
+export function displayItems(items: TranscriptItem[], devMode: boolean): TranscriptDisplayItem[] {
+  const displayed = visibleItems(items, devMode).map((item) =>
+    devMode ? capDisplayPreviews(item) : truncateDisplayOutput(capDisplayPreviews(item)),
+  );
+  return groupExplorationItems(displayed);
 }
 
 function foldToolResults(items: ReadonlyArray<TranscriptItem>): TranscriptItem[] {
@@ -1843,6 +1885,7 @@ function foldToolResults(items: ReadonlyArray<TranscriptItem>): TranscriptItem[]
       output: item.output,
       ok: item.ok,
       resultId: item.id,
+      eventIds: mergeEventIds(transcriptEventIds(prev), transcriptEventIds(item)),
     };
   }
   return folded;
@@ -1857,25 +1900,166 @@ function isVisibleTranscriptItem(i: TranscriptItem): boolean {
   if (i.type === 'framework_note' && (i.variant === 'orientation' || i.variant === 'info')) {
     return false;
   }
-  if (i.type === 'state_change') return false;
+  if (
+    i.type === 'tool_call' &&
+    i.category === 'subagent' &&
+    i.status === 'pending' &&
+    (i.subagentAction === 'spawn' || i.subagentAction === 'send' || i.subagentAction === 'close')
+  ) {
+    return false;
+  }
   return true;
 }
 
 function isAlwaysHiddenTranscriptItem(i: TranscriptItem): boolean {
-  if (i.type === 'framework_note' && i.variant === 'orientation') return true;
   if (i.type === 'reasoning' && i.text.trim().length === 0) return true;
   return false;
+}
+
+function truncateDisplayOutput(item: TranscriptItem): TranscriptItem {
+  if (item.type === 'tool_call' && item.output !== undefined) {
+    const output = truncateOutputLines(item.output);
+    return output === item.output ? item : { ...item, output };
+  }
+  if (item.type === 'tool_result') {
+    const output = truncateOutputLines(item.output);
+    return output === item.output ? item : { ...item, output };
+  }
+  return item;
+}
+
+function capDisplayPreviews(item: TranscriptItem): TranscriptItem {
+  if (item.type !== 'tool_call' || item.category !== 'subagent') return item;
+  return {
+    ...item,
+    ...(item.promptPreview === undefined
+      ? {}
+      : { promptPreview: capGraphemes(item.promptPreview, 160) }),
+    ...(item.responsePreview === undefined
+      ? {}
+      : { responsePreview: capGraphemes(item.responsePreview, 240) }),
+    ...(item.errorPreview === undefined
+      ? {}
+      : { errorPreview: capGraphemes(item.errorPreview, 160) }),
+  };
+}
+
+function truncateOutputLines(output: string): string {
+  const lines = output.split('\n');
+  if (lines.length <= 10) return output;
+  const omitted = lines.length - 10;
+  return [
+    ...lines.slice(0, 5),
+    `... +${omitted} lines (dev mode for full output)`,
+    ...lines.slice(-5),
+  ].join('\n');
+}
+
+function capGraphemes(value: string, max: number): string {
+  type GraphemeSegmenter = {
+    segment(input: string): Iterable<{ segment: string }>;
+  };
+  type GraphemeSegmenterConstructor = new (
+    locales?: string | string[],
+    options?: { granularity: 'grapheme' },
+  ) => GraphemeSegmenter;
+  const Segmenter = (Intl as typeof Intl & { Segmenter?: GraphemeSegmenterConstructor }).Segmenter;
+  const chars =
+    Segmenter === undefined
+      ? Array.from(value)
+      : Array.from(
+          new Segmenter(undefined, { granularity: 'grapheme' }).segment(value),
+          (part) => part.segment,
+        );
+  if (chars.length <= max) return value;
+  return `${chars
+    .slice(0, Math.max(0, max - 1))
+    .join('')
+    .trimEnd()}…`;
+}
+
+function groupExplorationItems(items: ReadonlyArray<TranscriptItem>): TranscriptDisplayItem[] {
+  const grouped: TranscriptDisplayItem[] = [];
+  let pending: GroupableExplorationTool[] = [];
+
+  const flush = () => {
+    if (pending.length === 0) return;
+    if (pending.length === 1) {
+      grouped.push(pending[0]);
+      pending = [];
+      return;
+    }
+    grouped.push(explorationGroupFromChildren(pending));
+    pending = [];
+  };
+
+  for (const item of items) {
+    if (isGroupableExplorationTool(item)) {
+      const currentTurnId = pending[0]?.turnId;
+      if (pending.length === 0 || item.turnId === currentTurnId) {
+        pending.push(item);
+        continue;
+      }
+    }
+    flush();
+    if (isGroupableExplorationTool(item)) pending.push(item);
+    else grouped.push(item);
+  }
+  flush();
+  return grouped;
+}
+
+function isGroupableExplorationTool(item: TranscriptItem): item is GroupableExplorationTool {
+  return (
+    item.type === 'tool_call' &&
+    item.turnId !== undefined &&
+    item.turnId.length > 0 &&
+    (item.displayKind === 'read' || item.displayKind === 'list' || item.displayKind === 'search') &&
+    item.status !== 'failed' &&
+    !item.reserved
+  );
+}
+
+function explorationGroupFromChildren(
+  children: ReadonlyArray<GroupableExplorationTool>,
+): ExplorationGroupItem {
+  const eventIds = mergeEventIds(
+    [],
+    children.flatMap((child) => transcriptEventIds(child)),
+  );
+  const pending = children.some((child) => child.status === 'pending');
+  const first = children[0];
+  const last = children[children.length - 1];
+  return {
+    type: 'exploration_group',
+    id: `exploration:${first.id}:${last.id}`,
+    stateVisitId: first.stateVisitId,
+    turnId: first.turnId,
+    seq: first.seq,
+    eventIds,
+    status: pending ? 'pending' : 'completed',
+    title: pending ? 'Exploring' : 'Explored',
+    children: children.map((child) => ({
+      id: child.id,
+      displayKind: child.displayKind,
+      name: child.name,
+      preview: child.target ?? child.argumentsPreview ?? child.preview,
+      status: child.status,
+      eventIds: transcriptEventIds(child),
+    })),
+  };
 }
 
 /**
  * True when the transcript contains no user-facing content yet — used by
  * activity heuristics to detect "codex hasn't streamed anything visible".
  * Counts orientation notes, reserved tool calls, and state_change markers
- * as invisible: they fire automatically during boot and would otherwise
- * mask the cold-boot gap.
+ * as invisible for ActivePanel renderability until Slice 3 renders state
+ * transitions in the panel.
  */
 export function hasVisibleContent(items: TranscriptItem[]): boolean {
   for (const i of items) {
+    if (i.type === 'state_change') continue;
     if (isVisibleTranscriptItem(i)) return true;
   }
   return false;
