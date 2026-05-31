@@ -4,9 +4,8 @@
 
 **Make coding-agent workflows executable.**
 
-aharness wraps Codex in a finite-state workflow: plans must be submitted,
-approvals must happen, tests must produce evidence, repair loops must run, and
-final reports only happen after the machine says they can.
+The workflow harness for Codex: typed gates, validated evidence, controlled
+transitions, repair paths, and inspectable run logs for any workflow.
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Node >=20](https://img.shields.io/badge/node-%3E%3D20-43853d.svg)](package.json)
@@ -14,58 +13,60 @@ final reports only happen after the machine says they can.
 
 </div>
 
-Skills tell an agent what to do. aharness makes sure the process actually
-happens.
+Prompts and skills tell an agent what to do. aharness makes sure the process
+actually happens.
 
-Use aharness when a coding task needs more structure than a prompt and less
-infrastructure than a custom agent platform. Codex still does the language,
-tool, and code work; aharness owns the workflow around it: states, transitions,
-typed submissions, approvals, hooks, repair loops, and run artifacts.
+Use it when a Codex run needs enforceable workflow boundaries, structured
+submissions, human checkpoints, policy hooks, or recovery paths. Codex still
+writes code, runs tools, and reasons through the task; aharness owns the
+workflow around it.
 
-## Why aharness
+## Why Now
 
-Long-horizon coding work fails in boring ways. The model skips a planning gate.
-It starts implementing before approval. It says tests passed without producing
-the evidence you wanted. It exits early because the prompt asked for a final
-summary and the model decided the process was "close enough."
+Coding agents are now useful enough to attempt long, multi-step changes. The
+failure mode is no longer only "can the model code?" It is process drift: the
+model skips a planning gate, starts implementation before approval, says tests
+passed without evidence, or exits early because the prompt sounded satisfied.
 
-aharness turns those process rules into executable state machines:
+Skills and instructions help, but they are advisory. aharness gives those rules
+a runtime: only the active state's exits are available, submitted evidence is
+validated, owner input and approval requests route through the machine, and
+runs leave inspectable artifacts.
 
-- **Gates are real.** If a state does not expose an implementation exit, the
-  model cannot move to implementation.
-- **Evidence is typed.** The model submits structured payloads that aharness
-  validates before reducers, guards, or effects run.
-- **Approvals are controlled.** Owner input and permission requests route
-  through aharness instead of relying on model convention.
-- **Repair loops are explicit.** Failed evidence can transition to repair,
-  rerun checks, and only then continue.
-- **Runs are inspectable.** Every run writes a canonical `events.jsonl`
-  transcript, terminal reports, and declared artifacts under
-  `.aharness/runs/<runId>/`.
+## What You Get
 
-## The Middle Layer
-
-| Approach | Best for | Where it breaks down |
-| --- | --- | --- |
-| Skills and prompts | Reusable guidance and local conventions | Advisory only; the model can drift, skip gates, or rationalize missing evidence |
-| General agent frameworks | Broad agent graphs and application orchestration | Usually not focused on Codex coding runs, local approvals, and typed coding-task gates |
-| Custom coding frameworks | Deeply owned internal platforms | You own the runtime, UI, verifier, approval routing, logs, packaging, and maintenance |
-| aharness | Enforced coding workflows around Codex | Overkill for one-shot prompts and tiny edits |
-
-aharness can load skills, but the FSM owns the process. It gives you the
-control plane you would otherwise build yourself, scoped specifically to
-coding-agent workflows.
+- **Real gates.** If a state does not expose an implementation exit, the model
+  cannot move to implementation.
+- **Typed evidence.** Codex submits structured payloads that aharness validates
+  before reducers, guards, or effects run.
+- **Owner and policy control.** Owner input, permission requests, pre-tool
+  hooks, post-tool hooks, and prompt-submission events can become workflow
+  transitions.
+- **Repair loops.** Failed evidence can route to repair, rerun checks, and only
+  then continue.
+- **Inspectable runs.** Every run writes a canonical transcript and declared
+  artifacts under `.aharness/runs/<runId>/`.
+- **A browser view.** Live runs and `visualize` show the workflow graph,
+  current state, transcript, approvals, and run stats.
 
 ## Install
 
 Prerequisites:
 
 - Node.js `>=20`
-- Codex CLI `>=0.130.0`
+- Codex CLI `>=0.130.0` on `PATH`
 
 ```bash
 npm install --save-dev @aharness/core
 ```
+
+If setup fails, run:
+
+```bash
+npx aharness doctor
+```
+
+`doctor` checks the Codex CLI version gate and reports active run health.
 
 ## Quickstart
 
@@ -77,7 +78,12 @@ cd my-fsm
 npm start
 ```
 
-Or run an existing FSM directly:
+`aharness init` creates a small TypeScript FSM project, installs dependencies,
+and initializes git by default when the target is not already inside a
+repository. Use `--no-install`, `--no-git`, or `--pm <npm|pnpm|yarn|bun>` when
+you need to control those steps.
+
+Run an existing FSM directly:
 
 ```bash
 npx aharness verify ./workflow.fsm.ts
@@ -85,34 +91,15 @@ npx aharness visualize ./workflow.fsm.ts
 npx aharness ./workflow.fsm.ts
 ```
 
-`verify` checks the machine before any model run. `visualize` opens the browser
-graph without starting Codex. Running the FSM starts Codex, opens the aharness
-UI, shows a chronological JSONL-backed run transcript by default, and lets you
-select graph states to see their visit-grouped activity. The header and bottom
-status bar show aggregate running-time, token, and context-window stats when
-available. Internal aharness submit calls stay out of the default transcript.
+- `verify` checks the machine before Codex starts.
+- `visualize` opens the graph/details UI without starting Codex.
+- `aharness ./workflow.fsm.ts` starts a foreground Codex run and opens the
+  browser UI for approvals and owner input.
 
-New runs write a canonical `events.jsonl` transcript under the run directory.
-That file includes full raw runtime payloads by default, including
-secret-marked owner input, browser reply bodies, tool arguments/results,
-command output, file diffs, approval/permission/elicitation data, and token
-usage payloads, plus parent-visible sub-thread notifications. Treat run
-directories as sensitive. The loopback UI server also exposes run-scoped
-JSONL-backed endpoints for the active run: `/api/runs/:runId/bootstrap`,
-`/api/runs/:runId/visits/:visitId/rows`, `/api/runs/:runId/rows/recent`,
-`/api/runs/:runId/events`, `/api/runs/:runId/stream`, and
-`/api/runs/:runId/reply`. These API/SSE projections are compact and omit raw
-payload expansion; inspect `events.jsonl` directly only when that sensitive raw
-evidence is needed. The React browser now boots, streams rows/events, and sends
-replies through those run-scoped endpoints. Browser chrome is no longer centered
-on a top turn count or bottom turn ribbon; it renders aggregate run duration,
-token, and context stats when those values are available. The old flat
-`/api/state`, `/api/stream`, and `/api/reply` browser routes are no longer
-served for new runs. `snapshot.json` is not written by production live runs and
-is not a new-run UI/history/replay source; retained snapshot helper exports are
-legacy/internal compatibility only.
+Machine inputs become kebab-case flags, so `fixtureRoot` is passed as
+`--fixture-root`.
 
-## Write A Workflow
+## First Workflow
 
 aharness workflows are TypeScript files built with `createFsm`:
 
@@ -133,7 +120,7 @@ export default fsm.machine({
     plan: fsm.state({
       prompt:
         'Inspect the requested coding task, write a short implementation plan, ' +
-        'then submit it as { "plan": "..." }.',
+        'then submit it as { "plan": "..." }. Do not edit files yet.',
       on: {
         submitPlan: fsm.submit<{ plan: string }>({
           to: 'ownerApproval',
@@ -158,163 +145,36 @@ export default fsm.machine({
 });
 ```
 
-The model can write text, run tools, and edit files while a state is active.
-The FSM decides which structured exits are available and what happens when one
-is submitted.
+`fsm.state(...)` gives Codex instructions for the current phase.
+`fsm.submit<T>(...)` declares typed evidence the model may submit.
+`fsm.await(...)` waits for owner input. `fsm.final(...)` ends the run and can
+write final artifacts.
 
-## Demo
+For a fuller coding workflow, start with the smoke demo. It includes planning,
+owner approval, implementation, test evidence, repair on failure, and final
+reporting.
 
-Start with the coding smoke demo:
+## Try The Demo
 
-- [`examples/coding-smoke.fsm.ts`](examples/coding-smoke.fsm.ts) runs a tiny
-  TypeScript fixture through planning, owner approval, implementation, tests,
-  repair on failure, and final reporting.
-- [`examples/coding-smoke/README.md`](examples/coding-smoke/README.md)
-  explains the fixture and run command.
-
-Then use the mechanism demos as references:
-
-- [`examples/README.md`](examples/README.md) gives the recommended examples
-  path.
-- [`examples/DEMOS.md`](examples/DEMOS.md) catalogs await exits, approval
-  hooks, composition, skill loading, branching, state model settings, and final
-  artifacts.
-
-## State Model Settings
-
-Use `model` on a state to control model and effort:
-
-```ts
-implementation: fsm.state({
-  model: {
-    name: 'gpt-5.1-codex',
-    effort: 'high',
-  },
-  prompt: 'Implement the approved plan and submit test evidence.',
-  on: {
-    implemented: fsm.submit<{ testsPassed: boolean }>({ to: 'review' }),
-  },
-});
-```
-
-Either `name` or `effort` (or both) is required:
-
-```ts
-modelOnly: fsm.state({
-  model: { name: 'gpt-5.1-codex' },
-  prompt: 'Review the change with the selected model.',
-});
-
-effortOnly: fsm.state({
-  model: { effort: 'high' },
-  prompt: 'Review the change with higher reasoning effort.',
-});
-```
-
-Use `model` declarations to route non-clear state transitions through sticky thread
-settings. A non-clear state that omits `model` keeps the previous effective
-model and effort:
-
-```ts
-lowModelStep: fsm.state({
-  model: { effort: 'minimal' },
-  prompt: 'Read and summarize the codebase with low effort.',
-  on: {
-    summarized: fsm.submit<{ summary: string }>({ to: 'normalModelStep' }),
-  },
-});
-
-normalModelStep: fsm.state({
-  // No model => still uses minimal reasoning effort from lowModelStep.
-  prompt: 'Continue with normal workflow from the current model state.',
-  on: {
-    continued: fsm.submit<{ finished: boolean }>({ to: 'review' }),
-  },
-});
-```
-
-Set a state-level model override on a clear-fresh transition by pairing it with
-`clearOnEntry`:
-
-```ts
-worktreeReview: fsm.state({
-  clearOnEntry: { cwd: '/absolute/path/to/worktree' },
-  model: { name: 'gpt-5.1-codex', effort: 'high' },
-  prompt: 'Review this worktree and submit findings.',
-  on: {
-    reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
-  },
-});
-```
-
-Effort-only with clear fresh-fresh behavior:
-
-```ts
-worktreeReview: fsm.state({
-  clearOnEntry: true,
-  model: { effort: 'high' },
-  prompt: 'Review and summarize before the next phase.',
-  on: {
-    reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
-  },
-});
-```
-
-`clearOnEntry` is now freshness-only:
-
-- `clearOnEntry: true` starts the target state in a replacement thread with the
-  launch CWD.
-- `clearOnEntry: { cwd: '/absolute/path' }` starts in a replacement thread at that
-  path.
-- `clearOnEntry: { cwd: (data) => data.packageDir }` resolves CWD from context.
-
-`clearOnEntry` and `model` are each independently validated by the verifier:
-
-- `clearOnEntry` checks validate `cwd` shape and existence.
-- `model.name` values are checked against Codex `model/list` and
-  `model/list({ includeHidden: true })` where possible.
-- `model.effort` must be one of `none`, `minimal`, `low`, `medium`, `high`, or
-  `xhigh`; it is validated by runtime when model lookup depends on active state.
-
-`clearOnEntry` only controls thread replacement and working directory; it does
-not clear sticky model/effort settings. If a later non-clear state omits `model`,
-the previous effective model/effort remains active.
-
-## CLI
+From a source checkout:
 
 ```bash
-aharness [--yolo] <file.fsm.ts> [--<flag> <value>]...
-aharness visualize <file.fsm.ts> [--<flag> <value>]...
-aharness verify <file.fsm.ts>
-aharness doctor
-aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|yarn|bun>]
-aharness install <source>
-aharness run [--yolo] <command> [--<flag> <value>]...
-aharness list
-aharness uninstall <package-name>
-aharness verify <package-name>
-aharness verify <package-name>/<command-name>
-aharness completion install [--shell bash|zsh|fish]
-aharness completion uninstall
+pnpm run build
+node packages/core/dist/cli/main.js verify examples/coding-smoke.fsm.ts
+node packages/core/dist/cli/main.js examples/coding-smoke.fsm.ts
 ```
 
-Machine inputs become kebab-case flags, so `fixtureRoot` becomes
-`--fixture-root`.
+The demo files are:
 
-`aharness completion install` uses `@pnpm/tabtab`; the installed shell delegate
-calls the hidden `aharness completion-server` bridge on each Tab press. Bare
-`aharness completion` remains a compatibility alias for the same bridge. Before
-an FSM path is resolved, completion delegates to the shell's file completion;
-after an FSM path is resolved, it suggests that FSM's input flags and supported
-flag values.
+- [`examples/coding-smoke.fsm.ts`](examples/coding-smoke.fsm.ts) - the FSM.
+- [`examples/coding-smoke/fixture`](examples/coding-smoke/fixture) - the tiny
+  broken TypeScript fixture the agent repairs.
+- [`examples/coding-smoke/README.md`](examples/coding-smoke/README.md) - what
+  to watch during the run.
 
-`--yolo` is a dangerous live-runtime flag for direct FSM runs and installed
-command runs. It starts Codex with `approval_policy="never"` and
-`sandbox_mode="danger-full-access"`, mirroring Codex's dangerous bypass mode.
-It is not available for non-live subcommands such as `verify`, `visualize`,
-`doctor`, `install`, `list`, `uninstall`, or `completion`. For direct runs it
-may appear before or after the FSM path; for installed commands it may appear
-before or after the command name.
+After that, use [`examples/DEMOS.md`](examples/DEMOS.md) as a catalog of focused
+mechanism demos for awaits, approvals, hooks, composition, skills, branching,
+and final artifacts.
 
 ## How It Works
 
@@ -322,25 +182,57 @@ before or after the command name.
 flowchart LR
     Owner["Owner"]
     Codex["Codex CLI<br/>coding worker"]
-    aharness["aharness CLI<br/>FSM actor + verifier"]
+    Aharness["aharness CLI<br/>FSM actor + verifier"]
     Browser["Loopback browser UI<br/>approvals + graph"]
     Runs[".aharness/runs/&lt;runId&gt;<br/>events.jsonl + reports + artifacts"]
 
-    aharness <--> Codex
-    aharness <--> Browser
+    Aharness <--> Codex
+    Aharness <--> Browser
     Owner <--> Browser
-    aharness --> Runs
+    Aharness --> Runs
 ```
 
 At runtime, aharness verifies the FSM, starts one Codex `app-server` child
 process, connects as the sole WebSocket client for that run, and hosts the
-XState actor in-process. Codex performs the work; aharness controls the
-transition surface.
+XState actor in-process. Codex performs the work; aharness controls which
+state transitions are legal.
 
-Owner replies, permission requests, hooks, typed submissions, and final
-artifacts all pass through the active FSM state. The browser UI shows the graph,
-compact run rows, aggregate run stats, and handles approvals through a per-run
-loopback token.
+Runs are foreground-only. Keep the CLI process running and use the printed
+browser URL for owner approvals and input.
+
+Run directories are sensitive. `.aharness/runs/<runId>/events.jsonl` can include
+raw owner input, browser replies, tool arguments and results, command output,
+file diffs, approval data, and token usage payloads.
+
+## When To Use It
+
+aharness is the middle layer for coding workflows that need more enforcement
+than a prompt and less infrastructure than a custom agent platform.
+
+| Use | Better fit |
+| --- | --- |
+| Ordered phases: plan, approve, implement, verify, repair, report | One-shot prompts and tiny edits |
+| Typed submissions and test evidence | Manual sessions where the owner steers every turn |
+| Owner approvals and repository policy hooks | General non-coding agent orchestration |
+| Reusable coding workflows packaged as commands | Teams ready to build and own a full custom runtime |
+
+The core package provides mechanisms, not one team's process. Workflow opinions
+belong in your FSMs, examples, or installable FSM packages.
+
+## Common Commands
+
+```bash
+aharness init --dir <path>
+aharness verify <file.fsm.ts>
+aharness visualize <file.fsm.ts>
+aharness <file.fsm.ts> [--<input-flag> <value>]...
+aharness doctor
+aharness install <source>
+aharness run <package-or-command> [--<input-flag> <value>]...
+```
+
+See [`docs/reference.md`](docs/reference.md) for the full CLI, state options,
+hooks, installable package commands, completions, and `--yolo`.
 
 ## Packages
 
@@ -348,36 +240,10 @@ loopback token.
   CLI binary.
 - [`@aharness/test-support`](packages/test-support/README.md) provides
   integration-test fixtures for aharness runs.
-- [`@aharness/superpowers`](packages/superpowers/README.md) is an example
-  reusable FSM package.
-
-Reusable FSM packages are npm-shaped packages with explicit
-`aharness.package.commands` entries. Install them through npm-backed aharness
-state, then run their commands through the global CLI:
-
-```bash
-aharness install @scope/tools
-aharness run @scope/tools/build
-```
-
-Command entries point at package-root-relative `.fsm.ts` files and are verified
-before aharness writes trusted install records. If validation fails after npm
-changes the managed package tree, unverified commands are not indexed; see
-[`docs/troubleshooting.md`](docs/troubleshooting.md) for recovery and lock
-fingerprint mismatch guidance.
-
-
-## Possible upcoming features
-- [ ] Separate aharness engine and visualization to support `aharness submit X` to run in background. Single UI to show all running `aharness`.
-- [ ] Support sending events to remote UI. This will allow to consolidate runs from multiple machines into same UI.
-- [ ] Release `@aharness/supowerpowers` package for easy adoption for current supowerpowers users.
-- [ ] Better validator / runtime support for:
-  - Fully autonomous runs
-  - Last resort human escalation runs
-- [ ] Index of community published FSMs.
-- [ ] Claude code / OpenCode / Pi support.
-
-
+- [`@aharness/superpowers`](packages/superpowers/README.md) is an installable
+  FSM package with Superpowers-inspired commands.
+- `packages/web-ui` is the private React/Vite browser UI bundled into the core
+  CLI build.
 
 ## Documentation
 
@@ -388,6 +254,8 @@ fingerprint mismatch guidance.
   runtime boundary.
 - [`docs/troubleshooting.md`](docs/troubleshooting.md) covers prerequisite and
   runtime failures.
+- [`packages/core/SUPPORTED_CODEX.md`](packages/core/SUPPORTED_CODEX.md)
+  documents the Codex CLI compatibility gate.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md), [`CHANGELOG.md`](CHANGELOG.md), and
   [`SECURITY.md`](SECURITY.md) cover project maintenance, release notes, and
   vulnerability reporting.
