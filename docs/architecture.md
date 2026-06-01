@@ -34,7 +34,11 @@ The browser run UI defaults to a chronological compact transcript for the whole
 run. Selecting a graph state switches the right panel to that state's historical
 visits, grouped chronologically by visit id. Pending approvals, owner input, and
 open-state prompts remain live-run interaction surfaces rather than raw JSONL
-payload views.
+payload views. Owner input is independent of Codex approval review mode:
+`fsm.await(...)` prompts still surface through the browser, while pending
+browser approval cards appear only when Codex routes a permission prompt to the
+user, such as under `--ask`. Default live runs use Codex auto-review, which can
+resolve eligible sandbox-boundary prompts without browser interaction.
 
 ## Visualization Topology
 
@@ -102,6 +106,11 @@ Owner input has two paths:
   `request_user_input` and advances on the configured await exit.
 - Built-in approval and hook events route Codex permission, pre-tool,
   post-tool, and prompt-submission events through the active state's `on` map.
+
+Approval review mode controls where Codex permission prompts go. Default live
+runs start Codex with auto-review so eligible sandbox-boundary prompts can be
+handled by Codex. Runs started with `--ask` use manual user review and surface
+pending approval cards in the browser; `--yolo` bypasses approval prompts.
 
 This is the core boundary: Codex performs the work; aharness constrains the
 process around that work.

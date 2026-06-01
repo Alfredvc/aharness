@@ -35,7 +35,7 @@ aharness examples/composed-pipeline.fsm.ts --topic auth-rework
 `approval-policy` has optional flags for input-helper coverage:
 
 ```sh
-aharness examples/approval-policy.fsm.ts --mode strict --plan-path ./PLAN.md --max-auto-approvals 1
+aharness --ask examples/approval-policy.fsm.ts --mode strict --plan-path ./PLAN.md --max-auto-approvals 1
 ```
 
 The CLI verifies the FSM, starts the app-server and browser UI, and
@@ -287,13 +287,14 @@ signal, submit `effect`, `fsm.passive`, and `fsm.input.*` helpers.
 
 ### Walkthrough
 
-1. Run `aharness examples/approval-policy.fsm.ts` or pass optional flags:
+1. Run `aharness --ask examples/approval-policy.fsm.ts` or pass optional flags:
    `--mode strict --plan-path ./PLAN.md --max-auto-approvals 1`.
 2. The model writes a short policy report and submits it.
 3. If a Bash approval request happens while the `review` state is active,
    the `permissionRequest` handler records it and either accepts a
    strict-mode `pnpm test...` command for the session or delegates the
-   request to the browser approval card.
+   request to the browser approval card. The `--ask` runtime flag keeps those
+   delegated approval cards visible instead of using default Codex auto-review.
 4. The passive `record` state immediately advances to `done`, which
    writes `approval-policy.md`.
 

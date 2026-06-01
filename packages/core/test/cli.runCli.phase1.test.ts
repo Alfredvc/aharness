@@ -57,7 +57,10 @@ import type {
 } from '../src/protocol/types.js';
 import type { ConnectHeadlessWsOptions } from '../src/transport/wsClient.js';
 
-const APPROVAL_POLICY_OVERRIDE = ['approval_policy', '"on-request"'] as const;
+const AUTO_REVIEW_OVERRIDES = [
+  ['approval_policy', '"on-request"'],
+  ['approvals_reviewer', '"auto_review"'],
+] as const;
 
 function hasCodex(): boolean {
   try {
@@ -222,7 +225,7 @@ describe('runCliForTest — Phase 2d zero-hook regression', () => {
 
     expect(result.exitCode).toBe(1);
     expect(stderrBuf.join('')).toContain('app-server failed');
-    expect(capturedOverrides ?? []).toEqual([APPROVAL_POLICY_OVERRIDE]);
+    expect(capturedOverrides ?? []).toEqual(AUTO_REVIEW_OVERRIDES);
     expect((capturedOverrides ?? []).filter(([key]) => key.startsWith('hooks.'))).toEqual([]);
     expect(existsSync(join(onlyRunRootForCliRegression(repoRoot), 'hook.sock'))).toBe(false);
   });

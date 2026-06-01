@@ -94,7 +94,7 @@ npx aharness run ./workflow.fsm.ts
 - `verify` checks the machine before Codex starts.
 - `visualize` opens the graph/details UI without starting Codex.
 - `aharness run ./workflow.fsm.ts` starts a foreground Codex run and opens the
-  browser UI for approvals and owner input.
+  browser UI for owner input and any approval prompts routed to the user.
 
 `aharness ./workflow.fsm.ts` remains supported as a compatibility form.
 Machine inputs become kebab-case flags, so `fixtureRoot` is passed as
@@ -184,7 +184,7 @@ flowchart LR
     Owner["Owner"]
     Codex["Codex CLI<br/>coding worker"]
     Aharness["aharness CLI<br/>FSM actor + verifier"]
-    Browser["Loopback browser UI<br/>approvals + graph"]
+    Browser["Loopback browser UI<br/>input + approvals + graph"]
     Runs[".aharness/runs/&lt;runId&gt;<br/>events.jsonl + reports + artifacts"]
 
     Aharness <--> Codex
@@ -199,7 +199,7 @@ XState actor in-process. Codex performs the work; aharness controls which
 state transitions are legal.
 
 Runs are foreground-only. Keep the CLI process running and use the printed
-browser URL for owner approvals and input.
+browser URL for owner input and any approval prompts routed to the user.
 
 Run directories are sensitive. `.aharness/runs/<runId>/events.jsonl` can include
 raw owner input, browser replies, tool arguments and results, command output,
@@ -226,14 +226,15 @@ belong in your FSMs, examples, or installable FSM packages.
 aharness init --dir <path>
 aharness verify <file.fsm.ts>
 aharness visualize <file.fsm.ts>
-aharness <file.fsm.ts> [--<input-flag> <value>]...
+aharness [--ask|--yolo] <file.fsm.ts> [--<input-flag> <value>]...
 aharness doctor
 aharness install <source>
-aharness run <package-or-command> [--<input-flag> <value>]...
+aharness run [--ask|--yolo] <file.fsm.ts|command> [--<input-flag> <value>]...
 ```
 
 See [`docs/reference.md`](docs/reference.md) for the full CLI, state options,
-hooks, installable package commands, completions, and `--yolo`.
+hooks, installable package commands, completions, default Codex auto-review
+behavior, `--ask`, and `--yolo`.
 
 ## Packages
 

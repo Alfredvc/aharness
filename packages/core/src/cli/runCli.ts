@@ -162,6 +162,28 @@ const exec = promisify(execFile);
 
 const SIGINT_EXIT_CODE = 130;
 
+export type RunPermissionMode = 'autoReview' | 'ask' | 'yolo';
+
+function renderPermissionModeOverrides(mode: RunPermissionMode): Array<readonly [string, string]> {
+  switch (mode) {
+    case 'autoReview':
+      return [
+        ['approval_policy', '"on-request"'],
+        ['approvals_reviewer', '"auto_review"'],
+      ];
+    case 'ask':
+      return [
+        ['approval_policy', '"on-request"'],
+        ['approvals_reviewer', '"user"'],
+      ];
+    case 'yolo':
+      return [
+        ['approval_policy', '"never"'],
+        ['sandbox_mode', '"danger-full-access"'],
+      ];
+  }
+}
+
 export interface RunCliOpts {
   /** Path to the user's `<file>.fsm.ts`, absolute or relative to `cwd`. */
   readonly fsmPath: string;
@@ -177,8 +199,8 @@ export interface RunCliOpts {
    * against the loaded FSM's `inputFlags` after `loadFsm`.
    */
   readonly inputArgs?: ReadonlyArray<string>;
-  /** Start Codex with Codex-equivalent YOLO permissions. */
-  readonly yolo?: boolean;
+  /** Runtime permission behavior for Codex approval handling. */
+  readonly permissionMode?: RunPermissionMode;
 }
 
 export interface RunCliResult {
@@ -1105,12 +1127,8 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   // 10. Spawn codex app-server (Unix listen).
   const sockPath = join(finalRunDir.root, 'app-server.sock');
   const mockModelBaseUrl = process.env['AHARNESS_MOCK_MODEL_BASE_URL'] ?? o._testMockModelBaseUrl;
-  const cliOverrides: Array<readonly [string, string]> = o.yolo
-    ? [
-        ['approval_policy', '"never"'],
-        ['sandbox_mode', '"danger-full-access"'],
-      ]
-    : [['approval_policy', '"on-request"']];
+  const permissionMode = o.permissionMode ?? 'autoReview';
+  const cliOverrides = renderPermissionModeOverrides(permissionMode);
   if (mockModelBaseUrl) {
     cliOverrides.push(
       ['model_provider', '"mock"'],

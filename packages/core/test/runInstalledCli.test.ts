@@ -44,7 +44,7 @@ describe('aharness run installed commands', () => {
       stdout: stdout.stream,
       stderr: stderr.stream,
       inputArgs: ['--topic', 'auth'],
-      yolo: true,
+      permissionMode: 'ask',
       readSnapshotImpl: async () => ({ ok: true, value: snapshot }),
       checkLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
       loadInstalledFsmImpl,
@@ -58,7 +58,7 @@ describe('aharness run installed commands', () => {
       fsmPath: path.join('/store/packages/node_modules/@scope/tools', 'fsms/build.fsm.ts'),
       cwd: '/workspace',
       inputArgs: ['--topic', 'auth'],
-      yolo: true,
+      permissionMode: 'ask',
     });
     expect(loadInstalledFsmImpl).toHaveBeenCalledWith({
       entryFile: path.join('/store/packages/node_modules/@scope/tools', 'fsms/build.fsm.ts'),
@@ -70,6 +70,37 @@ describe('aharness run installed commands', () => {
       lockFingerprint: 'verified-lock',
     });
     expect(stdout.text()).toBe('');
+  });
+
+  it('forwards yolo permission mode into the runtime', async () => {
+    const snapshot = runtimeSnapshot([
+      installRecord('@scope/tools', {
+        build: commandMetadata('build'),
+      }),
+    ]);
+    const runtimeCalls: RunCliForTestOpts[] = [];
+    const runCliImpl = vi.fn(async (opts: RunCliForTestOpts) => {
+      runtimeCalls.push(opts);
+      return { exitCode: 0 };
+    });
+
+    const result = await runInstalledCli({
+      command: '@scope/tools/build',
+      cwd: '/workspace',
+      stdout: captureStream().stream,
+      stderr: captureStream().stream,
+      permissionMode: 'yolo',
+      readSnapshotImpl: async () => ({ ok: true, value: snapshot }),
+      checkLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
+      loadInstalledFsmImpl: vi.fn(async () => makeLoadedFsm()),
+      runCliImpl,
+    });
+
+    expect(result).toEqual({ exitCode: 0 });
+    expect(runtimeCalls).toHaveLength(1);
+    expect(runtimeCalls[0]).toMatchObject({
+      permissionMode: 'yolo',
+    });
   });
 
   it('resolves unique bare commands and runs package commands named list and verify', async () => {
@@ -105,6 +136,8 @@ describe('aharness run installed commands', () => {
     expect(listResult).toEqual({ exitCode: 0 });
     expect(verifyResult).toEqual({ exitCode: 0 });
     expect(runCliImpl).toHaveBeenCalledTimes(2);
+    expect(runCliImpl.mock.calls[0]?.[0]).not.toHaveProperty('permissionMode');
+    expect(runCliImpl.mock.calls[1]?.[0]).not.toHaveProperty('permissionMode');
   });
 
   it('fails ambiguous bare commands with fully qualified alternatives', async () => {

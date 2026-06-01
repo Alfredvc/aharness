@@ -15,7 +15,7 @@
  *     watchdog so a stuck import never hangs the user's shell. Bare
  *     `aharness completion` remains a compatibility alias for the bridge.
  *   - `aharness install <source>` — npm-backed installed package mutation.
- *   - `aharness run [--yolo] <file.fsm.ts|command>` — target execution.
+ *   - `aharness run [--ask|--yolo] <file.fsm.ts|command>` — target execution.
  *   - `aharness list` — installed package command listing.
  *   - `aharness uninstall <package-name>` — npm-backed package removal.
  *   - `aharness visualize <file.fsm.ts>` — browser-only FSM inspection.
@@ -35,7 +35,7 @@ import { isAbsolute } from 'node:path';
 
 import { runVerifyCli } from './verifyCli.js';
 import { runDoctorCli } from './doctorCli.js';
-import { runCli } from './runCli.js';
+import { runCli, type RunPermissionMode } from './runCli.js';
 import { runVisualizeCli } from './visualizeCli.js';
 import { runCompletionInstall, runCompletionUninstall } from './completion.js';
 import { runCompletionBridge } from './completionBridge.js';
@@ -56,7 +56,7 @@ export interface Dispatcher {
   readonly runDefault: (o: {
     fsmPath: string;
     inputArgs: ReadonlyArray<string>;
-    yolo?: boolean;
+    permissionMode?: RunPermissionMode;
   }) => Promise<{ exitCode: number }>;
   readonly runVisualize: (o: {
     fsmPath: string;
@@ -84,7 +84,7 @@ export interface Dispatcher {
   readonly runTarget: (o: {
     target: string;
     inputArgs: ReadonlyArray<string>;
-    yolo?: boolean;
+    permissionMode?: RunPermissionMode;
   }) => Promise<{ exitCode: number }>;
   readonly runListInstalled: (o: Record<string, never>) => Promise<{ exitCode: number }>;
   readonly runVerifyInstalled: (o: { target: string }) => Promise<{ exitCode: number }>;
@@ -142,7 +142,7 @@ export async function dispatch(
     return d.runTarget({
       target: parsed.target,
       inputArgs: parsed.inputArgs,
-      ...(parsed.yolo ? { yolo: true } : {}),
+      ...(parsed.permissionMode !== undefined ? { permissionMode: parsed.permissionMode } : {}),
     });
   }
   if (cmd === 'list') {
@@ -163,13 +163,15 @@ export async function dispatch(
   // Every `--<flag>` token and its non-flag value, if any, is collected
   // verbatim into `inputArgs` and forwarded to `runCli`, which calls
   // `parseInputFlags` against the loaded FSM's `inputFlags` after `loadFsm`.
-  const parsedDefault = parseFsmPathAndInputArgs(argv, { consumeYolo: true });
+  const parsedDefault = parseFsmPathAndInputArgs(argv, { consumeRuntimePermissionFlags: true });
   if (!parsedDefault) return { exitCode: usage(stderr) };
 
   return d.runDefault({
     fsmPath: parsedDefault.fsmPath,
     inputArgs: parsedDefault.inputArgs,
-    ...(parsedDefault.yolo ? { yolo: true } : {}),
+    ...(parsedDefault.permissionMode !== undefined
+      ? { permissionMode: parsedDefault.permissionMode }
+      : {}),
   });
 }
 
@@ -212,22 +214,28 @@ async function runCompletionBridgeWithWatchdog(d: Dispatcher): Promise<{ exitCod
 
 function parseFsmPathAndInputArgs(
   argv: ReadonlyArray<string>,
-  opts: { consumeYolo?: boolean } = {},
-): { fsmPath: string; inputArgs: ReadonlyArray<string>; yolo?: boolean } | null {
+  opts: { consumeRuntimePermissionFlags?: boolean } = {},
+): {
+  fsmPath: string;
+  inputArgs: ReadonlyArray<string>;
+  permissionMode?: RunPermissionMode;
+} | null {
   const positional: string[] = [];
   const inputArgs: string[] = [];
-  let yolo = false;
+  let permissionMode: RunPermissionMode | undefined;
   // The verbs (`verify`, `doctor`, `completion`, `init`, `visualize`) have already been
   // triaged by the early-returns above. The loop below scans the same `argv`
   // only because no verb matched; the remaining tokens are the FSM path and
   // any user-defined `--<flag>` pairs.
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
-    if (opts.consumeYolo && a === '--yolo') {
-      yolo = true;
+    const runtimePermissionMode = runtimePermissionModeFromFlag(a);
+    if (opts.consumeRuntimePermissionFlags && runtimePermissionMode) {
+      if (permissionMode !== undefined && permissionMode !== runtimePermissionMode) return null;
+      permissionMode = runtimePermissionMode;
       continue;
     }
-    if (!opts.consumeYolo && a === '--yolo') return null;
+    if (!opts.consumeRuntimePermissionFlags && runtimePermissionMode) return null;
     if (a.startsWith('--')) {
       inputArgs.push(a);
       const next = argv[i + 1];
@@ -240,17 +248,22 @@ function parseFsmPathAndInputArgs(
     positional.push(a);
   }
   if (positional.length !== 1) return null;
-  return { fsmPath: positional[0]!, inputArgs, ...(yolo ? { yolo: true } : {}) };
+  return {
+    fsmPath: positional[0]!,
+    inputArgs,
+    ...(permissionMode !== undefined ? { permissionMode } : {}),
+  };
 }
 
 function parseRunTargetAndInputArgs(
   argv: ReadonlyArray<string>,
-): { target: string; inputArgs: ReadonlyArray<string>; yolo?: boolean } | null {
+): { target: string; inputArgs: ReadonlyArray<string>; permissionMode?: RunPermissionMode } | null {
   let index = 0;
-  let yolo = false;
+  let permissionMode: RunPermissionMode | undefined;
 
-  if (argv[index] === '--yolo') {
-    yolo = true;
+  const leadingPermissionMode = runtimePermissionModeFromFlag(argv[index]);
+  if (leadingPermissionMode) {
+    permissionMode = leadingPermissionMode;
     index++;
   }
 
@@ -262,12 +275,18 @@ function parseRunTargetAndInputArgs(
   for (let i = 0; i < inputArgs.length; i++) {
     const current = inputArgs[i]!;
     if (!current.startsWith('--')) return null;
-    if (current === '--yolo') return null;
+    if (runtimePermissionModeFromFlag(current)) return null;
     const next = inputArgs[i + 1];
     if (next !== undefined && !next.startsWith('--')) i++;
   }
 
-  return { target, inputArgs, ...(yolo ? { yolo: true } : {}) };
+  return { target, inputArgs, ...(permissionMode !== undefined ? { permissionMode } : {}) };
+}
+
+function runtimePermissionModeFromFlag(flag: string | undefined): RunPermissionMode | null {
+  if (flag === '--ask') return 'ask';
+  if (flag === '--yolo') return 'yolo';
+  return null;
 }
 
 function parseInitArgs(args: ReadonlyArray<string>): {
@@ -317,14 +336,14 @@ function parseInitArgs(args: ReadonlyArray<string>): {
 function usage(stderr: NodeJS.WritableStream): number {
   stderr.write(
     'usage:\n' +
-      '  aharness [--yolo] <file.fsm.ts> [--<flag> <value>]...\n' +
+      '  aharness [--ask|--yolo] <file.fsm.ts> [--<flag> <value>]...\n' +
       '  aharness visualize <file.fsm.ts> [--<flag> <value>]...\n' +
       '  aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|yarn|bun>]\n' +
       '  aharness install <source>\n' +
       '  aharness verify <file.fsm.ts>\n' +
       '  aharness verify <package-name>\n' +
       '  aharness verify <package-name>/<command-name>\n' +
-      '  aharness run [--yolo] <file.fsm.ts|command> [--<flag> <value>]...\n' +
+      '  aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...\n' +
       '  aharness list\n' +
       '  aharness uninstall <package-name>\n' +
       '  aharness doctor\n' +
@@ -344,14 +363,14 @@ if (process.argv[1]?.endsWith('main.js')) {
         log: (s) => process.stdout.write(s + '\n'),
         now: () => new Date(),
       }),
-    runDefault: ({ fsmPath, inputArgs, yolo }) => {
+    runDefault: ({ fsmPath, inputArgs, permissionMode }) => {
       const opts = {
         fsmPath,
         cwd: process.cwd(),
         stderr: process.stderr,
         stdout: process.stdout,
         inputArgs,
-        ...(yolo ? { yolo: true } : {}),
+        ...(permissionMode !== undefined ? { permissionMode } : {}),
       };
       return runCli(opts);
     },
@@ -384,14 +403,14 @@ if (process.argv[1]?.endsWith('main.js')) {
         stdout: process.stdout,
         stderr: process.stderr,
       }),
-    runTarget: ({ target, inputArgs, yolo }) => {
+    runTarget: ({ target, inputArgs, permissionMode }) => {
       const opts = {
         target,
         cwd: process.cwd(),
         stdout: process.stdout,
         stderr: process.stderr,
         inputArgs,
-        ...(yolo ? { yolo: true } : {}),
+        ...(permissionMode !== undefined ? { permissionMode } : {}),
       };
       return runTargetCli(opts);
     },

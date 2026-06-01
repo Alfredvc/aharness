@@ -48,7 +48,14 @@ import type { ReplayableAppEvent } from '../src/ui/events.js';
 import { startUiServer, type StartUiServerOptions, type UiServerHandle } from '../src/ui/server.js';
 import type { ConnectHeadlessWsOptions } from '../src/transport/wsClient.js';
 
-const APPROVAL_POLICY_OVERRIDE = ['approval_policy', '"on-request"'] as const;
+const AUTO_REVIEW_OVERRIDES = [
+  ['approval_policy', '"on-request"'],
+  ['approvals_reviewer', '"auto_review"'],
+] as const;
+const ASK_OVERRIDES = [
+  ['approval_policy', '"on-request"'],
+  ['approvals_reviewer', '"user"'],
+] as const;
 const YOLO_OVERRIDES = [
   ['approval_policy', '"never"'],
   ['sandbox_mode', '"danger-full-access"'],
@@ -591,7 +598,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(spawnAppServer).not.toHaveBeenCalled();
   });
 
-  it('passes the fixed on-request approval policy for a zero-hook run', async () => {
+  it('passes auto-review approval overrides for a default zero-hook run', async () => {
     const fsmPath = makeFsmFile(repoRoot, 'approval-policy.fsm.ts');
     let capturedOverrides: ReadonlyArray<readonly [string, string]> | undefined;
     const spawnAppServer = vi.fn(async (opts: SpawnAppServerOptions) => {
@@ -611,10 +618,34 @@ describe('runCliForTest — pre-spawn gates', () => {
 
     expect(r.exitCode).toBe(1);
     expect(spawnAppServer).toHaveBeenCalledTimes(1);
-    expect(capturedOverrides).toEqual([APPROVAL_POLICY_OVERRIDE]);
+    expect(capturedOverrides).toEqual(AUTO_REVIEW_OVERRIDES);
   });
 
-  it('passes the fixed approval policy before mock-model provider overrides', async () => {
+  it('passes ask approval overrides for an ask-mode zero-hook run', async () => {
+    const fsmPath = makeFsmFile(repoRoot, 'ask.fsm.ts');
+    let capturedOverrides: ReadonlyArray<readonly [string, string]> | undefined;
+    const spawnAppServer = vi.fn(async (opts: SpawnAppServerOptions) => {
+      capturedOverrides = opts.cliOverrides;
+      throw new Error('test-abort-after-spawn-args-captured');
+    });
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        spawnAppServer: spawnAppServer as unknown as RunCliTestHooks['spawnAppServer'],
+      },
+    });
+    opts.stderr = stderrSink;
+    opts.permissionMode = 'ask';
+
+    const r = await runCliForTest(opts);
+
+    expect(r.exitCode).toBe(1);
+    expect(spawnAppServer).toHaveBeenCalledTimes(1);
+    expect(capturedOverrides).toEqual(ASK_OVERRIDES);
+  });
+
+  it('passes auto-review approval overrides before mock-model provider overrides', async () => {
     const fsmPath = makeFsmFile(repoRoot, 'mock-model.fsm.ts');
     let capturedOverrides: ReadonlyArray<readonly [string, string]> | undefined;
     const spawnAppServer = vi.fn(async (opts: SpawnAppServerOptions) => {
@@ -636,7 +667,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(r.exitCode).toBe(1);
     expect(spawnAppServer).toHaveBeenCalledTimes(1);
     expect(capturedOverrides).toEqual([
-      APPROVAL_POLICY_OVERRIDE,
+      ...AUTO_REVIEW_OVERRIDES,
       ['model_provider', '"mock"'],
       ['model_providers.mock.name', '"mock"'],
       ['model_providers.mock.base_url', '"http://127.0.0.1:17777"'],
@@ -659,13 +690,14 @@ describe('runCliForTest — pre-spawn gates', () => {
       },
     });
     opts.stderr = stderrSink;
-    opts.yolo = true;
+    opts.permissionMode = 'yolo';
 
     const r = await runCliForTest(opts);
 
     expect(r.exitCode).toBe(1);
     expect(spawnAppServer).toHaveBeenCalledTimes(1);
     expect(capturedOverrides).toEqual(YOLO_OVERRIDES);
+    expect(capturedOverrides?.some(([key]) => key === 'approvals_reviewer')).toBe(false);
   });
 
   it('passes YOLO overrides before mock-model provider overrides', async () => {
@@ -683,7 +715,7 @@ describe('runCliForTest — pre-spawn gates', () => {
       },
     });
     opts.stderr = stderrSink;
-    opts.yolo = true;
+    opts.permissionMode = 'yolo';
     opts._testMockModelBaseUrl = 'http://127.0.0.1:17777';
 
     const r = await runCliForTest(opts);
@@ -743,7 +775,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(stderrBuf.join('')).toContain('app-server failed');
     expect(spawnAppServer).toHaveBeenCalledTimes(1);
     expect(capturedOverrides).toEqual([
-      APPROVAL_POLICY_OVERRIDE,
+      ...AUTO_REVIEW_OVERRIDES,
       ['hooks.PreToolUse', expect.stringMatching(/hooks = .*pre_tool_use\.sh.*timeout = 30/)],
     ]);
     const runs = readdirSync(join(repoRoot, '.aharness', 'runs'));
@@ -796,7 +828,7 @@ describe('runCliForTest — pre-spawn gates', () => {
 
     expect(r.exitCode).toBe(1);
     expect(spawnAppServer).toHaveBeenCalledTimes(1);
-    expect(capturedOverrides).toEqual([APPROVAL_POLICY_OVERRIDE]);
+    expect(capturedOverrides).toEqual(AUTO_REVIEW_OVERRIDES);
     const runs = readdirSync(join(repoRoot, '.aharness', 'runs'));
     expect(runs).toHaveLength(1);
     const runRoot = join(repoRoot, '.aharness', 'runs', runs[0]!);
@@ -847,7 +879,7 @@ describe('runCliForTest — pre-spawn gates', () => {
 
     expect(r.exitCode).toBe(1);
     expect(capturedOverrides).toEqual([
-      APPROVAL_POLICY_OVERRIDE,
+      ...AUTO_REVIEW_OVERRIDES,
       ['hooks.PreToolUse', expect.stringMatching(/hooks = .*pre_tool_use\.sh.*timeout = 30/)],
     ]);
     const runs = readdirSync(join(repoRoot, '.aharness', 'runs'));

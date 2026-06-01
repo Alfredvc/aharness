@@ -318,7 +318,7 @@ function writeCodexHomeForRun(repoRoot: string): () => void {
   };
 }
 
-describe.skipIf(!E2E_ENABLED)('runCli — real app-server approvals (end-to-end)', () => {
+describe.skipIf(!E2E_ENABLED)('runCli — manual browser approvals (end-to-end)', () => {
   let cleanups: Array<() => Promise<void> | void> = [];
 
   afterEach(async () => {
@@ -397,6 +397,9 @@ describe.skipIf(!E2E_ENABLED)('runCli — real app-server approvals (end-to-end)
     const runPromise = runCliForTest({
       fsmPath: 'approvalWalk.fsm.ts',
       cwd: repoRoot,
+      // These flows cover aharness browser approval routing. Ask mode keeps
+      // Codex prompts delegated to the user instead of default auto-review.
+      permissionMode: 'ask',
       stderr,
       stdout,
       verify: async () => ({ exitCode: 0 }),
@@ -479,7 +482,7 @@ describe.skipIf(!E2E_ENABLED)('runCli — real app-server approvals (end-to-end)
   }
 
   for (const decision of ['accept', 'decline'] as const) {
-    it(`routes a Codex-generated command approval through run-scoped reply (${decision})`, async () => {
+    it(`routes a manual browser command approval through run-scoped reply (${decision})`, async () => {
       const { sseFunctionCall, sseResponseCreated, sseTurnComplete } =
         await import('@aharness/test-support');
 
@@ -519,7 +522,7 @@ describe.skipIf(!E2E_ENABLED)('runCli — real app-server approvals (end-to-end)
   }
 
   for (const decision of ['accept', 'decline'] as const) {
-    it(`routes a Codex-generated file approval through run-scoped reply (${decision})`, async () => {
+    it(`routes a manual browser file approval through run-scoped reply (${decision})`, async () => {
       const { sseFunctionCall, sseResponseCreated, sseTurnComplete } =
         await import('@aharness/test-support');
 

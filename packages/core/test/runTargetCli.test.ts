@@ -23,7 +23,7 @@ describe('aharness run target dispatch', () => {
         stdout: captureStream().stream,
         stderr: captureStream().stream,
         inputArgs: ['--topic', 'auth'],
-        yolo: true,
+        permissionMode: 'ask',
         runCliImpl,
         runInstalledCliImpl,
       });
@@ -35,7 +35,7 @@ describe('aharness run target dispatch', () => {
         stdout: expect.any(Writable),
         stderr: expect.any(Writable),
         inputArgs: ['--topic', 'auth'],
-        yolo: true,
+        permissionMode: 'ask',
       } satisfies RunCliOpts);
       expect(runInstalledCliImpl).not.toHaveBeenCalled();
     } finally {
@@ -55,6 +55,7 @@ describe('aharness run target dispatch', () => {
         stdout: captureStream().stream,
         stderr: captureStream().stream,
         inputArgs: ['--topic', 'auth'],
+        permissionMode: 'yolo',
         runCliImpl,
         runInstalledCliImpl,
       });
@@ -66,6 +67,7 @@ describe('aharness run target dispatch', () => {
         stdout: expect.any(Writable),
         stderr: expect.any(Writable),
         inputArgs: ['--topic', 'auth'],
+        permissionMode: 'yolo',
       } satisfies RunInstalledCliOptions);
       expect(runCliImpl).not.toHaveBeenCalled();
     } finally {

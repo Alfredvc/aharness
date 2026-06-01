@@ -15,6 +15,7 @@ import { Writable } from 'node:stream';
 
 import { dispatch } from '../src/cli/main.js';
 import { RESERVED_CLI_FLAGS } from '../src/cli/reservedFlags.js';
+import type { RunPermissionMode } from '../src/cli/runCli.js';
 
 function buildStubs() {
   return {
@@ -24,7 +25,11 @@ function buildStubs() {
     }),
     runDoctor: vi.fn(async () => ({ exitCode: 0 })),
     runDefault: vi.fn(
-      async (o: { fsmPath: string; inputArgs: ReadonlyArray<string>; yolo?: boolean }) => {
+      async (o: {
+        fsmPath: string;
+        inputArgs: ReadonlyArray<string>;
+        permissionMode?: RunPermissionMode;
+      }) => {
         void o;
         return { exitCode: 0 };
       },
@@ -66,7 +71,11 @@ function buildStubs() {
       return { exitCode: 0 };
     }),
     runTarget: vi.fn(
-      async (o: { target: string; inputArgs: ReadonlyArray<string>; yolo?: boolean }) => {
+      async (o: {
+        target: string;
+        inputArgs: ReadonlyArray<string>;
+        permissionMode?: RunPermissionMode;
+      }) => {
         void o;
         return { exitCode: 0 };
       },
@@ -127,6 +136,16 @@ describe('dispatch', () => {
     const s = buildStubs();
     const cap = captureStderr();
     const r = await dispatch(['visualize', '/a.fsm.ts', '--yolo'], { ...s, stderr: cap.stream });
+
+    expect(r).toEqual({ exitCode: 2 });
+    expect(s.runVisualize).not.toHaveBeenCalled();
+    expect(cap.text()).toContain('usage:');
+  });
+
+  it('returns usage for visualize with --ask instead of treating it as author input', async () => {
+    const s = buildStubs();
+    const cap = captureStderr();
+    const r = await dispatch(['visualize', '/a.fsm.ts', '--ask'], { ...s, stderr: cap.stream });
 
     expect(r).toEqual({ exitCode: 2 });
     expect(s.runVisualize).not.toHaveBeenCalled();
@@ -265,7 +284,19 @@ describe('dispatch', () => {
     expect(s.runDefault).not.toHaveBeenCalled();
   });
 
-  it('routes "run --yolo <target>" with yolo enabled and clean input args', async () => {
+  it('routes "run --ask <target>" with ask mode and clean input args', async () => {
+    const s = buildStubs();
+    const r = await dispatch(['run', '--ask', './workflow.fsm.ts', '--topic', 'auth'], s);
+
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runTarget).toHaveBeenCalledWith({
+      target: './workflow.fsm.ts',
+      inputArgs: ['--topic', 'auth'],
+      permissionMode: 'ask',
+    });
+  });
+
+  it('routes "run --yolo <target>" with yolo mode and clean input args', async () => {
     const s = buildStubs();
     const r = await dispatch(['run', '--yolo', './workflow.fsm.ts', '--topic', 'auth'], s);
 
@@ -273,7 +304,7 @@ describe('dispatch', () => {
     expect(s.runTarget).toHaveBeenCalledWith({
       target: './workflow.fsm.ts',
       inputArgs: ['--topic', 'auth'],
-      yolo: true,
+      permissionMode: 'yolo',
     });
   });
 
@@ -288,7 +319,22 @@ describe('dispatch', () => {
     expect(r).toEqual({ exitCode: 2 });
     expect(s.runTarget).not.toHaveBeenCalled();
     expect(cap.text()).toContain(
-      'aharness run [--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+      'aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+    );
+  });
+
+  it('returns usage when run --ask appears after the target', async () => {
+    const s = buildStubs();
+    const cap = captureStderr();
+    const r = await dispatch(['run', './workflow.fsm.ts', '--ask'], {
+      ...s,
+      stderr: cap.stream,
+    });
+
+    expect(r).toEqual({ exitCode: 2 });
+    expect(s.runTarget).not.toHaveBeenCalled();
+    expect(cap.text()).toContain(
+      'aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
     );
   });
 
@@ -303,8 +349,27 @@ describe('dispatch', () => {
     expect(r).toEqual({ exitCode: 2 });
     expect(s.runTarget).not.toHaveBeenCalled();
     expect(cap.text()).toContain(
-      'aharness run [--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+      'aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
     );
+  });
+
+  it('returns usage when run mixes --ask and --yolo', async () => {
+    const cases: ReadonlyArray<ReadonlyArray<string>> = [
+      ['run', '--ask', '--yolo', './workflow.fsm.ts'],
+      ['run', '--yolo', '--ask', './workflow.fsm.ts'],
+      ['run', '--ask', './workflow.fsm.ts', '--yolo'],
+      ['run', '--yolo', './workflow.fsm.ts', '--ask'],
+    ];
+
+    for (const argv of cases) {
+      const s = buildStubs();
+      const cap = captureStderr();
+      const r = await dispatch(argv, { ...s, stderr: cap.stream });
+
+      expect(r).toEqual({ exitCode: 2 });
+      expect(s.runTarget).not.toHaveBeenCalled();
+      expect(cap.text()).toContain('usage:');
+    }
   });
 
   it('returns usage for unknown run framework flags before the target', async () => {
@@ -315,7 +380,7 @@ describe('dispatch', () => {
     expect(r).toEqual({ exitCode: 2 });
     expect(s.runTarget).not.toHaveBeenCalled();
     expect(cap.text()).toContain(
-      'aharness run [--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+      'aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
     );
   });
 
@@ -334,7 +399,7 @@ describe('dispatch', () => {
       expect(r).toEqual({ exitCode: 2 });
       expect(s.runTarget).not.toHaveBeenCalled();
       expect(cap.text()).toContain(
-        'aharness run [--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+        'aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
       );
     }
   });
@@ -450,26 +515,65 @@ describe('dispatch', () => {
     });
   });
 
-  it('routes "--yolo <file>" to runDefault with yolo enabled and clean input args', async () => {
+  it('routes "--ask <file>" to runDefault with ask mode and clean input args', async () => {
+    const s = buildStubs();
+    const r = await dispatch(['--ask', '/a.fsm.ts', '--topic', 'auth'], s);
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runDefault).toHaveBeenCalledWith({
+      fsmPath: '/a.fsm.ts',
+      inputArgs: ['--topic', 'auth'],
+      permissionMode: 'ask',
+    });
+  });
+
+  it('routes "<file> --ask" to runDefault with ask mode and clean input args', async () => {
+    const s = buildStubs();
+    const r = await dispatch(['/a.fsm.ts', '--ask', '--topic', 'auth'], s);
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runDefault).toHaveBeenCalledWith({
+      fsmPath: '/a.fsm.ts',
+      inputArgs: ['--topic', 'auth'],
+      permissionMode: 'ask',
+    });
+  });
+
+  it('routes "--yolo <file>" to runDefault with yolo mode and clean input args', async () => {
     const s = buildStubs();
     const r = await dispatch(['--yolo', '/a.fsm.ts', '--topic', 'auth'], s);
     expect(r).toEqual({ exitCode: 0 });
     expect(s.runDefault).toHaveBeenCalledWith({
       fsmPath: '/a.fsm.ts',
       inputArgs: ['--topic', 'auth'],
-      yolo: true,
+      permissionMode: 'yolo',
     });
   });
 
-  it('routes "<file> --yolo" to runDefault with yolo enabled and clean input args', async () => {
+  it('routes "<file> --yolo" to runDefault with yolo mode and clean input args', async () => {
     const s = buildStubs();
     const r = await dispatch(['/a.fsm.ts', '--yolo', '--topic', 'auth'], s);
     expect(r).toEqual({ exitCode: 0 });
     expect(s.runDefault).toHaveBeenCalledWith({
       fsmPath: '/a.fsm.ts',
       inputArgs: ['--topic', 'auth'],
-      yolo: true,
+      permissionMode: 'yolo',
     });
+  });
+
+  it('returns usage when default form mixes --ask and --yolo', async () => {
+    const cases: ReadonlyArray<ReadonlyArray<string>> = [
+      ['--ask', '--yolo', '/a.fsm.ts'],
+      ['--yolo', '/a.fsm.ts', '--ask'],
+    ];
+
+    for (const argv of cases) {
+      const s = buildStubs();
+      const cap = captureStderr();
+      const r = await dispatch(argv, { ...s, stderr: cap.stream });
+
+      expect(r).toEqual({ exitCode: 2 });
+      expect(s.runDefault).not.toHaveBeenCalled();
+      expect(cap.text()).toContain('usage:');
+    }
   });
 
   it('routes "<file> --resume" to runDefault as an author input flag', async () => {
@@ -517,9 +621,9 @@ describe('dispatch', () => {
     expect(cap.text()).not.toContain('aharness package build');
     expect(cap.text()).not.toContain('aharness package verify');
     expect(cap.text()).toContain('aharness install <source>');
-    expect(cap.text()).toContain('aharness [--yolo] <file.fsm.ts> [--<flag> <value>]...');
+    expect(cap.text()).toContain('aharness [--ask|--yolo] <file.fsm.ts> [--<flag> <value>]...');
     expect(cap.text()).toContain(
-      'aharness run [--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+      'aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
     );
     expect(cap.text()).toContain('aharness list');
     expect(cap.text()).toContain('aharness uninstall <package-name>');
@@ -617,6 +721,10 @@ describe('dispatch — input flag passthrough', () => {
 
   it('keeps approvalPolicy reachable as an author input flag', () => {
     expect(RESERVED_CLI_FLAGS.has('approval-policy')).toBe(false);
+  });
+
+  it('reserves ask as a framework runtime flag', () => {
+    expect(RESERVED_CLI_FLAGS.has('ask')).toBe(true);
   });
 
   it('keeps resume reachable as an author input flag', () => {

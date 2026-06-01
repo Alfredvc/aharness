@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 
-import { runCli, type RunCliOpts, type RunCliResult } from './runCli.js';
+import { runCli, type RunCliOpts, type RunCliResult, type RunPermissionMode } from './runCli.js';
 import { runInstalledCli, type RunInstalledCliOptions } from './runInstalledCli.js';
 
 export interface RunTargetCliOptions {
@@ -10,7 +10,7 @@ export interface RunTargetCliOptions {
   readonly stdout: NodeJS.WritableStream;
   readonly stderr: NodeJS.WritableStream;
   readonly inputArgs?: ReadonlyArray<string>;
-  readonly yolo?: boolean;
+  readonly permissionMode?: RunPermissionMode;
   readonly runCliImpl?: (opts: RunCliOpts) => Promise<RunCliResult>;
   readonly runInstalledCliImpl?: (
     opts: RunInstalledCliOptions,
@@ -30,7 +30,7 @@ export async function runTargetCli(
       stdout: opts.stdout,
       stderr: opts.stderr,
       inputArgs,
-      ...(opts.yolo === true ? { yolo: true } : {}),
+      ...(opts.permissionMode !== undefined ? { permissionMode: opts.permissionMode } : {}),
     });
   }
 
@@ -41,7 +41,7 @@ export async function runTargetCli(
     stdout: opts.stdout,
     stderr: opts.stderr,
     inputArgs,
-    ...(opts.yolo === true ? { yolo: true } : {}),
+    ...(opts.permissionMode !== undefined ? { permissionMode: opts.permissionMode } : {}),
   });
 }
 

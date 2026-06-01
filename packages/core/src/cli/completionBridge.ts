@@ -255,6 +255,7 @@ async function deriveCompletionContext(
   }
 
   if (isPathLikeToken(firstToken)) {
+    if (tokens.length > 2) return { kind: 'other-subcommand' };
     const target = resolveLocalInputTarget(firstToken, cwd);
     return target ? { kind: 'post-target-input', target } : { kind: 'direct-file-target' };
   }
@@ -269,10 +270,10 @@ function deriveDirectRunCompletionContext(
 ): CompletionContext | null {
   const args = tokens.slice(1);
   let targetIndex = 0;
-  let consumedYolo = false;
+  let consumedPermissionFlag: string | undefined;
 
-  if (args[targetIndex] === '--yolo') {
-    consumedYolo = true;
+  if (isRuntimePermissionFlag(args[targetIndex])) {
+    consumedPermissionFlag = args[targetIndex];
     targetIndex++;
   }
 
@@ -286,11 +287,13 @@ function deriveDirectRunCompletionContext(
   if (cursorIsOnTarget) {
     const target = resolveLocalInputTarget(targetToken, cwd);
     if (target) return { kind: 'post-target-input', target };
-    return consumedYolo || isPathLikeToken(targetToken) ? { kind: 'direct-file-target' } : null;
+    return consumedPermissionFlag || isPathLikeToken(targetToken)
+      ? { kind: 'direct-file-target' }
+      : null;
   }
 
-  const inputArgs = args.slice(targetIndex + 1);
-  if (!isValidInputCompletionTail(inputArgs)) return null;
+  const inputArgs = stripDirectRunRuntimeFlags(args.slice(targetIndex + 1), consumedPermissionFlag);
+  if (!inputArgs || !isValidInputCompletionTail(inputArgs)) return null;
 
   const target = resolveLocalInputTarget(targetToken, cwd);
   return target ? { kind: 'post-target-input', target } : null;
@@ -333,7 +336,7 @@ async function deriveRunTargetCompletionContext(
   const afterRun = tokens.slice(2);
   let targetIndex = 0;
 
-  if (afterRun[targetIndex] === '--yolo') targetIndex++;
+  if (isRuntimePermissionFlag(afterRun[targetIndex])) targetIndex++;
 
   if (targetIndex === afterRun.length) {
     return last === '' ? { kind: 'run-target', partial: '' } : null;
@@ -359,11 +362,34 @@ function isValidInputCompletionTail(inputArgs: ReadonlyArray<string>): boolean {
   for (let i = 0; i < inputArgs.length; i++) {
     const current = inputArgs[i]!;
     if (!current.startsWith('--')) return false;
-    if (current === '--yolo') return false;
+    if (isRuntimePermissionFlag(current)) return false;
     const next = inputArgs[i + 1];
     if (next !== undefined && !next.startsWith('--')) i++;
   }
   return true;
+}
+
+function stripDirectRunRuntimeFlags(
+  inputArgs: ReadonlyArray<string>,
+  leadingPermissionFlag: string | undefined,
+): readonly string[] | null {
+  const stripped: string[] = [];
+  let permissionFlag = leadingPermissionFlag;
+
+  for (const current of inputArgs) {
+    if (!isRuntimePermissionFlag(current)) {
+      stripped.push(current);
+      continue;
+    }
+    if (permissionFlag !== undefined && permissionFlag !== current) return null;
+    permissionFlag = current;
+  }
+
+  return stripped;
+}
+
+function isRuntimePermissionFlag(flag: string | undefined): flag is '--ask' | '--yolo' {
+  return flag === '--ask' || flag === '--yolo';
 }
 
 async function resolveCompletionInputTarget(args: {

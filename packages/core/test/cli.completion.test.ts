@@ -336,8 +336,27 @@ describe('runCompletionBridge — run target completion', () => {
   });
 
   it('includes local run targets after run flags', async () => {
-    const lines = await captureBridge('aharness run --yolo ', { cwd });
-    expect(lines).toContain('alpha.fsm.ts');
+    for (const flag of ['--ask', '--yolo']) {
+      const lines = await captureBridge(`aharness run ${flag} `, { cwd });
+      expect(lines).toContain('alpha.fsm.ts');
+    }
+  });
+
+  it('includes installed run targets after --ask', async () => {
+    writeCompletionStore(storeRoot, {
+      installs: {},
+      generation: 'test-generation',
+      commands: {
+        '@scope/tools/build': commandIndexEntry('@scope/tools', 'build'),
+      },
+    });
+
+    const lines = await captureBridge('aharness run --ask ', {
+      cwd,
+      env: makeEnvWithHome('aharness run --ask ', storeRoot),
+    });
+    expect(lines).toContain('build');
+    expect(lines).toContain('@scope/tools/build');
   });
 
   it('includes unique bare installed names and fully qualified installed identities', async () => {
@@ -480,6 +499,34 @@ describe('runCompletionBridge — flag-name completion', () => {
     const lines = await captureBridge(`aharness --yolo ${fixture} --`);
     const names = lines.map((l) => l.split(':')[0]).sort();
     expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
+  });
+
+  it('emits direct FSM flags after leading --ask', async () => {
+    const lines = await captureBridge(`aharness --ask ${fixture} --`);
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
+  });
+
+  it('emits direct FSM flags after post-target runtime permission flags', async () => {
+    for (const flag of ['--ask', '--yolo']) {
+      const lines = await captureBridge(`aharness ${fixture} ${flag} --`);
+      const names = lines.map((l) => l.split(':')[0]).sort();
+      expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
+    }
+  });
+
+  it('rejects post-target runtime permission flags for run and visualize completions', async () => {
+    const runLines = await captureBridge(`aharness run ${fixture} --ask --`);
+    const visualizeLines = await captureBridge(`aharness visualize ${fixture} --ask --`);
+    expect(runLines).toEqual([]);
+    expect(visualizeLines).toEqual([]);
+  });
+
+  it('emits no input completions when direct runtime permission flags are mixed', async () => {
+    const leadingMix = await captureBridge(`aharness --ask ${fixture} --yolo --`);
+    const trailingMix = await captureBridge(`aharness ${fixture} --ask --yolo --`);
+    expect(leadingMix).toEqual([]);
+    expect(trailingMix).toEqual([]);
   });
 
   it('emits visualize FSM flags after the target', async () => {
@@ -651,8 +698,18 @@ describe('runCompletionBridge — FSM path completion', () => {
     expect(lines).toEqual(['__tabtab_complete_files__']);
   });
 
+  it('delegates to shell file completion after leading direct-run --ask', async () => {
+    const lines = await captureBridge('aharness --ask ');
+    expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+
   it('delegates to shell file completion while completing a direct-run path after --yolo', async () => {
     const lines = await captureBridge('aharness --yolo ./');
+    expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+
+  it('delegates to shell file completion while completing a direct-run path after --ask', async () => {
+    const lines = await captureBridge('aharness --ask ./');
     expect(lines).toEqual(['__tabtab_complete_files__']);
   });
 

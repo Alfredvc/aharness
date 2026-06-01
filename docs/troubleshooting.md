@@ -94,13 +94,18 @@ aharness run @scope/tools/build
 
 ## Approval Or Owner Input Is Stuck
 
-aharness runs foreground-only and opens a loopback browser UI for owner
-approvals. Keep the CLI process running and use the URL printed by the command.
+aharness runs foreground-only and opens a loopback browser UI for owner input
+and, in manual review mode, approval cards. Keep the CLI process running and
+use the URL printed by the command.
 
 Free-text owner input comes from Codex `request_user_input`; approval requests
-come through aharness approval dispatch. If a state should wait for the owner,
-check whether the FSM uses `fsm.await(...)`, `ask`, or a built-in
-`permissionRequest` handler as intended.
+come through aharness approval dispatch only when Codex is using manual user
+review. Default live runs use Codex auto-review, so eligible sandbox-boundary
+prompts may be resolved without a browser approval card. If you expected to
+review eligible approval prompts in the browser, rerun with `--ask`.
+
+If a state should wait for the owner, check whether the FSM uses
+`fsm.await(...)`, `ask`, or a built-in `permissionRequest` handler as intended.
 
 ## A Run Ended But Artifacts Are Needed
 

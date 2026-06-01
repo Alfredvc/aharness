@@ -75,8 +75,9 @@ Current check families:
   `default_mode_request_user_input` feature gate and handler path.
 - `thread/settings/update` contract and empty acknowledgement semantics:
   `ThreadSettingsUpdateParams.model` and `ThreadSettingsUpdateParams.effort`.
-- Approval and permission enum spellings used by Phase 4:
-  `on-request`, approval decisions, permission grant scopes, and
+- Approval and permission enum/config spellings used by live runs:
+  `approval_policy`, `approvals_reviewer`, `on-request`, reviewer values
+  `auto_review` and `user`, approval decisions, permission grant scopes, and
   `sandbox_permissions: "require_escalated"`.
 - `codex app-server` listen and schema/type generation surfaces, plus
   the absence of an app-server-specific `--approval-policy` flag.
@@ -283,12 +284,19 @@ must land verbatim.
 
 ---
 
-## Phase 4c approval policy and notifications
+## Phase 4c approval policy, reviewer, and notifications
 
-The headless aharness forces Codex app-server runs to use the explicit
-config override `approval_policy = "on-request"` by passing
-`-c approval_policy="on-request"` on every spawn. This is an internal
-runtime default, not a public aharness CLI flag.
+The headless aharness forces Codex app-server live runs to use explicit
+permission-mode config overrides. Default runs pass
+`-c approval_policy="on-request"` and `-c approvals_reviewer="auto_review"` so
+eligible sandbox-boundary approval prompts route through Codex auto-review.
+Manual ask mode passes `-c approval_policy="on-request"` and
+`-c approvals_reviewer="user"` so approval prompts route to the user/browser.
+Yolo mode passes `-c approval_policy="never"` and
+`-c sandbox_mode="danger-full-access"` and intentionally does not set
+`approvals_reviewer`, because there is no approval reviewer path when approval
+prompts are disabled. These are aharness runtime modes, not a public
+`aharness --approval-policy` or `aharness --approvals-reviewer` surface.
 
 Source verification at pinned Codex commit `7d47056ea426`:
 
@@ -302,6 +310,10 @@ Source verification at pinned Codex commit `7d47056ea426`:
   `core/src/config/mod.rs:2428-2465` confirm the config key is
   `approval_policy`, the value type is `AskForApproval`, and default
   resolution can otherwise vary with project trust.
+- `config/src/config_toml.rs`, `core/src/config/mod.rs`, and
+  `protocol/src/config_types.rs` confirm the config key is
+  `approvals_reviewer`, the value type is `ApprovalsReviewer`, and the
+  accepted reviewer spellings include `user` and `auto_review`.
 - `protocol/src/protocol.rs:936-966` confirms
   `AskForApproval::OnRequest` serializes as `"on-request"`.
 - `cli/src/main.rs:411-438` confirms the `app-server` subcommand exposes
