@@ -31,7 +31,11 @@ active state's allowed exits and moves the machine when a typed event satisfies
 the state's rules.
 
 The browser run UI defaults to a chronological compact transcript for the whole
-run. Selecting a graph state switches the right panel to that state's historical
+run, focused on model/owner messages, tool summaries, failed tool output,
+diagnostics, transition failures, and live interaction cards. State markers,
+request/reply protocol rows, lifecycle rows, and successful tool output stay out
+of the default transcript and are available through dev mode when needed.
+Selecting a graph state switches the right panel to that state's historical
 visits, grouped chronologically by visit id. Pending approvals, owner input, and
 open-state prompts remain live-run interaction surfaces rather than raw JSONL
 payload views. Owner input is independent of Codex approval review mode:
@@ -136,13 +140,15 @@ context values by default.
 Run-scoped routes under `/api/runs/:runId/` serve compact JSONL-backed
 projections for bootstrap state, visit rows, recent rows, diagnostic event
 pages, canonical run-event SSE, and replies. These HTTP/SSE responses omit raw
-payloads; raw evidence remains in `events.jsonl`. Current live and dev replay
-transcripts render from API-safe compact rows, including command display fields
-such as `data.row.data.displayKind`, `data.row.data.command`, row `output`, and
-row `elapsedMs`. The browser does not provide raw JSONL inspection or
-compatibility backfill for old compact-row shapes. Compact rows include durable
-run lifecycle status and normalized transition-failure summaries for failed
-internal submit attempts without exposing submitted payloads. Successful
+payloads; raw evidence remains in `events.jsonl`. Live transcripts render a
+default summary from API-safe compact rows, while dev mode can inspect additional
+protocol/state/lifecycle rows and successful tool output. Those compact rows can
+include command display fields such as `data.row.data.displayKind`,
+`data.row.data.command`, row `output`, and row `elapsedMs`. The browser does not
+provide raw JSONL inspection or compatibility backfill for old compact-row
+shapes. Compact rows include durable run lifecycle status and normalized
+transition-failure summaries for failed internal submit attempts without
+exposing submitted payloads. Successful
 internal submit tool calls are not rendered, including in dev transcript mode.
 Run-scoped bootstrap and SSE projections reconstruct `currentState.context` from ordered
 `context.initialized` / `context.changed` events when those events exist.

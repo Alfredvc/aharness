@@ -2285,7 +2285,7 @@ describe('headless production store helpers', () => {
     expect(deriveActivity(withCall).kind).not.toBe('streaming.message');
   });
 
-  it('applies default and dev visibility without treating state changes as globally hidden', () => {
+  it('keeps protocol timeline markers out of default rows while preserving dev inspection', () => {
     const items: ReturnType<typeof hydrateFromSnapshot>['transcript'] = [
       {
         id: 'orientation-user-1',
@@ -2317,6 +2317,42 @@ describe('headless production store helpers', () => {
         stateVisitId: 'workflow.collect#2',
       },
       {
+        id: 'request-1',
+        type: 'compact_status',
+        category: 'request',
+        label: 'owner input request plumbing',
+        status: 'pending',
+        summary: 'pending one owner question',
+        stateVisitId: 'workflow.collect#2',
+      },
+      {
+        id: 'reply-1',
+        type: 'compact_status',
+        category: 'reply',
+        label: 'owner input reply plumbing',
+        status: 'accepted',
+        summary: 'owner reply accepted',
+        stateVisitId: 'workflow.collect#2',
+      },
+      {
+        id: 'lifecycle-1',
+        type: 'compact_status',
+        category: 'lifecycle',
+        label: 'run',
+        status: 'started',
+        summary: 'run started',
+        stateVisitId: 'workflow.collect#2',
+      },
+      {
+        id: 'diagnostic-1',
+        type: 'compact_status',
+        category: 'diagnostic',
+        label: 'warning',
+        status: 'warn',
+        summary: 'visible warning',
+        stateVisitId: 'workflow.collect#2',
+      },
+      {
         id: 'reasoning-empty-1',
         type: 'reasoning',
         text: '',
@@ -2325,13 +2361,18 @@ describe('headless production store helpers', () => {
       },
     ];
 
-    expect(visibleItems(items, false).map((item) => item.id)).toEqual(['state-change-1']);
+    expect(visibleItems(items, false).map((item) => item.id)).toEqual(['diagnostic-1']);
     expect(visibleItems(items, true).map((item) => item.id)).toEqual([
       'framework-info-1',
       'framework-orientation-1',
       'state-change-1',
+      'request-1',
+      'reply-1',
+      'lifecycle-1',
+      'diagnostic-1',
     ]);
-    expect(hasVisibleContent([items[3]])).toBe(true);
+    expect(hasVisibleContent([items[3], items[4], items[5], items[6]])).toBe(false);
+    expect(hasVisibleContent([items[7]])).toBe(true);
   });
 
   it('hides runtime orientation user messages and empty reasoning rows from default transcript rows', () => {
@@ -2473,7 +2514,7 @@ describe('headless production store helpers', () => {
     );
   });
 
-  it('applies display-only output truncation in default mode', () => {
+  it('keeps successful tool output out of default rows while preserving dev output', () => {
     const output = Array.from({ length: 12 }, (_, idx) => `line ${idx + 1}`).join('\n');
     const canonical = [
       {
@@ -2494,12 +2535,40 @@ describe('headless production store helpers', () => {
     expect(defaultDisplay).toContainEqual(
       expect.objectContaining({
         id: 'tool-1',
+        status: 'completed',
+      }),
+    );
+    expect(defaultDisplay[0]).not.toHaveProperty('output');
+    expect(devDisplay).toContainEqual(expect.objectContaining({ id: 'tool-1', output }));
+    expect(canonical[0].output).toBe(output);
+  });
+
+  it('keeps failed tool output visible but truncated in default rows', () => {
+    const output = Array.from({ length: 12 }, (_, idx) => `line ${idx + 1}`).join('\n');
+    const displayed = displayItems(
+      [
+        {
+          id: 'tool-1',
+          type: 'tool_call',
+          name: 'bash',
+          preview: 'script',
+          status: 'failed',
+          reserved: false,
+          stateVisitId: 'workflow.collect#2',
+          output,
+          ok: false,
+        },
+      ],
+      false,
+    );
+
+    expect(displayed).toContainEqual(
+      expect.objectContaining({
+        id: 'tool-1',
         output:
           'line 1\nline 2\nline 3\nline 4\nline 5\n... +2 lines (dev mode for full output)\nline 8\nline 9\nline 10\nline 11\nline 12',
       }),
     );
-    expect(devDisplay).toContainEqual(expect.objectContaining({ id: 'tool-1', output }));
-    expect(canonical[0].output).toBe(output);
   });
 
   it('groups only consecutive same-turn successful exploration display rows', () => {

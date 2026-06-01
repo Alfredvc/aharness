@@ -363,6 +363,27 @@ describe('ActivePanel tool rows', () => {
     expect(subagent).toContain('threads');
     expect(subagent).toContain('thread-1…7890');
   });
+
+  it('does not repeat a command preview already shown as the tool label', () => {
+    const html = renderToStaticMarkup(
+      createElement(() =>
+        activePanelRowForTest({
+          id: 'cmd-1',
+          type: 'tool_call',
+          name: 'bash',
+          preview: 'pnpm test',
+          status: 'completed',
+          reserved: false,
+          displayKind: 'command',
+          command: 'pnpm test',
+          stateVisitId: 'workflow.collect#2',
+        }),
+      ),
+    );
+
+    expect(html.match(/pnpm test/g)).toHaveLength(1);
+    expect(html).not.toContain('tc-preview-line');
+  });
 });
 
 describe('ActivePanel timeline rows', () => {
@@ -381,12 +402,12 @@ describe('ActivePanel timeline rows', () => {
     expect(rows.map((row) => row.kind)).toEqual(['approvals']);
   });
 
-  it('renders state transitions in the chronological run timeline while appending tail rows', () => {
+  it('keeps state transitions inspectable in dev mode while appending tail rows', () => {
     const rows = buildRunTranscriptRowsForTest({
       mode: 'run',
       turnsLength: 1,
       hasAnyVisibleContent: true,
-      devMode: false,
+      devMode: true,
       items: [
         {
           id: 'state-change-1',
@@ -430,6 +451,90 @@ describe('ActivePanel timeline rows', () => {
     expect(rows.some((row) => row.kind === 'transcript' && row.item.id === 'state-change-1')).toBe(
       true,
     );
+  });
+
+  it('renders pending owner input without protocol transcript rows by default', () => {
+    const html = renderActivePanel(
+      baseSession({
+        posture: {
+          isTerminal: false,
+          isAwaiting: true,
+          submittedThisTurn: false,
+          open: false,
+        },
+        pending: {
+          fileApprovals: [],
+          cmdApprovals: [],
+          permissionApprovals: [],
+          elicitations: [],
+          ownerInput: {
+            kind: 'ServerRequest',
+            id: 'owner-1',
+            method: 'item/tool/requestUserInput',
+            questions: [
+              {
+                id: 'q1',
+                header: 'Plan',
+                question: 'Approve this plan?',
+                isOther: false,
+                isSecret: false,
+              },
+            ],
+          },
+        },
+        transcript: [
+          {
+            id: 'model-1',
+            type: 'agent_message',
+            text: 'Here is the plan.',
+            streaming: false,
+            stateVisitId: 'workflow.collect#2',
+          },
+          {
+            id: 'state-change-1',
+            type: 'state_change',
+            from: 'workflow.collect',
+            to: 'workflow.ownerApproval',
+            cause: 'submit',
+            stateVisitId: 'workflow.ownerApproval#1',
+          },
+          {
+            id: 'owner-request-row',
+            type: 'compact_status',
+            category: 'request',
+            label: 'owner input request plumbing',
+            status: 'pending',
+            summary: 'pending one owner question',
+            stateVisitId: 'workflow.ownerApproval#1',
+          },
+          {
+            id: 'owner-reply-submitted',
+            type: 'compact_status',
+            category: 'reply',
+            label: 'owner input reply plumbing',
+            status: 'submitted',
+            summary: 'owner reply submitted',
+            stateVisitId: 'workflow.ownerApproval#1',
+          },
+          {
+            id: 'owner-reply-accepted',
+            type: 'compact_status',
+            category: 'reply',
+            label: 'owner input reply accepted plumbing',
+            status: 'accepted',
+            summary: 'owner reply accepted',
+            stateVisitId: 'workflow.ownerApproval#1',
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain('Here is the plan.');
+    expect(html).toContain('Approve this plan?');
+    expect(html).not.toContain('owner input request plumbing');
+    expect(html).not.toContain('owner input reply plumbing');
+    expect(html).not.toContain('owner input reply accepted plumbing');
+    expect(html).not.toContain('workflow.ownerApproval');
   });
 
   it('still suppresses duplicate state transitions inside scoped visit rows', () => {
@@ -611,9 +716,10 @@ describe('ActivePanel historical visits', () => {
     expect(html).toContain('second visit');
   });
 
-  it('renders compact normalized rows without raw expansion', () => {
+  it('renders dev compact normalized rows without raw expansion', () => {
     const html = renderActivePanel(
       baseSession({
+        devMode: true,
         transcript: [
           {
             id: 'msg-1',
@@ -908,7 +1014,7 @@ describe('ActivePanel historical visits', () => {
     expect(html).not.toContain('no activity yet in this visit');
   });
 
-  it('renders default display transforms without mutating canonical transcript items', () => {
+  it('hides completed tool output by default without mutating canonical transcript items', () => {
     const output = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`).join('\n');
     const session = baseSession({
       transcript: [
@@ -926,12 +1032,14 @@ describe('ActivePanel historical visits', () => {
     });
     const html = renderActivePanel(session);
 
-    expect(html).toContain('... +2 lines (dev mode for full output)');
+    expect(html).not.toContain('... +2 lines (dev mode for full output)');
+    expect(html).not.toContain('line 1');
     expect(html).not.toContain('line 6');
+    expect(html).not.toContain('line 12');
     expect(session.transcript[0]).toEqual(expect.objectContaining({ output }));
   });
 
-  it('renders current compact command rows with command preview and truncated output', () => {
+  it('renders current compact command rows with command label and no successful output by default', () => {
     const output = Array.from({ length: 12 }, (_, index) => `command output ${index + 1}`).join(
       '\n',
     );
@@ -957,10 +1065,10 @@ describe('ActivePanel historical visits', () => {
 
     expect(html).toContain('command');
     expect(html).toContain('pnpm exec vitest run packages/web-ui/src/state/store.test.ts');
-    expect(html).toContain('command output 1');
-    expect(html).toContain('command output 12');
-    expect(html).toContain('... +2 lines (dev mode for full output)');
-    expect(html).not.toContain('command output 6');
+    expect(html).not.toContain('command output 1');
+    expect(html).not.toContain('command output 12');
+    expect(html).not.toContain('... +2 lines (dev mode for full output)');
+    expect(html).not.toContain('tc-preview-line');
   });
 
   it('does not claim emptiness when loaded row pages only produced unsupported diagnostics', () => {

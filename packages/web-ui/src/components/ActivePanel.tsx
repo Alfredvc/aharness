@@ -1351,10 +1351,30 @@ function toolPreviewLines(
     return lines;
   }
 
-  push('command', item.command);
-  push('target', item.target);
-  push('arguments', item.argumentsPreview);
-  push('preview', item.preview);
+  const command = item.command?.trim();
+  const target = item.target?.trim();
+  const argumentsPreview = item.argumentsPreview?.trim();
+  const preview = item.preview.trim();
+
+  if (item.displayKind === 'command') {
+    push('target', target);
+    push('arguments', argumentsPreview);
+    if (!command && preview) push('preview', preview);
+    return lines;
+  }
+
+  if (item.displayKind === 'read' || item.displayKind === 'list' || item.displayKind === 'search') {
+    push('arguments', argumentsPreview);
+    if (!target && preview) push('preview', preview);
+    return lines;
+  }
+
+  push('command', command);
+  push('target', target);
+  push('arguments', argumentsPreview);
+  if (preview && preview !== command && preview !== target && preview !== argumentsPreview) {
+    push('preview', preview);
+  }
   return lines;
 }
 

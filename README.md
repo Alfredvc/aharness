@@ -50,7 +50,7 @@ runs leave inspectable artifacts.
 - **Inspectable runs.** Every run writes a canonical transcript and declared
   artifacts under `.aharness/runs/<runId>/`.
 - **A browser view.** Live runs and `visualize` show the workflow graph,
-  current state, transcript, approvals, and run stats.
+  current state, compact transcript, approvals, and run stats.
 
 ## Install
 
@@ -203,6 +203,9 @@ state transitions are legal.
 
 Runs are foreground-only. Keep the CLI process running and use the printed
 browser URL for owner input and any approval prompts routed to the user.
+The default browser transcript focuses on model/owner messages, tool summaries,
+failures, and live interaction cards; dev mode exposes protocol/state/lifecycle
+rows and successful tool output when you need to inspect the run plumbing.
 
 Run directories are sensitive. `.aharness/runs/<runId>/events.jsonl` can include
 raw owner input, browser replies, tool arguments and results, command output,

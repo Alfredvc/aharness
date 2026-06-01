@@ -1904,7 +1904,7 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
 /**
  * Returns normalized transcript rows visible under default/dev policy. This is
  * still canonical item output: display-only grouping, truncation, and preview
- * caps happen in displayItems().
+ * caps plus successful-output suppression happen in displayItems().
  */
 export function visibleItems(items: TranscriptItem[], devMode: boolean): TranscriptItem[] {
   return foldToolResults(items).filter((i) => {
@@ -1916,7 +1916,9 @@ export function visibleItems(items: TranscriptItem[], devMode: boolean): Transcr
 
 export function displayItems(items: TranscriptItem[], devMode: boolean): TranscriptDisplayItem[] {
   const displayed = visibleItems(items, devMode).map((item) =>
-    devMode ? capDisplayPreviews(item) : truncateDisplayOutput(capDisplayPreviews(item)),
+    devMode
+      ? capDisplayPreviews(item)
+      : removeDefaultSuccessfulOutput(truncateDisplayOutput(capDisplayPreviews(item))),
   );
   return groupExplorationItems(displayed);
 }
@@ -1978,6 +1980,13 @@ function isVisibleTranscriptItem(i: TranscriptItem): boolean {
   if (i.type === 'tool_call' && i.reserved) return false;
   if (i.type === 'tool_result' && i.reserved) return false;
   if (i.type === 'compact_status' && i.reserved) return false;
+  if (
+    i.type === 'compact_status' &&
+    (i.category === 'request' || i.category === 'reply' || i.category === 'lifecycle')
+  ) {
+    return false;
+  }
+  if (i.type === 'state_change') return false;
   if (i.type === 'user_message' && i.synthetic) return false;
   if (i.type === 'framework_note' && (i.variant === 'orientation' || i.variant === 'info')) {
     return false;
@@ -2011,6 +2020,19 @@ function truncateDisplayOutput(item: TranscriptItem): TranscriptItem {
     return output === item.output ? item : { ...item, output };
   }
   return item;
+}
+
+function removeDefaultSuccessfulOutput(item: TranscriptItem): TranscriptItem {
+  if (
+    item.type !== 'tool_call' ||
+    item.output === undefined ||
+    item.status !== 'completed' ||
+    item.ok === false
+  ) {
+    return item;
+  }
+  const { output: _output, ...withoutOutput } = item;
+  return withoutOutput;
 }
 
 function capDisplayPreviews(item: TranscriptItem): TranscriptItem {
@@ -2138,8 +2160,8 @@ function explorationGroupFromChildren(
 /**
  * True when the transcript contains no user-facing content yet — used by
  * activity heuristics to detect "codex hasn't streamed anything visible".
- * Counts orientation notes and reserved tool calls as invisible; state_change
- * markers now have an ActivePanel row in the chronological run transcript.
+ * Counts orientation notes, state markers, request/reply/lifecycle rows, and
+ * reserved/internal tool plumbing as invisible for the default transcript.
  */
 export function hasVisibleContent(items: TranscriptItem[]): boolean {
   for (const i of items) {
