@@ -1,4 +1,3 @@
-import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -6,7 +5,7 @@ export default defineConfig({
   base: './',
   build: {
     emptyOutDir: true,
-    outDir: fileURLToPath(new URL('../core/src/ui/static', import.meta.url)),
+    outDir: 'dist',
   },
   plugins: [react()],
   server: {

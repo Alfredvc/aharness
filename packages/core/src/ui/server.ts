@@ -112,7 +112,8 @@ function resolveStaticRoot(): string {
   const moduleDir = dirname(fileURLToPath(import.meta.url));
   const candidates = [
     join(moduleDir, 'static'),
-    join(moduleDir, '..', '..', 'src', 'ui', 'static'),
+    join(moduleDir, '..', '..', 'dist', 'ui', 'static'),
+    join(moduleDir, '..', '..', '..', 'web-ui', 'dist'),
   ];
 
   for (const candidate of candidates) {
@@ -121,7 +122,7 @@ function resolveStaticRoot(): string {
     }
   }
 
-  throw new Error('UI static index.html was not found');
+  throw new Error('UI static index.html was not found; run `pnpm run build` first.');
 }
 
 export async function startUiServer(options: StartUiServerOptions): Promise<UiServerHandle> {

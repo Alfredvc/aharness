@@ -198,13 +198,12 @@ describe('check-no-stale-stateless-contracts', () => {
     expect(code).toBe(0);
   });
 
-  it('does not scan historical docs, protocol pins, tests, or generated static UI', async () => {
+  it('does not scan historical docs, protocol pins, or tests', async () => {
     const root = makeCleanRepo();
     write(root, 'docs/specs/old-design.md', 'resume with: aharness <file.fsm.ts> --resume\n');
     write(root, 'docs/plans/old-plan.md', 'pendingClear and thread/rollback\n');
     write(root, 'packages/core/SUPPORTED_CODEX.md', 'thread/resume and thread/rollback\n');
     write(root, 'packages/web-ui/src/App.test.tsx', 'const text = "Rollback";\n');
-    write(root, 'packages/core/src/ui/static/assets/index.js', 'const text = "Rollback";\n');
 
     const { code, stderr } = await runScript(root);
 

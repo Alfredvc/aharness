@@ -93,7 +93,6 @@ function extensionOf(path) {
 
 function shouldScanFile(path) {
   if (!SCANNED_EXTENSIONS.has(extensionOf(path))) return false;
-  if (path.includes('/src/ui/static/')) return false;
   if (/\.(test|spec)\.[cm]?[jt]sx?$/.test(path)) return false;
   return true;
 }

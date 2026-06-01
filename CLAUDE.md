@@ -14,7 +14,9 @@ routing, hooks, run artifacts, and verification.
 The repo is a pnpm + Node `>=20` TypeScript monorepo:
 
 - `packages/core` — `@aharness/core` SDK and `aharness` CLI.
-- `packages/web-ui` — private React/Vite browser UI.
+- `packages/web-ui` — private React/Vite browser UI. Its production build is
+  generated into ignored `packages/web-ui/dist/` and copied into
+  `packages/core/dist/ui/static/` during the core build.
 - `packages/test-support` — deterministic fixtures and integration-test helpers.
 - `packages/superpowers` — installable FSM package.
 - `examples` — runnable examples and workflow references.
@@ -68,8 +70,6 @@ explicitly about those files:
 - `.pnpm-store/`
 - coverage and `.vitest/`
 - vendored checkouts and generated vendored assets
-- `packages/core/src/ui/static/index.html` unless intentionally updating the
-  embedded UI artifact through the web UI build flow
 
 ## Files to never commit
 

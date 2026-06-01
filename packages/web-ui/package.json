@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && prettier --write ../core/src/ui/static/index.html",
+    "build": "vite build && prettier --write dist/index.html",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit --project tsconfig.json"
   },

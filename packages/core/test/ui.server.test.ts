@@ -18,7 +18,7 @@ const runMeta: RunMeta = {
 };
 
 const handles: UiServerHandle[] = [];
-const staticRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../src/ui/static');
+const staticRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../dist/ui/static');
 const TEST_UI_TOKEN = 'test-ui-token';
 
 afterEach(async () => {

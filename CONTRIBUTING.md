@@ -23,6 +23,11 @@ Build the workspace:
 pnpm run build
 ```
 
+The browser UI is built by `packages/web-ui` into ignored
+`packages/web-ui/dist/`. The core build copies that output into
+`packages/core/dist/ui/static/` for packaging and local serving. Do not commit
+generated browser UI bundles; change `packages/web-ui/src` and rebuild instead.
+
 ## Verification
 
 Use the smallest relevant check while developing, then run the broader checks
