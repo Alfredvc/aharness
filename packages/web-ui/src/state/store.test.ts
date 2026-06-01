@@ -135,6 +135,7 @@ function runScopedBootstrap(): RunScopedBootstrap {
       kind: 'stateful',
       visitCount: 2,
       exits: [{ name: 'continue', kind: 'submit' }],
+      context: { draft: 'boot' },
     },
     posture,
     currentStateVisit: {
@@ -264,6 +265,7 @@ describe('headless production store helpers', () => {
       kind: 'stateful',
       exits: [{ name: 'continue', kind: 'submit' }],
       visitCount: 2,
+      context: { draft: 'boot' },
     });
     expect(state.topology).toEqual(topology);
     expect(state.pending.ownerInput?.questions[0]).toEqual(
@@ -399,12 +401,21 @@ describe('headless production store helpers', () => {
 
   it('applies canonical run events across state, posture, turn, message, request, diagnostic, token, and ignored classes', () => {
     const initial = hydrateFromBootstrap(runScopedBootstrap());
-    const stateChanged = applyRunEvent(
+    const contextChanged = applyRunEvent(
       initial,
       apiEvent({
-        type: 'state.changed',
+        type: 'context.changed',
         id: 'run-1:5',
         seq: 5,
+        data: { context: { draft: 'live', count: 2 } },
+      }),
+    );
+    const stateChanged = applyRunEvent(
+      contextChanged,
+      apiEvent({
+        type: 'state.changed',
+        id: 'run-1:6',
+        seq: 6,
         stateVisitId: 'workflow.review#1',
         data: {
           from: 'workflow.collect',
@@ -423,6 +434,13 @@ describe('headless production store helpers', () => {
             summary: 'workflow.collect -> workflow.review',
           },
         },
+      }),
+    );
+    expect(contextChanged.state?.context).toEqual({ draft: 'live', count: 2 });
+    expect(stateChanged.state).toEqual(
+      expect.objectContaining({
+        path: 'workflow.review',
+        context: { draft: 'live', count: 2 },
       }),
     );
     const postured = applyRunEvent(
@@ -592,6 +610,45 @@ describe('headless production store helpers', () => {
         }),
         expect.objectContaining({ type: 'framework_note', text: 'framework says hi' }),
       ]),
+    );
+  });
+
+  it('stores context events before the first state and attaches them to later state changes', () => {
+    const connecting = createConnectingUiState();
+    const contextInitialized = applyRunEvent(
+      connecting,
+      apiEvent({
+        type: 'context.initialized',
+        id: 'run-1:1',
+        seq: 1,
+        data: { context: { draft: 'early' } },
+      }),
+    );
+
+    expect(contextInitialized.state).toBeNull();
+
+    const stateChanged = applyRunEvent(
+      contextInitialized,
+      apiEvent({
+        type: 'state.changed',
+        id: 'run-1:2',
+        seq: 2,
+        stateVisitId: 'workflow.collect#1',
+        data: {
+          path: 'workflow.collect',
+          leaf: 'collect',
+          kind: 'stateful',
+          visitCount: 1,
+          exits: [{ name: 'continue', kind: 'submit' }],
+        },
+      }),
+    );
+
+    expect(stateChanged.state).toEqual(
+      expect.objectContaining({
+        path: 'workflow.collect',
+        context: { draft: 'early' },
+      }),
     );
   });
 

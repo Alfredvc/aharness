@@ -344,6 +344,24 @@ describe('run-scoped API client', () => {
     expect(onRunEvent).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'run/one:5', type: 'state.changed' }),
     );
+
+    const source = FakeEventSource.instances.at(-1);
+    source?.emit(
+      'context.changed',
+      apiEvent({
+        type: 'context.changed',
+        id: 'run-1:8',
+        seq: 8,
+        data: { context: { draft: 'stream' } },
+      }),
+      'run-1:8',
+    );
+    expect(onRunEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'context.changed',
+        data: { context: { draft: 'stream' } },
+      }),
+    );
   });
 
   it('uses canonical event id equality for setup-race dedupe without decimal parsing', () => {
