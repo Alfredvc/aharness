@@ -136,7 +136,11 @@ context values by default.
 Run-scoped routes under `/api/runs/:runId/` serve compact JSONL-backed
 projections for bootstrap state, visit rows, recent rows, diagnostic event
 pages, canonical run-event SSE, and replies. These HTTP/SSE responses omit raw
-payloads; raw evidence remains in `events.jsonl`. Compact rows include durable
+payloads; raw evidence remains in `events.jsonl`. Current live and dev replay
+transcripts render from API-safe compact rows, including command display fields
+such as `data.row.data.displayKind`, `data.row.data.command`, row `output`, and
+row `elapsedMs`. The browser does not provide raw JSONL inspection or
+compatibility backfill for old compact-row shapes. Compact rows include durable
 run lifecycle status and normalized transition-failure summaries for failed
 internal submit attempts without exposing submitted payloads. Run-scoped
 bootstrap and SSE projections reconstruct `currentState.context` from ordered

@@ -244,6 +244,10 @@ During live runs, the same browser shell also shows the active turn state and a
 polished transcript with state transitions, lifecycle rows, markdown assistant
 messages, concise tool/MCP/subagent rows, and fresh-clear boundaries. Internal
 aharness submit and owner-input plumbing remains hidden from the default view.
+Current live and dev replay transcript rows are driven by API-safe compact rows,
+including command display fields such as `data.row.data.displayKind`,
+`data.row.data.command`, row `output`, and row `elapsedMs`; raw runtime payloads
+remain confined to sensitive run artifacts.
 
 Run artifacts are written under `.aharness/runs/<runId>/`. For new runs,
 `events.jsonl` is a canonical event transcript and includes full raw runtime
@@ -267,7 +271,9 @@ active run:
 These routes return compact JSONL-backed projections and canonical run-event
 SSE frames for bootstrap, row, diagnostic event, stream, and reply workflows.
 API and SSE responses omit raw payloads; use the sensitive `events.jsonl` file
-only when raw runtime evidence is needed. The React browser now uses the
+only when raw runtime evidence is needed. The browser does not provide raw JSONL
+inspection or compatibility backfill for old compact-row shapes. The React
+browser now uses the
 run-scoped bootstrap, row, stream, and reply surface. Compact rows include
 durable run lifecycle status and safe transition-failure summaries for failed
 internal submit attempts. Run-scoped bootstrap and SSE projections reconstruct

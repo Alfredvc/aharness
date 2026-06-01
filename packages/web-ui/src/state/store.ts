@@ -584,6 +584,27 @@ function rowText(row: RunScopedCompactRow): string {
   return row.text ?? row.summary ?? row.label ?? '';
 }
 
+function rowBodyText(row: RunScopedCompactRow): string {
+  return row.text ?? '';
+}
+
+function isUserMessageLabel(label: string | undefined): boolean {
+  return label === 'userMessage' || label === 'user_message' || label === 'user';
+}
+
+function compactMessageType(label: string | undefined): 'user_message' | 'agent_message' {
+  if (isUserMessageLabel(label)) return 'user_message';
+  if (
+    label === 'agentMessage' ||
+    label === 'agent_message' ||
+    label === 'assistant' ||
+    label === 'model'
+  ) {
+    return 'agent_message';
+  }
+  return 'agent_message';
+}
+
 function rowPreview(row: RunScopedCompactRow): string {
   return (
     readString(row.data?.['preview']) ??
@@ -653,22 +674,25 @@ function transcriptItemFromCompactRow(
   };
   switch (row.kind) {
     case 'message': {
-      const text = rowText(row);
+      const text = rowBodyText(row);
       if (!text) return null;
-      if (row.label === 'user_message' || row.label === 'user') {
+      const id = row.itemId ?? row.id;
+      if (compactMessageType(row.label) === 'user_message') {
         return {
           ...common,
-          id: row.id,
+          id,
           type: 'user_message',
           text,
           synthetic: looksLikeFrameworkOrientation(text),
         };
       }
-      return { ...common, id: row.id, type: 'agent_message', text, streaming: false };
+      return { ...common, id, type: 'agent_message', text, streaming: false };
     }
     case 'reasoning': {
-      const text = rowText(row);
-      return text ? { ...common, id: row.id, type: 'reasoning', text, streaming: false } : null;
+      const text = rowBodyText(row);
+      return text
+        ? { ...common, id: row.itemId ?? row.id, type: 'reasoning', text, streaming: false }
+        : null;
     }
     case 'tool': {
       const name = row.label ?? row.summary ?? 'tool';

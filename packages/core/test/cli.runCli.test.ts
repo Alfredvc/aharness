@@ -2257,6 +2257,37 @@ describe('runCliForTest — pre-spawn gates', () => {
         jsonrpc: '2.0',
         method: METHOD.itemStarted,
         params: {
+          threadId,
+          turnId: 'turn-raw',
+          item: {
+            type: 'commandExecution',
+            id: 'cmd-compact',
+            command: 'pnpm test',
+            cwd: '/sentinel/cwd-must-stay-out',
+            commandActions: [{ label: 'command-action-must-stay-out' }],
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          item: {
+            type: 'commandExecution',
+            id: 'cmd-compact',
+            command: 'pnpm test',
+            aggregatedOutput: 'test output\nall green',
+            durationMs: 1234,
+            request: { payload: 'hidden-request-payload-must-stay-out' },
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.itemStarted,
+        params: {
           threadId: 'child-thread',
           turnId: 'child-turn',
           item: { type: 'agentMessage', id: 'child-message', text: 'child output' },
@@ -2272,6 +2303,33 @@ describe('runCliForTest — pre-spawn gates', () => {
             total: { totalTokens: 999, inputTokens: 900 },
             last: { inputTokens: 900, cachedInputTokens: 100 },
             modelContextWindow: 200000,
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.rawResponseItemCompleted,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          item: {
+            type: 'function_call',
+            call_id: 'raw-shell-call',
+            name: 'shell',
+            arguments: 'raw shell arguments must stay out',
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.rawResponseItemCompleted,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          item: {
+            type: 'function_call_output',
+            call_id: 'raw-shell-call',
+            output: 'raw shell output',
           },
         },
       });
@@ -2388,6 +2446,42 @@ describe('runCliForTest — pre-spawn gates', () => {
           },
         }),
         expect.objectContaining({
+          type: 'item.started',
+          itemId: 'cmd-compact',
+          data: expect.objectContaining({
+            itemType: 'commandExecution',
+            toolName: 'bash',
+            row: expect.objectContaining({
+              kind: 'tool',
+              label: 'bash',
+              status: 'pending',
+              data: {
+                displayKind: 'command',
+                command: 'pnpm test',
+              },
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          type: 'item.completed',
+          itemId: 'cmd-compact',
+          data: expect.objectContaining({
+            itemType: 'commandExecution',
+            toolName: 'bash',
+            row: expect.objectContaining({
+              kind: 'tool',
+              label: 'bash',
+              status: 'completed',
+              output: 'test output\nall green',
+              elapsedMs: 1234,
+              data: {
+                displayKind: 'command',
+                command: 'pnpm test',
+              },
+            }),
+          }),
+        }),
+        expect.objectContaining({
           type: 'subthread.item.started',
           threadId: 'child-thread',
           itemId: 'child-message',
@@ -2420,6 +2514,22 @@ describe('runCliForTest — pre-spawn gates', () => {
               }),
             }),
           },
+        }),
+        expect.objectContaining({
+          type: 'item.completed',
+          itemId: 'raw-shell-call',
+          data: expect.objectContaining({
+            itemType: 'function_call_output',
+            toolName: 'shell',
+            row: expect.objectContaining({
+              kind: 'tool',
+              label: 'shell',
+              output: 'raw shell output',
+              ok: true,
+              resultId: 'raw-shell-call:output',
+              data: { displayKind: 'command' },
+            }),
+          }),
         }),
         expect.objectContaining({
           type: 'item.started',
@@ -2468,6 +2578,10 @@ describe('runCliForTest — pre-spawn gates', () => {
     const compactRows = eventEntries.map((entry) => entry.data?.row).filter(Boolean);
     expect(JSON.stringify(compactRows)).not.toContain('do not show');
     expect(JSON.stringify(compactRows)).not.toContain('parser sentinel must stay out');
+    expect(JSON.stringify(compactRows)).not.toContain('/sentinel/cwd-must-stay-out');
+    expect(JSON.stringify(compactRows)).not.toContain('command-action-must-stay-out');
+    expect(JSON.stringify(compactRows)).not.toContain('hidden-request-payload-must-stay-out');
+    expect(JSON.stringify(compactRows)).not.toContain('raw shell arguments must stay out');
   });
 
   it('routes browser replies, notifications, metadata, and file-change correlation through the active binding', async () => {

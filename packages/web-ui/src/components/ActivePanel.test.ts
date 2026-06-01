@@ -908,6 +908,38 @@ describe('ActivePanel historical visits', () => {
     expect(session.transcript[0]).toEqual(expect.objectContaining({ output }));
   });
 
+  it('renders current compact command rows with command preview and truncated output', () => {
+    const output = Array.from({ length: 12 }, (_, index) => `command output ${index + 1}`).join(
+      '\n',
+    );
+    const html = renderActivePanel(
+      baseSession({
+        transcript: [
+          {
+            id: 'command-1',
+            type: 'tool_call',
+            name: 'bash',
+            preview: 'bash',
+            status: 'completed',
+            reserved: false,
+            displayKind: 'command',
+            command: 'pnpm exec vitest run packages/web-ui/src/state/store.test.ts',
+            elapsedMs: 1234,
+            output,
+            stateVisitId: 'workflow.collect#2',
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain('command');
+    expect(html).toContain('pnpm exec vitest run packages/web-ui/src/state/store.test.ts');
+    expect(html).toContain('command output 1');
+    expect(html).toContain('command output 12');
+    expect(html).toContain('... +2 lines (dev mode for full output)');
+    expect(html).not.toContain('command output 6');
+  });
+
   it('does not claim emptiness when loaded row pages only produced unsupported diagnostics', () => {
     const html = renderActivePanel(
       baseSession({

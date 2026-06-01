@@ -99,6 +99,122 @@ function contextFixtureEvents() {
   ];
 }
 
+function currentContractFixtureEvents() {
+  return [
+    event(1, 'run.started', { data: { startedAt: '2026-05-31T00:00:01.000Z' } }),
+    event(2, 'state.changed', {
+      stateVisitId: 'root.plan#1',
+      data: {
+        from: null,
+        to: 'root.plan',
+        cause: 'boot',
+        stateVisitId: 'root.plan#1',
+        path: 'root.plan',
+        leaf: 'plan',
+        kind: 'stateful',
+        visitCount: 1,
+        exits: [{ name: 'done', kind: 'submit' }],
+      },
+    }),
+    event(3, 'framework.note', {
+      stateVisitId: 'root.plan#1',
+      data: {
+        row: {
+          id: 'framework-orientation',
+          kind: 'framework_note',
+          status: 'orientation',
+          text: 'You have entered `root.plan`.',
+        },
+      },
+    }),
+    event(4, 'item.started', {
+      stateVisitId: 'root.plan#1',
+      itemId: 'orientation-message',
+      data: {
+        row: {
+          id: 'orientation-envelope',
+          kind: 'message',
+          label: 'userMessage',
+          itemId: 'orientation-message',
+          text: '[aharness] Now in state "root.plan".',
+        },
+      },
+    }),
+    event(5, 'item.started', {
+      stateVisitId: 'root.plan#1',
+      itemId: 'assistant-message-1',
+      data: {
+        row: {
+          id: 'assistant-start-envelope',
+          kind: 'message',
+          label: 'agentMessage',
+          itemId: 'assistant-message-1',
+        },
+      },
+    }),
+    event(6, 'model.delta', {
+      stateVisitId: 'root.plan#1',
+      turnId: 'turn-1',
+      itemId: 'assistant-message-1',
+      data: { delta: 'Draft answer' },
+    }),
+    event(7, 'model.delta', {
+      stateVisitId: 'root.plan#1',
+      turnId: 'turn-1',
+      itemId: 'assistant-message-1',
+      data: { delta: ' in flight' },
+    }),
+    event(8, 'item.completed', {
+      stateVisitId: 'root.plan#1',
+      turnId: 'turn-1',
+      itemId: 'assistant-message-1',
+      data: {
+        row: {
+          id: 'assistant-completed-row',
+          kind: 'message',
+          label: 'agentMessage',
+          itemId: 'assistant-message-1',
+          text: 'Final assistant answer.',
+        },
+      },
+    }),
+    event(9, 'item.started', {
+      stateVisitId: 'root.plan#1',
+      itemId: 'reasoning-1',
+      data: {
+        row: {
+          id: 'empty-reasoning-envelope',
+          kind: 'reasoning',
+          label: 'reasoning',
+          itemId: 'reasoning-1',
+        },
+      },
+    }),
+    event(10, 'item.completed', {
+      stateVisitId: 'root.plan#1',
+      turnId: 'turn-1',
+      itemId: 'command-1',
+      raw: { hidden: 'not-api-safe' },
+      data: {
+        row: {
+          id: 'command-row',
+          kind: 'tool',
+          label: 'bash',
+          itemId: 'command-1',
+          status: 'completed',
+          summary: 'pnpm exec vitest run packages/web-ui/src/state/store.test.ts',
+          elapsedMs: 1234,
+          output: 'line 1\nline 2\nline 3',
+          data: {
+            displayKind: 'command',
+            command: 'pnpm exec vitest run packages/web-ui/src/state/store.test.ts',
+          },
+        },
+      },
+    }),
+  ];
+}
+
 function writeEventsJsonl(eventsPath, events) {
   writeFileSync(
     eventsPath,
@@ -120,6 +236,13 @@ function makeContextFixtureLog() {
   const root = tempRoot();
   const eventsPath = join(root, 'events.jsonl');
   writeEventsJsonl(eventsPath, contextFixtureEvents());
+  return eventsPath;
+}
+
+function makeCurrentContractFixtureLog() {
+  const root = tempRoot();
+  const eventsPath = join(root, 'events.jsonl');
+  writeEventsJsonl(eventsPath, currentContractFixtureEvents());
   return eventsPath;
 }
 
@@ -297,6 +420,52 @@ describe('replay-run-prefix-ui spike helper', () => {
         'context.changed',
       ]);
       expect(drained.events.at(-1).data).toEqual({ context: { draft: 'latest' } });
+    } finally {
+      replay.dispose();
+    }
+  });
+
+  it('serves current compact contract replay events without raw payloads or row backfill', () => {
+    const eventsPath = makeCurrentContractFixtureLog();
+    const replay = createReplayRunPrefixRouteService({ inputPath: eventsPath, eventCount: 10 });
+    tempRoots.push(resolve(replay.prefixPath, '..'));
+    try {
+      const drained = replay.service.eventsAfter(null);
+      expect(drained.ok).toBe(true);
+      expect(drained.events).toHaveLength(10);
+      expect(JSON.stringify(drained.events)).not.toContain('"raw"');
+      expect(drained.events).toContainEqual(
+        expect.objectContaining({
+          id: `${RUN_ID}:4`,
+          type: 'item.started',
+          data: {
+            row: expect.objectContaining({
+              kind: 'message',
+              label: 'userMessage',
+              text: '[aharness] Now in state "root.plan".',
+            }),
+          },
+        }),
+      );
+      expect(drained.events).toContainEqual(
+        expect.objectContaining({
+          id: `${RUN_ID}:10`,
+          type: 'item.completed',
+          data: {
+            row: expect.objectContaining({
+              kind: 'tool',
+              label: 'bash',
+              status: 'completed',
+              elapsedMs: 1234,
+              output: 'line 1\nline 2\nline 3',
+              data: expect.objectContaining({
+                displayKind: 'command',
+                command: 'pnpm exec vitest run packages/web-ui/src/state/store.test.ts',
+              }),
+            }),
+          },
+        }),
+      );
     } finally {
       replay.dispose();
     }

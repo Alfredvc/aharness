@@ -446,6 +446,7 @@ describe('run event adapter', () => {
             output: 'tests failed\nexpected true to be false',
             ok: false,
             resultId: 'call-1:output',
+            data: { displayKind: 'command' },
           }),
         }),
       }),

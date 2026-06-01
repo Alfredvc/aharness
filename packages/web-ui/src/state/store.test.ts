@@ -246,6 +246,153 @@ function rowPage(rows: RunScopedCompactRow[], nextCursor: string | null = null):
   return { rows, nextCursor };
 }
 
+function currentContractReplayEvents(): RunScopedApiEvent[] {
+  return [
+    apiEvent({
+      id: 'run-1:1',
+      seq: 1,
+      type: 'run.started',
+      data: { startedAt: '2026-05-29T00:00:01.000Z' },
+    }),
+    apiEvent({
+      id: 'run-1:2',
+      seq: 2,
+      type: 'state.changed',
+      stateVisitId: 'workflow.collect#2',
+      data: {
+        from: null,
+        to: 'workflow.collect',
+        cause: 'boot',
+        stateVisitId: 'workflow.collect#2',
+        path: 'workflow.collect',
+        leaf: 'collect',
+        kind: 'stateful',
+        visitCount: 2,
+        exits: [{ name: 'continue', kind: 'submit' }],
+      },
+    }),
+    apiEvent({
+      id: 'run-1:3',
+      seq: 3,
+      type: 'framework.note',
+      stateVisitId: 'workflow.collect#2',
+      data: {
+        row: {
+          id: 'framework-orientation',
+          kind: 'framework_note',
+          status: 'orientation',
+          text: 'You have entered `workflow.collect`.',
+        },
+      },
+    }),
+    apiEvent({
+      id: 'run-1:4',
+      seq: 4,
+      type: 'item.started',
+      stateVisitId: 'workflow.collect#2',
+      itemId: 'orientation-message',
+      data: {
+        row: {
+          id: 'orientation-envelope',
+          kind: 'message',
+          label: 'userMessage',
+          itemId: 'orientation-message',
+          text: '[aharness] Now in state "workflow.collect".',
+        },
+      },
+    }),
+    apiEvent({
+      id: 'run-1:5',
+      seq: 5,
+      type: 'item.started',
+      stateVisitId: 'workflow.collect#2',
+      itemId: 'assistant-message-1',
+      data: {
+        row: {
+          id: 'assistant-start-envelope',
+          kind: 'message',
+          label: 'agentMessage',
+          itemId: 'assistant-message-1',
+        },
+      },
+    }),
+    apiEvent({
+      id: 'run-1:6',
+      seq: 6,
+      type: 'model.delta',
+      stateVisitId: 'workflow.collect#2',
+      turnId: 'turn-1',
+      itemId: 'assistant-message-1',
+      data: { delta: 'Draft answer' },
+    }),
+    apiEvent({
+      id: 'run-1:7',
+      seq: 7,
+      type: 'model.delta',
+      stateVisitId: 'workflow.collect#2',
+      turnId: 'turn-1',
+      itemId: 'assistant-message-1',
+      data: { delta: ' in flight' },
+    }),
+    apiEvent({
+      id: 'run-1:8',
+      seq: 8,
+      type: 'item.completed',
+      stateVisitId: 'workflow.collect#2',
+      turnId: 'turn-1',
+      itemId: 'assistant-message-1',
+      data: {
+        row: {
+          id: 'assistant-completed-row',
+          kind: 'message',
+          label: 'agentMessage',
+          itemId: 'assistant-message-1',
+          text: 'Final assistant answer.',
+        },
+      },
+    }),
+    apiEvent({
+      id: 'run-1:9',
+      seq: 9,
+      type: 'item.started',
+      stateVisitId: 'workflow.collect#2',
+      itemId: 'reasoning-1',
+      data: {
+        row: {
+          id: 'empty-reasoning-envelope',
+          kind: 'reasoning',
+          label: 'reasoning',
+          itemId: 'reasoning-1',
+        },
+      },
+    }),
+    apiEvent({
+      id: 'run-1:10',
+      seq: 10,
+      type: 'item.completed',
+      stateVisitId: 'workflow.collect#2',
+      turnId: 'turn-1',
+      itemId: 'command-1',
+      data: {
+        row: {
+          id: 'command-row',
+          kind: 'tool',
+          label: 'bash',
+          itemId: 'command-1',
+          status: 'completed',
+          summary: 'pnpm exec vitest run packages/web-ui/src/state/store.test.ts',
+          elapsedMs: 1234,
+          output: 'line 1\nline 2\nline 3',
+          data: {
+            displayKind: 'command',
+            command: 'pnpm exec vitest run packages/web-ui/src/state/store.test.ts',
+          },
+        },
+      },
+    }),
+  ];
+}
+
 describe('headless production store helpers', () => {
   it('hydrates the existing store from a validated run-scoped bootstrap conversion', () => {
     const bootstrap = runScopedBootstrap();
@@ -1014,6 +1161,132 @@ describe('headless production store helpers', () => {
     );
   });
 
+  it('normalizes current compact message labels and suppresses empty message envelopes', () => {
+    const state = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      mode: 'run',
+      recentRows: [
+        row({
+          id: 'orientation-row',
+          eventId: 'run-1:30',
+          seq: 30,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'message',
+          label: 'userMessage',
+          text: '[aharness] Now in state "workflow.collect".',
+        }),
+        row({
+          id: 'empty-agent-row',
+          eventId: 'run-1:31',
+          seq: 31,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'message',
+          label: 'agentMessage',
+          text: undefined,
+        }),
+        row({
+          id: 'empty-agent-summary-row',
+          eventId: 'run-1:32',
+          seq: 32,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'message',
+          label: 'agentMessage',
+          text: undefined,
+          summary: 'agent summary',
+        }),
+        row({
+          id: 'assistant-row',
+          eventId: 'run-1:33',
+          seq: 33,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'message',
+          label: 'assistant',
+          text: 'assistant text',
+        }),
+      ],
+    });
+
+    expect(state.transcript).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'orientation-row',
+          type: 'user_message',
+          text: '[aharness] Now in state "workflow.collect".',
+          synthetic: true,
+        }),
+        expect.objectContaining({
+          id: 'assistant-row',
+          type: 'agent_message',
+          text: 'assistant text',
+        }),
+      ]),
+    );
+    expect(state.transcript).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'empty-agent-row' }),
+        expect.objectContaining({ id: 'empty-agent-summary-row' }),
+        expect.objectContaining({ text: 'agentMessage' }),
+        expect.objectContaining({ text: 'agent summary' }),
+      ]),
+    );
+    expect(visibleItems(state.transcript, false)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'orientation-row' })]),
+    );
+    expect(visibleItems(state.transcript, true)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'orientation-row',
+          type: 'user_message',
+          synthetic: true,
+        }),
+      ]),
+    );
+  });
+
+  it('suppresses empty compact reasoning envelopes instead of rendering labels or summaries', () => {
+    const state = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      recentRows: [
+        row({
+          id: 'empty-reasoning-label',
+          eventId: 'run-1:33',
+          seq: 33,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'reasoning',
+          label: 'reasoning',
+          text: undefined,
+        }),
+        row({
+          id: 'empty-reasoning-summary',
+          eventId: 'run-1:34',
+          seq: 34,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'reasoning',
+          text: undefined,
+          summary: 'reasoning summary',
+        }),
+        row({
+          id: 'reasoning-text',
+          eventId: 'run-1:35',
+          seq: 35,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'reasoning',
+          label: 'reasoning',
+          summary: 'ignored summary',
+          text: 'actual reasoning',
+        }),
+      ],
+    });
+
+    expect(state.transcript).toEqual([
+      expect.objectContaining({
+        id: 'reasoning-text',
+        type: 'reasoning',
+        text: 'actual reasoning',
+      }),
+    ]);
+  });
+
   it('accepts only known tool display hints and subagent actions from compact rows', () => {
     const displayKinds = ['command', 'read', 'list', 'search', 'mcp', 'subagent', 'tool'] as const;
     const subagentActions = ['spawn', 'send', 'wait', 'resume', 'close'] as const;
@@ -1264,6 +1537,190 @@ describe('headless production store helpers', () => {
     ).toHaveLength(1);
     expect(merged.transcript).toContainEqual(
       expect.objectContaining({ id: 'msg-live', eventIds: ['run-1:8'] }),
+    );
+  });
+
+  it('coalesces streamed model deltas with the completed compact message item', () => {
+    const initial = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      recentRows: [],
+    });
+    const started = applyRunEvent(
+      initial,
+      apiEvent({
+        type: 'item.started',
+        id: 'run-1:7',
+        seq: 7,
+        stateVisitId: 'workflow.collect#2',
+        itemId: 'msg-1',
+        data: {
+          row: {
+            id: 'msg-1-started-row',
+            kind: 'message',
+            label: 'agentMessage',
+            itemId: 'msg-1',
+            stateVisitId: 'workflow.collect#2',
+          },
+        },
+      }),
+    );
+    const streaming = applyRunEvent(
+      started,
+      apiEvent({
+        type: 'model.delta',
+        id: 'run-1:8',
+        seq: 8,
+        stateVisitId: 'workflow.collect#2',
+        itemId: 'msg-1',
+        data: { itemId: 'msg-1', delta: 'draft answer' },
+      }),
+    );
+    const completed = applyRunEvent(
+      streaming,
+      apiEvent({
+        type: 'item.completed',
+        id: 'run-1:9',
+        seq: 9,
+        stateVisitId: 'workflow.collect#2',
+        itemId: 'msg-1',
+        data: {
+          row: {
+            id: 'msg-1-completed-row',
+            kind: 'message',
+            label: 'agentMessage',
+            itemId: 'msg-1',
+            stateVisitId: 'workflow.collect#2',
+            text: 'final answer',
+          },
+        },
+      }),
+    );
+
+    expect(started.transcript).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'msg-1' })]),
+    );
+    expect(completed.transcript.filter((item) => item.type === 'agent_message')).toHaveLength(1);
+    expect(completed.transcript).toContainEqual(
+      expect.objectContaining({
+        id: 'msg-1',
+        type: 'agent_message',
+        text: 'final answer',
+        streaming: false,
+        eventIds: ['run-1:8', 'run-1:9'],
+      }),
+    );
+    expect(completed.transcript).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ text: 'draft answerfinal answer' })]),
+    );
+  });
+
+  it('coalesces reasoning deltas with completed compact reasoning rows by item id', () => {
+    const initial = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      recentRows: [],
+    });
+    const emptyReasoning = applyRunEvent(
+      initial,
+      apiEvent({
+        type: 'item.started',
+        id: 'run-1:10',
+        seq: 10,
+        stateVisitId: 'workflow.collect#2',
+        itemId: 'reason-1',
+        data: {
+          row: {
+            id: 'reason-1-started-row',
+            kind: 'reasoning',
+            label: 'reasoning',
+            itemId: 'reason-1',
+            stateVisitId: 'workflow.collect#2',
+          },
+        },
+      }),
+    );
+    const streaming = applyRunEvent(
+      emptyReasoning,
+      apiEvent({
+        type: 'model.delta',
+        id: 'run-1:11',
+        seq: 11,
+        stateVisitId: 'workflow.collect#2',
+        itemId: 'reason-1',
+        data: { itemId: 'reason-1', delta: 'draft reasoning', reasoning: true },
+      }),
+    );
+    const completed = applyRunEvent(
+      streaming,
+      apiEvent({
+        type: 'item.completed',
+        id: 'run-1:12',
+        seq: 12,
+        stateVisitId: 'workflow.collect#2',
+        itemId: 'reason-1',
+        data: {
+          row: {
+            id: 'reason-1-completed-row',
+            kind: 'reasoning',
+            label: 'reasoning',
+            itemId: 'reason-1',
+            stateVisitId: 'workflow.collect#2',
+            text: 'final reasoning',
+          },
+        },
+      }),
+    );
+
+    expect(emptyReasoning.transcript).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'reason-1' })]),
+    );
+    expect(completed.transcript.filter((item) => item.type === 'reasoning')).toHaveLength(1);
+    expect(completed.transcript).toContainEqual(
+      expect.objectContaining({
+        id: 'reason-1',
+        type: 'reasoning',
+        text: 'final reasoning',
+        streaming: false,
+        eventIds: ['run-1:11', 'run-1:12'],
+      }),
+    );
+  });
+
+  it('projects current-contract replay events into clean default transcript rows', () => {
+    const initial = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      mode: 'run',
+      recentRows: [],
+    });
+    const state = currentContractReplayEvents().reduce(applyRunEvent, initial);
+    const visible = visibleItems(state.transcript, false);
+    const visibleJson = JSON.stringify(visible);
+
+    expect(visibleJson).not.toContain('[aharness] Now in state');
+    expect(visibleJson).not.toContain('You have entered');
+    expect(visibleJson).not.toContain('agentMessage');
+    expect(visibleJson).not.toContain('reasoning-1');
+    expect(visible.filter((item) => item.type === 'agent_message')).toHaveLength(1);
+    expect(visible).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'assistant-message-1',
+          type: 'agent_message',
+          text: 'Final assistant answer.',
+          streaming: false,
+          eventIds: ['run-1:6', 'run-1:7', 'run-1:8'],
+        }),
+        expect.objectContaining({
+          id: 'command-1',
+          type: 'tool_call',
+          name: 'bash',
+          status: 'completed',
+          displayKind: 'command',
+          command: 'pnpm exec vitest run packages/web-ui/src/state/store.test.ts',
+          preview: 'pnpm exec vitest run packages/web-ui/src/state/store.test.ts',
+          output: 'line 1\nline 2\nline 3',
+          elapsedMs: 1234,
+        }),
+      ]),
     );
   });
 

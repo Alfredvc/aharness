@@ -1806,11 +1806,7 @@ function threadToolDisplayData(
   if (itemType === 'commandExecution' || itemType === 'execCommand') {
     return compactRunEventPayload({
       displayKind: 'command',
-      command:
-        readStringField(item, 'command') ??
-        readNestedStringField(item, ['params', 'command']) ??
-        readStringField(item, 'cmd'),
-      argumentsPreview: truncateCodePoints(readUiToolArguments(item, itemType), 240),
+      command: readCommandText(item),
     });
   }
   if (itemType === 'mcpToolCall') {
@@ -2009,6 +2005,14 @@ function threadItemRowData(
       label: toolName ?? itemType,
       status: phase === 'started' ? 'pending' : status,
       summary: toolName ?? itemType,
+      output:
+        phase === 'completed' && (itemType === 'commandExecution' || itemType === 'execCommand')
+          ? readCommandOutput(item)
+          : undefined,
+      elapsedMs:
+        phase === 'completed' && (itemType === 'commandExecution' || itemType === 'execCommand')
+          ? readCommandElapsedMs(item)
+          : undefined,
       data: threadToolDisplayData(
         item,
         itemType,
@@ -2078,6 +2082,7 @@ function rawResponseItemRunEvent(
     if (callId === undefined) return null;
     const name = readStringField(item, 'name') ?? callNames?.get(callId);
     const ok = readUiToolOk(item);
+    const output = formatUiValue(readUnknownField(item, 'output'));
     return {
       type: 'item.completed',
       ...(threadId !== undefined ? { threadId } : {}),
@@ -2095,6 +2100,9 @@ function rawResponseItemRunEvent(
           label: name ?? 'function_call',
           status: ok ? 'completed' : 'failed',
           summary: name ?? 'function_call',
+          output: output.length > 0 ? output : undefined,
+          ok,
+          resultId: `${callId}:output`,
           data: compactRunEventPayload({
             displayKind: displayKindForToolName(name),
           }),
@@ -2410,10 +2418,7 @@ function readUiToolName(record: Record<string, unknown>, type: string): string {
 
 function readUiToolArguments(record: Record<string, unknown>, type: string): string {
   if (type === 'commandExecution' || type === 'execCommand') {
-    const command =
-      readStringField(record, 'command') ??
-      readNestedStringField(record, ['params', 'command']) ??
-      readStringField(record, 'cmd');
+    const command = readCommandText(record);
     const cwd = readStringField(record, 'cwd') ?? readNestedStringField(record, ['params', 'cwd']);
     return formatUiValue(compactObject({ command, cwd }));
   }
@@ -2434,6 +2439,33 @@ function readUiToolOutput(record: Record<string, unknown>): string {
       readUnknownField(record, 'result') ??
       readUnknownField(record, 'message') ??
       readUnknownField(record, 'status'),
+  );
+}
+
+function readCommandText(record: Record<string, unknown>): string | undefined {
+  return (
+    readStringField(record, 'command') ??
+    readNestedStringField(record, ['params', 'command']) ??
+    readStringField(record, 'cmd')
+  );
+}
+
+function readCommandOutput(record: Record<string, unknown>): string | undefined {
+  const error = readUnknownField(record, 'error');
+  if (error !== undefined && error !== null) return formatUiValue(error);
+  const output =
+    readUnknownField(record, 'aggregatedOutput') ??
+    readUnknownField(record, 'output') ??
+    readUnknownField(record, 'result');
+  const formatted = formatUiValue(output);
+  return formatted.length > 0 ? formatted : undefined;
+}
+
+function readCommandElapsedMs(record: Record<string, unknown>): number | undefined {
+  return (
+    numberField(record['durationMs']) ??
+    numberField(record['elapsedMs']) ??
+    numberField(record['elapsedMilliseconds'])
   );
 }
 

@@ -90,6 +90,10 @@ including context snapshot events. Its bootstrap seed remains minimal so ordered
 event replay is what restores the latest context. If source changes need fresh
 built server or UI assets, run `pnpm run build` first.
 
+Replay is supported for current-version canonical event logs. The helper does
+not guarantee polished transcript rendering for logs from older aharness
+versions, and it does not backfill old compact-row shapes from raw payloads.
+
 ## Publishing
 
 The normal npm release path is `.github/workflows/release.yml`. It runs on
