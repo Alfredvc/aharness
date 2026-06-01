@@ -38,6 +38,24 @@ export interface RunEventAppendInput extends RunEventCorrelationFields {
   readonly raw?: RunEventPayload;
 }
 
+export interface RunEventContextSnapshotPayload extends RunEventPayload {
+  readonly context: Record<string, unknown>;
+}
+
+export interface ContextInitializedRunEventAppendInput extends RunEventAppendInput {
+  readonly type: 'context.initialized';
+  readonly data: RunEventContextSnapshotPayload;
+}
+
+export interface ContextChangedRunEventAppendInput extends RunEventAppendInput {
+  readonly type: 'context.changed';
+  readonly data: RunEventContextSnapshotPayload;
+}
+
+export type ContextSnapshotRunEventAppendInput =
+  | ContextInitializedRunEventAppendInput
+  | ContextChangedRunEventAppendInput;
+
 export interface RunEventWithOffset {
   readonly event: RunEventEnvelope;
   readonly offset: number;

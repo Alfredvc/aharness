@@ -249,8 +249,10 @@ Run artifacts are written under `.aharness/runs/<runId>/`. For new runs,
 `events.jsonl` is a canonical event transcript and includes full raw runtime
 payloads by default: secret-marked owner input, browser replies, tool
 arguments/results, command output, file diffs, approval/permission/elicitation
-data, token usage payloads, and parent-visible sub-thread notifications. Treat
-it as sensitive.
+data, token usage payloads, and parent-visible sub-thread notifications. It can
+also contain public workflow context snapshots recorded as `context.initialized`
+and `context.changed` events. Treat run directories as sensitive even when the
+browser transcript does not display those context values by default.
 
 The local UI server accepts a per-run token and exposes run-scoped APIs for the
 active run:
@@ -268,10 +270,14 @@ API and SSE responses omit raw payloads; use the sensitive `events.jsonl` file
 only when raw runtime evidence is needed. The React browser now uses the
 run-scoped bootstrap, row, stream, and reply surface. Compact rows include
 durable run lifecycle status and safe transition-failure summaries for failed
-internal submit attempts. It renders compact rows and aggregate
-running-time/token/context stats in the header and bottom status bar instead of
-a top turn count or bottom turn ribbon. The old flat
-`/api/state`, `/api/stream`, and `/api/reply` browser routes are no longer
+internal submit attempts. Run-scoped bootstrap and SSE projections reconstruct
+`currentState.context` from ordered `context.initialized` / `context.changed`
+events when those events exist. Context snapshot events are visible through
+`/api/runs/:runId/events` and `/api/runs/:runId/stream`, but they do not create
+compact rows and therefore do not appear in the default transcript. It renders
+compact rows and aggregate running-time/token/context stats in the header and
+bottom status bar instead of a top turn count or bottom turn ribbon. The old
+flat `/api/state`, `/api/stream`, and `/api/reply` browser routes are no longer
 served for new runs. Production live runs do not write `snapshot.json`; retained
 snapshot helper exports are legacy/internal compatibility only.
 

@@ -108,6 +108,13 @@ export class ActorHost {
     return this.actor.getSnapshot() as SnapshotFrom<AnyStateMachine>;
   }
 
+  subscribeSnapshots(listener: (snapshot: SnapshotFrom<AnyStateMachine>) => void): () => void {
+    const sub = this.actor.subscribe((snapshot) => {
+      listener(snapshot as SnapshotFrom<AnyStateMachine>);
+    });
+    return () => sub.unsubscribe();
+  }
+
   /**
    * Resolve when the live actor reaches a snapshot matching `predicate`.
    * Used for framework-owned transient/invoked states where the runtime

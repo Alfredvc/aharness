@@ -1119,7 +1119,7 @@ describe('runCliForTest — pre-spawn gates', () => {
       submittedThisTurn: false,
       open: false,
     });
-    expect(capturedBootstrap?.latestEventId).toBe(`${capturedBootstrap?.run.runId}:2`);
+    expect(capturedBootstrap?.latestEventId).toBe(`${capturedBootstrap?.run.runId}:3`);
     expect(published[0]).toMatchObject({
       id: '1',
       event: {
@@ -1477,8 +1477,15 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(eventEntries.map((entry) => entry.type)).toEqual([
       'run.started',
       'state.changed',
+      'context.initialized',
       'run.failed',
     ]);
+    expect(eventEntries[2]).toEqual(
+      expect.objectContaining({
+        type: 'context.initialized',
+        data: { context: {} },
+      }),
+    );
     expect(eventEntries.at(-1)).toEqual(
       expect.objectContaining({
         type: 'run.failed',
@@ -1488,6 +1495,59 @@ describe('runCliForTest — pre-spawn gates', () => {
         }),
       }),
     );
+  });
+
+  it('records the stripped public boot context after the initial state change', async () => {
+    const fsmPath = makeFsmFile(repoRoot, 'boot-public-context.fsm.ts');
+    const m = aharness.machine({
+      id: 'bootPublicContext',
+      initial: 'greet',
+      context: () => ({
+        publicValue: 'boot',
+        __aharness_hidden: 'secret',
+        aharness: { hidden: true },
+      }),
+      states: {
+        greet: state({
+          entryPrompt: 'stub',
+          exits: { finish: exit({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const spawnAppServer = vi.fn(async () => {
+      throw new Error('test-abort-after-spawn-args-captured');
+    });
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        loadFsmImpl: (async () => ({
+          machine: m,
+          sidecar: {},
+          modulePath: '/tmp/boot-public-context.mjs',
+          issues: [],
+          cacheHit: false,
+          hash: 'boot-public-context',
+        })) as unknown as RunCliTestHooks['loadFsmImpl'],
+        spawnAppServer: spawnAppServer as unknown as RunCliTestHooks['spawnAppServer'],
+      },
+    });
+    opts.stderr = stderrSink;
+
+    const r = await runCliForTest(opts);
+
+    expect(r.exitCode).toBe(1);
+    expect(spawnAppServer).toHaveBeenCalledTimes(1);
+    const eventEntries = expectCanonicalRunEventStream(repoRoot);
+    expect(eventEntries.map((entry) => entry.type).slice(0, 3)).toEqual([
+      'run.started',
+      'state.changed',
+      'context.initialized',
+    ]);
+    expect(eventEntries[2]?.data).toEqual({ context: { publicValue: 'boot' } });
+    expect(JSON.stringify(eventEntries[2])).not.toContain('__aharness_hidden');
+    expect(JSON.stringify(eventEntries[2])).not.toContain('"aharness"');
   });
 
   it('case 13: reports UI server startup failure and does not spawn app-server', async () => {

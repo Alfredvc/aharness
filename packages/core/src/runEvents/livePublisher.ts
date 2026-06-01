@@ -27,7 +27,7 @@ export interface LiveRunEventPublisher {
   readonly publishRunStarted: () => void;
   readonly publishRunTerminal: (input: RunTerminalInput) => void;
   readonly publishRunFailed: (message: string) => void;
-  readonly record: (input: RunEventAppendInput) => void;
+  readonly record: (input: RunEventAppendInput) => RunEventAppendResult;
   readonly publish: (event: AppEvent) => ReplayableAppEvent;
   readonly publishNonRecording: (event: AppEvent) => ReplayableAppEvent;
 }
@@ -107,7 +107,7 @@ export function createLiveRunEventPublisher(
     directPublish(options.uiEventLog, options.onUiEvent, warningNote(warning.envelope, warningSeq));
   }
 
-  function append(input: RunEventAppendInput): void {
+  function append(input: RunEventAppendInput): RunEventAppendResult {
     let reported = false;
     const result = appendWithRecorder(options, input, (warning) => {
       reported = true;
@@ -119,6 +119,7 @@ export function createLiveRunEventPublisher(
     if (result.ok) {
       notifyCanonicalAppend(options, result);
     }
+    return result;
   }
 
   return {
@@ -172,7 +173,7 @@ export function createLiveRunEventPublisher(
       });
     },
     record(input) {
-      append(input);
+      return append(input);
     },
     publish(event) {
       const input = appEventToRunEventAppendInput(event);

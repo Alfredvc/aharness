@@ -202,6 +202,7 @@ export type UiState = {
   posture: Posture;
   activeTurnId: string | null;
   state: FsmState | null;
+  latestContext?: Record<string, unknown>;
   topology: Topology;
   transcript: TranscriptItem[];
   pending: {
@@ -441,6 +442,7 @@ export function hydrateFromBootstrap(bootstrap: RunScopedBootstrap): UiState {
     bootstrap.currentState === null
       ? null
       : runScopedCurrentStateToFsmState(bootstrap.currentState);
+  const latestContext = state?.context;
   const activeVisitId = bootstrap.currentStateVisit?.id ?? null;
   const transcriptResult = transcriptFromCompactRows(bootstrap.recentRows, {
     fallbackVisitId: RUN_LEVEL_VISIT_ID,
@@ -453,6 +455,7 @@ export function hydrateFromBootstrap(bootstrap: RunScopedBootstrap): UiState {
     posture: bootstrap.posture,
     activeTurnId: bootstrap.aggregateStats.activeTurnId ?? null,
     state,
+    ...(latestContext === undefined ? {} : { latestContext }),
     topology: bootstrap.topology ?? EMPTY_TOPOLOGY,
     transcript: transcriptResult.items,
     pending: pendingFromSummaries(bootstrap.pending),
@@ -1265,6 +1268,18 @@ function currentStateFromRunEvent(e: RunScopedApiEvent): FsmState | null {
   });
 }
 
+function contextFromRunEvent(e: RunScopedApiEvent): Record<string, unknown> | undefined {
+  const context = e.data?.['context'];
+  return isRecord(context) ? context : undefined;
+}
+
+function withLatestContext(
+  state: FsmState,
+  latestContext: Record<string, unknown> | undefined,
+): FsmState {
+  return latestContext === undefined ? state : { ...state, context: latestContext };
+}
+
 function mergeAggregateFromRunEvent(state: UiState, e: RunScopedApiEvent): UiState {
   const aggregate = { ...state.aggregateStats };
   const data = e.data ?? {};
@@ -1326,7 +1341,10 @@ function reduceRunEvent(previous: UiState, e: RunScopedApiEvent): UiState {
       return appendRunEventRow(
         {
           ...state,
-          state: currentState ?? state.state,
+          state:
+            currentState === null
+              ? state.state
+              : withLatestContext(currentState, state.latestContext),
           activeVisitId,
           scopedPath: null,
           posture: {
@@ -1337,6 +1355,19 @@ function reduceRunEvent(previous: UiState, e: RunScopedApiEvent): UiState {
                 : Boolean(currentState.awaitsOwnerText),
             isTerminal: currentState?.kind === 'terminal' ? true : state.posture.isTerminal,
           },
+        },
+        e,
+      );
+    }
+    case 'context.initialized':
+    case 'context.changed': {
+      const latestContext = contextFromRunEvent(e);
+      if (latestContext === undefined) return appendRunEventRow(state, e);
+      return appendRunEventRow(
+        {
+          ...state,
+          latestContext,
+          state: state.state === null ? null : { ...state.state, context: latestContext },
         },
         e,
       );

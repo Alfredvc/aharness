@@ -544,6 +544,34 @@ describe('run event adapter', () => {
     );
   });
 
+  it('returns append results when recording canonical context snapshots', () => {
+    const runDir = tempRunDir('run-context-record');
+    const uiEventLog = createUiEventLog({ run: { ...runMeta, runId: runDir.runId } });
+    const publisher = createLiveRunEventPublisher({
+      runDir,
+      runMeta: { ...runMeta, runId: runDir.runId },
+      uiEventLog,
+      stderr: { write: () => true } as unknown as NodeJS.WritableStream,
+    });
+
+    const result = publisher.record({
+      type: 'context.initialized',
+      data: { context: { n: 1 } },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('expected append success');
+    expect(result.envelope.type).toBe('context.initialized');
+
+    const line = readFileSync(runDir.eventsPath, 'utf8').trim();
+    expect(JSON.parse(line)).toEqual(
+      expect.objectContaining({
+        type: 'context.initialized',
+        data: { context: { n: 1 } },
+      }),
+    );
+  });
+
   it('can enrich sanitized AppEvent mappings with raw and meta payloads', () => {
     const input = appEventToEnrichedRunEventAppendInput(
       {

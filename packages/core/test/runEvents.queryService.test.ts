@@ -250,6 +250,57 @@ describe('run event query service', () => {
     expect(changed.bootstrap.run.threadId).toBe('thread-after-start');
   });
 
+  it('attaches the latest context snapshot to the current state projection', () => {
+    const eventsPath = tempEventsPath();
+    writeJsonl(
+      eventsPath,
+      event(1, 'run.started'),
+      event(2, 'state.changed', {
+        stateVisitId: 'root.plan#1',
+        data: {
+          path: 'root.plan',
+          leaf: 'plan',
+          kind: 'stateful',
+          visitCount: 1,
+          exits: [{ name: 'done', kind: 'submit' }],
+        },
+      }),
+      event(3, 'context.initialized', {
+        data: { context: { draft: 'one' } },
+      }),
+      event(4, 'context.changed', {
+        data: { context: { draft: 'two', count: 2 } },
+      }),
+    );
+    const service = createRunEventQueryService({ runId: RUN_ID, eventsPath });
+
+    const bootstrap = service.getBootstrap({
+      getRunMeta: () => ({ runId: RUN_ID }),
+    });
+
+    expect(bootstrap.ok).toBe(true);
+    if (!bootstrap.ok) return;
+    expect(bootstrap.bootstrap.currentState).toEqual(
+      expect.objectContaining({
+        path: 'root.plan',
+        context: { draft: 'two', count: 2 },
+      }),
+    );
+  });
+
+  it('omits context from old state-only logs', () => {
+    const eventsPath = tempEventsPath();
+    writeJsonl(eventsPath, event(1, 'state.changed', { data: { path: 'root.plan' } }));
+    const service = createRunEventQueryService({ runId: RUN_ID, eventsPath });
+
+    const bootstrap = service.getBootstrap({ getRunMeta: () => ({ runId: RUN_ID }) });
+
+    expect(bootstrap.ok).toBe(true);
+    if (!bootstrap.ok) return;
+    expect(bootstrap.bootstrap.currentState).toEqual({ path: 'root.plan' });
+    expect(bootstrap.bootstrap.currentState).not.toHaveProperty('context');
+  });
+
   it('keeps a malformed final line warning queryable and exposes replay diagnostics', () => {
     const eventsPath = tempEventsPath();
     writeFileSync(

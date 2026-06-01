@@ -124,8 +124,10 @@ For new runs, `events.jsonl` is the canonical event transcript and includes
 full raw runtime payloads by default. That can include secret-marked owner
 input, browser replies, tool arguments/results, command output, file diffs,
 approval/permission/elicitation data, token usage payloads, and parent-visible
-sub-thread notifications. Treat the run directory as sensitive when sharing
-debugging evidence.
+sub-thread notifications. `events.jsonl` can also contain public workflow
+context snapshots recorded as `context.initialized` and `context.changed`
+events. Treat run directories as sensitive even when the browser transcript does
+not display those context values by default.
 
 If you inspect the loopback UI API directly, run-scoped endpoints under
 `/api/runs/:runId/` provide compact JSONL-backed bootstrap, row, event-page,

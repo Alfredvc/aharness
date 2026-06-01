@@ -51,12 +51,17 @@ plans unless the task explicitly asks for historical context.
 - Run logs are sensitive. `.aharness/runs/**/events.jsonl` is canonical runtime
   evidence and can contain raw owner input, browser replies, tool arguments and
   results, command output, file diffs, approval data, token usage, and sub-thread
-  activity.
+  activity. `events.jsonl` can also contain public workflow context snapshots
+  recorded as `context.initialized` and `context.changed` events. Treat run
+  directories as sensitive even when the browser transcript does not display
+  those context values by default.
 - Dev-only UI replay for visualization work lives in
   `scripts/spikes/replay-run-prefix-ui.mjs`. It accepts a run directory or
-  `events.jsonl` plus an event count, starts a local UI server, replays the first
-  N events immediately through run-scoped SSE, and does not launch Codex. See
-  `CONTRIBUTING.md` before using or changing it.
+  `events.jsonl` plus an event count, starts a local UI server, drains selected
+  canonical events through the same run-scoped SSE reducer path as live runs,
+  including context snapshot events, and does not launch Codex. Its bootstrap
+  seed remains minimal so ordered event replay is what restores the latest
+  context. See `CONTRIBUTING.md` before using or changing it.
 
 ## Files to avoid editing
 

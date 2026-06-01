@@ -50,6 +50,7 @@ export interface ApiRunCurrentState {
   readonly kind?: string;
   readonly visitCount?: number;
   readonly exits?: ReadonlyArray<ApiRunCurrentStateExit>;
+  readonly context?: Record<string, unknown>;
 }
 
 export interface ApiRunBootstrap<
@@ -249,6 +250,34 @@ function currentStateFromEvents(
   return null;
 }
 
+function contextFromEvent(event: RunEventEnvelope): Record<string, unknown> | null {
+  if (event.type !== 'context.initialized' && event.type !== 'context.changed') {
+    return null;
+  }
+  const context = isRecord(event.data?.['context']) ? event.data['context'] : null;
+  return context;
+}
+
+function currentContextFromEvents(
+  events: ReadonlyArray<RunEventWithOffset>,
+): Record<string, unknown> | undefined {
+  for (let idx = events.length - 1; idx >= 0; idx -= 1) {
+    const entry = events[idx];
+    if (entry === undefined) continue;
+    const context = contextFromEvent(entry.event);
+    if (context !== null) return context;
+  }
+  return undefined;
+}
+
+function attachContextToCurrentState(
+  state: ApiRunCurrentState | null,
+  context: Record<string, unknown> | undefined,
+): ApiRunCurrentState | null {
+  if (state === null) return null;
+  return context === undefined ? state : { ...state, context };
+}
+
 function statePathVisits(
   visits: ReadonlyArray<RunEventStateVisit>,
 ): Readonly<Record<string, ReadonlyArray<string>>> {
@@ -371,13 +400,15 @@ export function createRunEventQueryService(
     },
     getBootstrap(bootstrapOptions) {
       if (!available) return unavailable(diagnostics);
+      const currentState = currentStateFromEvents(events);
+      const currentContext = currentContextFromEvents(events);
       return {
         ok: true,
         bootstrap: {
           run: bootstrapOptions.getRunMeta(),
           topology: bootstrapOptions.topology ?? null,
           latestEventId: latestEventId(events),
-          currentState: currentStateFromEvents(events),
+          currentState: attachContextToCurrentState(currentState, currentContext),
           posture: index.posture,
           currentStateVisit: index.currentState,
           stateVisits: index.stateVisits,

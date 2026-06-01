@@ -58,6 +58,7 @@ export type RunScopedCurrentState = {
   kind?: FsmState['kind'];
   visitCount?: number;
   exits?: ReadonlyArray<RunScopedCurrentStateExit>;
+  context?: Record<string, unknown>;
 };
 
 export type RunScopedStateVisit = {
@@ -613,6 +614,7 @@ export function runScopedCurrentStateToFsmState(state: RunScopedCurrentState): F
         ...(exit.branchCount === undefined ? {} : { branchCount: exit.branchCount }),
       })) ?? [],
     visitCount: state.visitCount ?? 1,
+    ...(state.context === undefined ? {} : { context: state.context }),
   };
 }
 
@@ -776,7 +778,8 @@ function isRunScopedCurrentState(value: unknown): value is RunScopedCurrentState
     isOptionalString(value['leaf']) &&
     (value['kind'] === undefined || isFsmStateKind(value['kind'])) &&
     (value['visitCount'] === undefined || isSafeNumber(value['visitCount'])) &&
-    (value['exits'] === undefined || isArrayOf(value['exits'], isRunScopedCurrentStateExit))
+    (value['exits'] === undefined || isArrayOf(value['exits'], isRunScopedCurrentStateExit)) &&
+    (value['context'] === undefined || isRecord(value['context']))
   );
 }
 
