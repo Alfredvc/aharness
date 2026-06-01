@@ -12,10 +12,10 @@ interface AskPayload {
 
 export const machine = aharness.machine({
   id: 'skills-fixture',
-  initial: 'ask',
+  initial: 'collect',
   context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
   states: {
-    ask: state({
+    collect: state({
       entryPrompt: 'Ask.',
       skills: [skill('not-installed'), skill({ path: './skills/local.md' })],
       exits: {

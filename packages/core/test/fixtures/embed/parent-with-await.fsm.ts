@@ -1,12 +1,12 @@
 /**
  * Parent fixture embedding `child-with-await-final.fsm.ts` to exercise the
- * AWAIT-driven path through the embed boundary in
+ * submit-driven path through the embed boundary in
  * `state.embed.runToCompletion.test.ts`.
  *
  * Topology:
  *
  *   router (stateful) ──submit→ inner (embed of child-await)
- *                                  └── ask ──await→ shipped (final)
+ *                                  └── ask ──submit→ shipped (final)
  *                                                       │
  *                                                       └── raises 'shipped'
  *                                                              │

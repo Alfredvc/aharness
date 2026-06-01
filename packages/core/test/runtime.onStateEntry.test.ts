@@ -7,8 +7,7 @@
  *
  *   - state `a`: a single submit exit `go` with a sidecar entry whose
  *     `jsonSchema` should appear in the composed nudge text.
- *   - state `b`: a submit exit `stop` plus an `await` exit `wait` to
- *     prove the composer renders both kinds.
+ *   - state `b`: a submit exit `stop` with a function-form entry prompt.
  *   - state `fin`: a terminal — `onStateEntry` must no-op (no exits, no
  *     entryPrompt) so the dispatcher's terminal-orientation path is
  *     not duplicated.
@@ -40,7 +39,6 @@ function buildMachine() {
       b: state({
         exits: {
           stop: exit<Record<string, never>>({ to: 'fin' }),
-          wait: { kind: 'await', to: 'fin' },
         },
         entryPrompt: ({ count }) => `in b, count=${String(count)}`,
       }),
@@ -92,7 +90,7 @@ describe('onStateEntry', () => {
     expect(text).toContain('in a');
   });
 
-  it('renders both submit and await exits when a state has both', async () => {
+  it('renders submit exits on the next state', async () => {
     const host = makeHost();
     // Drive a → b so b becomes the active leaf.
     host.commitSubmit('a', 'go', { inc: 1 });
@@ -103,9 +101,6 @@ describe('onStateEntry', () => {
     const text = inject.mock.calls[0]?.[0] ?? '';
     expect(text).toContain('Now in state "b"');
     expect(text).toContain('"stop"');
-    expect(text).toContain('"wait"');
-    // The await form is rendered without a JSON schema body.
-    expect(text).toMatch(/"wait" → call request_user_input/);
     // The function-form `entryPrompt` was called against the live
     // context (no `assign` is wired on the transition, so count stays
     // at 0 — the assertion proves the function form ran rather than

@@ -24,6 +24,8 @@ export function enter(
   outcome?: 'success' | 'failure',
 ): Frame {
   const leaf = to.split('.').pop()!;
+  // Legacy-display fixture compatibility only. Current live owner decisions
+  // arrive as owner-choice pending cards, not awaitsOwnerText state metadata.
   return {
     at: 0,
     event: {

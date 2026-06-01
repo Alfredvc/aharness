@@ -328,6 +328,8 @@ function reduceEvent(previous: UiState, e: AppEvent): UiState {
         ],
         posture: {
           ...s.posture,
+          // Legacy flat-event compatibility only. Current owner waits are
+          // driven by pending owner-input/owner-choice run-scoped cards.
           isAwaiting: Boolean(e.newState.awaitsOwnerText),
           isTerminal: e.newState.kind === 'terminal',
         },

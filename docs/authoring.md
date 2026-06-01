@@ -68,14 +68,9 @@ export default fsm.machine({
         }),
       },
     }),
-    ownerApproval: fsm.state({
-      prompt: (data) => `Ask the owner to approve this plan:\n\n${data.plan}`,
-      on: {
-        approved: fsm.await({
-          ask: 'Approve this plan? Reply with approval or requested changes.',
-          to: 'done',
-        }),
-      },
+    ownerApproval: fsm.choice({
+      question: (data) => `Approve this plan?\n\n${data.plan}`,
+      options: [{ label: 'Approve', to: 'done' }],
     }),
     done: fsm.final({ outcome: 'success' }),
   },
@@ -99,9 +94,11 @@ Use `fsm.submit<T>()` when the model must provide structured evidence. Put the
 schema in the TypeScript payload type and put process checks in `effect`,
 `reduce`, routes, and guards.
 
-Use `fsm.await(...)` when the owner must provide free-text input before the run
-continues. Use a submit exit after an await only when the model needs to
-interpret that reply into structured data.
+Use `fsm.choice(...)` when the owner must make a deterministic approval,
+routing, or continue decision. Use `mode: 'open'` states when the owner-paced
+discussion or free text matters; Codex should then submit typed data with
+`fsm.submit<T>()` when ready. Model-originated clarification questions remain
+Codex `request_user_input` work inside a state, not an FSM authoring primitive.
 
 Use built-in events when repository policy should intercept Codex activity:
 `permissionRequest`, `preToolUse`, `postToolUse`, and `userPromptSubmit`.

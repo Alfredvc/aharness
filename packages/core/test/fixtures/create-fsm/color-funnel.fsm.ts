@@ -15,40 +15,63 @@ export default fsm.machine({
   data: () => ({ color: null, fruit: null, reason: null }),
   initial: 'pickColor',
   states: {
-    pickColor: fsm.state({
-      prompt: "Map the owner's reply to red or green.",
-      ask: 'Pick red or green.',
-      on: {
-        submit: fsm.submit<{ color: Color }>({
-          to: 'pickFruit',
-          reduce: (draft, payload) => {
-            draft.color = payload.color;
-          },
-        }),
-      },
+    pickColor: fsm.choice({
+      question: 'Pick red or green.',
+      options: [
+        { label: 'red', to: 'pickRedFruit' },
+        { label: 'green', to: 'pickGreenFruit' },
+      ],
     }),
-    pickFruit: fsm.state({
-      prompt: (data) => `Pick a fruit matching ${data.color}.`,
+    pickRedFruit: fsm.state({
+      prompt: 'Pick a fruit matching red.',
       skills: [fsm.skill('fruit-picker', { optional: true })],
       on: {
         submit: fsm.submit<{ fruit: string; reason: string }>({
           to: 'confirm',
           reduce: (draft, payload) => {
+            draft.color = 'red';
             draft.fruit = payload.fruit;
             draft.reason = payload.reason;
           },
         }),
       },
     }),
-    confirm: fsm.state({
-      prompt: 'Map the owner reply to accepted.',
-      ask: (data) => `Suggested ${data.fruit}. Accept?`,
+    pickGreenFruit: fsm.state({
+      prompt: 'Pick a fruit matching green.',
+      skills: [fsm.skill('fruit-picker', { optional: true })],
       on: {
-        submit: fsm.submit<{ accepted: boolean }>({
+        submit: fsm.submit<{ fruit: string; reason: string }>({
+          to: 'confirm',
+          reduce: (draft, payload) => {
+            draft.color = 'green';
+            draft.fruit = payload.fruit;
+            draft.reason = payload.reason;
+          },
+        }),
+      },
+    }),
+    confirm: fsm.choice({
+      question: (data) => `Suggested ${data.fruit}. Accept?`,
+      options: [
+        { label: 'Accept', to: 'done' },
+        { label: 'Try again', to: 'resetFruit' },
+      ],
+    }),
+    resetFruit: fsm.state({
+      prompt: 'Reset the suggested fruit and submit the next color-specific picking state.',
+      on: {
+        submit: fsm.submit<{ color: Color }>({
           route: [
-            { if: (_data, payload) => payload.accepted, to: 'done' },
             {
-              to: 'pickFruit',
+              if: (_data, payload) => payload.color === 'red',
+              to: 'pickRedFruit',
+              reduce: (draft) => {
+                draft.fruit = null;
+                draft.reason = null;
+              },
+            },
+            {
+              to: 'pickGreenFruit',
               reduce: (draft) => {
                 draft.fruit = null;
                 draft.reason = null;

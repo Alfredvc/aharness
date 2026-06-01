@@ -134,15 +134,9 @@ export default fsm.machine({
         }),
       },
     }),
-    ownerApproval: fsm.state({
-      prompt: (data) =>
-        `Ask the owner to approve this plan before implementation:\n\n${data.plan}`,
-      on: {
-        approved: fsm.await({
-          ask: 'Approve this plan? Reply with approval or requested changes.',
-          to: 'done',
-        }),
-      },
+    ownerApproval: fsm.choice({
+      question: (data) => `Approve this plan before implementation?\n\n${data.plan}`,
+      options: [{ label: 'Approve', to: 'done' }],
     }),
     done: fsm.final({ outcome: 'success' }),
   },
@@ -151,8 +145,8 @@ export default fsm.machine({
 
 `fsm.state(...)` gives Codex instructions for the current phase.
 `fsm.submit<T>(...)` declares typed evidence the model may submit.
-`fsm.await(...)` waits for owner input. `fsm.final(...)` ends the run and can
-write final artifacts.
+`fsm.choice(...)` declares deterministic owner choices. Open states support
+owner-paced discussion. `fsm.final(...)` ends the run and can write final artifacts.
 
 For a fuller coding workflow, start with the smoke demo. It includes planning,
 owner approval, implementation, test evidence, repair on failure, and final

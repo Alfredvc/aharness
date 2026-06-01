@@ -119,44 +119,42 @@ export default fsm.machine({
         }),
       },
     }),
-    ownerApproval: fsm.state({
-      prompt:
-        'Read the owner reply. Submit approved=true only when the owner explicitly approves ' +
-        'the plan. If the owner asks for changes or is ambiguous, submit approved=false with ' +
-        'a revisedPlan that addresses the feedback.',
-      ask: (data) =>
-        [
-          'Approve this plan for the coding smoke fixture?',
-          '',
-          data.plan ?? '(missing plan)',
-          '',
-          'Reply with approval or requested changes.',
-        ].join('\n'),
+    ownerApproval: fsm.choice({
+      question: (data) =>
+        ['Approve this plan for the coding smoke fixture?', '', data.plan ?? '(missing plan)'].join(
+          '\n',
+        ),
+      options: [
+        { label: 'Approve', to: 'recordApproval' },
+        { label: 'Request changes', to: 'revisePlan' },
+      ],
+    }),
+    recordApproval: fsm.state({
+      prompt: 'Record that the owner approved the current plan, then submit.',
       on: {
-        decide: fsm.submit<{ approved: boolean; ownerReply: string; revisedPlan?: string }>({
-          route: [
-            {
-              if: (_data, payload) => payload.approved,
-              to: 'implement',
-              effect: ({ payload }) => {
-                requireNonEmpty(payload.ownerReply, 'ownerReply');
-              },
-              reduce: (draft, payload) => {
-                draft.ownerReply = payload.ownerReply;
-              },
-            },
-            {
-              to: 'ownerApproval',
-              effect: ({ payload }) => {
-                requireNonEmpty(payload.ownerReply, 'ownerReply');
-                requireNonEmpty(payload.revisedPlan ?? '', 'revisedPlan');
-              },
-              reduce: (draft, payload) => {
-                draft.ownerReply = payload.ownerReply;
-                draft.plan = payload.revisedPlan ?? draft.plan;
-              },
-            },
-          ],
+        submit: fsm.submit<Record<string, never>>({
+          to: 'implement',
+          reduce: (draft) => {
+            draft.ownerReply = 'Approved';
+          },
+        }),
+      },
+    }),
+    revisePlan: fsm.state({
+      mode: 'open',
+      prompt:
+        'Ask the owner for requested changes to the plan. Submit a revisedPlan that addresses the feedback.',
+      on: {
+        submit: fsm.submit<{ ownerReply: string; revisedPlan: string }>({
+          to: 'ownerApproval',
+          effect: ({ payload }) => {
+            requireNonEmpty(payload.ownerReply, 'ownerReply');
+            requireNonEmpty(payload.revisedPlan, 'revisedPlan');
+          },
+          reduce: (draft, payload) => {
+            draft.ownerReply = payload.ownerReply;
+            draft.plan = payload.revisedPlan;
+          },
         }),
       },
     }),

@@ -18,7 +18,7 @@
  * process exit.
  */
 import { dirname, resolve } from 'node:path';
-import { loadFsm } from '../loader/index.js';
+import { loadFsm, RetiredOwnerDecisionSurfaceError } from '../loader/index.js';
 
 import { verify } from '../verify/index.js';
 import {
@@ -51,7 +51,20 @@ export interface RunVerifyCliResult {
 
 export async function runVerifyCli(opts: RunVerifyCliOpts): Promise<RunVerifyCliResult> {
   const repoRoot = opts.repoRoot ?? process.cwd();
-  const loaded = await loadFsm({ filePath: opts.fsmPath, repoRoot });
+  let loaded: Awaited<ReturnType<typeof loadFsm>>;
+  try {
+    loaded = await loadFsm({ filePath: opts.fsmPath, repoRoot });
+  } catch (e) {
+    if (e instanceof RetiredOwnerDecisionSurfaceError) {
+      for (const issue of e.issues) {
+        opts.log(
+          `[error] per-state-data-schema-resolvable (${issue.stateId ?? ''}): ${issue.message}`,
+        );
+      }
+      return { exitCode: 1 };
+    }
+    throw e;
+  }
   const fsmFileDir = dirname(resolve(repoRoot, opts.fsmPath));
   const result = verify(loaded.machine, loaded.sidecar, loaded.issues, {
     skillEnv: { fsmFileDir, repoRoot },

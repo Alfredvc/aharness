@@ -15,6 +15,8 @@ export const topology: Topology = {
       id: path('gathering_constraints'),
       label: path('gathering_constraints'),
       kind: 'stateful',
+      // Legacy-display fixture compatibility only; current owner decisions use
+      // choice nodes or owner-input pending cards.
       awaitsOwnerText: true,
       entryPrompt:
         'Ask the owner for purpose, stakeholders, and mandated constraints. Then submit with exit `proceed`.',
@@ -30,6 +32,8 @@ export const topology: Topology = {
       id: path('clarifying'),
       label: path('clarifying'),
       kind: 'stateful',
+      // Legacy-display fixture compatibility only; current owner decisions use
+      // choice nodes or owner-input pending cards.
       awaitsOwnerText: true,
       entryPrompt: 'Ask one targeted clarification, then `resolved` back to drafting.',
     },

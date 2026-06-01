@@ -22,6 +22,10 @@ const renderEndingMd = (data: Readonly<Data>): string => {
   return lines.join('\n');
 };
 
+function recordTrail(draft: Data, step: string): void {
+  draft.trail = [...draft.trail, step];
+}
+
 export default fsm.machine({
   id: 'adventure',
   initial: 'entrance',
@@ -33,126 +37,142 @@ export default fsm.machine({
   states: {
     entrance: fsm.state({
       prompt:
-        'Open a short fantasy-adventure scene (~3 sentences) where the hero stands at a crossroads. ' +
-        'Present three options labelled 1, 2, 3 — one leads to a forest, one to a cave, one to a river. ' +
-        'After the owner picks, submit the chosen number (1=forest, 2=cave, 3=river) and a one-line ' +
-        'recap of the scene under `scene`.',
-      ask: 'Forest, cave, or river? Reply 1, 2, or 3.',
+        'Open a short fantasy-adventure scene at a crossroads. Mention three paths: forest, cave, and river. Submit a one-line recap under `scene`.',
       on: {
-        submit: fsm.submit<{ choice: 1 | 2 | 3; scene: string }>({
-          route: [
-            {
-              if: (data, payload) => payload.choice === 1,
-              to: 'forest',
-              reduce: (draft, payload) => {
-                draft.trail = [...draft.trail, `entrance: ${payload.scene}`];
-              },
-            },
-            {
-              if: (data, payload) => payload.choice === 2,
-              to: 'cave',
-              reduce: (draft, payload) => {
-                draft.trail = [...draft.trail, `entrance: ${payload.scene}`];
-              },
-            },
-            {
-              to: 'river',
-              reduce: (draft, payload) => {
-                draft.trail = [...draft.trail, `entrance: ${payload.scene}`];
-              },
-            },
-          ],
+        submit: fsm.submit<{ scene: string }>({
+          to: 'entranceChoice',
+          reduce: (draft, payload) => recordTrail(draft, `entrance: ${payload.scene}`),
         }),
       },
     }),
+    entranceChoice: fsm.choice({
+      question: 'Choose a path.',
+      options: [
+        { label: 'Forest', to: 'forest' },
+        { label: 'Cave', to: 'cave' },
+        { label: 'River', to: 'river' },
+      ],
+    }),
     forest: fsm.state({
       prompt:
-        'Continue the story in the forest (~3 sentences). Present two options labelled 1, 2 — ' +
-        'one is bold, one is cautious. After the owner picks, judge it dramatically: ' +
-        '1 leads to victory, 2 leads to defeat. Submit the choice, a one-line scene recap, ' +
-        'and a 1–2 sentence ending paragraph.',
-      ask: 'Bold or cautious? Reply 1 or 2.',
+        'Continue the story in the forest. Present a bold option and a cautious option, then submit a one-line scene recap.',
       on: {
-        submit: fsm.submit<{ choice: 1 | 2; scene: string; ending: string }>({
-          route: [
-            {
-              if: (data, payload) => payload.choice === 1,
-              to: 'victory',
-              reduce: (draft, payload) => {
-                draft.trail = [...draft.trail, `forest: ${payload.scene}`];
-                draft.ending = payload.ending;
-                draft.outcome = 'victory';
-              },
-            },
-            {
-              to: 'defeat',
-              reduce: (draft, payload) => {
-                draft.trail = [...draft.trail, `forest: ${payload.scene}`];
-                draft.ending = payload.ending;
-                draft.outcome = 'defeat';
-              },
-            },
-          ],
+        submit: fsm.submit<{ scene: string }>({
+          to: 'forestChoice',
+          reduce: (draft, payload) => recordTrail(draft, `forest: ${payload.scene}`),
+        }),
+      },
+    }),
+    forestChoice: fsm.choice({
+      question: 'Bold or cautious?',
+      options: [
+        { label: 'Bold', to: 'forestVictory' },
+        { label: 'Cautious', to: 'forestDefeat' },
+      ],
+    }),
+    forestVictory: fsm.state({
+      prompt: 'Write a 1-2 sentence victorious forest ending and submit it.',
+      on: {
+        submit: fsm.submit<{ ending: string }>({
+          to: 'victory',
+          reduce: (draft, payload) => {
+            draft.ending = payload.ending;
+            draft.outcome = 'victory';
+          },
+        }),
+      },
+    }),
+    forestDefeat: fsm.state({
+      prompt: 'Write a 1-2 sentence defeated forest ending and submit it.',
+      on: {
+        submit: fsm.submit<{ ending: string }>({
+          to: 'defeat',
+          reduce: (draft, payload) => {
+            draft.ending = payload.ending;
+            draft.outcome = 'defeat';
+          },
         }),
       },
     }),
     cave: fsm.state({
       prompt:
-        'Continue the story in the cave (~3 sentences). Present two options labelled 1, 2 — ' +
-        'one is bold, one is cautious. 1 leads to defeat (the cave is treacherous); ' +
-        '2 leads to victory. Submit the choice, scene recap, and 1–2 sentence ending.',
-      ask: 'Bold or cautious? Reply 1 or 2.',
+        'Continue the story in the cave. Present a bold option and a cautious option, then submit a one-line scene recap.',
       on: {
-        submit: fsm.submit<{ choice: 1 | 2; scene: string; ending: string }>({
-          route: [
-            {
-              if: (data, payload) => payload.choice === 1,
-              to: 'defeat',
-              reduce: (draft, payload) => {
-                draft.trail = [...draft.trail, `cave: ${payload.scene}`];
-                draft.ending = payload.ending;
-                draft.outcome = 'defeat';
-              },
-            },
-            {
-              to: 'victory',
-              reduce: (draft, payload) => {
-                draft.trail = [...draft.trail, `cave: ${payload.scene}`];
-                draft.ending = payload.ending;
-                draft.outcome = 'victory';
-              },
-            },
-          ],
+        submit: fsm.submit<{ scene: string }>({
+          to: 'caveChoice',
+          reduce: (draft, payload) => recordTrail(draft, `cave: ${payload.scene}`),
+        }),
+      },
+    }),
+    caveChoice: fsm.choice({
+      question: 'Bold or cautious?',
+      options: [
+        { label: 'Bold', to: 'caveDefeat' },
+        { label: 'Cautious', to: 'caveVictory' },
+      ],
+    }),
+    caveDefeat: fsm.state({
+      prompt: 'Write a 1-2 sentence defeated cave ending and submit it.',
+      on: {
+        submit: fsm.submit<{ ending: string }>({
+          to: 'defeat',
+          reduce: (draft, payload) => {
+            draft.ending = payload.ending;
+            draft.outcome = 'defeat';
+          },
+        }),
+      },
+    }),
+    caveVictory: fsm.state({
+      prompt: 'Write a 1-2 sentence victorious cave ending and submit it.',
+      on: {
+        submit: fsm.submit<{ ending: string }>({
+          to: 'victory',
+          reduce: (draft, payload) => {
+            draft.ending = payload.ending;
+            draft.outcome = 'victory';
+          },
         }),
       },
     }),
     river: fsm.state({
       prompt:
-        'Continue the story at the river (~3 sentences). Present two options labelled 1, 2 — ' +
-        'one is bold, one is cautious. 1 leads to victory; 2 leads to defeat. ' +
-        'Submit the choice, scene recap, and 1–2 sentence ending.',
-      ask: 'Bold or cautious? Reply 1 or 2.',
+        'Continue the story at the river. Present a bold option and a cautious option, then submit a one-line scene recap.',
       on: {
-        submit: fsm.submit<{ choice: 1 | 2; scene: string; ending: string }>({
-          route: [
-            {
-              if: (data, payload) => payload.choice === 1,
-              to: 'victory',
-              reduce: (draft, payload) => {
-                draft.trail = [...draft.trail, `river: ${payload.scene}`];
-                draft.ending = payload.ending;
-                draft.outcome = 'victory';
-              },
-            },
-            {
-              to: 'defeat',
-              reduce: (draft, payload) => {
-                draft.trail = [...draft.trail, `river: ${payload.scene}`];
-                draft.ending = payload.ending;
-                draft.outcome = 'defeat';
-              },
-            },
-          ],
+        submit: fsm.submit<{ scene: string }>({
+          to: 'riverChoice',
+          reduce: (draft, payload) => recordTrail(draft, `river: ${payload.scene}`),
+        }),
+      },
+    }),
+    riverChoice: fsm.choice({
+      question: 'Bold or cautious?',
+      options: [
+        { label: 'Bold', to: 'riverVictory' },
+        { label: 'Cautious', to: 'riverDefeat' },
+      ],
+    }),
+    riverVictory: fsm.state({
+      prompt: 'Write a 1-2 sentence victorious river ending and submit it.',
+      on: {
+        submit: fsm.submit<{ ending: string }>({
+          to: 'victory',
+          reduce: (draft, payload) => {
+            draft.ending = payload.ending;
+            draft.outcome = 'victory';
+          },
+        }),
+      },
+    }),
+    riverDefeat: fsm.state({
+      prompt: 'Write a 1-2 sentence defeated river ending and submit it.',
+      on: {
+        submit: fsm.submit<{ ending: string }>({
+          to: 'defeat',
+          reduce: (draft, payload) => {
+            draft.ending = payload.ending;
+            draft.outcome = 'defeat';
+          },
         }),
       },
     }),

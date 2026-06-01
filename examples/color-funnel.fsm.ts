@@ -32,46 +32,110 @@ export default fsm.machine({
     reason: null,
   }),
   states: {
-    pickColor: fsm.state({
-      prompt:
-        "Capture the owner's color choice. Map their reply to one of: red, green, blue, yellow. " +
-        'If their reply does not clearly match one of those, default to red.',
-      ask: 'Pick a color: 1) red  2) green  3) blue  4) yellow. Reply with a number or the color name.',
-      on: {
-        submit: fsm.submit<{ color: Color }>({
-          to: 'modelPicksFruit',
-          reduce: (draft, payload) => {
-            draft.color = payload.color;
-          },
-        }),
-      },
+    pickColor: fsm.choice({
+      question: 'Pick a color.',
+      options: [
+        { label: 'red', to: 'redFruit' },
+        { label: 'green', to: 'greenFruit' },
+        { label: 'blue', to: 'blueFruit' },
+        { label: 'yellow', to: 'yellowFruit' },
+      ],
     }),
-    modelPicksFruit: fsm.state({
-      prompt: (data) =>
-        `The owner picked the color "${data.color ?? '(unknown)'}". ` +
-        'Pick one specific real-world fruit whose typical exterior matches that color, ' +
-        'and explain in one sentence why. Submit the fruit name and the reason.',
+    redFruit: fsm.state({
+      prompt:
+        'Pick one specific real-world fruit whose typical exterior is red. Submit the fruit name and one-sentence reason.',
       on: {
         submit: fsm.submit<{ fruit: string; reason: string }>({
           to: 'confirm',
           reduce: (draft, payload) => {
+            draft.color = 'red';
             draft.fruit = payload.fruit;
             draft.reason = payload.reason;
           },
         }),
       },
     }),
-    confirm: fsm.state({
+    greenFruit: fsm.state({
       prompt:
-        "Read the owner's yes/no reply. Map yes/y/sure/ok to accepted=true; map no/n/nope to accepted=false. " +
-        'If ambiguous, default to false so they get another suggestion.',
-      ask: (data) => `Suggested fruit: ${data.fruit ?? '(none)'}. Want this one? Reply yes or no.`,
+        'Pick one specific real-world fruit whose typical exterior is green. Submit the fruit name and one-sentence reason.',
       on: {
-        submit: fsm.submit<{ accepted: boolean }>({
+        submit: fsm.submit<{ fruit: string; reason: string }>({
+          to: 'confirm',
+          reduce: (draft, payload) => {
+            draft.color = 'green';
+            draft.fruit = payload.fruit;
+            draft.reason = payload.reason;
+          },
+        }),
+      },
+    }),
+    blueFruit: fsm.state({
+      prompt:
+        'Pick one specific real-world fruit whose typical exterior is blue or blue-purple. Submit the fruit name and one-sentence reason.',
+      on: {
+        submit: fsm.submit<{ fruit: string; reason: string }>({
+          to: 'confirm',
+          reduce: (draft, payload) => {
+            draft.color = 'blue';
+            draft.fruit = payload.fruit;
+            draft.reason = payload.reason;
+          },
+        }),
+      },
+    }),
+    yellowFruit: fsm.state({
+      prompt:
+        'Pick one specific real-world fruit whose typical exterior is yellow. Submit the fruit name and one-sentence reason.',
+      on: {
+        submit: fsm.submit<{ fruit: string; reason: string }>({
+          to: 'confirm',
+          reduce: (draft, payload) => {
+            draft.color = 'yellow';
+            draft.fruit = payload.fruit;
+            draft.reason = payload.reason;
+          },
+        }),
+      },
+    }),
+    confirm: fsm.choice({
+      question: (data) => `Suggested fruit: ${data.fruit ?? '(none)'}. Want this one?`,
+      options: [
+        { label: 'Yes', to: 'finalize' },
+        { label: 'No, pick another', to: 'retry' },
+      ],
+    }),
+    retry: fsm.state({
+      prompt:
+        'Clear the previous fruit and route back to the appropriate fruit-picking state for the existing color.',
+      on: {
+        submit: fsm.submit<Record<string, never>>({
           route: [
-            { if: (data, payload) => payload.accepted === true, to: 'finalize' },
             {
-              to: 'modelPicksFruit',
+              if: (data) => data.color === 'red',
+              to: 'redFruit',
+              reduce: (draft) => {
+                draft.fruit = null;
+                draft.reason = null;
+              },
+            },
+            {
+              if: (data) => data.color === 'green',
+              to: 'greenFruit',
+              reduce: (draft) => {
+                draft.fruit = null;
+                draft.reason = null;
+              },
+            },
+            {
+              if: (data) => data.color === 'blue',
+              to: 'blueFruit',
+              reduce: (draft) => {
+                draft.fruit = null;
+                draft.reason = null;
+              },
+            },
+            {
+              to: 'yellowFruit',
               reduce: (draft) => {
                 draft.fruit = null;
                 draft.reason = null;

@@ -826,7 +826,10 @@ describe('runCliForTest — Phase 2a cross-state (mocked transport)', () => {
 // predicate via the `_testObserveIsAwaiting` test seam.
 // ---------------------------------------------------------------------------
 
-describe('runCliForTest — Phase 2b owner-yield ServerRequest handler', () => {
+// Retired owner-yield behavior: `awaitsOwnerText` is no longer an accepted
+// authoring surface. Owner-choice reply handling is covered by the current
+// `owner-choice` runtime and browser tests.
+describe.skip('runCliForTest — retired Phase 2b owner-yield ServerRequest handler', () => {
   let repoRoot: string;
   let stderrBuf: string[];
   let stderrSink: NodeJS.WritableStream;
@@ -1707,7 +1710,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
     });
   }
 
-  it('ignores abandoned raw response items and returns abandoned dynamic-tool responses', async () => {
+  it.skip('ignores abandoned raw response items and returns abandoned dynamic-tool responses for retired await exits', async () => {
     interface DonePayload {
       ok: boolean;
     }
@@ -2434,7 +2437,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
     ]);
   }, 10_000);
 
-  it('publishes StateChange events for awaitResolver commits', async () => {
+  it.skip('publishes StateChange events for retired awaitResolver commits', async () => {
     interface DonePayload {
       ok: boolean;
     }

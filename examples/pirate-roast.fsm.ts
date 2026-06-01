@@ -30,13 +30,13 @@ export default fsm.machine({
   }),
   states: {
     confess: fsm.state({
+      mode: 'open',
       skills: [fsm.skill.path('./skills/pirate-mode.md')],
       prompt:
         'Adopt the pirate persona from the loaded skill immediately. ' +
         'Greet the owner in-character (one short sentence) so they can see the persona is live. ' +
         "Then submit a one-line recap of the owner's reply under `deed` — keep the recap " +
         'plain (no pirate accent in the recap field, just the facts).',
-      ask: 'Confess, ye scallywag — what did ye do today?',
       on: {
         submit: fsm.submit<{ deed: string }>({
           to: 'verdict',

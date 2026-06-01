@@ -10,9 +10,9 @@
  * Schema, compile it with ajv, and return a `SchemaSidecar` keyed by
  * `[stateId][exitName]`.
  *
- * Await exits (`kind: 'await'`) are plain object literals (not wrapped in
- * `exit<T>()`), carry no payload, and produce no sidecar entry; the AST
- * walker just skips them.
+ * Retired owner-decision surfaces (`ask`, `fsm.await(...)`, and
+ * `kind: 'await'`) produce explicit sidecar issues so `aharness verify`
+ * can fail before importing an invalid FSM bundle.
  *
  * The compiled schemas use Draft-07 — `ts-json-schema-generator`'s default
  * output dialect. `SPEC_SDK.md` §3.3 names Draft 2020-12 / OpenAPI-3.1; the
@@ -115,7 +115,8 @@ export interface SidecarExtractionResult {
  *   - `exit-payload-any` — submit exit declares `exit<any>(...)`.
  *   - `exit-payload-unknown` — submit exit declares `exit<unknown>(...)`.
  *   - `exit-payload-never` — submit exit declares `exit<never>(...)`.
- *   - `await-with-payload` — await exit is wrapped in `exit<T>(...)` (illegal — await exits are plain object literals).
+ *   - `await-with-payload` — historical await exit is wrapped in `exit<T>(...)`.
+ *   - `retired-owner-decision` — `ask`, `fsm.await(...)`, or low-level `kind: 'await'`.
  *   - `schema-emit-failed` — `ts-json-schema-generator` threw on the type argument.
  *   - `validator-compile-failed` — ajv refused to compile the emitted schema.
  *   - `author-fn-async` — `entryPrompt` or `stopGuidance` is declared as
@@ -136,6 +137,7 @@ export type SidecarIssueCode =
   | 'exit-payload-unknown'
   | 'exit-payload-never'
   | 'await-with-payload'
+  | 'retired-owner-decision'
   | 'schema-emit-failed'
   | 'exit-payload-non-object'
   | 'validator-compile-failed'
@@ -227,6 +229,17 @@ export async function extractSchemaSidecar(
     if (!arg || !ts.isObjectLiteralExpression(arg)) return;
 
     checkAuthorFunctionsSync(arg, stateId, sf, issues);
+    const askProp = findProperty(arg, 'ask');
+    if (askProp !== null) {
+      issues.push({
+        code: 'retired-owner-decision',
+        stateId,
+        exitName: null,
+        line: sf.getLineAndCharacterOfPosition(askProp.getStart(sf)).line + 1,
+        message:
+          '`ask` has been retired for FSM-authored owner decisions; use `fsm.choice` for deterministic owner routing, or an open state for owner-paced discussion.',
+      });
+    }
 
     const exitsProp = findProperty(arg, 'exits');
     if (exitsProp && ts.isObjectLiteralExpression(exitsProp.initializer)) {
@@ -248,7 +261,7 @@ export async function extractSchemaSidecar(
 
       // The exit's value-position AST shape determines the path:
       //   1. CallExpression to `exit<T>(...)` ⇒ submit exit; type arg is `T`.
-      //   2. Plain object literal with `kind: 'await'` ⇒ await exit (skipped).
+      //   2. Plain object literal with `kind: 'await'` ⇒ retired owner-decision issue.
       //   3. Plain object literal without `kind: 'await'` ⇒ author forgot the
       //      `exit<T>(...)` wrapper on a submit exit; reject as missing.
       const exitValue = exitProp.initializer;
@@ -263,11 +276,11 @@ export async function extractSchemaSidecar(
             const kindLiteral = kindProp ? getStringLiteralValue(kindProp.initializer) : null;
             if (kindLiteral === 'await') {
               issues.push({
-                code: 'await-with-payload',
+                code: 'retired-owner-decision',
                 stateId,
                 exitName,
                 line: exitLine,
-                message: `await exit '${stateId}::${exitName}' must be a plain object literal, not wrapped in exit<T>(...)`,
+                message: `await exit '${stateId}::${exitName}' has been retired; use fsm.choice for framework-owned owner decisions.`,
               });
               return null;
             }
@@ -289,7 +302,13 @@ export async function extractSchemaSidecar(
           const kindProp = findProperty(exitValue, 'kind');
           const kindLiteral = kindProp ? getStringLiteralValue(kindProp.initializer) : null;
           if (kindLiteral === 'await') {
-            // Pure await exit — no schema sidecar entry.
+            issues.push({
+              code: 'retired-owner-decision',
+              stateId,
+              exitName,
+              line: exitLine,
+              message: `await exit '${stateId}::${exitName}' has been retired; use fsm.choice for framework-owned owner decisions.`,
+            });
             return null;
           }
           // Plain object literal that isn't an await exit ⇒ author wrote a submit
@@ -311,7 +330,7 @@ export async function extractSchemaSidecar(
           stateId,
           exitName,
           line: exitLine,
-          message: `submit exit '${stateId}::${exitName}' is not a recognised exit<T>(...) call or await literal — only those two shapes are supported`,
+          message: `submit exit '${stateId}::${exitName}' is not a recognised exit<T>(...) call`,
         });
         return null;
       })();
@@ -344,15 +363,13 @@ export async function extractSchemaSidecar(
         continue;
       }
       if (isCanonicalAwaitCall(value, createFsmFactoryNames)) {
-        if (value.typeArguments && value.typeArguments.length > 0) {
-          issues.push({
-            code: 'await-with-payload',
-            stateId,
-            exitName,
-            line: exitLine,
-            message: `canonical await exit '${stateId}::${exitName}' must not declare a payload type`,
-          });
-        }
+        issues.push({
+          code: 'retired-owner-decision',
+          stateId,
+          exitName,
+          line: exitLine,
+          message: `fsm.await has been retired for '${stateId}::${exitName}'; use fsm.choice when a selection should route the FSM, or an open state plus typed submit when free text must be interpreted.`,
+        });
         continue;
       }
       if (!isCanonicalSubmitCall(value, createFsmFactoryNames)) {

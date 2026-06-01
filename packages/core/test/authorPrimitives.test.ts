@@ -143,13 +143,80 @@ describe('state() new shape', () => {
   });
 
   it('preserves explicit kind:"await"', () => {
+    expect(() =>
+      state({
+        entryPrompt: 'wait',
+        exits: { ownerReply: { kind: 'await', to: 'process' } },
+      } as never),
+    ).toThrow(/await exit 'ownerReply'.*no longer accepted.*fsm\.choice/);
+  });
+
+  it('rejects retired awaitsOwnerText declarations', () => {
+    expect(() =>
+      state({
+        entryPrompt: 'wait',
+        exits: { submit: exit<{ ok: boolean }>({ to: 'process' }) },
+        awaitsOwnerText: { messageToUser: 'Continue?' },
+      } as never),
+    ).toThrow(/awaitsOwnerText.*no longer accepted.*choice.*open state/);
+  });
+
+  it('rejects canonical ask declarations with replacement guidance', () => {
+    const fsm = createFsm<CanonicalDemoData>();
+
+    expect(() =>
+      fsm.state({
+        prompt: 'Pick color.',
+        ask: 'Pick red or green.',
+        on: {
+          submit: fsm.submit<{ color: 'red' | 'green' }>({ to: 'done' }),
+        },
+      } as never),
+    ).toThrow(/ask.*retired.*fsm\.choice.*open state.*request_user_input/);
+  });
+
+  it('rejects canonical await-shaped handlers with replacement guidance', () => {
+    const fsm = createFsm<CanonicalDemoData>();
+
+    expect(() =>
+      fsm.state({
+        prompt: 'Ask owner for a checkpoint reply.',
+        on: {
+          proceed: { __canonicalKind: 'await', options: { ask: 'Proceed?', to: 'done' } },
+        },
+      } as never),
+    ).toThrow(/unknown event handler 'proceed'.*fsm\.choice/);
+  });
+
+  it('rejects await exits during machine synthesis if invalid metadata bypasses state()', () => {
+    expect(() =>
+      aharness.machine({
+        id: 'm',
+        initial: 'a',
+        states: {
+          a: {
+            meta: {
+              aharness: {
+                kind: 'stateful',
+                open: false,
+                entryPrompt: 'wait',
+                exits: { ownerReply: { kind: 'await', to: 'a' } },
+              },
+            },
+          },
+        },
+      }),
+    ).toThrow(/await exit 'ownerReply'.*no longer accepted.*fsm\.choice/);
+  });
+
+  it('preserves submit exits', () => {
     const cfg = state({
       entryPrompt: 'wait',
-      exits: { ownerReply: { kind: 'await', to: 'process' } },
+      exits: { submit: exit<{ ok: boolean }>({ to: 'process' }) },
     });
     const exits = (cfg as { meta: { aharness: { exits: Record<string, { kind: string }> } } }).meta
       .aharness.exits;
-    expect(exits['ownerReply']?.kind).toBe('await');
+    expect(exits['submit']?.kind).toBe('submit');
   });
 
   it('preserves multi-branch when[] shape', () => {
@@ -231,7 +298,6 @@ describe('createFsm() canonical authoring surface', () => {
     expect(typeof fsm.machine).toBe('function');
     expect(typeof fsm.state).toBe('function');
     expect(typeof fsm.submit).toBe('function');
-    expect(typeof fsm.await).toBe('function');
     expect(typeof fsm.choice).toBe('function');
     expect(typeof fsm.final).toBe('function');
     expect(typeof fsm.passive).toBe('function');
@@ -248,7 +314,6 @@ describe('createFsm() canonical authoring surface', () => {
     const fsm = createFsm<CanonicalDemoData>();
     const clearOnEntry = fsm.state({
       prompt: (data) => `Pick fruit for ${data.color ?? 'unknown'}.`,
-      ask: 'Pick red or green.',
       guidance: (data) => `Current fruit: ${data.fruit ?? 'none'}.`,
       clearOnEntry: true,
       skills: [
@@ -291,20 +356,9 @@ describe('createFsm() canonical authoring surface', () => {
         }),
       },
     });
-    const awaited = fsm.state({
-      prompt: 'Ask owner for a checkpoint reply.',
-      on: {
-        proceed: fsm.await({
-          ask: 'Proceed?',
-          to: 'done',
-          effect: async ({ ownerReply }) => {
-            expect(ownerReply).toEqual(expect.any(String));
-          },
-          reduce: (draft, ownerReply) => {
-            draft.reply = ownerReply;
-          },
-        }),
-      },
+    const choice = fsm.choice({
+      question: 'Proceed?',
+      options: [{ label: 'Continue', to: 'done' }],
     });
     const done = fsm.final({
       outcome: 'success',
@@ -318,7 +372,7 @@ describe('createFsm() canonical authoring surface', () => {
     expect(clearOnEntry).toHaveProperty('meta.aharness.kind', 'stateful');
     expect(clearOnEntry).toHaveProperty('meta.aharness.clearOnEntry', true);
     expect(routed).toHaveProperty('meta.aharness.kind', 'stateful');
-    expect(awaited).toHaveProperty('meta.aharness.kind', 'stateful');
+    expect(choice).toHaveProperty('meta.aharness.kind', 'choice');
     expect(done).toHaveProperty('meta.aharness.kind', 'terminal');
     expect(passiveNode).toHaveProperty('meta.aharness.kind', 'passive');
     expect(passiveNode).toHaveProperty('meta.aharness.main', true);
@@ -734,52 +788,6 @@ describe('self-loop visit-count semantics', () => {
         .__aharness_visitCount['a'],
     ).toBe(3);
     expect(actor.getSnapshot().value).toBe('b');
-  });
-});
-
-describe('AWAIT self-loop branch action ordering', () => {
-  it('buildBranch: AWAIT self-loop prepends ASSIGN_OWNER_REPLY and VISIT_ACTION (in that order), omits CLEAR_OWNER_REPLY', () => {
-    // M-7: pins the exact action ordering for an AWAIT exit whose `to` matches
-    // the current state (isSelfLoop=true). Expected synthesized actions:
-    //   [{ type: ASSIGN_OWNER_REPLY }, { type: VISIT_ACTION, params: { stateId } }]
-    // CLEAR_OWNER_REPLY must NOT appear (it's skipped for both AWAIT and self-loops).
-    const machine = aharness.machine({
-      id: 'm',
-      initial: 'a',
-      states: {
-        a: state({
-          entryPrompt: 'wait for owner',
-          exits: {
-            ownerReply: { kind: 'await', to: 'a' }, // AWAIT self-loop
-          },
-        }),
-        b: terminal('success'),
-      },
-    });
-    const aNode = machine.getStateNodeById('m.a');
-    const handler = aNode.config.on?.['AWAIT__a__ownerReply'] as Array<{
-      target?: string;
-      reenter?: boolean;
-      actions?: Array<{ type: string; params?: unknown }>;
-    }>;
-    expect(Array.isArray(handler)).toBe(true);
-    expect(handler).toHaveLength(1);
-    const branch = handler[0];
-    // Must be an internal self-loop.
-    expect(branch?.reenter).toBe(false);
-    expect(branch?.target).toBe('a');
-    const actions = branch?.actions ?? [];
-    // ASSIGN_OWNER_REPLY must be first.
-    expect(actions[0]).toMatchObject({ type: '__aharnessAssignOwnerReply' });
-    // VISIT_ACTION must be second (with stateId param).
-    expect(actions[1]).toMatchObject({
-      type: '__aharnessIncrementVisit',
-      params: { stateId: 'a' },
-    });
-    // CLEAR_OWNER_REPLY must not appear at all.
-    expect(actions.every((a) => a.type !== '__aharnessClearOwnerReply')).toBe(true);
-    // No author actions beyond the two framework ones.
-    expect(actions).toHaveLength(2);
   });
 });
 

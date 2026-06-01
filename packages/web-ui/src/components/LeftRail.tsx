@@ -15,7 +15,7 @@ export function LeftRail({ session }: { session: UiState }) {
           <span className="state-kind-dot" aria-hidden />
           <span className="text">
             {state ? state.kind : 'booting'}
-            {state?.awaitsOwnerText ? ' · awaits' : ''}
+            {posture.isAwaiting ? ' · waiting' : ''}
           </span>
         </div>
         <h1 className="state-leaf">
@@ -25,7 +25,7 @@ export function LeftRail({ session }: { session: UiState }) {
       </div>
 
       <div className="posture-grid">
-        <PostureCell label="awaits" on={posture.isAwaiting} tone="amber" />
+        <PostureCell label="waiting" on={posture.isAwaiting} tone="amber" />
         <PostureCell label="terminal" on={posture.isTerminal} tone="mint" />
         <PostureCell label="submitted" on={posture.submittedThisTurn} tone="indigo" />
       </div>

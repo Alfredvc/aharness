@@ -11,11 +11,11 @@ mechanisms, runs in under five minutes, and keeps owner input short.
 
 | Demo                                                                | Mechanism showcased                                            | Owner input |
 | ------------------------------------------------------------------- | -------------------------------------------------------------- | ----------- |
-| [`color-funnel`](#1-color-funnel--onboarding)                       | `ask` + typed `fsm.submit` + branching + final artifact        | 2 picks     |
+| [`color-funnel`](#1-color-funnel--onboarding)                       | `fsm.choice` + typed `fsm.submit` + branching + final artifact | 2 picks     |
 | [`ops-clear-demo`](#2-ops-clear-demo--minimal-fresh-clear-smoke)    | **`clearOnEntry` smoke test** — fastest path to verify         | 2 words     |
 | [`trivia-rounds`](#3-trivia-rounds--clearonentry-context-wipe)      | **`clearOnEntry` fresh thread** with FSM state retained        | 12 picks    |
 | [`adventure`](#4-adventure--multi-exit-branching)                   | `fsm.submit({ route })` branching + success/failure finals     | 2 picks     |
-| [`await-checkpoints`](#5-await-checkpoints--await-exits)            | `fsm.await` — user reply fires the FSM transition              | 3 yes/no    |
+| [`await-checkpoints`](#5-await-checkpoints--owner-choice-gates)     | `fsm.choice` owner checkpoint gates                            | 3 yes/no    |
 | [`pirate-roast`](#6-pirate-roast--skill-loading)                    | `fsm.skill.path` — sibling `.md` file injected as persona      | 1 sentence  |
 | [`composed-pipeline`](#7-composed-pipeline--composition-and-inputs) | `fsm.embed` + typed `fsm.input.*` root CLI flags               | none        |
 | [`approval-policy`](#8-approval-policy--hooks-events-and-passive)   | built-in hook events + `withEvents` + `effect` + `fsm.passive` | none        |
@@ -57,8 +57,8 @@ start a new run; previous artifacts remain inspectable.
 
 **File:** `examples/color-funnel.fsm.ts`
 **States:** `pickColor` → `modelPicksFruit` → `confirm` → `finalize`
-**Mechanism:** the smallest possible end-to-end tour: one
-owner-yield, one model-only state, one yes/no gate, one final state.
+**Mechanism:** the smallest possible end-to-end tour: one owner choice, one
+model-only state, one yes/no gate, one final state.
 
 ### Walkthrough
 
@@ -73,9 +73,8 @@ owner-yield, one model-only state, one yes/no gate, one final state.
 
 - The model never narrates a transition itself — every state change is
   a typed `submit` you can see in the run's `events.jsonl`.
-- The `confirm` state uses `fsm.submit({ route })` with an unguarded
-  catch-all branch looping back to `modelPicksFruit`; the verifier checked
-  this before any model call.
+- The `confirm` gate uses `fsm.choice` labels for deterministic owner routing;
+  the verifier checked those labels before any model call.
 
 ---
 
@@ -171,43 +170,31 @@ before any model call.
 
 ---
 
-## 5. `await-checkpoints` — `await` exits
+## 5. `await-checkpoints` — owner choice gates
 
 **File:** `examples/await-checkpoints.fsm.ts`
 **States:** `lintCheck` → `testsCheck` → `buildCheck` → `done`
-**Mechanism:** every non-final state declares a single `fsm.await(...)`
-transition (no `fsm.submit`). The framework's per-state
-nudge tells the model to call codex's built-in `request_user_input`;
-the user's reply itself fires the `AWAIT__<state>__<exit>` transition
-— no model `submit` step in between. The reply text is captured into
-FSM data via the await reducer.
+**Mechanism:** each checkpoint is an authored `fsm.choice(...)` gate. The
+framework parks the run on deterministic yes/no option labels, and the owner
+choice records the stage result before moving to the next checkpoint.
 
 ### Walkthrough
 
-1. TUI: model writes a one-line fake "lint passed" summary, then
-   prompts `lint passed — proceed to tests? (yes/no)`.
-2. You reply (yes or no — the FSM advances either way; the reply text
-   is recorded). Model writes a fake "tests passed" summary, prompts
-   `tests passed — proceed to build? (yes/no)`.
-3. Reply again. Model writes a fake "build green" summary, prompts
-   `build green — ship it? (yes/no)`.
-4. Reply once more. Terminal writes `deploy-log.md` with a 3-row table
-   of stages and your replies.
+1. TUI: the lint checkpoint asks `Lint passed — proceed to tests?`.
+2. Choose yes or no; either label records the checkpoint result and moves to
+   the tests checkpoint.
+3. Repeat for tests and build.
+4. Terminal writes `deploy-log.md` with a 3-row table of stages and your
+   choices.
 
 ### What to look for
 
-- The `events.jsonl` shows three `AWAIT__<state>__proceed` events —
-  no `SUBMIT__*` events. The owner reply is the transition payload.
-- `fsm.await` transitions are **single-branch only** — guarding on free text
-  would re-introduce transition-by-text in violation of hard rule #3.
-  The verifier rejects `{kind: 'await', when: [...]}`.
-- Contrast with `fsm.state({ ask, on: { submit: fsm.submit(...) } })`: it pauses for an owner
-  reply and then expects the model to construct a typed `submit` from
-  the reply. `await` exits skip the model's submit altogether — the
-  reply alone advances the FSM.
-- The verifier emits an `await-only-strict-state` warning per pure-
-  await state ("confirm this is intentional") — informational, not
-  blocking. The demo deliberately triggers it three times.
+- The `events.jsonl` shows three owner-choice transitions with authored option
+  labels, not model submits.
+- The owner reply is deterministic because the available labels are authored in
+  the FSM and shown in topology.
+- Use an open state or model-originated `request_user_input` when the workflow
+  needs free-form owner text before a later typed submit.
 
 ---
 

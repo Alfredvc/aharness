@@ -11,8 +11,8 @@ automation exists, this file is the source of truth for v0.1 release notes.
   verifying, and running finite-state-machine workflows around Codex coding
   tasks.
 - Adds the public FSM authoring surface, including typed states, submit exits,
-  await exits, guards, inputs, embedded machines, final states, and verification
-  before runtime.
+  owner-reply transitions, guards, inputs, embedded machines, final states, and
+  verification before runtime.
 - Ships the loopback browser UI used for owner approvals, owner input, run
   inspection, and per-run evidence.
 - Provides `@aharness/test-support` as a regular dependency consumer of

@@ -8,7 +8,7 @@ references for individual FSM primitives.
 1. [`coding-smoke.fsm.ts`](coding-smoke.fsm.ts) shows a real coding workflow:
    plan, owner approval, implementation, tests, repair on failure, and final
    report over a tiny fixture.
-2. [`DEMOS.md`](DEMOS.md) catalogs the smaller mechanism demos: await exits,
+2. [`DEMOS.md`](DEMOS.md) catalogs the smaller mechanism demos: owner choices,
    approval hooks, composition, skills, branching, and final artifacts.
 
 ## Run The Coding Smoke Demo

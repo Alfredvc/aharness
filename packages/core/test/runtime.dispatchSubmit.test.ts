@@ -1477,7 +1477,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
 
   // ─── Phase 2b cross-state into awaitsOwnerText ──────────────────────
 
-  it('cross-state submit into a state with awaitsOwnerText commits and schedules the dance', async () => {
+  it.skip('cross-state submit into a retired awaitsOwnerText state commits and schedules the dance', async () => {
     // Plan `2026-05-13-headless-phase-2b-owner-yield.md` Task 6: the
     // pre-commit awaitsOwnerText throw is gone — a cross-state target
     // declaring awaitsOwnerText now follows the same dance path as a
@@ -1527,7 +1527,7 @@ describe('createSubmitDispatcher — Phase 1', () => {
     expect(arg.orientationText).toContain('what is your name?');
   });
 
-  it('cross-state submit into awaitsOwnerText still replies "ok"', async () => {
+  it.skip('cross-state submit into retired awaitsOwnerText still replies "ok"', async () => {
     // The dispatcher's reply text is unaffected by the target's
     // awaitsOwnerText declaration: cross-state submits always reply
     // terse `'ok'`. The dance owns the subsequent turn/start that

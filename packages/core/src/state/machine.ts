@@ -9,7 +9,7 @@
  *
  * **Pass 1 — synthesis** (in `injectFrameworkActions`):
  *   For every stateful state, synthesizes `SUBMIT__<stateId>__<exitName>`
- *   and `AWAIT__<stateId>__<exitName>` `on:` keys from `meta.aharness.exits`.
+ *   `on:` keys from `meta.aharness.exits`.
  *   Authors never write these keys; the verifier check
  *   `no-handwritten-submit-await-handlers` rejects FSMs that try. Before
  *   overwriting any existing keys, the synthesizer snapshots them onto
@@ -25,9 +25,6 @@
  *     transition) and additionally prepend `__aharnessIncrementVisit` on the
  *     transition's action chain (entry does not re-fire on internal
  *     transitions, so visit++ must happen in the transition itself).
- *   - On synthesized `AWAIT__*` transitions: always prepends
- *     `__aharnessAssignOwnerReply` (writes `event.payload.ownerReply` into
- *     context).
  *
  * Author-supplied `context` factory is forwarded with its full XState v5
  * args object so destructuring `({ input })` keeps working.
@@ -113,7 +110,6 @@ export type ExtractFinals<TStates> = {
 };
 
 const VISIT_ACTION = '__aharnessIncrementVisit';
-const ASSIGN_OWNER_REPLY = '__aharnessAssignOwnerReply';
 const CLEAR_OWNER_REPLY = '__aharnessClearOwnerReply';
 const EMBEDDED_FINAL_RAISE = '__aharnessEmbeddedFinalRaise';
 
@@ -164,12 +160,11 @@ interface SynthesizedTransition {
  * last entry is the unguarded catch-all).
  *
  * For each branch, framework actions are prepended in this order:
- *   1. `__aharnessAssignOwnerReply` if AWAIT.
- *   2. `__aharnessClearOwnerReply` if SUBMIT and NOT a self-loop.
- *   3. `__aharnessIncrementVisit` if a self-loop (visit++ deposit;
+ *   1. `__aharnessClearOwnerReply` if NOT a self-loop.
+ *   2. `__aharnessIncrementVisit` if a self-loop (visit++ deposit;
  *      external transitions get visit++ via the destination state's
  *      entry action, internal self-loops have no dest-entry).
- *   4. ...branch.actions (author actions, untouched).
+ *   3. ...branch.actions (author actions, untouched).
  *
  * Self-loops (`branch.to === sourceKey` — last segment of the dotted
  * path, since authors write sibling targets like `to: 'foo'`, not
@@ -179,14 +174,12 @@ interface SynthesizedTransition {
  *
  * Reads the post-default exit shape (`DefaultedExitDef` in `exits.ts`,
  * Task 1). The `state(...)` defaulting pass (Task 2) ensures every
- * exit has `kind: 'submit' | 'await'` populated by the time this
- * helper runs.
+ * exit has `kind: 'submit'` populated by the time this helper runs.
  */
 function synthesizeBranches(
   exit: DefaultedExitDef,
   stateId: string,
   sourceKey: string,
-  isAwait: boolean,
 ): SynthesizedTransition[] {
   // Cast to a loose accessor type for property access inside the branches.
   // The runtime checks (`typeof exit.to`, `Array.isArray(exit.when)`) are the
@@ -195,19 +188,12 @@ function synthesizeBranches(
   const e = exit as { to?: string; when?: Array<unknown>; actions?: unknown; guard?: unknown };
   // Sugar form: top-level `to:` (with optional `actions:`).
   if (typeof e.to === 'string') {
-    return [
-      buildBranch({ to: e.to, actions: e.actions, guard: e.guard }, stateId, sourceKey, isAwait),
-    ];
+    return [buildBranch({ to: e.to, actions: e.actions, guard: e.guard }, stateId, sourceKey)];
   }
   // Multi-branch: `when:` array.
   if (Array.isArray(e.when)) {
     return e.when.map((b) =>
-      buildBranch(
-        b as { to?: string; actions?: unknown; guard?: unknown },
-        stateId,
-        sourceKey,
-        isAwait,
-      ),
+      buildBranch(b as { to?: string; actions?: unknown; guard?: unknown }, stateId, sourceKey),
     );
   }
   throw new Error(
@@ -219,7 +205,6 @@ function buildBranch(
   branch: { to?: string; actions?: unknown; guard?: unknown },
   stateId: string,
   sourceKey: string,
-  isAwait: boolean,
 ): SynthesizedTransition {
   if (typeof branch.to !== 'string' || branch.to.length === 0) {
     throw new Error(`synthesizeBranches: branch missing 'to'; state '${stateId}'`);
@@ -232,9 +217,7 @@ function buildBranch(
   // legacy walker.
   const isSelfLoop = stripDotPrefix(branch.to) === sourceKey;
   const actions: unknown[] = [];
-  if (isAwait) {
-    actions.push({ type: ASSIGN_OWNER_REPLY });
-  } else if (!isSelfLoop) {
+  if (!isSelfLoop) {
     // SUBMIT, non-self-loop: prepend CLEAR_OWNER_REPLY (decision #6 — keep
     // skipping on self-loops to preserve owner reply across iterations).
     actions.push({ type: CLEAR_OWNER_REPLY });
@@ -314,9 +297,10 @@ function resolveEmbeddedChildContext(
 
 /**
  * Walk every state node in place. Atomic replacement of the legacy
- * walker — synthesizes SUBMIT__/AWAIT__ on: keys from `meta.aharness.exits`
+ * walker — synthesizes SUBMIT__ on: keys from `meta.aharness.exits`
  * (replacing any hand-written wrapping) and snapshots any pre-existing
- * SUBMIT__/AWAIT__ keys to a side-channel for the verifier to detect.
+ * SUBMIT__/AWAIT__ keys to a side-channel for the verifier to detect. AWAIT__
+ * is snapshot only: await exits are retired and rejected before synthesis.
  *
  * Phase 2 additions (T8):
  *   - On embed-host nodes (`meta.aharness.embedded` set, no `kind`), synthesize
@@ -450,15 +434,17 @@ function injectFrameworkActions(
     const entries = asArray(node.entry);
     entries.unshift({ type: VISIT_ACTION, params: { stateId } });
     node.entry = entries;
-    // 3. Synthesis pass — overwrite (or create) SUBMIT__/AWAIT__ keys.
+    // 3. Synthesis pass — overwrite (or create) SUBMIT__ keys.
     const exits = aharnessMeta?.exits ?? {};
     if (!node.on) node.on = {};
     for (const [exitName, exit] of Object.entries(exits)) {
-      const isAwait = exit.kind === 'await';
-      const eventKey = isAwait
-        ? `AWAIT__${stateId}__${exitName}`
-        : `SUBMIT__${stateId}__${exitName}`;
-      const branches = synthesizeBranches(exit as DefaultedExitDef, stateId, sourceKey, isAwait);
+      if (exit.kind === 'await') {
+        throw new Error(
+          `aharness.machine(): await exit '${exitName}' is no longer accepted; use fsm.choice for framework-owned owner decisions.`,
+        );
+      }
+      const eventKey = `SUBMIT__${stateId}__${exitName}`;
+      const branches = synthesizeBranches(exit as DefaultedExitDef, stateId, sourceKey);
       node.on[eventKey] = branches;
     }
   }
@@ -673,12 +659,6 @@ function aharnessMachineImpl(config: unknown): AnyStateMachine {
           },
         };
       }),
-      // ASSIGN_OWNER_REPLY reads the triggering event from the first arg.
-      // No params channel needed — the event itself carries the payload.
-      [ASSIGN_OWNER_REPLY]: assign(({ event }) => ({
-        __aharness_lastOwnerReply: (event as { payload?: { ownerReply?: string } }).payload
-          ?.ownerReply,
-      })),
       // CLEAR_OWNER_REPLY clears unconditionally. Self-loops never receive
       // this action — `injectFrameworkActions` skips them at config-walk
       // time so the resolved transition's action array stays untouched.

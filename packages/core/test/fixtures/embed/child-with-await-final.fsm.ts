@@ -1,15 +1,18 @@
 /**
- * Test fixture for the AWAIT-driven branch of the embed boundary.
+ * Test fixture for the submit-driven branch of the embed boundary.
  *
  * Topology:
  *
- *   ask (stateful) ──await→ shipped (final, success)
+ *   ask (stateful) ──submit→ shipped (final, success)
  *
- * Used by `state.embed.runToCompletion.test.ts` to fence run-to-completion
- * semantics on the AWAIT path through the embed boundary, parallel to
- * `child.fsm.ts`'s SUBMIT path.
+ * The original AWAIT fixture used the retired low-level await exit surface.
+ * Slice 4 keeps this boundary coverage with a submit exit.
  */
-import { aharness, state, final } from '../../../src/index.js';
+import { aharness, state, exit, final } from '../../../src/index.js';
+
+interface WaitData {
+  readonly _empty?: never;
+}
 
 export default aharness.machine({
   id: 'child-await',
@@ -18,7 +21,7 @@ export default aharness.machine({
     ask: state({
       entryPrompt: 'wait for it',
       exits: {
-        wait: { kind: 'await', to: 'shipped' },
+        wait: exit<WaitData>({ to: 'shipped' }),
       },
     }),
     shipped: final({ outcome: 'success' }),

@@ -11,12 +11,8 @@
  *     last entry is always an unguarded catch-all.
  *   - `passive()` and `terminal()` return spreadable XState state configs;
  *     attach `entry`, `always`, etc. via spread: `{ ...passive(), entry: … }`.
- *   - Owner-yield is declared via `awaitsOwnerText: { messageToUser }` on
- *     states that need a free-text owner reply. The framework auto-injects
- *     a per-entry preamble instructing the model to call codex's built-in
- *     `request_user_input` before submitting; the reply is returned to the
- *     model directly as the tool-call result. No `await` exit is needed —
- *     the state advances on the typed submit, not on the owner reply itself.
+ *   - Free-form owner collaboration is modeled as open states that eventually
+ *     submit typed payloads. The retired `awaitsOwnerText` surface is not used.
  *   - `setup({...}).createMachine(...)` -> `aharness.machine(...)` so the
  *     wrapper can inject framework-managed visit-count and owner-reply
  *     context fields. Guards and actions are declared inline on
@@ -186,12 +182,9 @@ export const machine = aharness.machine({
   },
   states: {
     askGoal: state<Ctx>({
+      open: true,
       entryPrompt:
         "Capture the owner's goal for this requirement-gathering session, quoting what they said.",
-      awaitsOwnerText: {
-        messageToUser:
-          'What is the goal of this requirement-gathering session? Describe the product or feature you want a requirements spec for.',
-      },
       exits: {
         submit: exit<AskGoalPayload>({
           to: 'iterateRequirements',
@@ -200,14 +193,11 @@ export const machine = aharness.machine({
       },
     }),
     iterateRequirements: state<Ctx>({
+      open: true,
       entryPrompt:
         'Iterate with the owner one requirement at a time. Ask them for the next ' +
         'requirement (or for clarification on what they last said), then record it. ' +
         'When the owner indicates they have no more, mark done to advance.',
-      awaitsOwnerText: {
-        messageToUser:
-          'What is the next requirement? Describe it, including a measurable fit criterion. Reply "done" when there are no more.',
-      },
       exits: {
         submit: exit<IteratePayload, Ctx>({
           when: [
@@ -250,14 +240,11 @@ export const machine = aharness.machine({
       },
     }),
     probeMissingRequirements: state<Ctx>({
+      open: true,
       entryPrompt:
         'Surface to the owner any gaps your research suggests (uncovered user paths, ' +
         'missing fit criteria, decisions not yet made). Capture any new requirements ' +
         'they confirm; submit the additions (empty if none).',
-      awaitsOwnerText: {
-        messageToUser:
-          'Based on the research, are there any gaps we should cover before drafting — uncovered user paths, missing fit criteria, decisions not yet made? Confirm any new requirements to add.',
-      },
       exits: {
         submit: exit<ProbePayload, Ctx>({
           to: 'presentDraft',
@@ -269,15 +256,12 @@ export const machine = aharness.machine({
     }),
     presentDraft: { ...passive(), entry: renderArtifacts, always: { target: 'reviseWithOwner' } },
     reviseWithOwner: state<Ctx>({
+      open: true,
       entryPrompt:
         'Show the owner the rendered `requirements.md` (read it from the run dir) and ' +
         'iterate edits with them. For each change the owner requests, submit one edit ' +
         '(op: add | remove | replace). When the owner is satisfied, mark done. The FSM ' +
         're-renders artifacts after every edit.',
-      awaitsOwnerText: {
-        messageToUser:
-          'Here is the current draft (see requirements.md in the run dir). What edits do you want — add, remove, or replace any entries? Reply "done" when satisfied.',
-      },
       exits: {
         submit: exit<RevisePayload, Ctx>({
           when: [

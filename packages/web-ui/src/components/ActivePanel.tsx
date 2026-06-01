@@ -513,8 +513,10 @@ function buildNodeDetailRows(node: VizNode): DetailRow[] {
   if (detail.entryPrompt) {
     rows.push({ label: 'entry prompt', value: detail.entryPrompt.text });
   }
+  // Historical topology compatibility: old bootstrap fixtures can still carry
+  // awaitsOwnerText so archived rows explain why the composer was open.
   if (detail.awaitsOwnerText) {
-    rows.push({ label: 'owner prompt', value: detail.awaitsOwnerText.text });
+    rows.push({ label: 'legacy owner prompt', value: detail.awaitsOwnerText.text });
   }
   const lifecycle = [
     detail.hasOnEntry ? 'onEntry' : null,

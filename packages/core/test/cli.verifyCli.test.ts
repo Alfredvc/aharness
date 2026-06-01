@@ -62,6 +62,31 @@ describe('runVerifyCli', () => {
     expect(provider.readConfig).not.toHaveBeenCalled();
   });
 
+  it('prints replacement guidance for retired canonical ask', async () => {
+    const fsmPath = await writeRetiredOwnerDecisionFixture('ask');
+    const log = vi.fn();
+    const r = await runVerifyCli({ fsmPath, repoRoot, log });
+    expect(r.exitCode).toBe(1);
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    expect(lines).toContainEqual(expect.stringContaining('per-state-data-schema-resolvable'));
+    expect(lines).toContainEqual(expect.stringContaining('`ask` has been retired'));
+    expect(lines).toContainEqual(expect.stringContaining('fsm.choice'));
+    expect(lines).toContainEqual(expect.stringContaining('open state'));
+    await fs.rm(dirname(fsmPath), { recursive: true, force: true });
+  });
+
+  it('prints replacement guidance for retired canonical fsm.await', async () => {
+    const fsmPath = await writeRetiredOwnerDecisionFixture('await');
+    const log = vi.fn();
+    const r = await runVerifyCli({ fsmPath, repoRoot, log });
+    expect(r.exitCode).toBe(1);
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    expect(lines).toContainEqual(expect.stringContaining('fsm.await has been retired'));
+    expect(lines).toContainEqual(expect.stringContaining('fsm.choice'));
+    expect(lines).toContainEqual(expect.stringContaining('open state'));
+    await fs.rm(dirname(fsmPath), { recursive: true, force: true });
+  });
+
   it('does not probe the catalog when no state-level model is declared', async () => {
     const provider = fakeCatalogProvider();
     const log = vi.fn();
@@ -362,6 +387,39 @@ export const machine = aharness.machine({
   },
 });
 export default machine;
+`;
+  await fs.writeFile(tmpFsmPath, source, 'utf8');
+  return tmpFsmPath;
+}
+
+async function writeRetiredOwnerDecisionFixture(kind: 'ask' | 'await'): Promise<string> {
+  const tmpFsmDir = await fs.mkdtemp(join(tmpdir(), 'codex-verify-cli-retired-'));
+  const tmpFsmPath = join(tmpFsmDir, `${kind}.fsm.ts`);
+  const stateBody =
+    kind === 'ask'
+      ? `fsm.state({
+      prompt: 'Start.',
+      ask: 'Continue?',
+      on: { done: fsm.submit<P>({ to: 'done' }) },
+    })`
+      : `fsm.state({
+      prompt: 'Start.',
+      on: { done: fsm.await({ ask: 'Continue?', to: 'done' }) },
+    })`;
+  const source = `// @ts-nocheck
+import { createFsm } from '@aharness/core';
+interface Data { ok: boolean }
+interface P { ok: boolean }
+const fsm = createFsm<Data>();
+export default fsm.machine({
+  id: 'retired-${kind}',
+  data: () => ({ ok: false }),
+  initial: 'start',
+  states: {
+    start: ${stateBody},
+    done: fsm.final({ outcome: 'success' }),
+  },
+});
 `;
   await fs.writeFile(tmpFsmPath, source, 'utf8');
   return tmpFsmPath;

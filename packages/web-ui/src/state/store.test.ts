@@ -46,6 +46,8 @@ const currentState: FsmState = {
   path: 'workflow.collect',
   leaf: 'collect',
   kind: 'stateful',
+  // Historical flat-event fixture compatibility; current owner decisions use
+  // owner-choice pending cards.
   awaitsOwnerText: { messageToUser: 'What should happen next?' },
   exits: [{ name: 'continue', kind: 'submit' }],
   visitCount: 2,

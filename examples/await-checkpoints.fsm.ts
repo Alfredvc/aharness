@@ -1,7 +1,7 @@
 import { createFsm } from '@aharness/core';
 
 interface Data {
-  replies: { lint: string | null; tests: string | null; build: string | null };
+  completed: string[];
 }
 
 const fsm = createFsm<Data>();
@@ -10,15 +10,13 @@ const renderDeployLogMd = (data: Readonly<Data>): string =>
   [
     '# Deploy Gate Log',
     '',
-    'Each row is the user reply that drove the FSM transition out of the',
-    'corresponding checkpoint state. The reply text itself fired the',
-    'transition (no model submit involved).',
+    'Each row is a deterministic owner-choice checkpoint accepted during the run.',
     '',
-    '| Stage  | User reply |',
-    '| ------ | ---------- |',
-    `| lint   | ${data.replies.lint ?? '(none)'} |`,
-    `| tests  | ${data.replies.tests ?? '(none)'} |`,
-    `| build  | ${data.replies.build ?? '(none)'} |`,
+    '| Stage  | Status |',
+    '| ------ | ------ |',
+    `| lint   | ${data.completed.includes('lint') ? 'accepted' : '(none)'} |`,
+    `| tests  | ${data.completed.includes('tests') ? 'accepted' : '(none)'} |`,
+    `| build  | ${data.completed.includes('build') ? 'accepted' : '(none)'} |`,
     '',
   ].join('\n');
 
@@ -26,54 +24,59 @@ export default fsm.machine({
   id: 'await-checkpoints',
   initial: 'lintCheck',
   data: () => ({
-    replies: { lint: null, tests: null, build: null },
+    completed: [],
   }),
   states: {
     lintCheck: fsm.state({
       prompt:
         'Pretend a lint pass just ran. Output one short line summarizing a fake (positive) lint ' +
-        'result. Then call request_user_input asking the owner exactly: ' +
-        '"lint passed — proceed to tests? (yes/no)". Whatever the owner replies, the FSM will ' +
-        "advance to the next checkpoint — there's no submit on this state.",
+        'result, then submit.',
       on: {
-        proceed: fsm.await({
-          ask: 'lint passed — proceed to tests? (yes/no)',
-          to: 'testsCheck',
-          reduce: (draft, ownerReply) => {
-            draft.replies.lint = ownerReply;
+        submit: fsm.submit<Record<string, never>>({
+          to: 'lintGate',
+          reduce: (draft) => {
+            draft.completed = [...draft.completed, 'lint'];
           },
         }),
       },
+    }),
+    lintGate: fsm.choice({
+      question: 'lint passed — proceed to tests?',
+      options: [{ label: 'Proceed to tests', to: 'testsCheck' }],
     }),
     testsCheck: fsm.state({
       prompt:
         'Pretend the test suite just ran. Output one short line summarizing a fake (positive) ' +
-        'test result. Then call request_user_input asking the owner exactly: ' +
-        '"tests passed — proceed to build? (yes/no)".',
+        'test result, then submit.',
       on: {
-        proceed: fsm.await({
-          ask: 'tests passed — proceed to build? (yes/no)',
-          to: 'buildCheck',
-          reduce: (draft, ownerReply) => {
-            draft.replies.tests = ownerReply;
+        submit: fsm.submit<Record<string, never>>({
+          to: 'testsGate',
+          reduce: (draft) => {
+            draft.completed = [...draft.completed, 'tests'];
           },
         }),
       },
     }),
+    testsGate: fsm.choice({
+      question: 'tests passed — proceed to build?',
+      options: [{ label: 'Proceed to build', to: 'buildCheck' }],
+    }),
     buildCheck: fsm.state({
       prompt:
         'Pretend a release build just ran. Output one short line summarizing a fake (positive) ' +
-        'build result. Then call request_user_input asking the owner exactly: ' +
-        '"build green — ship it? (yes/no)".',
+        'build result, then submit.',
       on: {
-        proceed: fsm.await({
-          ask: 'build green — ship it? (yes/no)',
-          to: 'done',
-          reduce: (draft, ownerReply) => {
-            draft.replies.build = ownerReply;
+        submit: fsm.submit<Record<string, never>>({
+          to: 'buildGate',
+          reduce: (draft) => {
+            draft.completed = [...draft.completed, 'build'];
           },
         }),
       },
+    }),
+    buildGate: fsm.choice({
+      question: 'build green — ship it?',
+      options: [{ label: 'Ship it', to: 'done' }],
     }),
     done: fsm.final({
       outcome: 'success',

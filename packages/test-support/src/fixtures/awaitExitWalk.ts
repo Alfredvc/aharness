@@ -1,34 +1,10 @@
 /**
- * Await-exit walk fixture for the Phase 2b unit-level `AWAIT__` test.
+ * Retired await-exit walk fixture.
  *
- * Topology:
- *
- *   a (stateful, one `await` exit `reply`) ──reply→ b (stateful, submit `done`) ──done→ c (terminal:'success')
- *
- * Distinct from `ownerYieldWalk` (which exercises `awaitsOwnerText`
- * lowering on a state that has a SUBMIT exit) — here state `a` declares a
- * single `await`-kind exit. The framework's nudge composer (`nudge.ts:103-106`)
- * emits `- "reply" → call request_user_input (await exit, no submit data)`
- * so the model knows to call `request_user_input` for the await exit.
- *
- * When codex emits a `request_user_input` `function_call` and the
- * matching `function_call_output` lands on `rawResponseItem/completed`,
- * the `awaitResolver` in `runCli.ts` fires the synthesized
- * `AWAIT__a__reply` event against `ActorHost.commitAwait`, advancing the
- * FSM from `a → b`. Drive-forward's default branch then issues a fresh
- * `turn/start` for state `b`'s nudge on the next `turn/completed`.
- *
- * The companion integration test
- * `packages/core/test/integration.awaitExitWalk.test.ts` queues
- * two mock-model turns:
- *
- *   1. `request_user_input({questions: [{id: "q", header: "",
- *       question: "What?", isOther: false, isSecret: false}]})` —
- *       resolver fires `AWAIT__a__reply`; state advances a → b.
- *   2. `aharness_submit({state: "b", exit: "done", data: {}})` —
- *       terminal transition; run exits 0.
- *
- * Per `docs/plans/2026-05-13-headless-phase-2b-owner-yield.md` §Task 8.
+ * The original fixture constructed a low-level `kind: 'await'` exit at module
+ * import time. Slice 4 rejects that authoring surface, so this exported fixture
+ * now uses typed submits to keep the test-support barrel importable. The old
+ * AWAIT__ integration test is skipped as retired coverage.
  */
 import { aharness, state, exit, terminal, type AharnessMachine } from '@aharness/core';
 
@@ -40,10 +16,8 @@ interface DonePayload {
 }
 
 /**
- * In-process machine matching `AWAIT_EXIT_WALK_FSM_SOURCE` for callers
- * that want to introspect the topology without going through `loadFsm`.
- * The integration test still writes the source string to disk and lets
- * `loadFsm` esbuild + dynamic-import it.
+ * In-process machine matching `AWAIT_EXIT_WALK_FSM_SOURCE` for callers that
+ * want to introspect the topology without going through `loadFsm`.
  */
 export const awaitExitWalkMachine: AharnessMachine<
   unknown,
@@ -54,9 +28,9 @@ export const awaitExitWalkMachine: AharnessMachine<
   initial: 'a',
   states: {
     a: state({
-      entryPrompt: 'ask the user a free-text question',
+      entryPrompt: 'submit the reply payload',
       exits: {
-        reply: { kind: 'await', to: 'b' },
+        reply: exit<DonePayload>({ to: 'b' }),
       },
     }),
     b: state({
@@ -70,14 +44,9 @@ export const awaitExitWalkMachine: AharnessMachine<
 });
 
 /**
- * FSM source for the await-exit walk. Two stateful states + one
- * terminal. The `await` exit on state `a` and the submit exit on state
- * `b` mirror `awaitExitWalkMachine` above.
- *
- * Written to disk in the integration test's synthetic `repoRoot` so
- * `loadFsm` can esbuild + dynamic-import it (the loader's compile step
- * externalises bare `@aharness/core` / `xstate` imports to absolute
- * install paths — see `packages/core/src/loader/compile.ts`).
+ * FSM source for the retired await-exit walk. Kept as a non-await two-step
+ * submit fixture so importing `@aharness/test-support` does not construct
+ * retired metadata.
  * Kept in sync with `awaitExitWalkMachine` above.
  */
 export const AWAIT_EXIT_WALK_FSM_SOURCE = `import { aharness, state, exit, terminal } from '@aharness/core';
@@ -91,9 +60,9 @@ export default aharness.machine({
   initial: 'a',
   states: {
     a: state({
-      entryPrompt: 'ask the user a free-text question',
+      entryPrompt: 'submit the reply payload',
       exits: {
-        reply: { kind: 'await', to: 'b' },
+        reply: exit<DonePayload>({ to: 'b' }),
       },
     }),
     b: state({

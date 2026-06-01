@@ -95,6 +95,20 @@ export interface LoadFsmResult {
   readonly inputFlags?: Record<string, ArgFlagMeta>;
 }
 
+export class RetiredOwnerDecisionSurfaceError extends Error {
+  readonly issues: readonly SidecarIssue[];
+
+  constructor(issues: readonly SidecarIssue[]) {
+    super('FSM uses retired owner-decision authoring surfaces');
+    this.name = 'RetiredOwnerDecisionSurfaceError';
+    this.issues = issues;
+  }
+}
+
+function retiredOwnerDecisionIssues(issues: readonly SidecarIssue[]): readonly SidecarIssue[] {
+  return issues.filter((issue) => issue.code === 'retired-owner-decision');
+}
+
 export async function loadFsm(opts: LoadFsmOptions): Promise<LoadFsmResult> {
   const filePath = path.resolve(opts.filePath);
   const sourceRoot = path.dirname(filePath);
@@ -126,6 +140,10 @@ export async function loadFsm(opts: LoadFsmOptions): Promise<LoadFsmResult> {
   }
 
   const extraction = await extractSchemaSidecar({ filePath });
+  const retiredIssues = retiredOwnerDecisionIssues(extraction.issues);
+  if (retiredIssues.length > 0) {
+    throw new RetiredOwnerDecisionSurfaceError(retiredIssues);
+  }
   await ensureCacheDir(paths);
   const serialized: SerializedSidecar = {
     schemas: schemasOnly(extraction.sidecar),
@@ -157,6 +175,10 @@ export async function loadInstalledFsm(opts: LoadInstalledFsmOptions): Promise<L
     filePath: entryFile,
     packageResolution: { packageRoot, managedProjectRoot },
   });
+  const retiredIssues = retiredOwnerDecisionIssues(extraction.issues);
+  if (retiredIssues.length > 0) {
+    throw new RetiredOwnerDecisionSurfaceError(retiredIssues);
+  }
   const serialized = serializeExtraction(extraction);
   const bundle = await buildInstalledFsmBundle({
     entryFile,

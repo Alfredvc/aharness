@@ -687,24 +687,16 @@ describe('@aharness/core verify: final-classification', () => {
 // ─── Carried over: single-await-per-state ──────────────────────────────────
 
 describe('@aharness/core verify: single-await-per-state', () => {
-  it('flags multiple await exits on one state', () => {
-    const m = aharness.machine({
-      id: 'm',
-      initial: 'a',
-      context: () => ({}),
-      states: {
-        a: state({
-          entryPrompt: 'x',
-          exits: {
-            w1: { kind: 'await', to: 'b' },
-            w2: { kind: 'await', to: 'b' },
-          },
-        }),
-        b: terminal('success'),
-      },
-    });
-    const result = verify(m, {}, []);
-    expect(result.issues.some((i) => i.check === 'single-await-per-state')).toBe(true);
+  it('rejects await exits before the legacy multiple-await verifier path is reachable', () => {
+    expect(() =>
+      state({
+        entryPrompt: 'x',
+        exits: {
+          w1: { kind: 'await', to: 'b' },
+          w2: { kind: 'await', to: 'b' },
+        },
+      } as never),
+    ).toThrow(/await exit 'w1'.*no longer accepted.*fsm\.choice/);
   });
 });
 
@@ -779,24 +771,13 @@ describe('@aharness/core verify: open-states-have-at-least-one-exit', () => {
 // ─── Carried over: await-only-strict-state (warning) ───────────────────────
 
 describe('@aharness/core verify: await-only-strict-state', () => {
-  it('warns (does not block) on a strict state with one await and no submit', () => {
-    const m = aharness.machine({
-      id: 'w',
-      initial: 'a',
-      context: () => ({}),
-      states: {
-        a: state({
-          entryPrompt: 'x',
-          exits: { wait: { kind: 'await', to: 'b' } },
-        }),
-        b: terminal('success'),
-      },
-    });
-    const result = verify(m, {}, []);
-    const warning = result.issues.find((i) => i.check === 'await-only-strict-state');
-    expect(warning).toBeDefined();
-    expect(warning?.severity).toBe('warning');
-    expect(result.ok).toBe(true);
+  it('rejects await-only states instead of warning on the retired surface', () => {
+    expect(() =>
+      state({
+        entryPrompt: 'x',
+        exits: { wait: { kind: 'await', to: 'b' } },
+      } as never),
+    ).toThrow(/await exit 'wait'.*no longer accepted.*fsm\.choice/);
   });
 });
 
@@ -1271,7 +1252,7 @@ describe('new verifier checks', () => {
     ).toThrow(/cannot have both 'to' .+ and 'when'/);
   });
 
-  it('await-no-multi-branch rejects await + when[]', () => {
+  it('await-no-multi-branch is superseded by retired await-exit rejection', () => {
     // Runtime path: state() throws at construction time.
     expect(() =>
       aharness.machine({
@@ -1291,7 +1272,7 @@ describe('new verifier checks', () => {
           b: terminal('success'),
         },
       }),
-    ).toThrow(/await exit '.+' cannot use when\[\]/);
+    ).toThrow(/await exit 'ownerReply'.*no longer accepted.*fsm\.choice/);
   });
 
   it('no-handwritten-submit-await-handlers rejects hand-written SUBMIT__ key', () => {
@@ -1369,7 +1350,7 @@ describe('new verifier checks', () => {
     expect(result.errors.some((e) => e.check === 'state-config-missing-aharness-meta')).toBe(true);
   });
 
-  it('awaits-owner-text-no-await-exit rejects mixing both', () => {
+  it('awaits-owner-text-no-await-exit is superseded by retired awaitsOwnerText rejection', () => {
     // Runtime path: state() throws at construction time.
     expect(() =>
       aharness.machine({
@@ -1384,7 +1365,7 @@ describe('new verifier checks', () => {
           b: terminal('success'),
         },
       }),
-    ).toThrow(/cannot declare awaitsOwnerText together with await exit/);
+    ).toThrow(/await exit 'ownerReply'.*no longer accepted.*fsm\.choice/);
   });
 
   it('no-handwritten-submit-await-handlers fires for a hand-written AWAIT__ key (locks in /^(SUBMIT|AWAIT)__/ predicate)', () => {
@@ -1397,7 +1378,7 @@ describe('new verifier checks', () => {
         a: {
           ...state({
             entryPrompt: 'wait',
-            exits: { ownerReply: { kind: 'await', to: 'b' } },
+            exits: { submit: exit<{ ok: boolean }>({ to: 'b' }) },
           }),
           on: {
             AWAIT__a__wait: { target: 'b' }, // hand-written AWAIT__ key — should be rejected

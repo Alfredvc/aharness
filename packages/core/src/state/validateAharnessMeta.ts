@@ -70,6 +70,10 @@ function validateStateModel(value: unknown): void {
   }
 }
 
+function retiredOwnerDecisionMessage(surface: string): string {
+  return `validateAharnessMeta: ${surface} is no longer accepted; use fsm.choice for deterministic owner routing, or an open state for owner-paced discussion`;
+}
+
 function validateChoiceMeta(v: Record<string, unknown>): void {
   const question = v['question'];
   if (typeof question !== 'function' && (typeof question !== 'string' || question.length === 0)) {
@@ -164,8 +168,20 @@ export function validateAharnessMeta(value: unknown): AharnessMeta | undefined {
     return value as AharnessMeta;
   }
   if (kind === 'stateful') {
+    if (Object.prototype.hasOwnProperty.call(v, 'awaitsOwnerText')) {
+      throw new Error(retiredOwnerDecisionMessage("stateful meta 'awaitsOwnerText'"));
+    }
     if (v['exits'] === undefined || v['exits'] === null || typeof v['exits'] !== 'object') {
       throw new Error(`validateAharnessMeta: stateful meta missing 'exits' record`);
+    }
+    for (const [exitName, exit] of Object.entries(v['exits'] as Record<string, unknown>)) {
+      if (
+        exit !== null &&
+        typeof exit === 'object' &&
+        (exit as { kind?: unknown }).kind === 'await'
+      ) {
+        throw new Error(retiredOwnerDecisionMessage(`await exit '${exitName}'`));
+      }
     }
     if (
       v['entryPrompt'] === undefined ||

@@ -67,13 +67,15 @@ describe('loader — input schema extraction', () => {
     const { sidecar } = await extractSchemaSidecar({
       filePath: path.join(createFsmFixtures, 'color-funnel.fsm.ts'),
     });
-    expect(sidecar.pickColor?.submit?.jsonSchema).toMatchObject({
+    expect(sidecar.pickColor?.submit).toBeUndefined();
+    expect(sidecar.confirm?.submit).toBeUndefined();
+    expect(sidecar.pickRedFruit?.submit?.jsonSchema).toMatchObject({
+      type: 'object',
+      properties: { fruit: { type: 'string' }, reason: { type: 'string' } },
+    });
+    expect(sidecar.resetFruit?.submit?.jsonSchema).toMatchObject({
       type: 'object',
       properties: { color: { enum: ['red', 'green'] } },
-    });
-    expect(sidecar.confirm?.submit?.jsonSchema).toMatchObject({
-      type: 'object',
-      properties: { accepted: { type: 'boolean' } },
     });
   });
 

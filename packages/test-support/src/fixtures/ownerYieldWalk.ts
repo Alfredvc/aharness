@@ -1,16 +1,12 @@
 /**
- * Owner-yield walk fixture for the Phase 2b end-to-end integration test.
+ * Open-state walk fixture retained after owner-yield retirement.
  *
  * Topology:
  *
- *   a (stateful) ──next→ b (stateful, awaitsOwnerText) ──done→ c (terminal:'success')
+ *   a (stateful) ──next→ b (open stateful) ──done→ c (terminal:'success')
  *
- * Exercises cross-state-into-`awaitsOwnerText`: state `a` submits to
- * state `b`; `b` declares `awaitsOwnerText` (lowered to codex's built-in
- * `request_user_input` tool) AND a SUBMIT exit `done`. Distinct from
- * `awaitExitWalk` (which uses an `await`-kind exit) — here state `b`'s
- * orientation nudge instructs the model to call `request_user_input`
- * BEFORE emitting its `aharness_submit({state:'b', exit:'done', ...})`.
+ * Exercises cross-state into an open state after the retired
+ * `awaitsOwnerText` owner-yield surface was removed.
  *
  * Companion integration test
  * `packages/core/test/integration.ownerYieldWalk.test.ts` queues
@@ -19,15 +15,8 @@
  *   1. `aharness_submit({state: "a", exit: "next", data: {note: "go"}})`
  *      — cross-state dance fires; codex re-POSTs after the dance's
  *      `turn/start({input: <state b nudge>})` lands.
- *   2. `request_user_input({questions: [{id:"owner", header:"",
- *      question:"what is your name?", options:[...]}]})`
- *      — CLI parks the ServerRequest; `MockOwnerInputProvider` resolves
- *      with `{answers: {owner: {answers: ["alice"]}}}`; codex returns
- *      the answer to the model on its next turn.
- *   3. `aharness_submit({state: "b", exit: "done", data: {greeting:
+ *   2. `aharness_submit({state: "b", exit: "done", data: {greeting:
  *      "hello alice"}})` — terminal transition; run exits 0.
- *
- * Per `docs/plans/2026-05-13-headless-phase-2b-owner-yield.md` §Task 7.
  */
 import { aharness, state, exit, terminal, type AharnessMachine } from '@aharness/core';
 import { sseFunctionCall, sseResponseCreated, sseTurnComplete, type SseEvent } from '../sse.js';
@@ -61,8 +50,8 @@ export const ownerYieldWalkMachine: AharnessMachine<
       },
     }),
     b: state({
+      open: true,
       entryPrompt: 'state b active — waiting for name',
-      awaitsOwnerText: { messageToUser: 'what is your name?' },
       exits: {
         done: exit<DonePayload>({ to: 'c' }),
       },
@@ -72,10 +61,8 @@ export const ownerYieldWalkMachine: AharnessMachine<
 });
 
 /**
- * FSM source for the owner-yield walk. Two stateful states + one
- * terminal. State `b` declares `awaitsOwnerText: {messageToUser: "what
- * is your name?"}` — the lowercase / no-apostrophe spelling matches
- * every downstream assertion in the integration test verbatim.
+ * FSM source for the open-state walk. Two stateful states + one
+ * terminal. State `b` is open and accepts a normal typed submit.
  *
  * Written to disk in the integration test's synthetic `repoRoot` so
  * `loadFsm` can esbuild + dynamic-import it (the loader's compile step
@@ -104,8 +91,8 @@ export default aharness.machine({
       },
     }),
     b: state({
+      open: true,
       entryPrompt: 'state b active — waiting for name',
-      awaitsOwnerText: { messageToUser: 'what is your name?' },
       exits: {
         done: exit<DonePayload>({ to: 'c' }),
       },

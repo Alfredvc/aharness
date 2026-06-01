@@ -36,13 +36,14 @@ diagnostics, transition failures, and live interaction cards. State markers,
 request/reply protocol rows, lifecycle rows, and successful tool output stay out
 of the default transcript and are available through dev mode when needed.
 Selecting a graph state switches the right panel to that state's historical
-visits, grouped chronologically by visit id. Pending approvals, owner input, and
-open-state prompts remain live-run interaction surfaces rather than raw JSONL
-payload views. Owner input is independent of Codex approval review mode:
-`fsm.await(...)` prompts still surface through the browser, while pending
-browser approval cards appear only when Codex routes a permission prompt to the
-user, such as under `--ask`. Default live runs use Codex auto-review, which can
-resolve eligible sandbox-boundary prompts without browser interaction.
+visits, grouped chronologically by visit id. Pending approvals, owner choices,
+model-originated owner prompts, and open-state prompts remain live-run
+interaction surfaces rather than raw JSONL payload views. Owner input is
+independent of Codex approval review mode: authored `fsm.choice(...)` states and
+Codex `request_user_input` prompts still surface through the browser, while
+pending browser approval cards appear only when Codex routes a permission prompt
+to the user, such as under `--ask`. Default live runs use Codex auto-review,
+which can resolve eligible sandbox-boundary prompts without browser interaction.
 
 ## Visualization Topology
 
@@ -53,7 +54,7 @@ describe authored transitions and exits. They do not carry renderer-only ranks,
 ports, feedback classes, or expansion state.
 
 Choice states are represented as first-class semantic topology nodes rather
-than as stateful submit or await exits. Their node detail carries the authored
+than as stateful submit transitions. Their node detail carries the authored
 question and option labels, and topology includes one `choice` edge per authored
 option label. Those labels are the public route identity; the topology contract
 does not expose generated owner-choice event names, request ids, or
@@ -111,12 +112,14 @@ validates the payload against the active state's generated sidecar schema,
 executes the configured reducer or effect, and emits the transition into the
 FSM. If the active state does not expose an exit, the model cannot take it.
 
-Owner input has two paths:
+Owner input has three paths:
 
-- `fsm.await(...)` asks the owner for free text through Codex
-  `request_user_input` and advances on the configured await exit.
-- Framework-owned choice states park the run on authored option labels and
-  resume through aharness owner-choice replies.
+- Framework-owned `fsm.choice(...)` states park the run on authored option
+  labels and resume through aharness owner-choice replies.
+- Open stateful states let Codex and the owner converse until the model submits
+  a typed exit.
+- Model-originated Codex `request_user_input` calls can collect ad hoc owner
+  text inside a state without making that reply an FSM transition.
 - Built-in approval and hook events route Codex permission, pre-tool,
   post-tool, and prompt-submission events through the active state's `on` map.
 

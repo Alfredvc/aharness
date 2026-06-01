@@ -57,10 +57,12 @@ describe('adventure example artifact lifecycle', () => {
         call({
           state: 'entrance',
           exit: 'submit',
-          data: { choice: 1, scene: 'A mossy road splits three ways.' },
+          data: { scene: 'A mossy road splits three ways.' },
         }),
       );
       expect(first.success).toBe(true);
+      expect(host.currentStateId()).toBe('entranceChoice');
+      host.commitChoice('entranceChoice', 'Forest');
       expect(host.currentStateId()).toBe('forest');
 
       const second = await dispatch(
@@ -68,15 +70,27 @@ describe('adventure example artifact lifecycle', () => {
           state: 'forest',
           exit: 'submit',
           data: {
-            choice: 1,
             scene: 'The hero follows foxfire beneath ancient branches.',
+          },
+        }),
+      );
+      expect(second.success).toBe(true);
+      expect(host.currentStateId()).toBe('forestChoice');
+      host.commitChoice('forestChoice', 'Bold');
+      expect(host.currentStateId()).toBe('forestVictory');
+
+      const third = await dispatch(
+        call({
+          state: 'forestVictory',
+          exit: 'submit',
+          data: {
             ending: 'A hidden crown glows in the roots.',
           },
         }),
       );
 
-      expect(second.success).toBe(true);
-      expect(second.contentItems).toEqual([
+      expect(third.success).toBe(true);
+      expect(third.contentItems).toEqual([
         { type: 'inputText', text: 'Run complete. Terminal: success.' },
       ]);
       expect(host.currentStateId()).toBe('victory');

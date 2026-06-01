@@ -1,32 +1,43 @@
 /**
- * Test fixture for `daemon/main.ts` (35b) tests that need both an
- * await exit and a submit-into-terminal path.
+ * Test fixture for tests that need both a submit-into-terminal path and a
+ * deterministic owner choice path.
  *
  * Topology:
  *
  *   gated (stateful) ──submit→ done    (terminal, success)
  *         │
- *         └──wait (await)→ done
+ *         └──choice→ ownerGate ──Continue→ done
  */
-import { aharness, state, terminal, exit } from '@aharness/core';
+import { createFsm } from '@aharness/core';
 
 interface SubmitPayload {
   result: string;
 }
 
-export const machine = aharness.machine({
-  id: 'await-and-submit',
+const fsm = createFsm<{ result: string | null }>();
+
+export const machine = fsm.machine({
+  id: 'choice-and-submit',
   initial: 'gated',
-  context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
+  data: () => ({ result: null }),
   states: {
-    gated: state({
-      entryPrompt: 'Submit or wait.',
-      exits: {
-        submit: exit<SubmitPayload>({ to: 'done' }),
-        wait: { kind: 'await', to: 'done' },
+    gated: fsm.state({
+      prompt: 'Submit or route to the owner gate.',
+      on: {
+        submit: fsm.submit<SubmitPayload>({
+          to: 'done',
+          reduce: (draft, payload) => {
+            draft.result = payload.result;
+          },
+        }),
+        routeToGate: fsm.submit<Record<string, never>>({ to: 'ownerGate' }),
       },
     }),
-    done: terminal('success'),
+    ownerGate: fsm.choice({
+      question: 'Continue?',
+      options: [{ label: 'Continue', to: 'done' }],
+    }),
+    done: fsm.final({ outcome: 'success' }),
   },
 });
 

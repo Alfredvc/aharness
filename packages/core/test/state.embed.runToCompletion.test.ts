@@ -130,11 +130,11 @@ describe('embed() — run-to-completion subscriber semantics', () => {
     expect(b.getSnapshot().value).toBe('done');
   });
 
-  it('AWAIT-driven entry into embedded final also run-to-completes through the boundary', () => {
-    // Parallel coverage to test #1 on the AWAIT path. The child fixture
-    // `child-with-await-final.fsm.ts` declares `ask ──await(wait)→ shipped`;
+  it('submit-driven entry into embedded final also run-to-completes through the boundary', () => {
+    // Parallel coverage to test #1 on the nested child path. The child fixture
+    // `child-with-await-final.fsm.ts` declares `ask ──submit(wait)→ shipped`;
     // the parent embeds it as `inner` with `on: { shipped: { target: 'done' } }`.
-    // Driving `AWAIT__inner.ask__wait` enters inner.shipped (entry-raise),
+    // Driving `SUBMIT__inner.ask__wait` enters inner.shipped (entry-raise),
     // processes the raised 'shipped' event, fires the host's on['shipped'] to
     // done, enters the parent's `done` final. Subscribers must see ONE
     // post-drain snapshot {value: 'done', status: 'done'} — the intermediate
@@ -145,7 +145,7 @@ describe('embed() — run-to-completion subscriber semantics', () => {
     actor.subscribe((s) => snapshots.push({ value: s.value, status: s.status }));
     actor.send({ type: 'SUBMIT__router__go', payload: { choice: 'embed' } });
     expect(snapshots).toEqual([{ value: { inner: 'ask' }, status: 'active' }]);
-    actor.send({ type: 'AWAIT__inner.ask__wait' });
+    actor.send({ type: 'SUBMIT__inner.ask__wait', payload: {} });
     // The intermediate {inner: 'shipped'} snapshot must NOT appear.
     expect(snapshots).toEqual([
       { value: { inner: 'ask' }, status: 'active' },

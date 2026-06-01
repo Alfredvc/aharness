@@ -50,6 +50,8 @@ function enter(
   outcome?: 'success' | 'failure',
 ): Frame {
   const leaf = to.split('.').pop()!;
+  // Legacy-display fixture compatibility only. Current live owner decisions
+  // arrive as owner-choice pending cards, not awaitsOwnerText state metadata.
   return {
     at: 0,
     event: {
@@ -181,6 +183,8 @@ function syntheticOrientation(id: string, to: string): Frame {
 
 /* ─────────────────────────────────────────── PATCHES */
 
+// Legacy-display fixture patch only. It intentionally contains retired
+// awaitsOwnerText metadata so the prototype can show archived owner-input rows.
 const PATCH = `--- a/examples/requirement-spec.fsm.ts
 +++ b/examples/requirement-spec.fsm.ts
 @@ -42,6 +42,18 @@ export const machine = createMachine({

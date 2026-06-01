@@ -27,8 +27,15 @@ export type FsmState = {
   path: string; // qualified, dot-separated
   leaf: string; // last segment
   kind: 'stateful' | 'terminal' | 'passive' | 'choice' | 'final';
+  // Historical run/fixture compatibility only. Current FSM-authored owner
+  // decisions are represented by owner-choice pending cards, not awaitsOwnerText.
   awaitsOwnerText?: { messageToUser: string };
-  exits: Array<{ name: string; kind: 'submit' | 'await'; branchCount?: number }>;
+  exits: Array<{
+    name: string;
+    // `await` is retained only for historical flat-event rows and fixtures.
+    kind: 'submit' | 'await';
+    branchCount?: number;
+  }>;
   visitCount: number;
   // Resolved per-state prompt (entryPrompt). Stateful states only.
   entryPrompt?: string;
@@ -44,6 +51,7 @@ export type RunScopedRunMeta = Partial<RunMeta> & {
 
 export type RunScopedPosture = Posture;
 
+// `await` survives here only so historical/bootstrap rows can be decoded.
 type RunScopedCurrentStateExitKind = 'submit' | 'await' | 'always' | (string & {});
 
 export type RunScopedCurrentStateExit = {

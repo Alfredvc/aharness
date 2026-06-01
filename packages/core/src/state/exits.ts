@@ -93,8 +93,7 @@ export interface SubmitBranch<
 
 /**
  * Single-branch submit exit (the sugar form). 95% of states use this.
- * `kind` defaults to `'submit'` if omitted — only `await` exits require
- * an explicit `kind`. The verifier rejects mixing this shape with
+ * `kind` defaults to `'submit'` if omitted. The verifier rejects mixing this shape with
  * `when:` (check `exit-shape-exclusive`).
  *
  * Authors construct submit exits via the `exit<TPayload>({...})` factory,
@@ -133,15 +132,9 @@ export interface SubmitExitMulti<
 }
 
 /**
- * Await exit — single-branch only. AWAIT events carry only
- * `{ownerReply: string}`; guarding on free text would reintroduce
- * transition-by-text in violation of hard rule #3. Verifier rejects
- * `{kind: 'await', when: [...]}` (`await-no-multi-branch`).
- *
- * No `TPayload` generic — AWAIT events carry the framework-managed
- * `{ownerReply: string}` payload exclusively. The `actions` slot is
- * typed against that fixed shape so an inline `assign(({event}) => …)`
- * sees `event.payload.ownerReply` typed.
+ * Retired await exit shape. This type remains only so historical/invalid
+ * metadata can be recognized and rejected with deterministic guidance.
+ * Newly accepted author metadata must not contain `kind: 'await'`.
  */
 export interface AwaitExitDef<TContext extends MachineContext = MachineContext> {
   readonly kind: 'await';
@@ -275,25 +268,10 @@ export interface ExitCatalogItem {
 export type ExitCatalog = ReadonlyArray<ExitCatalogItem>;
 
 /**
- * Free-text owner-yield declaration. Authors set this on a state when
- * the model should pause and ask the human for free-text input before
- * making any submit decision.
- *
- * Runtime effect: on state entry, the framework orientation preamble
- * instructs the model to call codex's built-in `request_user_input`
- * (with the resolved `messageToUser` as the question text) BEFORE
- * submitting. The user's reply is returned to the model directly as the
- * `request_user_input` tool-call result; the model uses it when
- * constructing the subsequent `submit` payload. The reply does NOT fire
- * an FSM transition — only the typed `submit` call does (hard rule #3).
- * The aharness daemon is not in the reply path; no UDS framing, no
- * `userMessage` observer, no separate MCP tool.
- *
- * Orthogonal to `exits` — a state with `awaitsOwnerText` still declares
- * `submit`-kind exits; no `await`-kind exit is needed or allowed
- * (the two mechanisms are alternatives; combining them is rejected at
- * construction time and by the verifier check
- * `awaits-owner-text-no-await-exit`).
+ * Retired free-text owner-yield declaration. This interface remains only
+ * for compatibility diagnostics around historical/invalid metadata. New
+ * FSMs should use `createFsm().choice(...)` for deterministic owner
+ * routing or open states for owner-paced discussion.
  */
 export interface AwaitsOwnerTextDecl<TContext extends MachineContext = MachineContext> {
   /** The prompt the user sees, verbatim. */
@@ -381,8 +359,7 @@ export interface AharnessStateMeta {
 /**
  * Author-side options for `state<TContext>(...)`.
  *
- * Per-state callback parameters (`entryPrompt`, `stopGuidance`,
- * `awaitsOwnerText.messageToUser`) are typed as `TContext & RunCtx` so
+ * Per-state callback parameters (`entryPrompt`, `stopGuidance`) are typed as `TContext & RunCtx` so
  * authors writing `state<Ctx>({ entryPrompt: (ctx) => ctx.foo })` see
  * `ctx` as `Ctx` (intersected with the framework-managed read-only fields)
  * without an explicit cast.
@@ -405,7 +382,7 @@ export interface StateOptions<TContext extends MachineContext = MachineContext> 
   readonly open?: boolean;
   readonly main?: boolean;
   readonly stopGuidance?: (ctx: TContext & RunCtx, exits: ExitCatalog) => string;
-  readonly awaitsOwnerText?: AwaitsOwnerTextDecl<TContext>;
+  readonly awaitsOwnerText?: never;
   readonly onEntry?: OnEntryFn<TContext>;
   readonly clearOnEntry?: ClearOnEntryOption<TContext>;
   readonly model?: StateModelOption<TContext>;
@@ -523,25 +500,9 @@ export function state<TContext extends MachineContext = MachineContext>(
     validateExit(name, exit);
   }
   if (opts.awaitsOwnerText !== undefined) {
-    const m = opts.awaitsOwnerText.messageToUser;
-    if (m === undefined || (typeof m === 'string' && m.length === 0)) {
-      throw new TypeError(
-        'state(): awaitsOwnerText.messageToUser must be a non-empty string or function',
-      );
-    }
-    if (typeof m !== 'string' && typeof m !== 'function') {
-      throw new TypeError('state(): awaitsOwnerText.messageToUser must be a string or function');
-    }
-    // Reject `awaitsOwnerText` + any `await`-kind exit on the same state
-    // (decisions #10, #14). Mental model is "use one or the other"; verifier
-    // rule lives here in the same file as the rest of the meta validation.
-    for (const [name, exit] of Object.entries(defaultedExits)) {
-      if (exit?.kind === 'await') {
-        throw new TypeError(
-          `state(): cannot declare awaitsOwnerText together with await exit '${name}' (use one or the other)`,
-        );
-      }
-    }
+    throw new TypeError(
+      '`awaitsOwnerText` is no longer accepted; use `createFsm().choice(...)` for deterministic owner routing or open state authoring for owner-paced discussion.',
+    );
   }
   if (opts.onEntry !== undefined && typeof opts.onEntry !== 'function') {
     throw new TypeError('state(): onEntry must be a function');
@@ -575,9 +536,6 @@ export function state<TContext extends MachineContext = MachineContext>(
             AharnessStateMeta['stopGuidance']
           >,
         }
-      : {}),
-    ...(opts.awaitsOwnerText !== undefined
-      ? { awaitsOwnerText: opts.awaitsOwnerText as AwaitsOwnerTextDecl }
       : {}),
     ...(opts.onEntry !== undefined ? { onEntry: opts.onEntry as OnEntryFn } : {}),
     ...(clearOnEntry !== undefined ? { clearOnEntry } : {}),
@@ -649,20 +607,9 @@ export function exit<TPayload, TContext extends MachineContext = MachineContext>
 
 function validateExit(name: string, exit: ExitDef): void {
   if (exit.kind === 'await') {
-    if ((exit as { __aharnessPayloadMarker?: unknown }).__aharnessPayloadMarker === true) {
-      throw new TypeError(
-        `state(): exit '${name}' is await but is wrapped in exit<T>() (await exits use a plain object literal — no payload, no factory wrap)`,
-      );
-    }
-    if ('when' in exit) {
-      // Verifier check `await-no-multi-branch` — also runs at static
-      // verifier time, but this throw catches it at machine-load time too.
-      throw new TypeError(`state(): await exit '${name}' cannot use when[] (single-branch only)`);
-    }
-    if (typeof exit.to !== 'string' || exit.to.length === 0) {
-      throw new TypeError(`state(): await exit '${name}' must declare 'to'`);
-    }
-    return;
+    throw new TypeError(
+      `state(): await exit '${name}' is no longer accepted; use fsm.choice for framework-owned owner decisions.`,
+    );
   }
   // submit (sugar OR when[])
   if ((exit as { __aharnessPayloadMarker?: unknown }).__aharnessPayloadMarker !== true) {
@@ -734,11 +681,10 @@ export function exitCatalogFromMeta(meta: AharnessStateMeta): ExitCatalog {
   for (const name of Object.keys(meta.exits)) {
     const exit = meta.exits[name];
     if (!exit) continue;
-    const to =
-      exit.kind === 'await' ? exit.to : 'when' in exit ? (exit.when[0]?.to ?? '') : exit.to;
+    const to = 'when' in exit ? (exit.when[0]?.to ?? '') : exit.to;
     const item: ExitCatalogItem = {
       name,
-      kind: exit.kind === 'await' ? 'await' : 'submit',
+      kind: 'submit',
       to,
       ...(exit.description !== undefined ? { description: exit.description } : {}),
     };

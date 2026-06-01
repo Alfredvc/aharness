@@ -1441,7 +1441,9 @@ function reduceRunEvent(previous: UiState, e: RunScopedApiEvent): UiState {
             isAwaiting:
               currentState === null
                 ? state.posture.isAwaiting
-                : Boolean(currentState.awaitsOwnerText),
+                : // Historical run-event compatibility only. New owner waits are
+                  // represented by pending owner-input/owner-choice cards.
+                  Boolean(currentState.awaitsOwnerText),
             isTerminal: currentState?.kind === 'terminal' ? true : state.posture.isTerminal,
           },
         },

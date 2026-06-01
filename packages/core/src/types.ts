@@ -103,10 +103,3 @@ export interface SubmitToolDef {
   readonly stateId: string;
   readonly exitName: string;
 }
-
-export interface AwaitToolDef {
-  /** `await_user_message` (single tool per run; surfaces only when the active state has an await exit). */
-  readonly name: string;
-  readonly description: string;
-  readonly inputSchema: JSONSchema7;
-}

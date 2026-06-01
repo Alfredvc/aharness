@@ -11,16 +11,18 @@ interface Data {
   round: number;
   qInRound: number;
   currentGenre: string | null;
+  currentQuestion: string | null;
+  correctAnswer: 'A' | 'B' | 'C' | 'D' | null;
   currentRoundCorrect: number;
   rounds: RoundRecord[];
 }
 
-interface AskQuestionPayload {
+interface QuestionPayload {
   question: string;
   correctAnswer: 'A' | 'B' | 'C' | 'D';
-  ownerAnswer: 'A' | 'B' | 'C' | 'D';
-  wasCorrect: boolean;
 }
+
+type Answer = 'A' | 'B' | 'C' | 'D';
 
 const TOTAL_ROUNDS = 3;
 const QUESTIONS_PER_ROUND = 3;
@@ -44,14 +46,39 @@ const renderScoreboardMd = (data: Readonly<Data>): string => {
   return lines.join('\n') + '\n';
 };
 
-function appendRound(data: Readonly<Data>, payload: AskQuestionPayload): RoundRecord {
-  const finalCorrect = data.currentRoundCorrect + (payload.wasCorrect ? 1 : 0);
+function appendRound(data: Readonly<Data>, wasCorrect: boolean): RoundRecord {
   return {
     round: data.round,
     genre: data.currentGenre ?? '(unknown)',
-    correct: finalCorrect,
+    correct: data.currentRoundCorrect + (wasCorrect ? 1 : 0),
     total: QUESTIONS_PER_ROUND,
   };
+}
+
+function recordAnswer(draft: Data, answer: Answer): void {
+  const wasCorrect = draft.correctAnswer === answer;
+  if (draft.qInRound + 1 >= QUESTIONS_PER_ROUND) {
+    draft.rounds = [...draft.rounds, appendRound(draft, wasCorrect)];
+    draft.round += 1;
+    draft.qInRound = 0;
+    draft.currentRoundCorrect = 0;
+    draft.currentGenre = null;
+  } else {
+    draft.qInRound += 1;
+    draft.currentRoundCorrect += wasCorrect ? 1 : 0;
+  }
+  draft.currentQuestion = null;
+  draft.correctAnswer = null;
+}
+
+function finalRoundComplete(data: Readonly<Data>): boolean {
+  return data.qInRound + 1 >= QUESTIONS_PER_ROUND && data.round >= TOTAL_ROUNDS;
+}
+
+function nextAfterAnswer(data: Readonly<Data>): 'finalize' | 'pickGenreFresh' | 'askQuestion' {
+  if (finalRoundComplete(data)) return 'finalize';
+  if (data.qInRound + 1 >= QUESTIONS_PER_ROUND) return 'pickGenreFresh';
+  return 'askQuestion';
 }
 
 export default fsm.machine({
@@ -61,95 +88,161 @@ export default fsm.machine({
     round: 1,
     qInRound: 0,
     currentGenre: null,
+    currentQuestion: null,
+    correctAnswer: null,
     currentRoundCorrect: 0,
     rounds: [],
   }),
   states: {
-    pickGenre: fsm.state({
-      prompt:
-        'This is the first round of a 3-round trivia game. Map the owner reply to a short genre label ' +
-        '(e.g. "movies", "science", "history", "sports"). Submit the genre.',
-      ask: (data) =>
-        `Round ${data.round} of ${TOTAL_ROUNDS}. ` +
-        'Pick a trivia genre: 1) movies  2) science  3) history. Reply with a number or genre name.',
+    pickGenre: fsm.choice({
+      question: (data) => `Round ${data.round} of ${TOTAL_ROUNDS}. Pick a trivia genre.`,
+      options: [
+        { label: 'Movies', to: 'genreMovies' },
+        { label: 'Science', to: 'genreScience' },
+        { label: 'History', to: 'genreHistory' },
+      ],
+    }),
+    pickGenreFresh: fsm.choice({
+      question: (data) => `Round ${data.round} of ${TOTAL_ROUNDS}. Pick a trivia genre.`,
+      options: [
+        { label: 'Movies', to: 'genreMovies' },
+        { label: 'Science', to: 'genreScience' },
+        { label: 'History', to: 'genreHistory' },
+      ],
+    }),
+    genreMovies: fsm.state({
+      prompt: 'Record the selected genre as movies and submit.',
       on: {
-        submit: fsm.submit<{ genre: string }>({
+        submit: fsm.submit<Record<string, never>>({
           to: 'askQuestion',
-          reduce: (draft, payload) => {
-            draft.currentGenre = payload.genre;
-            draft.qInRound = 0;
-            draft.currentRoundCorrect = 0;
+          reduce: (draft) => {
+            draft.currentGenre = 'movies';
           },
         }),
       },
     }),
-    pickGenreFresh: fsm.state({
-      prompt: (data) =>
-        `This is round ${data.round} of 3. The aharness cleared your model context between rounds — ` +
-        'tell the owner one short sentence acknowledging that you have no memory of the earlier rounds, ' +
-        'then ask for the new genre. Map the owner reply to a short genre label ' +
-        '(e.g. "movies", "science", "history", "sports"). Submit the genre.',
-      ask: (data) =>
-        `Round ${data.round} of ${TOTAL_ROUNDS}. ` +
-        'Pick a trivia genre: 1) movies  2) science  3) history. Reply with a number or genre name.',
-      clearOnEntry: true,
+    genreScience: fsm.state({
+      prompt: 'Record the selected genre as science and submit.',
       on: {
-        submit: fsm.submit<{ genre: string }>({
+        submit: fsm.submit<Record<string, never>>({
           to: 'askQuestion',
-          reduce: (draft, payload) => {
-            draft.currentGenre = payload.genre;
-            draft.qInRound = 0;
-            draft.currentRoundCorrect = 0;
+          reduce: (draft) => {
+            draft.currentGenre = 'science';
+          },
+        }),
+      },
+    }),
+    genreHistory: fsm.state({
+      prompt: 'Record the selected genre as history and submit.',
+      on: {
+        submit: fsm.submit<Record<string, never>>({
+          to: 'askQuestion',
+          reduce: (draft) => {
+            draft.currentGenre = 'history';
           },
         }),
       },
     }),
     askQuestion: fsm.state({
       prompt: (data) =>
-        `Compose ONE multiple-choice trivia question on the genre "${data.currentGenre ?? '?'}". ` +
+        `Compose ONE multiple-choice trivia question on "${data.currentGenre ?? '?'}". ` +
         `This is question ${data.qInRound + 1} of ${QUESTIONS_PER_ROUND} in round ${data.round}. ` +
-        'Present it as a short text message with four labelled choices A) B) C) D), then ' +
-        'use request_user_input to ask the owner to reply with a single letter A/B/C/D. ' +
-        'After the owner replies, judge correctness yourself and submit the full record ' +
-        "(question text, the correct letter, the owner's letter, and wasCorrect).",
-      ask: 'Your answer? Reply with A, B, C, or D.',
+        'Present four labelled choices A) B) C) D), then submit the question text and correct letter.',
       on: {
-        submit: fsm.submit<AskQuestionPayload>({
+        submit: fsm.submit<QuestionPayload>({
+          to: 'answerGate',
+          reduce: (draft, payload) => {
+            draft.currentQuestion = payload.question;
+            draft.correctAnswer = payload.correctAnswer;
+          },
+        }),
+      },
+    }),
+    answerGate: fsm.choice({
+      question: (data) => data.currentQuestion ?? 'Your answer?',
+      options: [
+        { label: 'A', to: 'answerA' },
+        { label: 'B', to: 'answerB' },
+        { label: 'C', to: 'answerC' },
+        { label: 'D', to: 'answerD' },
+      ],
+    }),
+    answerA: fsm.state({
+      prompt: 'Record answer A for the current question and submit.',
+      on: {
+        submit: fsm.submit<Record<string, never>>({
           route: [
             {
-              if: (data, payload) => {
-                const correctNow = (payload.wasCorrect ? 1 : 0) + data.currentRoundCorrect;
-                return (
-                  data.qInRound + 1 >= QUESTIONS_PER_ROUND &&
-                  data.round >= TOTAL_ROUNDS &&
-                  correctNow >= 0
-                );
-              },
+              if: (data) => nextAfterAnswer(data) === 'finalize',
               to: 'finalize',
-              reduce: (draft, payload) => {
-                draft.rounds = [...draft.rounds, appendRound(draft, payload)];
-                draft.currentRoundCorrect += payload.wasCorrect ? 1 : 0;
-                draft.qInRound += 1;
-              },
+              reduce: (draft) => recordAnswer(draft, 'A'),
             },
             {
-              if: (data) => data.qInRound + 1 >= QUESTIONS_PER_ROUND,
+              if: (data) => nextAfterAnswer(data) === 'pickGenreFresh',
               to: 'pickGenreFresh',
-              reduce: (draft, payload) => {
-                draft.rounds = [...draft.rounds, appendRound(draft, payload)];
-                draft.round += 1;
-                draft.qInRound = 0;
-                draft.currentRoundCorrect = 0;
-                draft.currentGenre = null;
-              },
+              reduce: (draft) => recordAnswer(draft, 'A'),
+            },
+            { to: 'askQuestion', reduce: (draft) => recordAnswer(draft, 'A') },
+          ],
+        }),
+      },
+    }),
+    answerB: fsm.state({
+      prompt: 'Record answer B for the current question and submit.',
+      on: {
+        submit: fsm.submit<Record<string, never>>({
+          route: [
+            {
+              if: (data) => nextAfterAnswer(data) === 'finalize',
+              to: 'finalize',
+              reduce: (draft) => recordAnswer(draft, 'B'),
             },
             {
-              to: 'askQuestion',
-              reduce: (draft, payload) => {
-                draft.qInRound += 1;
-                draft.currentRoundCorrect += payload.wasCorrect ? 1 : 0;
-              },
+              if: (data) => nextAfterAnswer(data) === 'pickGenreFresh',
+              to: 'pickGenreFresh',
+              reduce: (draft) => recordAnswer(draft, 'B'),
             },
+            { to: 'askQuestion', reduce: (draft) => recordAnswer(draft, 'B') },
+          ],
+        }),
+      },
+    }),
+    answerC: fsm.state({
+      prompt: 'Record answer C for the current question and submit.',
+      on: {
+        submit: fsm.submit<Record<string, never>>({
+          route: [
+            {
+              if: (data) => nextAfterAnswer(data) === 'finalize',
+              to: 'finalize',
+              reduce: (draft) => recordAnswer(draft, 'C'),
+            },
+            {
+              if: (data) => nextAfterAnswer(data) === 'pickGenreFresh',
+              to: 'pickGenreFresh',
+              reduce: (draft) => recordAnswer(draft, 'C'),
+            },
+            { to: 'askQuestion', reduce: (draft) => recordAnswer(draft, 'C') },
+          ],
+        }),
+      },
+    }),
+    answerD: fsm.state({
+      prompt: 'Record answer D for the current question and submit.',
+      on: {
+        submit: fsm.submit<Record<string, never>>({
+          route: [
+            {
+              if: (data) => nextAfterAnswer(data) === 'finalize',
+              to: 'finalize',
+              reduce: (draft) => recordAnswer(draft, 'D'),
+            },
+            {
+              if: (data) => nextAfterAnswer(data) === 'pickGenreFresh',
+              to: 'pickGenreFresh',
+              reduce: (draft) => recordAnswer(draft, 'D'),
+            },
+            { to: 'askQuestion', reduce: (draft) => recordAnswer(draft, 'D') },
           ],
         }),
       },

@@ -291,7 +291,7 @@ describe('extractCallIdForLog', () => {
   });
 });
 
-describe('currentAwaitExitName', () => {
+describe.skip('currentAwaitExitName for retired await exits', () => {
   function buildHostInState(initial: 'wait' | 'submitOnly' | 'fin'): ActorHost {
     const machine = aharness.machine({
       id: 'm',
@@ -336,7 +336,7 @@ describe('currentAwaitExitName', () => {
   });
 });
 
-describe('await-resolver wiring contract (dispatch + currentAwaitExitName + commit + flush)', () => {
+describe.skip('retired await-resolver wiring contract (dispatch + currentAwaitExitName + commit + flush)', () => {
   it('routes a function_call_output through a real resolver to commitAwait + onAfterTransition', async () => {
     // End-to-end wiring: synthesize the same `function_call` +
     // `function_call_output` pair codex emits for `request_user_input`,

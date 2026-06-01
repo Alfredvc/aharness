@@ -1254,6 +1254,8 @@ export function Graph({
                         onToggle={() => toggleExpandedEmbed(n.id)}
                       />
                     ) : null}
+                    {/* Historical topology compatibility: awaitsOwnerText marks old
+                    owner-input nodes in archived/bootstrap fixture graphs only. */}
                     {n.awaitsOwnerText && !isActive ? (
                       <text className="node-glyph" x={n.width - 12} y={14} textAnchor="end">
                         ◉

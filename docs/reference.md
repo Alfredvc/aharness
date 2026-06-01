@@ -18,11 +18,11 @@ the compatibility gate and drift-check details.
 
 - `fsm.machine(config)` declares the machine, optional typed `input`, initial
   data, initial state, and states map.
-- `fsm.state(options)` declares an active Codex state with `prompt`, optional
-  `ask`, `on`, `entry`, `model`, `clearOnEntry`, visualization-only `main`,
+- `fsm.state(options)` declares an active Codex state with `prompt`, `on`,
+  `entry`, `model`, `clearOnEntry`, visualization-only `main`,
   `guidance`, `skills`, `mode`, and low-level `xstate` escape hatch.
 - `fsm.submit<T>(options)` declares a typed model submission exit.
-- `fsm.await(options)` declares an owner-input exit.
+- `fsm.choice(options)` declares a deterministic owner-choice state.
 - `fsm.final(options)` declares a terminal state with `outcome`, optional
   visualization-only `main`, optional `output`, and optional final artifacts.
 - `fsm.passive(config)` declares a passive state for lower-level XState flows,
@@ -70,12 +70,12 @@ package asset calls must be compiled and validated by the package-aware loader.
 `prompt` is the instruction for Codex while the state is active. It may be a
 string or a function of readonly machine data.
 
-`on` maps event names to transitions. Unknown keys must use `fsm.submit(...)`
-or `fsm.await(...)`. Plain object handlers are accepted for events declared
-with `withEvents(...)` and for the built-in event keys.
+`on` maps event names to transitions. Unknown keys must use `fsm.submit(...)`,
+an event declared with `withEvents(...)`, or a built-in event key.
 
-`ask` declares owner-facing text for states that need owner input. Use it with
-an await or with a later submit that interprets the owner reply.
+Use `fsm.choice(...)` for deterministic owner approval/routing/continue gates.
+Use `mode: 'open'` states plus typed submit when owner-paced free text must be
+interpreted by Codex.
 
 `model` on a state-level declaratively applies model and effort changes for that
 state.
@@ -159,7 +159,7 @@ legality, verifier checks, emitted run state, or runtime behavior.
 
 `skills` attaches skill references for the active state.
 
-## Submit, Await, And Events
+## Submit, Choice, And Events
 
 `fsm.submit<T>({ to, reduce, effect, actions })` moves directly to another
 state when Codex submits payload `T`.
@@ -168,8 +168,9 @@ state when Codex submits payload `T`.
 branches. Each branch can have `if`, `to`, `reduce`, `effect`, and `actions`;
 the final branch may omit `if` as a catch-all.
 
-`fsm.await({ ask, to, reduce, effect })` asks the owner for text and moves to
-the configured state after the reply.
+`fsm.choice({ question, options })` parks the run until the owner picks one of
+the authored labels. Each option is `{ label, to }`; labels are the only public
+choice identity and do not mutate FSM data by themselves.
 
 Custom events declared with `withEvents` can either be signal events or request
 events with a `defaultReturn`. Request events return their default if the

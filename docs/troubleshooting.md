@@ -39,7 +39,7 @@ npx aharness verify ./path/to/workflow.fsm.ts
 
 The verifier catches invalid FSM shape before Codex starts. Common causes are:
 
-- `on` keys that are neither `fsm.submit(...)`, `fsm.await(...)`, built-in
+- `on` keys that are neither `fsm.submit(...)`, `fsm.choice(...)`, built-in
   events, nor events declared with `withEvents(...)`.
 - Missing child-final handlers for `fsm.embed(...)`.
 - Input flags whose defaults or metadata do not match the declared helper.
@@ -105,7 +105,10 @@ prompts may be resolved without a browser approval card. If you expected to
 review eligible approval prompts in the browser, rerun with `--ask`.
 
 If a state should wait for the owner, check whether the FSM uses
-`fsm.await(...)`, `ask`, or a built-in `permissionRequest` handler as intended.
+`fsm.choice(...)`, an open state, or a built-in `permissionRequest` handler as
+intended. Use Codex `request_user_input` from inside state work only when the
+owner reply should inform the model's later typed submit rather than advance the
+FSM directly.
 
 ## A Run Ended But Artifacts Are Needed
 

@@ -148,10 +148,16 @@ export function deriveActivity(s: UiState): Activity {
   }
 
   if (s.pending.ownerInput) {
+    const question = s.pending.ownerInput.questions[0]?.question;
     return {
       kind: 'awaiting.owner',
       label: 'awaiting your input',
-      detail: trim(s.state.awaitsOwnerText?.messageToUser ?? 'open the composer below', 80),
+      // Historical flat-event compatibility: old owner-input rows may expose
+      // awaitsOwnerText when the model-originated request has no question text.
+      detail: trim(
+        question ?? s.state.awaitsOwnerText?.messageToUser ?? 'open the composer below',
+        80,
+      ),
       tone: 'amber',
       motion: 'pulse',
     };

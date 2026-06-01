@@ -1,6 +1,6 @@
 ---
 name: aharness-fsm-authoring
-description: Author, review, and verify general @aharness/core finite state machines. Use when Codex needs to design or write an aharness FSM for any workflow, convert an informal process into typed states and transitions, choose between strict/open/await/passive/embed/final states, or diagnose aharness FSM verifier and authoring errors.
+description: Author, review, and verify general @aharness/core finite state machines. Use when Codex needs to design or write an aharness FSM for any workflow, convert an informal process into typed states and transitions, choose between strict/open/choice/passive/embed/final states, or diagnose aharness FSM verifier and authoring errors.
 ---
 
 # aharness FSM Authoring
@@ -31,12 +31,12 @@ recipe lines, command runs, or ordinary skill judgment into states.
    - `fsm.state` for normal model work.
    - strict mode for aharness-driven progress.
    - open mode for owner-paced discussion.
-   - `ask` when the model needs owner text before a typed submit.
-   - `fsm.await` when the owner reply itself should advance the FSM.
+   - `fsm.choice` when the owner should make a deterministic labeled decision.
+   - open mode when free-form owner discussion should continue until a typed submit.
    - `fsm.passive` for deterministic or invoked XState behavior with no model prompt.
    - `fsm.embed` for reusable child machines.
    - `fsm.final` for terminal success or failure.
-   - `withEvents`/`fsm.event` only when an advanced FSM has typed runtime inputs that are not ordinary submits, awaits, or built-in hook events.
+   - `withEvents`/`fsm.event` only when an advanced FSM has typed runtime inputs that are not ordinary submits, owner choices, or built-in hook events.
 7. Audit every path to `blocked` or `failed`: make sure it is a true terminal outcome for the requested workflow, or encode the recovery/owner-input policy that should happen first.
 8. Author with the canonical `createFsm` API.
 9. Run `aharness verify <file.fsm.ts>` and fix verifier errors using [fsm-authoring.md](references/fsm-authoring.md).
@@ -112,14 +112,14 @@ export default fsm.machine({
 
 ## Authoring Rules
 
-- Use `createFsm`, `fsm.machine`, `fsm.state`, `fsm.submit`, `fsm.await`, `fsm.final`, `fsm.passive`, `fsm.embed`, `fsm.input.*`, `fsm.skill`, and, for advanced event-driven FSMs, `fsm.withEvents`/`fsm.event`.
+- Use `createFsm`, `fsm.machine`, `fsm.state`, `fsm.submit`, `fsm.choice`, `fsm.final`, `fsm.passive`, `fsm.embed`, `fsm.input.*`, `fsm.skill`, and, for advanced event-driven FSMs, `fsm.withEvents`/`fsm.event`.
 - Make every submit payload a concrete object type. Wrap primitives and top-level unions inside object fields.
 - Use routed submits for branching. Every non-last branch needs `if`; the last branch is the catch-all.
 - Keep reducers synchronous. Use `effect` only for awaited external work before reducer commit.
 - Do not write `SUBMIT__*` or `AWAIT__*` handlers by hand.
-- Do not use owner input as an implicit transition. Use `ask` plus typed submit, or use exactly one `fsm.await`.
-- Do not introduce `ask` as a normal path in autonomous workflows unless owner input is explicitly part of the workflow contract.
-- Prefer `fsm.submit`, `fsm.await`, and built-in hook events over custom events unless the workflow genuinely has another typed runtime input.
+- Do not use owner input as an implicit transition. Use `fsm.choice` for deterministic owner decisions, or use open mode plus a typed submit when the model must interpret free-form owner text.
+- Do not introduce owner input as a normal path in autonomous workflows unless owner input is explicitly part of the workflow contract.
+- Prefer `fsm.submit`, `fsm.choice`, and built-in hook events over custom events unless the workflow genuinely has another typed runtime input.
 - Use `model` on a state whenever you need to set Codex model and/or effort.
 - `model` syntax is `{ name?: string, effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' }`.
 - Use `clearOnEntry` only on a live, non-initial and not initially reachable state where stale history should be discarded; it is freshness-only.

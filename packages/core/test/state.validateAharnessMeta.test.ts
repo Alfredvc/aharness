@@ -119,6 +119,21 @@ describe('validateAharnessMeta — stateful metadata', () => {
       /clearOnEntry/,
     );
   });
+
+  it('rejects retired owner-decision metadata with replacement guidance', () => {
+    expect(() =>
+      validateAharnessMeta({
+        ...baseStatefulMeta,
+        awaitsOwnerText: { messageToUser: 'Continue?' },
+      }),
+    ).toThrow(/awaitsOwnerText.*no longer accepted.*fsm\.choice.*open state/);
+    expect(() =>
+      validateAharnessMeta({
+        ...baseStatefulMeta,
+        exits: { ownerReply: { kind: 'await', to: 'done' } },
+      }),
+    ).toThrow(/await exit 'ownerReply'.*no longer accepted.*fsm\.choice.*open state/);
+  });
 });
 
 describe('validateAharnessMeta — choice metadata', () => {

@@ -13,7 +13,6 @@ import {
   passive,
   state,
   type Action,
-  type AwaitExitDef,
   type CanonicalEventBranchMeta,
   type CanonicalEventKind,
   type CanonicalEventMeta,
@@ -26,7 +25,6 @@ import {
   type StateModelEffort,
 } from './exits.js';
 import {
-  applyCanonicalAwaitCommitOrReduce,
   applyCanonicalCommitOrReduce,
   cloneCanonicalCallbackData,
   canonicalCommitContext,
@@ -88,14 +86,6 @@ type CanonicalEffect<Data, Payload> = (args: {
   readonly ops: AharnessOps;
 }) => void | Promise<void>;
 
-type CanonicalAwaitReducer<Data> = (draft: Data, ownerReply: string) => void | Partial<Data>;
-
-type CanonicalAwaitEffect<Data> = (args: {
-  readonly data: Readonly<Data>;
-  readonly ownerReply: string;
-  readonly ops: AharnessOps;
-}) => void | Promise<void>;
-
 type CanonicalEmbedReducer<Data, Output> = (draft: Data, output: Output) => void | Partial<Data>;
 
 type CanonicalEmbedEffect<Data, Output> = (args: {
@@ -149,18 +139,6 @@ type CanonicalSubmitOptions<Data, Payload> =
 interface CanonicalSubmitTransition<Data, Payload> {
   readonly __canonicalKind: 'submit';
   readonly options: CanonicalSubmitOptions<Data, Payload>;
-}
-
-interface CanonicalAwaitOptions<Data> {
-  readonly ask: CanonicalText<Data>;
-  readonly to: string;
-  readonly effect?: CanonicalAwaitEffect<Data>;
-  readonly reduce?: CanonicalAwaitReducer<Data>;
-}
-
-interface CanonicalAwaitTransition<Data> {
-  readonly __canonicalKind: 'await';
-  readonly options: CanonicalAwaitOptions<Data>;
 }
 
 interface CanonicalEmbedFinalHandler<Data, Output> {
@@ -268,7 +246,7 @@ type BuiltinEventHandlerOptions<Data, Name extends BuiltinEventName> = Name exte
 
 type CanonicalTransition<Data> =
   // oxlint-disable-next-line typescript/no-explicit-any
-  CanonicalSubmitTransition<Data, any> | CanonicalAwaitTransition<Data>;
+  CanonicalSubmitTransition<Data, any>;
 
 type EventCatalog = Readonly<Record<string, CanonicalEventDefinition<unknown, unknown>>>;
 
@@ -299,21 +277,6 @@ type BadEventCatalogKeys<TEvents extends EventCatalog> = {
   [K in keyof TEvents]: K extends BuiltinEventName ? K : K extends GeneratedEventName ? K : never;
 }[keyof TEvents];
 
-type AwaitKeys<TOn> = {
-  // oxlint-disable-next-line typescript/no-explicit-any
-  [K in keyof TOn]: TOn[K] extends CanonicalAwaitTransition<any> ? K : never;
-}[keyof TOn];
-
-type IsUnion<T, U = T> = [T] extends [never]
-  ? false
-  : T extends unknown
-    ? [U] extends [T]
-      ? false
-      : true
-    : false;
-
-type HasAwait<TOn> = [AwaitKeys<TOn>] extends [never] ? false : true;
-
 type BadCanonicalOnKeys<TOn, Events extends EventCatalog> = {
   [K in keyof TOn]: K extends keyof Events
     ? never
@@ -338,25 +301,16 @@ type ValidateStateOptions<TOptions, Events extends EventCatalog> = TOptions exte
   readonly on: infer TOn;
 }
   ? TOptions extends { readonly ask: unknown }
-    ? HasAwait<TOn> extends true
+    ? never
+    : ValidateCanonicalOn<TOn, Events> extends never
       ? never
-      : IsUnion<AwaitKeys<TOn>> extends true
-        ? never
-        : ValidateCanonicalOn<TOn, Events> extends never
-          ? never
-          : TOptions
-    : IsUnion<AwaitKeys<TOn>> extends true
-      ? never
-      : ValidateCanonicalOn<TOn, Events> extends never
-        ? never
-        : TOptions
+      : TOptions
   : TOptions;
 
 interface CanonicalStateOptions<Data, Events extends EventCatalog> {
   readonly mode?: 'strict' | 'open';
   readonly main?: boolean;
   readonly prompt: CanonicalText<Data>;
-  readonly ask?: CanonicalText<Data>;
   readonly on?: CanonicalOn<Data, Events>;
   readonly entry?: (data: Readonly<Data>, ops: AharnessOps) => void | Promise<void>;
   readonly clearOnEntry?: CanonicalClearOnEntry<Data>;
@@ -526,7 +480,6 @@ interface CreateFsmFactory<Data, Events extends EventCatalog = Record<never, nev
   submit<Payload>(
     opts: CanonicalSubmitOptions<Data, Payload>,
   ): CanonicalSubmitTransition<Data, Payload>;
-  await(opts: CanonicalAwaitOptions<Data>): CanonicalAwaitTransition<Data>;
   embed<TChildFsm extends AnyStateMachine | MinimalChildConfig>(
     child: TChildFsm,
     opts: CanonicalEmbedOptions<Data, InputOf<TChildFsm>, FinalsOf<TChildFsm>>,
@@ -676,56 +629,26 @@ function lowerSubmit<Data, Payload>(transition: CanonicalSubmitTransition<Data, 
   });
 }
 
-function lowerAwait<Data>(transition: CanonicalAwaitTransition<Data>): AwaitExitDef {
-  const meta = {
-    kind: 'await' as const,
-    ask: transition.options.ask as string | ((ctx: Data) => string),
-    ...(transition.options.effect !== undefined ? { effect: transition.options.effect } : {}),
-    ...(transition.options.reduce !== undefined ? { reduce: transition.options.reduce } : {}),
-  };
-  return {
-    kind: 'await',
-    to: transition.options.to,
-    actions: assign(({ context, event }) => {
-      if (isCanonicalDryRun()) return {};
-      const ownerReply =
-        (event as { payload?: { ownerReply?: unknown } }).payload?.ownerReply ?? '';
-      return applyCanonicalAwaitCommitOrReduce({
-        context: context as Record<string, unknown>,
-        event,
-        meta: meta as AwaitExitDef['__aharnessCanonical'] & {
-          kind: 'await';
-        },
-        ownerReply: typeof ownerReply === 'string' ? ownerReply : '',
-      });
-    }) as NonNullable<AwaitExitDef['actions']>,
-    __aharnessCanonical: meta as NonNullable<AwaitExitDef['__aharnessCanonical']>,
-  };
-}
-
 function lowerStateOptions<Data, Events extends EventCatalog>(
   opts: CanonicalStateOptions<Data, Events>,
   eventCatalog: Events,
 ): StateConfig {
+  if (
+    opts !== null &&
+    typeof opts === 'object' &&
+    Object.prototype.hasOwnProperty.call(opts, 'ask')
+  ) {
+    throw new TypeError(
+      '`ask` has been retired for FSM-authored owner decisions; use `fsm.choice` for deterministic owner routing, or an open state for owner-paced discussion. Model-originated Codex questions may still use request_user_input inside state work.',
+    );
+  }
   const exits: Record<string, ExitDef> = {};
   const canonicalEvents: Record<string, CanonicalEventMeta> = {};
   const clearOnEntry = normalizeClearOnEntry(opts.clearOnEntry);
   const model = normalizeStateModel(opts.model);
-  let awaitExitName: string | null = null;
   for (const [name, transition] of Object.entries((opts.on ?? {}) as Record<string, unknown>)) {
     if (isCanonicalTransition(transition)) {
-      if (transition.__canonicalKind === 'await') {
-        if (awaitExitName !== null) {
-          throw new TypeError(
-            `fsm.state(): at most one await exit is allowed (saw '${awaitExitName}' and '${name}')`,
-          );
-        }
-        awaitExitName = name;
-      }
-      exits[name] =
-        transition.__canonicalKind === 'await'
-          ? lowerAwait(transition)
-          : lowerSubmit(transition as CanonicalSubmitTransition<Data, unknown>);
+      exits[name] = lowerSubmit(transition as CanonicalSubmitTransition<Data, unknown>);
       continue;
     }
 
@@ -752,12 +675,12 @@ function lowerStateOptions<Data, Events extends EventCatalog>(
     }
 
     throw new TypeError(
-      `fsm.state(): unknown event handler '${name}' must use fsm.submit(...) or fsm.await(...)`,
+      `fsm.state(): unknown event handler '${name}' must use fsm.submit(...), a declared fsm.event(...), or a built-in hook event. Use fsm.choice(...) for deterministic owner routing.`,
     );
   }
   if (Object.keys(exits).length === 0 && Object.keys(canonicalEvents).length === 0) {
     throw new TypeError(
-      'fsm.state(): at least one submit, await, or canonical event transition is required; use fsm.passive() for XState-native/passive states or fsm.final() for terminal states',
+      'fsm.state(): at least one submit or canonical event transition is required; use fsm.choice() for owner routing, fsm.passive() for XState-native/passive states, or fsm.final() for terminal states',
     );
   }
 
@@ -770,7 +693,6 @@ function lowerStateOptions<Data, Events extends EventCatalog>(
   }
 
   const guidance = opts.guidance;
-  const ask = opts.ask;
   const xstateOn = asRecord(opts.xstate?.['on']);
   for (const eventName of Object.keys(canonicalEvents)) {
     if (xstateOn?.[eventName] !== undefined) {
@@ -791,13 +713,6 @@ function lowerStateOptions<Data, Events extends EventCatalog>(
     stateOpts['stopGuidance'] = ((ctx) => resolveText(guidance, ctx as Data)) as Parameters<
       typeof state
     >[0]['stopGuidance'];
-  }
-  if (ask !== undefined) {
-    stateOpts['awaitsOwnerText'] = {
-      messageToUser: ((ctx) => resolveText(ask, ctx as Data)) as NonNullable<
-        Parameters<typeof state>[0]['awaitsOwnerText']
-      >['messageToUser'],
-    };
   }
   if (opts.entry !== undefined) stateOpts['onEntry'] = opts.entry;
   if (clearOnEntry !== undefined) stateOpts['clearOnEntry'] = clearOnEntry;
@@ -908,8 +823,7 @@ function isCanonicalTransition<Data>(value: unknown): value is CanonicalTransiti
   return (
     value !== null &&
     typeof value === 'object' &&
-    ((value as { __canonicalKind?: unknown }).__canonicalKind === 'submit' ||
-      (value as { __canonicalKind?: unknown }).__canonicalKind === 'await')
+    (value as { __canonicalKind?: unknown }).__canonicalKind === 'submit'
   );
 }
 
@@ -1242,7 +1156,6 @@ function createFsmFactory<Data, Events extends EventCatalog>(
       __canonicalKind: 'submit',
       options: opts,
     }),
-    await: (opts: CanonicalAwaitOptions<Data>) => ({ __canonicalKind: 'await', options: opts }),
     embed: (child: AnyStateMachine | MinimalChildConfig, opts: unknown) =>
       lowerEmbed(
         child,

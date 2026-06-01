@@ -1350,19 +1350,13 @@ export const machine = fsm.machine({
           'Ask the owner what they want to do next, such as merge, cleanup, continue inspection, leave it as-is, or something else.',
         ].join('\n'),
       on: {
-        ownerDecision: fsm.await({
-          ask: (data) =>
-            [
-              'Worktree run complete.',
-              `Worktree: ${data.worktreePath ?? 'not recorded'}`,
-              `Last commit: ${data.commitSha ?? data.lastCompleted ?? 'none'}`,
-              `Next slice: ${data.nextSlice ?? 'none'}`,
-              'What do you want to do next: merge, cleanup, inspect further, leave it as-is, or something else?',
-            ].join('\n'),
+        ownerDecision: fsm.submit<{ finalOwnerRequest: string }>({
           to: 'complete',
-          reduce: (draft, ownerReply) => {
+          reduce: (draft, payload) => {
             draft.finalOwnerRequest =
-              ownerReply.trim().length > 0 ? ownerReply : 'No owner instruction recorded.';
+              payload.finalOwnerRequest.trim().length > 0
+                ? payload.finalOwnerRequest
+                : 'No owner instruction recorded.';
             record(draft, 'worktree-handoff', 'done', draft.finalOwnerRequest);
           },
         }),

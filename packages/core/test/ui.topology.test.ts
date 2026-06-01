@@ -51,9 +51,6 @@ describe('extractUiTopology', () => {
           entryPrompt: 'Write a careful plan with risks and verification steps.',
           open: true,
           clearOnEntry: true,
-          awaitsOwnerText: {
-            messageToUser: 'What constraints should the plan honor?',
-          },
           stopGuidance: () => 'Stop once the plan has been submitted.',
           onEntry: () => undefined,
           skills: [skill('reviewer', { optional: true })],
@@ -107,10 +104,6 @@ describe('extractUiTopology', () => {
         entryPrompt: {
           kind: 'static',
           text: 'Write a careful plan with risks and verification steps.',
-        },
-        awaitsOwnerText: {
-          kind: 'static',
-          text: 'What constraints should the plan honor?',
         },
         open: true,
         clearOnEntry: true,
@@ -239,37 +232,43 @@ describe('extractUiTopology', () => {
     expect(topology.edges).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          from: 'forest',
+          from: 'forestChoice',
+          to: 'forestVictory',
+          exit: 'Bold',
+          kind: 'choice',
+        }),
+        expect.objectContaining({
+          from: 'forestChoice',
+          to: 'forestDefeat',
+          exit: 'Cautious',
+          kind: 'choice',
+        }),
+        expect.objectContaining({
+          from: 'forestVictory',
           to: 'victory',
           exit: 'submit',
           kind: 'submit',
         }),
         expect.objectContaining({
-          from: 'cave',
-          to: 'victory',
-          exit: 'submit',
-          kind: 'submit',
-        }),
-        expect.objectContaining({
-          from: 'river',
-          to: 'victory',
-          exit: 'submit',
-          kind: 'submit',
-        }),
-        expect.objectContaining({
-          from: 'forest',
+          from: 'forestDefeat',
           to: 'defeat',
           exit: 'submit',
           kind: 'submit',
         }),
         expect.objectContaining({
-          from: 'cave',
-          to: 'defeat',
-          exit: 'submit',
-          kind: 'submit',
+          from: 'caveChoice',
+          to: 'caveVictory',
+          exit: 'Cautious',
+          kind: 'choice',
         }),
         expect.objectContaining({
-          from: 'river',
+          from: 'riverChoice',
+          to: 'riverVictory',
+          exit: 'Bold',
+          kind: 'choice',
+        }),
+        expect.objectContaining({
+          from: 'riverDefeat',
           to: 'defeat',
           exit: 'submit',
           kind: 'submit',

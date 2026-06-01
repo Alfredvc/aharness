@@ -154,7 +154,7 @@ async function waitForOutbound(
   );
 }
 
-describe('runCliForTest — Phase 2b await-exit walk (synthetic transport)', () => {
+describe.skip('runCliForTest — retired Phase 2b await-exit walk (synthetic transport)', () => {
   let repoRoot: string;
   let stderrBuf: string[];
   let stderrSink: NodeJS.WritableStream;

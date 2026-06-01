@@ -58,10 +58,10 @@ Normal public API:
 
 - `createFsm<Data>()`
 - `fsm.machine({ id, input?, data?, initial, states })`
-- `fsm.state({ mode?, main?, prompt, ask?, on?, entry?, model?, clearOnEntry?, guidance?, skills?, xstate? })`
+- `fsm.state({ mode?, main?, prompt, on?, entry?, model?, clearOnEntry?, guidance?, skills?, xstate? })`
 - `fsm.submit<TPayload>({ to, effect?, reduce?, actions? })`
 - `fsm.submit<TPayload>({ route: [...] })`
-- `fsm.await({ ask, to, effect?, reduce? })`
+- `fsm.choice({ question, options })`
 - `fsm.event<TPayload>()`
 - `fsm.event<TPayload, TReturn>({ defaultReturn })`
 - `fsm.withEvents({ eventName: fsm.event<...>() })`
@@ -161,13 +161,16 @@ Use strict stateful states when the aharness should keep driving the model until
 
 Use open stateful states when owner-paced discussion is the intended behavior and the aharness should not drive repeated turns.
 
-Use `ask` when the model needs owner text before submitting typed data. The owner reply does not advance the FSM directly; only the following typed submit does.
+Use `fsm.choice` when the owner should make a deterministic labeled decision.
+Choice states are first-class graph nodes and each option label is an authored
+route.
 
-Use `ask` only when owner text is intentionally part of the workflow. In an
-autonomous workflow, owner input should not be a normal path unless the contract
-explicitly says that autonomy stops at that decision.
+Use open stateful states when free-form owner discussion is intentionally part
+of the workflow. The owner text does not advance the FSM directly; the model
+must submit a typed exit after interpreting the discussion.
 
-Use `fsm.await` when the owner reply itself should advance the FSM. A state may declare at most one await exit, and await exits do not route. If the reply needs interpretation, use `ask` plus `fsm.submit<T>()`.
+In an autonomous workflow, owner input should not be a normal path unless the
+contract explicitly says that autonomy stops at that decision.
 
 Use passive states for deterministic or invoked behavior that should not expose a model prompt or submit exits.
 
@@ -254,7 +257,7 @@ Ordering:
 
 ## Custom Typed Events
 
-Use `withEvents` when an advanced FSM has a typed runtime input that is not a model submit, owner await, or built-in hook event. If the workflow can be expressed with `fsm.submit`, `fsm.await`, `permissionRequest`, `preToolUse`, `postToolUse`, or `userPromptSubmit`, prefer those higher-level surfaces.
+Use `withEvents` when an advanced FSM has a typed runtime input that is not a model submit, owner choice, or built-in hook event. If the workflow can be expressed with `fsm.submit`, `fsm.choice`, `permissionRequest`, `preToolUse`, `postToolUse`, or `userPromptSubmit`, prefer those higher-level surfaces.
 
 ```ts
 const base = createFsm<Data>();

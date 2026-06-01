@@ -182,7 +182,7 @@ describe('createFsm() canonical type contract', () => {
     }
   });
 
-  it('types submit and await reducer/effect callback shapes', () => {
+  it('types submit reducer/effect callback shapes and choice question data', () => {
     const fsm = createFsm<Data>();
     fsm.state({
       prompt: 'submit',
@@ -192,7 +192,7 @@ describe('createFsm() canonical type contract', () => {
       },
       on: {
         submit: fsm.submit<{ amount: number }>({
-          to: 'awaiting',
+          to: 'pick',
           effect: async ({ data, payload, ops }) => {
             expectTypeOf(data).toEqualTypeOf<Readonly<Data>>();
             expectTypeOf(payload).toEqualTypeOf<{ amount: number }>();
@@ -207,24 +207,12 @@ describe('createFsm() canonical type contract', () => {
       },
     });
 
-    fsm.state({
-      prompt: 'await',
-      on: {
-        proceed: fsm.await({
-          ask: 'Proceed?',
-          to: 'done',
-          effect: async ({ data, ownerReply, ops }) => {
-            expectTypeOf(data).toEqualTypeOf<Readonly<Data>>();
-            expectTypeOf(ownerReply).toEqualTypeOf<string>();
-            expectTypeOf(ops).toEqualTypeOf<AharnessOps>();
-          },
-          reduce: (draft, ownerReply) => {
-            expectTypeOf(draft).toEqualTypeOf<Data>();
-            expectTypeOf(ownerReply).toEqualTypeOf<string>();
-            draft.reply = ownerReply;
-          },
-        }),
+    fsm.choice({
+      question: (data) => {
+        expectTypeOf(data).toEqualTypeOf<Readonly<Data>>();
+        return data.reply ?? 'Proceed?';
       },
+      options: [{ label: 'Proceed', to: 'done' }],
     });
   });
 
@@ -305,23 +293,17 @@ describe('createFsm() canonical type contract', () => {
         },
       });
 
-      // @ts-expect-error owner-yield ask and await exit are mutually exclusive
+      // @ts-expect-error ask has been retired
       fsm.state({
-        prompt: 'bad await owner-yield mix',
+        prompt: 'bad retired ask',
         ask: 'Owner prompt',
         on: {
-          proceed: fsm.await({ ask: 'Proceed?', to: 'done' }),
+          submit: fsm.submit<Record<string, never>>({ to: 'done' }),
         },
       });
 
-      // @ts-expect-error a state may declare at most one await exit
-      fsm.state({
-        prompt: 'bad multiple await exits',
-        on: {
-          first: fsm.await({ ask: 'First?', to: 'one' }),
-          second: fsm.await({ ask: 'Second?', to: 'two' }),
-        },
-      });
+      // @ts-expect-error fsm.await has been retired
+      fsm.await({ ask: 'First?', to: 'one' });
     }
   });
 

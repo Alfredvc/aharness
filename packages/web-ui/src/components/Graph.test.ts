@@ -651,9 +651,11 @@ describe('Graph interaction helpers', () => {
     });
   });
 
-  it('formats edge tooltips with routed labels and hidden semantic labels only when needed', () => {
+  it('formats legacy await edge fixture tooltips with routed labels and hidden semantic labels', () => {
     const tooltip = edgeTooltipText(
       edge({
+        // Historical topology fixture coverage only. Current owner decisions
+        // use choice edges, but archived graphs may still contain await edges.
         kind: 'await',
         exit: 'child_done',
         routeFrom: 'host',

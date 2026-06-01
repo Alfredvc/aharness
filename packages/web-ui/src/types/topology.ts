@@ -32,6 +32,8 @@ export type ExitDetail = {
 
 export type VizNodeDetail = {
   entryPrompt?: TextDetail;
+  // Historical/bootstrap fixture compatibility only. Current owner decisions
+  // appear as choice nodes with `question` and `options`.
   awaitsOwnerText?: TextDetail;
   question?: TextDetail;
   options?: string[];
@@ -52,6 +54,8 @@ export type VizNode = {
   kind: NodeKind;
   open?: boolean;
   main?: true;
+  // Historical/bootstrap fixture compatibility only; not a current authoring
+  // surface for owner decisions.
   awaitsOwnerText?: boolean;
   outcome?: 'success' | 'failure';
   entryPrompt?: string;
@@ -60,6 +64,7 @@ export type VizNode = {
   detail?: VizNodeDetail;
 };
 
+// `await` is retained only for historical topology rows and legacy fixtures.
 export type EdgeKind = 'submit' | 'await' | 'always' | 'choice';
 
 export type VizEdge = {

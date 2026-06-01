@@ -4628,7 +4628,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(stderrText).toContain('low, medium');
   });
 
-  it('uses the same fresh clear scheduler after await-resolution transitions', async () => {
+  it.skip('uses the same fresh clear scheduler after retired await-resolution transitions', async () => {
     interface Payload {
       ok: boolean;
     }
@@ -4840,7 +4840,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(r.exitCode).toBe(0);
   });
 
-  it('await-resolution into non-clear model state gates immediate drive-forward turn/start', async () => {
+  it.skip('retired await-resolution into non-clear model state gates immediate drive-forward turn/start', async () => {
     interface Payload {
       ok: boolean;
     }

@@ -28,9 +28,9 @@ export default fsm.machine({
   }),
   states: {
     say: fsm.state({
+      mode: 'open',
       prompt:
         'Take the owner reply verbatim and submit it as `word`. Trim whitespace; lowercase is fine.',
-      ask: 'Pick any short secret word and type it. The aharness will then wipe your context.',
       on: {
         submit: fsm.submit<{ word: string }>({
           to: 'forget',
@@ -41,11 +41,11 @@ export default fsm.machine({
       },
     }),
     forget: fsm.state({
+      mode: 'open',
       prompt:
         'Your context was just wiped via clearOnEntry. You have NO record of what the owner typed last round. ' +
         'Tell the owner one short sentence acknowledging the wipe, then ask them to retype the word so you can record it. ' +
         'Submit whatever they say verbatim as `recalled`.',
-      ask: 'Wipe complete. Type the same word again so the model can record it (it does not remember).',
       clearOnEntry: true,
       on: {
         submit: fsm.submit<{ recalled: string }>({
