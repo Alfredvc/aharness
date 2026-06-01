@@ -174,6 +174,7 @@ export async function extractSchemaSidecar(
   const xstateBindings = collectXstateCreateMachineBindings(sourceFile);
   if (
     stateBindings.directNames.size === 0 &&
+    stateBindings.directChoiceNames.size === 0 &&
     stateBindings.namespaceNames.size === 0 &&
     createFsmFactoryNames.size === 0
   ) {
@@ -693,6 +694,7 @@ function unwrapTypeAssertion(node: ts.Expression): ts.Expression {
 
 interface StateBindings {
   readonly directNames: ReadonlySet<string>;
+  readonly directChoiceNames: ReadonlySet<string>;
   readonly namespaceNames: ReadonlySet<string>;
 }
 
@@ -709,6 +711,7 @@ function collectStateBindings(
   createFsmFactoryNames: ReadonlySet<string> = new Set(),
 ): StateBindings {
   const direct = new Set<string>();
+  const directChoice = new Set<string>();
   const namespaces = new Set<string>(createFsmFactoryNames);
   for (const stmt of sourceFile.statements) {
     if (!ts.isImportDeclaration(stmt)) continue;
@@ -727,10 +730,11 @@ function collectStateBindings(
       for (const elem of bindings.elements) {
         const importedName = (elem.propertyName ?? elem.name).text;
         if (importedName === 'state') direct.add(elem.name.text);
+        if (importedName === 'choice') directChoice.add(elem.name.text);
       }
     }
   }
-  return { directNames: direct, namespaceNames: namespaces };
+  return { directNames: direct, directChoiceNames: directChoice, namespaceNames: namespaces };
 }
 
 interface MachineBindings {
@@ -1009,6 +1013,20 @@ function isStateCall(call: ts.CallExpression, bindings: StateBindings): boolean 
   return false;
 }
 
+function isChoiceCall(call: ts.CallExpression, bindings: StateBindings): boolean {
+  const expr = call.expression;
+  if (ts.isIdentifier(expr)) {
+    return bindings.directChoiceNames.has(expr.text);
+  }
+  if (ts.isPropertyAccessExpression(expr)) {
+    if (!ts.isIdentifier(expr.expression)) return false;
+    if (!ts.isIdentifier(expr.name)) return false;
+    if (expr.name.text !== 'choice') return false;
+    return bindings.namespaceNames.has(expr.expression.text);
+  }
+  return false;
+}
+
 interface ExitBindings {
   readonly directNames: ReadonlySet<string>;
   readonly namespaceNames: ReadonlySet<string>;
@@ -1115,7 +1133,7 @@ function checkDirectCreateMachine(
           exitName: null,
           line,
           message:
-            'createMachine() called directly on a config containing stateful states; use aharness.machine(...) instead',
+            'createMachine() called directly on a config containing aharness state or choice helpers; use aharness.machine(...) instead',
         });
       }
     }
@@ -1134,9 +1152,19 @@ function containsStatefulState(node: ts.Node, stateBindings: StateBindings): boo
   let found = false;
   const visit = (n: ts.Node): void => {
     if (found) return;
+    if (
+      ts.isCallExpression(n) &&
+      (isStateCall(n, stateBindings) || isChoiceCall(n, stateBindings))
+    ) {
+      found = true;
+      return;
+    }
     if (ts.isPropertyAssignment(n) && staticPropertyName(n) === 'aharness') {
       const init = n.initializer;
-      if (ts.isCallExpression(init) && isStateCall(init, stateBindings)) {
+      if (
+        ts.isCallExpression(init) &&
+        (isStateCall(init, stateBindings) || isChoiceCall(init, stateBindings))
+      ) {
         found = true;
         return;
       }

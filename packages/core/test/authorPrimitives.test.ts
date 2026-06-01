@@ -7,7 +7,16 @@
  */
 import { describe, expect, expectTypeOf, it } from 'vitest';
 import { assign, createActor } from 'xstate';
-import { aharness, state, terminal, passive, exit, createFsm, type RunCtx } from '../src/index.js';
+import {
+  aharness,
+  state,
+  terminal,
+  passive,
+  exit,
+  createFsm,
+  type ChoiceMeta,
+  type RunCtx,
+} from '../src/index.js';
 
 describe('state() new shape', () => {
   it('returns a state config with meta.aharness populated', () => {
@@ -223,6 +232,7 @@ describe('createFsm() canonical authoring surface', () => {
     expect(typeof fsm.state).toBe('function');
     expect(typeof fsm.submit).toBe('function');
     expect(typeof fsm.await).toBe('function');
+    expect(typeof fsm.choice).toBe('function');
     expect(typeof fsm.final).toBe('function');
     expect(typeof fsm.passive).toBe('function');
     expect(typeof fsm.input.string).toBe('function');
@@ -432,6 +442,56 @@ describe('createFsm() canonical authoring surface', () => {
       'passive(): main must be a boolean when provided',
     );
   });
+
+  it('constructs canonical choice states and preserves question functions', () => {
+    const fsm = createFsm<CanonicalDemoData>();
+    const question = (data: Readonly<CanonicalDemoData>) => `Pick for ${data.color ?? 'none'}`;
+
+    const node = fsm.choice({
+      question,
+      options: [{ label: 'Red', to: 'red' }],
+      main: true,
+    });
+
+    const meta = node.meta.aharness as ChoiceMeta;
+    expect(meta.kind).toBe('choice');
+    expect(meta.question).toBe(question);
+    expect(meta.options).toEqual([{ label: 'Red', to: 'red' }]);
+    expect(meta.main).toBe(true);
+  });
+
+  it('rejects malformed canonical choice states at construction', () => {
+    const fsm = createFsm<CanonicalDemoData>();
+
+    expect(() => fsm.choice({ question: '', options: [{ label: 'A', to: 'a' }] })).toThrow(
+      /fsm\.choice\(\).*question/,
+    );
+    expect(() => fsm.choice({ question: 'Pick', options: [] as never })).toThrow(
+      /fsm\.choice\(\).*at least one/,
+    );
+    expect(() => fsm.choice({ question: 'Pick', options: [{ label: '', to: 'a' }] })).toThrow(
+      /fsm\.choice\(\).*label/,
+    );
+    expect(() => fsm.choice({ question: 'Pick', options: [{ label: 'A', to: '' }] })).toThrow(
+      /fsm\.choice\(\).*to/,
+    );
+    expect(() =>
+      fsm.choice({
+        question: 'Pick',
+        options: [
+          { label: 'A', to: 'a' },
+          { label: 'A', to: 'b' },
+        ],
+      }),
+    ).toThrow(/duplicate option label/);
+    expect(() =>
+      fsm.choice({
+        question: 'Pick',
+        options: [{ label: 'A', to: 'a' }],
+        prompt: 'nope',
+      } as never),
+    ).toThrow(/unsupported option 'prompt'/);
+  });
 });
 
 describe('passive() new shape', () => {
@@ -538,6 +598,80 @@ describe('injectFrameworkActions synthesis', () => {
     }>;
     const selfLoop = handler.find((h) => h.target === 'a');
     expect(selfLoop?.reenter).toBe(false);
+  });
+
+  it('synthesizes OWNER_CHOICE__<state> branches with exact-label guards', () => {
+    const fsm = createFsm<{ selected: string | null }>();
+    const machine = fsm.machine({
+      id: 'm',
+      data: () => ({ selected: null }),
+      initial: 'pick',
+      states: {
+        pick: fsm.choice({
+          question: 'Pick one',
+          options: [
+            { label: 'Stay', to: 'pick' },
+            { label: 'Finish', to: 'done' },
+          ],
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+    const pickNode = machine.getStateNodeById('m.pick');
+    const handler = pickNode.config.on?.['OWNER_CHOICE__pick'] as Array<{
+      guard: (args: { event: { payload?: { label?: unknown } } }) => boolean;
+      actions: Array<{ type: string; params?: { stateId: string } }>;
+      reenter?: boolean;
+      target: string;
+    }>;
+
+    expect(handler).toHaveLength(2);
+    expect(handler[0]?.guard({ event: { payload: { label: 'Stay' } } })).toBe(true);
+    expect(handler[0]?.guard({ event: { payload: { label: 'Finish' } } })).toBe(false);
+    expect(handler[0]?.reenter).toBe(false);
+    expect(handler[0]?.actions.map((action) => action.type)).toEqual([
+      '__aharnessClearOwnerReply',
+      '__aharnessIncrementVisit',
+    ]);
+    expect(handler[1]?.actions.map((action) => action.type)).toEqual(['__aharnessClearOwnerReply']);
+  });
+});
+
+describe('choice visit-count and owner-reply clearing semantics', () => {
+  it('clears owner reply and increments visit count exactly once on choice self-loop', () => {
+    const fsm = createFsm<{ ok: boolean }>();
+    const machine = fsm.machine({
+      id: 'm',
+      data: () =>
+        ({
+          ok: false,
+          __aharness_lastOwnerReply: 'stale',
+        }) as { ok: boolean },
+      initial: 'pick',
+      states: {
+        pick: fsm.choice({
+          question: 'Pick',
+          options: [
+            { label: 'Again', to: 'pick' },
+            { label: 'Done', to: 'done' },
+          ],
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+    const actor = createActor(machine);
+    actor.start();
+    expect(
+      (actor.getSnapshot().context as { __aharness_visitCount: Record<string, number> })
+        .__aharness_visitCount['pick'],
+    ).toBe(1);
+    actor.send({ type: 'OWNER_CHOICE__pick', payload: { label: 'Again' } });
+    const context = actor.getSnapshot().context as {
+      __aharness_lastOwnerReply: string | undefined;
+      __aharness_visitCount: Record<string, number>;
+    };
+    expect(context.__aharness_lastOwnerReply).toBeUndefined();
+    expect(context.__aharness_visitCount['pick']).toBe(2);
   });
 });
 

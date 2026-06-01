@@ -120,3 +120,76 @@ describe('validateAharnessMeta — stateful metadata', () => {
     );
   });
 });
+
+describe('validateAharnessMeta — choice metadata', () => {
+  const baseChoiceMeta = {
+    kind: 'choice',
+    question: 'Pick one',
+    options: [{ label: 'A', to: 'a' }],
+  };
+
+  it('accepts valid choice metadata', () => {
+    const question = () => 'Pick one';
+
+    expect(validateAharnessMeta(baseChoiceMeta)).toEqual(baseChoiceMeta);
+    expect(
+      validateAharnessMeta({
+        ...baseChoiceMeta,
+        question,
+        main: true,
+      }),
+    ).toEqual({
+      ...baseChoiceMeta,
+      question,
+      main: true,
+    });
+  });
+
+  it('rejects malformed choice question and options', () => {
+    expect(() => validateAharnessMeta({ ...baseChoiceMeta, question: '' })).toThrow(/question/);
+    expect(() => validateAharnessMeta({ ...baseChoiceMeta, question: 1 })).toThrow(/question/);
+    expect(() => validateAharnessMeta({ ...baseChoiceMeta, options: [] })).toThrow(/options/);
+    expect(() =>
+      validateAharnessMeta({ ...baseChoiceMeta, options: [{ label: '', to: 'a' }] }),
+    ).toThrow(/label/);
+    expect(() =>
+      validateAharnessMeta({ ...baseChoiceMeta, options: [{ label: 'A', to: '' }] }),
+    ).toThrow(/to/);
+    expect(() =>
+      validateAharnessMeta({
+        ...baseChoiceMeta,
+        options: [{ label: 'A', to: 'a', value: 'extra' }],
+      }),
+    ).toThrow(/value/);
+    expect(() =>
+      validateAharnessMeta({
+        ...baseChoiceMeta,
+        options: [
+          { label: 'A', to: 'a' },
+          { label: 'A', to: 'b' },
+        ],
+      }),
+    ).toThrow(/duplicated/);
+    expect(() => validateAharnessMeta({ ...baseChoiceMeta, main: false })).toThrow(/main/);
+  });
+
+  it('rejects stateful-only behavior fields on choice metadata', () => {
+    for (const field of [
+      'entryPrompt',
+      'exits',
+      'awaitsOwnerText',
+      'onEntry',
+      'hooks',
+      'skills',
+      'model',
+      'clearOnEntry',
+      'open',
+      'stopGuidance',
+      'canonicalEvents',
+    ]) {
+      expect(() => validateAharnessMeta({ ...baseChoiceMeta, [field]: {} })).toThrow(
+        new RegExp(field),
+      );
+    }
+  });
+});

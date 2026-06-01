@@ -419,6 +419,14 @@ async function dispatch(
       `Submit rejected: exit '${exit}' on state '${cur}' targets passive state '${dry.nextStateId}'.`,
     );
   }
+  if (orientation.isChoice) {
+    return errReply(
+      `Submit rejected: exit '${exit}' on state '${cur}' targets choice state ` +
+        `'${dry.nextStateId}', but live owner-choice parking is not implemented in this slice. ` +
+        `Submit not applied.`,
+      `Submit rejected: exit '${exit}' on state '${cur}' targets choice state '${dry.nextStateId}'.`,
+    );
+  }
 
   const isSelfLoop = dry.nextStateId === cur;
   const isCrossState = !isSelfLoop && !orientation.isTerminal;
@@ -535,6 +543,7 @@ interface OrientationOk {
   readonly isTerminal: boolean;
   readonly isAwaitsOwnerText: boolean;
   readonly isPassive: boolean;
+  readonly isChoice: boolean;
   readonly terminalOutcome?: string;
 }
 interface OrientationErr {
@@ -576,6 +585,7 @@ function resolveOrientationForNextState(args: {
       isTerminal: false,
       isAwaitsOwnerText: false,
       isPassive: false,
+      isChoice: false,
     };
   }
   const meta = lookupAharnessMetaByPath(args.machine, args.nextStateId);
@@ -586,6 +596,7 @@ function resolveOrientationForNextState(args: {
       isTerminal: false,
       isAwaitsOwnerText: false,
       isPassive: false,
+      isChoice: false,
     };
   }
   if (meta.kind === 'terminal') {
@@ -595,6 +606,7 @@ function resolveOrientationForNextState(args: {
       isTerminal: true,
       isAwaitsOwnerText: false,
       isPassive: false,
+      isChoice: false,
       terminalOutcome: meta.outcome,
     };
   }
@@ -605,6 +617,17 @@ function resolveOrientationForNextState(args: {
       isTerminal: false,
       isAwaitsOwnerText: false,
       isPassive: true,
+      isChoice: false,
+    };
+  }
+  if (meta.kind === 'choice') {
+    return {
+      ok: true,
+      orientationText: '',
+      isTerminal: false,
+      isAwaitsOwnerText: false,
+      isPassive: false,
+      isChoice: true,
     };
   }
   // Stateful (the remaining discriminant after terminal/passive above).
@@ -616,6 +639,7 @@ function resolveOrientationForNextState(args: {
       isTerminal: false,
       isAwaitsOwnerText: meta.awaitsOwnerText !== undefined,
       isPassive: false,
+      isChoice: false,
     };
   } catch (e) {
     return { ok: false, error: (e as Error).message };

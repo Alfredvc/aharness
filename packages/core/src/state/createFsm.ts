@@ -62,8 +62,12 @@ import {
   type SkillRefName,
   type SkillRefPath,
 } from './skills.js';
+import type { ChoiceMeta, ChoiceOption } from '../types.js';
 
 type CanonicalText<Data> = string | ((data: Readonly<Data>) => string);
+type CanonicalChoiceQuestion<Data> = string | ((data: Readonly<Data>) => string);
+type NonEmptyReadonlyArray<T> = readonly [T, ...T[]];
+type GeneratedEventName = `SUBMIT__${string}` | `AWAIT__${string}` | `OWNER_CHOICE__${string}`;
 
 type CanonicalClearOnEntry<Data> =
   | boolean
@@ -292,18 +296,8 @@ type CanonicalOn<Data, Events extends EventCatalog> = KnownEventOn<Data, Events>
   BroadEventOn<Data>;
 
 type BadEventCatalogKeys<TEvents extends EventCatalog> = {
-  [K in keyof TEvents]: K extends BuiltinEventName
-    ? K
-    : K extends `SUBMIT__${string}` | `AWAIT__${string}`
-      ? K
-      : never;
+  [K in keyof TEvents]: K extends BuiltinEventName ? K : K extends GeneratedEventName ? K : never;
 }[keyof TEvents];
-
-type ValidateEventCatalog<TEvents extends EventCatalog> = [BadEventCatalogKeys<TEvents>] extends [
-  never,
-]
-  ? unknown
-  : never;
 
 type AwaitKeys<TOn> = {
   // oxlint-disable-next-line typescript/no-explicit-any
@@ -370,6 +364,12 @@ interface CanonicalStateOptions<Data, Events extends EventCatalog> {
   readonly guidance?: CanonicalText<Data>;
   readonly skills?: ReadonlyArray<SkillRef>;
   readonly xstate?: Record<string, unknown>;
+}
+
+interface CanonicalChoiceOptions<Data> {
+  readonly question: CanonicalChoiceQuestion<Data>;
+  readonly options: NonEmptyReadonlyArray<ChoiceOption>;
+  readonly main?: boolean;
 }
 
 const canonicalStateModelEfforts = new Set<StateModelEffort>([
@@ -509,12 +509,19 @@ interface CreateFsmFactory<Data, Events extends EventCatalog = Record<never, nev
   state<const TOptions extends CanonicalStateOptions<Data, Events>>(
     opts: ValidateStateOptions<TOptions, Events>,
   ): StateConfig;
+  choice<const TOptions extends CanonicalChoiceOptions<Data>>(
+    opts: TOptions,
+  ): {
+    readonly meta: {
+      readonly aharness: ChoiceMeta;
+    };
+  };
   event<Payload>(): CanonicalEventDefinition<Payload>;
   event<Payload, Return>(opts: {
     readonly defaultReturn: Return;
   }): CanonicalEventDefinition<Payload, Return>;
   withEvents<const TEvents extends EventCatalog>(
-    events: TEvents & ValidateEventCatalog<TEvents>,
+    events: [BadEventCatalogKeys<TEvents>] extends [never] ? TEvents : never,
   ): CreateFsmFactory<Data, TEvents>;
   submit<Payload>(
     opts: CanonicalSubmitOptions<Data, Payload>,
@@ -563,10 +570,16 @@ function validateEventCatalog(events: EventCatalog): void {
     if (isBuiltinEventName(name)) {
       throw new TypeError(`fsm.withEvents(): '${name}' is a reserved built-in hook event name`);
     }
-    if (name.startsWith('SUBMIT__') || name.startsWith('AWAIT__')) {
+    if (usesGeneratedEventPrefix(name)) {
       throw new TypeError(`fsm.withEvents(): '${name}' uses a reserved generated event prefix`);
     }
   }
+}
+
+function usesGeneratedEventPrefix(name: string): boolean {
+  return (
+    name.startsWith('SUBMIT__') || name.startsWith('AWAIT__') || name.startsWith('OWNER_CHOICE__')
+  );
 }
 
 function lowerEmbed<Data, TChildFsm extends AnyStateMachine | MinimalChildConfig>(
@@ -805,6 +818,68 @@ function lowerStateOptions<Data, Events extends EventCatalog>(
   };
 }
 
+function lowerChoiceOptions<Data>(opts: CanonicalChoiceOptions<Data>): {
+  readonly meta: { readonly aharness: ChoiceMeta };
+} {
+  validateChoiceOptions(opts);
+  return {
+    meta: {
+      aharness: {
+        kind: 'choice',
+        question: opts.question as ChoiceMeta['question'],
+        options: opts.options.map((option) => ({ label: option.label, to: option.to })),
+        ...(opts.main === true ? { main: true } : {}),
+      },
+    },
+  };
+}
+
+function validateChoiceOptions<Data>(opts: CanonicalChoiceOptions<Data>): void {
+  if (opts === null || typeof opts !== 'object' || Array.isArray(opts)) {
+    throw new TypeError('fsm.choice(): options must be an object');
+  }
+  const allowed = new Set(['question', 'options', 'main']);
+  for (const key of Object.keys(opts as unknown as Record<string, unknown>)) {
+    if (!allowed.has(key)) throw new TypeError(`fsm.choice(): unsupported option '${key}'`);
+  }
+  if (
+    typeof opts.question !== 'function' &&
+    (typeof opts.question !== 'string' || opts.question.length === 0)
+  ) {
+    throw new TypeError('fsm.choice(): question must be a non-empty string or function');
+  }
+  if (!Array.isArray(opts.options) || opts.options.length === 0) {
+    throw new TypeError('fsm.choice(): options must contain at least one option');
+  }
+  if (opts.main !== undefined && opts.main !== true && opts.main !== false) {
+    throw new TypeError('fsm.choice(): main must be a boolean when provided');
+  }
+  const labels = new Set<string>();
+  for (let i = 0; i < opts.options.length; i++) {
+    const option = opts.options[i] as unknown;
+    if (option === null || typeof option !== 'object' || Array.isArray(option)) {
+      throw new TypeError(`fsm.choice(): options[${i}] must be an object`);
+    }
+    const optionRecord = option as Record<string, unknown>;
+    const optionAllowed = new Set(['label', 'to']);
+    for (const key of Object.keys(optionRecord)) {
+      if (!optionAllowed.has(key)) {
+        throw new TypeError(`fsm.choice(): options[${i}] unsupported option '${key}'`);
+      }
+    }
+    if (typeof optionRecord['label'] !== 'string' || optionRecord['label'].length === 0) {
+      throw new TypeError(`fsm.choice(): options[${i}].label must be a non-empty string`);
+    }
+    if (typeof optionRecord['to'] !== 'string' || optionRecord['to'].length === 0) {
+      throw new TypeError(`fsm.choice(): options[${i}].to must be a non-empty string`);
+    }
+    if (labels.has(optionRecord['label'])) {
+      throw new TypeError(`fsm.choice(): duplicate option label '${optionRecord['label']}'`);
+    }
+    labels.add(optionRecord['label']);
+  }
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
@@ -900,7 +975,7 @@ function validateEventOptions<Data, Payload, Return>(
   definition: CanonicalEventDefinition<Payload, Return>,
   options: CanonicalEventHandlerOptions<Data, Payload, Return> & { readonly match?: string },
 ): void {
-  if (name.startsWith('SUBMIT__') || name.startsWith('AWAIT__')) {
+  if (usesGeneratedEventPrefix(name)) {
     throw new TypeError(`fsm.state(): event '${name}' uses a reserved generated event prefix`);
   }
   if (eventKind === 'custom' && options.match !== undefined) {
@@ -1152,6 +1227,7 @@ function createFsmFactory<Data, Events extends EventCatalog>(
     },
     state: (opts: unknown) =>
       lowerStateOptions(opts as CanonicalStateOptions<Data, Events>, eventCatalog),
+    choice: (opts: unknown) => lowerChoiceOptions(opts as CanonicalChoiceOptions<Data>),
     event: (opts?: { readonly defaultReturn: unknown }) =>
       ({
         __canonicalEventDefinition: true,

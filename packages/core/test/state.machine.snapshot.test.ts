@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { aharness } from '../src/state/machine.js';
 import { state, exit, terminal } from '../src/state/exits.js';
+import { createFsm } from '../src/state/createFsm.js';
 
 describe('aharness.machine() — __aharnessRawConfig snapshot', () => {
   it('stashes a non-enumerable, top-level-frozen pre-synthesis snapshot of the input config', () => {
@@ -68,5 +69,35 @@ describe('aharness.machine() — __aharnessRawConfig snapshot', () => {
       }
     ).__aharnessRawConfig;
     expect(snap.states.go.meta.aharness.entryPrompt).toBe(promptFn);
+  });
+
+  it('snapshot preserves choice question functions before owner-choice synthesis', () => {
+    const fsm = createFsm<{ name: string }>();
+    const question = (data: Readonly<{ name: string }>) => `Pick for ${data.name}`;
+    const compiled = fsm.machine({
+      id: 'choice-snapshot',
+      data: () => ({ name: 'Ada' }),
+      initial: 'pick',
+      states: {
+        pick: fsm.choice({
+          question,
+          options: [{ label: 'Done', to: 'done' }],
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+    const snap = (
+      compiled as {
+        __aharnessRawConfig: {
+          states: {
+            pick: { meta: { aharness: { question: unknown } }; on?: Record<string, unknown> };
+          };
+        };
+      }
+    ).__aharnessRawConfig;
+    expect(snap.states.pick.meta.aharness.question).toBe(question);
+    expect(
+      Object.keys(snap.states.pick.on ?? {}).filter((key) => key.startsWith('OWNER_CHOICE__')),
+    ).toEqual([]);
   });
 });

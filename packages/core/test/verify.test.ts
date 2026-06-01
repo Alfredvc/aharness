@@ -77,6 +77,178 @@ describe('@aharness/core verify (happy path)', () => {
     expect(result.ok).toBe(true);
     expect(result.issues).toEqual([]);
   });
+
+  it('reports ok=true on a well-formed choice machine', () => {
+    const fsm = createFsmVerify<{ ok: boolean }>();
+    const m = fsm.machine({
+      id: 'choice-ok',
+      data: () => ({ ok: false }),
+      initial: 'pick',
+      states: {
+        pick: fsm.choice({
+          question: 'Pick one',
+          options: [
+            { label: 'Again', to: 'pick' },
+            { label: 'Done', to: 'final' },
+          ],
+        }),
+        final: fsm.final({ outcome: 'success' }),
+      },
+    });
+    const result = verify(m, {});
+    expect(result.ok).toBe(true);
+    expect(result.issues).toEqual([]);
+  });
+});
+
+describe('@aharness/core verify: choice states', () => {
+  it('rejects malformed choice metadata without throwing', () => {
+    const m = aharness.machine({
+      id: 'choice-bad-meta',
+      initial: 'pick',
+      states: {
+        pick: {
+          meta: {
+            aharness: {
+              kind: 'choice',
+              question: '',
+              options: [{ label: 'Done', to: 'final' }],
+            },
+          },
+        },
+        final: terminal('success'),
+      },
+    });
+
+    const result = verify(m, {});
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'aharness-meta-well-formedness',
+          stateId: 'pick',
+        }),
+      ]),
+    );
+  });
+
+  it('rejects choice option targets outside the sibling state set', () => {
+    const choiceMeta = {
+      kind: 'choice' as const,
+      question: 'Pick one',
+      options: [{ label: 'Missing', to: 'missing' }],
+    };
+    const fakeNodePick = {
+      id: 'm.pick',
+      type: 'atomic' as const,
+      path: ['pick'] as ReadonlyArray<string>,
+      parent: undefined as unknown,
+      states: {} as Record<string, never>,
+      config: { meta: { aharness: choiceMeta }, on: { OWNER_CHOICE__pick: [] } },
+    };
+    const fakeNodeFinal = {
+      id: 'm.final',
+      type: 'final' as const,
+      path: ['final'] as ReadonlyArray<string>,
+      parent: undefined as unknown,
+      states: {} as Record<string, never>,
+      config: { meta: { aharness: { kind: 'terminal' as const, outcome: 'success' as const } } },
+    };
+    const fakeRoot = {
+      id: 'm',
+      type: 'compound' as const,
+      path: [] as ReadonlyArray<string>,
+      parent: undefined,
+      states: { pick: fakeNodePick, final: fakeNodeFinal } as Record<string, unknown>,
+      config: {},
+    };
+    (fakeNodePick as unknown as { parent: unknown }).parent = fakeRoot;
+    (fakeNodeFinal as unknown as { parent: unknown }).parent = fakeRoot;
+    const fakeMachine = {
+      root: fakeRoot,
+      implementations: { guards: {}, actions: {}, actors: {} },
+    } as unknown as Parameters<typeof verify>[0];
+    (fakeRoot as unknown as { machine: unknown }).machine = fakeMachine;
+    (fakeNodePick as unknown as { machine: unknown }).machine = fakeMachine;
+    (fakeNodeFinal as unknown as { machine: unknown }).machine = fakeMachine;
+
+    const result = verify(fakeMachine, {});
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'exit-target-in-state-set',
+          stateId: 'pick',
+        }),
+      ]),
+    );
+  });
+
+  it('rejects raw choice nodes with authored XState behavior fields', () => {
+    const m = aharness.machine({
+      id: 'choice-behavior',
+      initial: 'pick',
+      states: {
+        pick: {
+          entry: 'authoredEntry',
+          on: { AUTHORED: 'final' },
+          meta: {
+            aharness: {
+              kind: 'choice',
+              question: 'Pick one',
+              options: [{ label: 'Done', to: 'final' }],
+            },
+          },
+        },
+        final: terminal('success'),
+      },
+    });
+
+    const result = verify(m, {});
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'state-config-missing-aharness-meta',
+          stateId: 'pick',
+          message: expect.stringContaining("field 'entry'"),
+        }),
+        expect.objectContaining({
+          check: 'state-config-missing-aharness-meta',
+          stateId: 'pick',
+          message: expect.stringContaining("on['AUTHORED']"),
+        }),
+      ]),
+    );
+  });
+
+  it('rejects authored OWNER_CHOICE__ handlers through the generated-key check', () => {
+    const m = aharness.machine({
+      id: 'choice-owner-collision',
+      initial: 'pick',
+      states: {
+        pick: {
+          on: { OWNER_CHOICE__pick: { target: 'final' } },
+          meta: {
+            aharness: {
+              kind: 'choice',
+              question: 'Pick one',
+              options: [{ label: 'Done', to: 'final' }],
+            },
+          },
+        },
+        final: terminal('success'),
+      },
+    });
+
+    const result = verify(m, {});
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'no-handwritten-submit-await-handlers',
+          stateId: 'pick',
+        }),
+      ]),
+    );
+  });
 });
 
 describe('@aharness/core verify: clearOnEntry initial-state rule', () => {

@@ -18,7 +18,7 @@ export type Posture = {
 export type FsmState = {
   path: string;
   leaf: string;
-  kind: 'stateful' | 'terminal' | 'passive' | 'final';
+  kind: 'stateful' | 'terminal' | 'passive' | 'choice' | 'final';
   open?: boolean;
   awaiting?: boolean;
   model?: string;

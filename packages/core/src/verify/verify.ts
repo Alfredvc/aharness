@@ -90,8 +90,8 @@
  */
 import type { AnyStateMachine, StateNode } from 'xstate';
 
-import { getAharnessMeta, iterStates, stateKeyPath } from '../state.js';
-import type { AharnessStateMeta, SchemaSidecar } from '../types.js';
+import { getAharnessMeta as unsafeGetAharnessMeta, iterStates, stateKeyPath } from '../state.js';
+import type { AharnessMeta, AharnessStateMeta, ChoiceMeta, SchemaSidecar } from '../types.js';
 import type { SidecarIssue } from '../loader/index.js';
 import { SUBMIT_TOOL_NAME } from '../protocol/submitTool.js';
 import { isSkillRef } from '../state/skills.js';
@@ -110,6 +110,7 @@ export type VerifyIssueCheck =
   | 'terminal-reachability'
   | 'no-black-hole-non-terminals'
   | 'per-state-data-schema-resolvable'
+  | 'aharness-meta-well-formedness'
   | 'entryPrompt-paired'
   | 'no-unresolved-references'
   | 'final-classification'
@@ -209,53 +210,63 @@ export function verify(
   opts?: VerifyOpts,
 ): VerifyResult {
   const issues: VerifyIssue[] = [];
-  issues.push(...checkReachability(machine));
-  issues.push(...checkClearOnEntryNotInitial(machine));
-  issues.push(...checkTerminalReachability(machine));
-  issues.push(...checkNoBlackHoleNonTerminals(machine));
-  issues.push(...checkPerStateDataSchemaResolvable(machine, sidecar, sidecarIssues));
-  issues.push(...checkEntryPromptPaired(machine));
-  issues.push(...checkNoUnresolvedReferences(machine));
-  issues.push(...checkFinalClassification(machine));
-  issues.push(...checkSingleAwaitPerState(machine));
-  issues.push(...checkExitKindWellFormed(machine));
-  issues.push(...checkOpenStatesHaveExits(machine));
-  issues.push(...checkAwaitOnlyStrictState(machine));
-  issues.push(...checkAuthorFunctionsSync(sidecarIssues));
-  issues.push(...checkMachineUsesAharnessWrapper(sidecarIssues));
-  issues.push(...checkStateExitTupleUnique(machine));
-  issues.push(...checkRequestUserInputNameCollision());
-  issues.push(...checkAharnessSubmitNameCollision(machine));
-  issues.push(...checkNoSubmitInSpawnAgentReachableStates(machine));
-  issues.push(...checkNoHandwrittenSubmitAwaitHandlers(machine));
-  issues.push(...checkExitTargetInStateSet(machine));
-  issues.push(...checkCanonicalEventTargetInStateSet(machine));
-  issues.push(...checkCanonicalEventWellFormed(machine));
-  issues.push(...checkWhenLastUnguarded(machine));
-  issues.push(...checkWhenArrayMinLength2(machine));
-  issues.push(...checkAwaitNoMultiBranch(machine));
-  issues.push(...checkExitShapeExclusive(machine));
-  issues.push(...checkStateConfigMissingAharnessMeta(machine));
-  issues.push(...checkAwaitsOwnerTextNoAwaitExit(machine));
-  issues.push(...checkStateOnEntryMustBeFunction(machine));
-  issues.push(...checkOnEntryOnlyOnStatefulStates(machine));
-  issues.push(...checkBareBranchWarning(machine));
-  issues.push(...checkEmbeddedFinalMustBeWired(machine));
-  issues.push(...checkEmbeddingAcyclic(machine));
-  issues.push(...checkEmbeddedInputMustBeSatisfied(machine));
-  issues.push(...checkFinalOutputMustBeFunction(machine));
-  issues.push(...checkEmbeddedStateExclusive(machine));
-  issues.push(...checkEmbeddedChildMustHaveFinals(machine));
-  issues.push(...checkEmbeddedFinalIdNameShape(machine));
-  issues.push(...checkStateHooksMustBeFunctions(machine));
-  issues.push(...checkHookKindNotYetSupported(machine));
-  issues.push(...checkHookMatcherNotSupportedOnKind(machine));
-  issues.push(...checkHookMatcherInvalidRegex(machine));
-  issues.push(...checkHooksOnlyOnStatefulStates(machine));
-  issues.push(...checkSkillsOnlyOnStatefulStates(machine));
-  issues.push(...checkSkillNameShapeAndDuplicates(machine));
-  if (opts?.skillEnv !== undefined) {
-    issues.push(...checkSkillsResolve(machine, opts.skillEnv));
+  const previousReader = activeMetaReader;
+  const reader = createMetaReader(machine);
+  activeMetaReader = reader;
+  try {
+    issues.push(...reader.issues);
+    issues.push(...checkReachability(machine));
+    issues.push(...checkClearOnEntryNotInitial(machine));
+    issues.push(...checkTerminalReachability(machine));
+    issues.push(...checkNoBlackHoleNonTerminals(machine));
+    issues.push(...checkPerStateDataSchemaResolvable(machine, sidecar, sidecarIssues));
+    issues.push(...checkEntryPromptPaired(machine));
+    issues.push(...checkNoUnresolvedReferences(machine));
+    issues.push(...checkFinalClassification(machine));
+    issues.push(...checkSingleAwaitPerState(machine));
+    issues.push(...checkExitKindWellFormed(machine));
+    issues.push(...checkOpenStatesHaveExits(machine));
+    issues.push(...checkAwaitOnlyStrictState(machine));
+    issues.push(...checkAuthorFunctionsSync(sidecarIssues));
+    issues.push(...checkMachineUsesAharnessWrapper(sidecarIssues));
+    issues.push(...checkStateExitTupleUnique(machine));
+    issues.push(...checkRequestUserInputNameCollision());
+    issues.push(...checkAharnessSubmitNameCollision(machine));
+    issues.push(...checkNoSubmitInSpawnAgentReachableStates(machine));
+    issues.push(...checkNoHandwrittenSubmitAwaitHandlers(machine));
+    issues.push(...checkExitTargetInStateSet(machine));
+    issues.push(...checkChoiceTargetInStateSet(machine));
+    issues.push(...checkChoiceAuthoredBehavior(machine));
+    issues.push(...checkCanonicalEventTargetInStateSet(machine));
+    issues.push(...checkCanonicalEventWellFormed(machine));
+    issues.push(...checkWhenLastUnguarded(machine));
+    issues.push(...checkWhenArrayMinLength2(machine));
+    issues.push(...checkAwaitNoMultiBranch(machine));
+    issues.push(...checkExitShapeExclusive(machine));
+    issues.push(...checkStateConfigMissingAharnessMeta(machine));
+    issues.push(...checkAwaitsOwnerTextNoAwaitExit(machine));
+    issues.push(...checkStateOnEntryMustBeFunction(machine));
+    issues.push(...checkOnEntryOnlyOnStatefulStates(machine));
+    issues.push(...checkBareBranchWarning(machine));
+    issues.push(...checkEmbeddedFinalMustBeWired(machine));
+    issues.push(...checkEmbeddingAcyclic(machine));
+    issues.push(...checkEmbeddedInputMustBeSatisfied(machine));
+    issues.push(...checkFinalOutputMustBeFunction(machine));
+    issues.push(...checkEmbeddedStateExclusive(machine));
+    issues.push(...checkEmbeddedChildMustHaveFinals(machine));
+    issues.push(...checkEmbeddedFinalIdNameShape(machine));
+    issues.push(...checkStateHooksMustBeFunctions(machine));
+    issues.push(...checkHookKindNotYetSupported(machine));
+    issues.push(...checkHookMatcherNotSupportedOnKind(machine));
+    issues.push(...checkHookMatcherInvalidRegex(machine));
+    issues.push(...checkHooksOnlyOnStatefulStates(machine));
+    issues.push(...checkSkillsOnlyOnStatefulStates(machine));
+    issues.push(...checkSkillNameShapeAndDuplicates(machine));
+    if (opts?.skillEnv !== undefined) {
+      issues.push(...checkSkillsResolve(machine, opts.skillEnv));
+    }
+  } finally {
+    activeMetaReader = previousReader;
   }
   // Split into errors and warnings; compute ok from errors only.
   const errors = issues.filter((i) => i.severity === 'error');
@@ -276,10 +287,52 @@ function warn(check: VerifyIssueCheck, stateId: string, message: string): Verify
   return { check, stateId, message, severity: 'warning' };
 }
 
+interface MetaReader {
+  readonly issues: ReadonlyArray<VerifyIssue>;
+  get(node: StateNode): AharnessMeta | undefined;
+}
+
+let activeMetaReader: MetaReader | undefined;
+
+function createMetaReader(machine: AnyStateMachine): MetaReader {
+  const cache = new Map<StateNode, AharnessMeta | undefined>();
+  const issues: VerifyIssue[] = [];
+  for (const node of iterStates(machine)) {
+    try {
+      cache.set(node, unsafeGetAharnessMeta(node));
+    } catch (e) {
+      const sid = stateKeyPath(node);
+      issues.push(
+        err(
+          'aharness-meta-well-formedness',
+          sid,
+          `state '${sid}' has malformed meta.aharness: ${e instanceof Error ? e.message : String(e)}`,
+        ),
+      );
+      cache.set(node, undefined);
+    }
+  }
+  return {
+    issues,
+    get: (node) => cache.get(node),
+  };
+}
+
+function readAharnessMeta(node: StateNode): AharnessMeta | undefined {
+  if (activeMetaReader !== undefined) return activeMetaReader.get(node);
+  return unsafeGetAharnessMeta(node);
+}
+
 /** Narrow a `AharnessMeta` to its stateful variant; returns `undefined` otherwise. */
 function asStatefulMeta(node: StateNode): AharnessStateMeta | undefined {
-  const meta = getAharnessMeta(node);
+  const meta = readAharnessMeta(node);
   if (!meta || meta.kind !== 'stateful') return undefined;
+  return meta;
+}
+
+function asChoiceMeta(node: StateNode): ChoiceMeta | undefined {
+  const meta = readAharnessMeta(node);
+  if (!meta || meta.kind !== 'choice') return undefined;
   return meta;
 }
 
@@ -840,7 +893,7 @@ function checkFinalClassification(machine: AnyStateMachine): VerifyIssue[] {
   for (const node of iterStates(machine)) {
     if (node.type !== 'final') continue;
     const sid = stateKeyPath(node);
-    const meta = getAharnessMeta(node);
+    const meta = readAharnessMeta(node);
     if (!meta || meta.kind !== 'terminal') {
       issues.push(
         err(
@@ -1193,7 +1246,7 @@ function checkAharnessSubmitNameCollision(machine: AnyStateMachine): VerifyIssue
 /**
  * Reads the side-channel field `meta.aharness.__aharness_authoredOnKeys`
  * populated by the synthesizer in `injectFrameworkActions` BEFORE it
- * overwrites `node.on[SUBMIT__/AWAIT__]`. If the snapshot is non-empty,
+ * overwrites generated framework events. If the snapshot is non-empty,
  * the author hand-wrote keys that are framework-owned.
  */
 function checkNoHandwrittenSubmitAwaitHandlers(machine: AnyStateMachine): VerifyIssue[] {
@@ -1206,7 +1259,7 @@ function checkNoHandwrittenSubmitAwaitHandlers(machine: AnyStateMachine): Verify
         err(
           'no-handwritten-submit-await-handlers',
           stateKeyPath(node),
-          `state has hand-written on['${k}'] handler; SUBMIT__/AWAIT__ event keys are framework-synthesized — declare the transition via meta.aharness.exits[*] instead`,
+          `state has hand-written on['${k}'] handler; SUBMIT__/AWAIT__/OWNER_CHOICE__ event keys are framework-synthesized — declare the transition via framework metadata instead`,
         ),
       );
     }
@@ -1282,6 +1335,89 @@ function exitTargets(exit: { to?: string; when?: Array<{ to?: string }> }): stri
   return [];
 }
 
+function checkChoiceTargetInStateSet(machine: AnyStateMachine): VerifyIssue[] {
+  const out: VerifyIssue[] = [];
+  for (const node of iterStates(machine)) {
+    const meta = asChoiceMeta(node);
+    if (!meta) continue;
+    const sid = stateKeyPath(node);
+    for (const option of meta.options) {
+      try {
+        const resolved = resolveSiblingTarget(node, option.to);
+        if (!resolved) {
+          out.push(
+            err(
+              'exit-target-in-state-set',
+              sid,
+              `choice option '${option.label}' targets unknown sibling state '${option.to}'`,
+            ),
+          );
+        }
+      } catch (e) {
+        out.push(
+          err(
+            'exit-target-in-state-set',
+            sid,
+            `choice option '${option.label}' targets unknown sibling state '${option.to}' (resolver error: ${(e as Error).message})`,
+          ),
+        );
+      }
+    }
+  }
+  return out;
+}
+
+function checkChoiceAuthoredBehavior(machine: AnyStateMachine): VerifyIssue[] {
+  const out: VerifyIssue[] = [];
+  const rawConfig = (machine as { __aharnessRawConfig?: { states?: Record<string, unknown> } })
+    .__aharnessRawConfig;
+  for (const node of iterStates(machine)) {
+    const meta = asChoiceMeta(node);
+    if (!meta) continue;
+    const sid = stateKeyPath(node);
+    const rawNode = lookupRawState(rawConfig, node.path) ?? node.config;
+    const raw = rawNode as Record<string, unknown>;
+    for (const key of ['entry', 'exit', 'always', 'after', 'invoke', 'states', 'initial']) {
+      if (raw[key] !== undefined) {
+        out.push(
+          err(
+            'state-config-missing-aharness-meta',
+            sid,
+            `choice state '${sid}' cannot declare XState behavior field '${key}'`,
+          ),
+        );
+      }
+    }
+    const on = asPlainObject(raw['on']);
+    if (on !== null) {
+      const authored = Object.keys(on).filter((key) => !key.startsWith('OWNER_CHOICE__'));
+      for (const key of authored) {
+        out.push(
+          err(
+            'state-config-missing-aharness-meta',
+            sid,
+            `choice state '${sid}' cannot declare authored on['${key}'] handler`,
+          ),
+        );
+      }
+    }
+  }
+  return out;
+}
+
+function lookupRawState(
+  rawConfig: { states?: Record<string, unknown> } | undefined,
+  path: ReadonlyArray<string>,
+): unknown {
+  let cursor: { states?: Record<string, unknown> } | undefined = rawConfig;
+  for (const segment of path) {
+    const next = cursor?.states?.[segment];
+    if (next === null || typeof next !== 'object') return undefined;
+    cursor = next as { states?: Record<string, unknown> };
+  }
+  return cursor;
+}
+
 // ─── Check: canonical-event-target-in-state-set ──────────────────────────
 
 function checkCanonicalEventTargetInStateSet(machine: AnyStateMachine): VerifyIssue[] {
@@ -1337,7 +1473,11 @@ function checkCanonicalEventWellFormed(machine: AnyStateMachine): VerifyIssue[] 
     const rawOn = asPlainObject(node.config.on);
     const events = meta.canonicalEvents ?? {};
     for (const [eventName, eventMeta] of Object.entries(events)) {
-      if (eventName.startsWith('SUBMIT__') || eventName.startsWith('AWAIT__')) {
+      if (
+        eventName.startsWith('SUBMIT__') ||
+        eventName.startsWith('AWAIT__') ||
+        eventName.startsWith('OWNER_CHOICE__')
+      ) {
         out.push(
           err(
             'canonical-event-well-formedness',
@@ -1784,7 +1924,7 @@ function checkStateOnEntryMustBeFunction(machine: AnyStateMachine): VerifyIssue[
 function checkOnEntryOnlyOnStatefulStates(machine: AnyStateMachine): VerifyIssue[] {
   const out: VerifyIssue[] = [];
   for (const node of iterStates(machine)) {
-    const meta = getAharnessMeta(node);
+    const meta = readAharnessMeta(node);
     if (!meta) continue;
     if (meta.kind === 'stateful') continue;
     // terminal / passive — `onEntry` is not part of the helper-built
@@ -1960,7 +2100,7 @@ function checkHookMatcherInvalidRegex(machine: AnyStateMachine): VerifyIssue[] {
 function checkHooksOnlyOnStatefulStates(machine: AnyStateMachine): VerifyIssue[] {
   const out: VerifyIssue[] = [];
   for (const node of iterStates(machine)) {
-    const meta = getAharnessMeta(node);
+    const meta = readAharnessMeta(node);
     if (!meta) continue;
     if (meta.kind === 'stateful') continue;
     const offending = (meta as { hooks?: unknown }).hooks;
@@ -2497,7 +2637,7 @@ function checkEmbeddedFinalIdNameShape(machine: AnyStateMachine): VerifyIssue[] 
 function checkSkillsOnlyOnStatefulStates(machine: AnyStateMachine): VerifyIssue[] {
   const issues: VerifyIssue[] = [];
   for (const node of iterStates(machine)) {
-    const meta = getAharnessMeta(node);
+    const meta = readAharnessMeta(node);
     if (!meta) continue;
     if (meta.kind === 'stateful') continue;
     const raw = (node.config as { meta?: { aharness?: { skills?: unknown } } }).meta?.aharness

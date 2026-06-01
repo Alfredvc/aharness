@@ -70,6 +70,70 @@ function validateStateModel(value: unknown): void {
   }
 }
 
+function validateChoiceMeta(v: Record<string, unknown>): void {
+  const question = v['question'];
+  if (typeof question !== 'function' && (typeof question !== 'string' || question.length === 0)) {
+    throw new Error(
+      `validateAharnessMeta: choice meta 'question' must be non-empty string or function`,
+    );
+  }
+  const options = v['options'];
+  if (!Array.isArray(options) || options.length === 0) {
+    throw new Error(`validateAharnessMeta: choice meta 'options' must be a non-empty array`);
+  }
+  const labels = new Set<string>();
+  for (let i = 0; i < options.length; i++) {
+    const option = options[i] as unknown;
+    if (option === null || typeof option !== 'object' || Array.isArray(option)) {
+      throw new Error(`validateAharnessMeta: choice meta options[${i}] must be an object`);
+    }
+    const record = option as Record<string, unknown>;
+    const allowedOptionKeys = new Set(['label', 'to']);
+    for (const key of Object.keys(record)) {
+      if (!allowedOptionKeys.has(key)) {
+        throw new Error(`validateAharnessMeta: choice meta options[${i}] cannot declare '${key}'`);
+      }
+    }
+    if (typeof record['label'] !== 'string' || record['label'].length === 0) {
+      throw new Error(
+        `validateAharnessMeta: choice meta options[${i}].label must be a non-empty string`,
+      );
+    }
+    if (typeof record['to'] !== 'string' || record['to'].length === 0) {
+      throw new Error(
+        `validateAharnessMeta: choice meta options[${i}].to must be a non-empty string`,
+      );
+    }
+    if (labels.has(record['label'])) {
+      throw new Error(
+        `validateAharnessMeta: choice meta option label '${record['label']}' is duplicated`,
+      );
+    }
+    labels.add(record['label']);
+  }
+  if (Object.prototype.hasOwnProperty.call(v, 'main') && v['main'] !== true) {
+    throw new Error(`validateAharnessMeta: choice meta 'main' must be true when provided`);
+  }
+  const forbiddenFields = [
+    'entryPrompt',
+    'exits',
+    'awaitsOwnerText',
+    'onEntry',
+    'hooks',
+    'skills',
+    'model',
+    'clearOnEntry',
+    'open',
+    'stopGuidance',
+    'canonicalEvents',
+  ];
+  for (const field of forbiddenFields) {
+    if (Object.prototype.hasOwnProperty.call(v, field)) {
+      throw new Error(`validateAharnessMeta: choice meta cannot declare '${field}'`);
+    }
+  }
+}
+
 /**
  * Runtime guard for the `meta.aharness` field on a state node. The verifier
  * already runs structural checks via `verify.ts`, but `aharness.machine(...)`
@@ -117,6 +181,10 @@ export function validateAharnessMeta(value: unknown): AharnessMeta | undefined {
     if (Object.prototype.hasOwnProperty.call(v, 'model')) {
       validateStateModel(v['model']);
     }
+    return value as AharnessMeta;
+  }
+  if (kind === 'choice') {
+    validateChoiceMeta(v);
     return value as AharnessMeta;
   }
   if (

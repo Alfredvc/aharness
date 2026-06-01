@@ -7,9 +7,22 @@ export type { AharnessStateMeta } from './state/exits.js';
 
 /**
  * Marker the user FSM attaches to each state via `meta.aharness`.
- * Constructed via `state()`, `terminal()`, or `passive()`.
+ * Constructed via `state()`, `terminal()`, `passive()`, or `createFsm().choice()`.
  */
-export type AharnessMeta = AharnessStateMeta | TerminalMeta | PassiveMeta;
+export type AharnessMeta = AharnessStateMeta | TerminalMeta | PassiveMeta | ChoiceMeta;
+
+export interface ChoiceOption {
+  readonly label: string;
+  readonly to: string;
+}
+
+export interface ChoiceMeta {
+  readonly kind: 'choice';
+  readonly question: string | ((data: Readonly<RunCtx>) => string);
+  readonly options: ReadonlyArray<ChoiceOption>;
+  /** Visualization-only hint: include this state in the primary graph spine. */
+  readonly main?: true;
+}
 
 export interface TerminalMeta {
   readonly kind: 'terminal';

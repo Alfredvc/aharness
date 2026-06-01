@@ -97,6 +97,8 @@ export type {
   AharnessInput,
   AharnessMeta,
   AharnessStateMeta,
+  ChoiceMeta,
+  ChoiceOption,
   RunCtx,
   RunDir,
   SchemaSidecar,

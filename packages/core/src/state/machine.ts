@@ -137,6 +137,10 @@ function isStateful(node: StateConfigShape | undefined): boolean {
   return node?.meta?.aharness?.kind === 'stateful';
 }
 
+function isChoice(node: StateConfigShape | undefined): boolean {
+  return node?.meta?.aharness?.kind === 'choice';
+}
+
 function asArray<T>(v: T | T[] | undefined): T[] {
   if (v === undefined) return [];
   return Array.isArray(v) ? [...v] : [v];
@@ -253,6 +257,27 @@ function buildBranch(
   return out;
 }
 
+function synthesizeChoiceBranches(
+  options: ReadonlyArray<{ readonly label: string; readonly to: string }>,
+  stateId: string,
+  sourceKey: string,
+): SynthesizedTransition[] {
+  return options.map((option) => {
+    const isSelfLoop = stripDotPrefix(option.to) === sourceKey;
+    const actions: unknown[] = [{ type: CLEAR_OWNER_REPLY }];
+    if (isSelfLoop) {
+      actions.push({ type: VISIT_ACTION, params: { stateId } });
+    }
+    return {
+      target: option.to,
+      guard: ({ event }: { event: { payload?: { label?: unknown } } }) =>
+        event.payload?.label === option.label,
+      actions,
+      ...(isSelfLoop ? { reenter: false } : {}),
+    };
+  });
+}
+
 function materializeEmbeddedChildContextAction(embedded: {
   input?: EmbeddedInputProjection;
   childConfig?: MinimalChildConfig & { context?: unknown };
@@ -320,6 +345,7 @@ function injectFrameworkActions(
           string,
           { kind?: string; to?: string; when?: Array<unknown>; actions?: unknown }
         >;
+        options?: ReadonlyArray<{ readonly label: string; readonly to: string }>;
         embedded?: {
           source: string;
           exits: ReadonlyArray<string>;
@@ -346,7 +372,7 @@ function injectFrameworkActions(
     if (!isEmbeddedCompound) {
       const originalKeys: string[] = [];
       for (const k of Object.keys(node.on ?? {})) {
-        if (/^(SUBMIT|AWAIT)__/.test(k)) originalKeys.push(k);
+        if (/^(SUBMIT|AWAIT|OWNER_CHOICE)__/.test(k)) originalKeys.push(k);
       }
       (aharnessMeta as { __aharness_authoredOnKeys?: string[] }).__aharness_authoredOnKeys =
         originalKeys;
@@ -435,6 +461,19 @@ function injectFrameworkActions(
       const branches = synthesizeBranches(exit as DefaultedExitDef, stateId, sourceKey, isAwait);
       node.on[eventKey] = branches;
     }
+  }
+  if (isChoice(node)) {
+    const stateId = path.join('.');
+    const sourceKey = path[path.length - 1] ?? '';
+    const entries = asArray(node.entry);
+    entries.unshift({ type: VISIT_ACTION, params: { stateId } });
+    node.entry = entries;
+    if (!node.on) node.on = {};
+    node.on[`OWNER_CHOICE__${stateId}`] = synthesizeChoiceBranches(
+      aharnessMeta?.options ?? [],
+      stateId,
+      sourceKey,
+    );
   }
   // 4. Recurse, threading embeddedSource + registry.
   if (node.states) {

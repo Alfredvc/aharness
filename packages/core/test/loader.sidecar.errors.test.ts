@@ -107,4 +107,20 @@ describe('loader — sidecar walker error paths', () => {
     expect(target.length).toBe(1);
     expect(target[0]!.code).toBe(code);
   });
+
+  it('direct-create-machine: createMachine with fsm.choice is rejected', async () => {
+    const { issues } = await extractSchemaSidecar({
+      filePath: createFsmFixture('direct-create-machine-choice.fsm.ts'),
+    });
+
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'direct-create-machine',
+          stateId: null,
+          exitName: null,
+        }),
+      ]),
+    );
+  });
 });
