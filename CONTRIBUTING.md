@@ -75,7 +75,7 @@ For UI visualization work, use the spike replay helper to open the browser UI
 against the first N canonical events from an existing run log:
 
 ```bash
-node scripts/spikes/replay-run-prefix-ui.mjs .aharness/runs/<run-id> 120
+pnpm run replay -- .aharness/runs/<run-id> 120
 ```
 
 The first argument can be a run directory or an `events.jsonl` file. The second

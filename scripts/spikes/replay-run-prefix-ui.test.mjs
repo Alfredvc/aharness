@@ -303,6 +303,9 @@ describe('replay-run-prefix-ui spike helper', () => {
   });
 
   it('does not add a public production CLI dispatch or package bin entry', () => {
+    const rootPackageJson = JSON.parse(readFileSync('package.json', 'utf8'));
+    expect(rootPackageJson.scripts.replay).toBe('node scripts/spikes/replay-run-prefix-ui.mjs');
+
     const packageJson = JSON.parse(readFileSync('packages/core/package.json', 'utf8'));
     expect(packageJson.bin).toEqual({ aharness: './dist/cli/main.js' });
 
