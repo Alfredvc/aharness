@@ -388,26 +388,92 @@ async function dispatch(
   // targets are still rejected: they have no exits to advertise, so the
   // model would have nothing to submit on the next turn.
   if (orientation.isPassive) {
-    if (passiveTargetHasInvoke(o.machine, dry.nextStateId)) {
+    if (passiveTargetCanSettle(o.machine, dry.nextStateId)) {
       o.host.commitSubmit(cur, exit, commitPayload);
       await o.host.waitForSnapshot(() => o.host.currentMeta()?.kind !== 'passive');
       const settledStateId = o.host.currentStateId();
       const settledMeta = o.host.currentMeta();
-      if (!settledMeta || settledMeta.kind !== 'terminal') {
+      if (
+        !settledMeta ||
+        (settledMeta.kind !== 'terminal' &&
+          settledMeta.kind !== 'choice' &&
+          settledMeta.kind !== 'stateful')
+      ) {
         return errReply(
           `Internal aharness error: passive submit target '${dry.nextStateId}' settled ` +
-            `at non-terminal state '${settledStateId}'. Submit was applied.`,
+            `at unsupported state '${settledStateId}'. Submit was applied.`,
         );
       }
-      const artifactResult = await writeFinalArtifacts(o, settledStateId);
-      if (!artifactResult.ok) return errReply(artifactResult.message);
+      if (settledMeta.kind === 'terminal') {
+        const artifactResult = await writeFinalArtifacts(o, settledStateId);
+        if (!artifactResult.ok) return errReply(artifactResult.message);
+      }
       o.flushSnapshot?.(o.host.snapshot());
       o.onTransition?.({ from: cur, exit, to: settledStateId });
-      callOnTerminal(o, settledStateId, serverMeta);
+      if (settledMeta.kind === 'stateful' && o.runOnEntry !== undefined) {
+        await o.runOnEntry();
+      }
+      if (settledMeta.kind === 'terminal') {
+        callOnTerminal(o, settledStateId, serverMeta);
+      } else if (settledMeta.kind === 'stateful') {
+        if (currentStateDeclaresClearOnEntry(o.host)) {
+          if (!o.scheduleFreshClear) {
+            throw new Error('freshClear not wired');
+          }
+          o.scheduleFreshClear({
+            from: cur,
+            to: settledStateId,
+            oldThreadId: params.threadId,
+            oldTurnId: params.turnId,
+            afterReply: (callback) => {
+              if (serverMeta !== undefined) {
+                serverMeta.afterReply(callback);
+              } else {
+                void Promise.resolve().then(callback);
+              }
+            },
+          });
+        } else {
+          if (!o.composeActiveStateNudge) {
+            throw new Error('composeActiveStateNudge not wired');
+          }
+          let nudge: string;
+          try {
+            nudge = o.composeActiveStateNudge();
+          } catch (e) {
+            nudge = `(aharness: error composing nudge for state '${settledStateId}': ${(e as Error).message})`;
+          }
+          if (!o.scheduleCrossStateDance) {
+            throw new Error('crossStateDance not wired');
+          }
+          const crossStateArgs: {
+            threadId: string;
+            turnId: string;
+            callId: string;
+            orientationText: string;
+            applyStateModel?: () => Promise<void>;
+          } = {
+            threadId: params.threadId,
+            turnId: params.turnId,
+            callId: params.callId,
+            orientationText: nudge,
+          };
+          if (o.applyStateModel !== undefined) {
+            crossStateArgs.applyStateModel = o.applyStateModel;
+          }
+          o.scheduleCrossStateDance(crossStateArgs);
+        }
+      }
       return {
         success: true,
         contentItems: [
-          { type: 'inputText', text: `Run complete. Terminal: ${settledMeta.outcome}.` },
+          {
+            type: 'inputText',
+            text:
+              settledMeta.kind === 'terminal'
+                ? `Run complete. Terminal: ${settledMeta.outcome}.`
+                : 'ok',
+          },
         ],
       };
     }
@@ -419,17 +485,8 @@ async function dispatch(
       `Submit rejected: exit '${exit}' on state '${cur}' targets passive state '${dry.nextStateId}'.`,
     );
   }
-  if (orientation.isChoice) {
-    return errReply(
-      `Submit rejected: exit '${exit}' on state '${cur}' targets choice state ` +
-        `'${dry.nextStateId}', but live owner-choice parking is not implemented in this slice. ` +
-        `Submit not applied.`,
-      `Submit rejected: exit '${exit}' on state '${cur}' targets choice state '${dry.nextStateId}'.`,
-    );
-  }
-
   const isSelfLoop = dry.nextStateId === cur;
-  const isCrossState = !isSelfLoop && !orientation.isTerminal;
+  const isCrossState = !isSelfLoop && !orientation.isTerminal && !orientation.isChoice;
 
   if (orientation.isTerminal) {
     const artifactResult = await writeFinalArtifacts(o, dry.nextStateId, nextContextForOrientation);
@@ -662,10 +719,10 @@ function lookupAharnessMetaByPath(
   return undefined;
 }
 
-function passiveTargetHasInvoke(machine: AnyStateMachine, targetPath: string): boolean {
+function passiveTargetCanSettle(machine: AnyStateMachine, targetPath: string): boolean {
   for (const node of iterStates(machine)) {
     if (stateKeyPath(node) !== targetPath) continue;
-    return node.config.invoke !== undefined;
+    return node.config.invoke !== undefined || node.config.always !== undefined;
   }
   return false;
 }

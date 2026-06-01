@@ -6,6 +6,7 @@ import { buildAbandonedToolRequestUserInputResponse } from '../runtime/abandoned
 
 export type BrowserReplyPayload =
   | { kind: 'owner-input'; requestId: string; answers: Record<string, string> }
+  | { kind: 'owner-choice'; state: string; visitCount: number; label: string }
   | { kind: 'user-prompt'; text: string }
   | { kind: 'approval'; requestId: string; decision: string }
   | { kind: 'permission'; requestId: string; decision: string }
@@ -20,6 +21,9 @@ export type BrowserReplyLifecycleInput = {
   payload: unknown;
   kind?: string;
   requestId?: string;
+  state?: string;
+  visitCount?: number;
+  label?: string;
 };
 
 export type BrowserReplyResolvedInput = BrowserReplyLifecycleInput & {
@@ -39,6 +43,9 @@ export type BrowserReplyControllerOptions = {
     readonly message: string;
   }) => void;
   handleApprovalReply?: (payload: unknown) => Promise<BrowserReplyResult> | BrowserReplyResult;
+  handleOwnerChoiceReply?: (
+    payload: Extract<BrowserReplyPayload, { kind: 'owner-choice' }>,
+  ) => Promise<BrowserReplyResult> | BrowserReplyResult;
   onReplySubmitted?: (input: BrowserReplyLifecycleInput) => void;
   onReplyResolved?: (input: BrowserReplyResolvedInput) => void;
 };
@@ -138,6 +145,31 @@ export function createBrowserReplyController(
     return { status: 200, body: { ok: true } };
   }
 
+  async function handleOwnerChoiceReply(
+    payload: Record<string, unknown>,
+  ): Promise<BrowserReplyResult> {
+    const state = payload['state'];
+    const visitCount = payload['visitCount'];
+    const label = payload['label'];
+    if (
+      typeof state !== 'string' ||
+      typeof visitCount !== 'number' ||
+      !Number.isSafeInteger(visitCount) ||
+      visitCount < 0 ||
+      typeof label !== 'string'
+    ) {
+      return { status: 400, body: { error: 'invalid-owner-choice-reply' } };
+    }
+    return (
+      (await options.handleOwnerChoiceReply?.({
+        kind: 'owner-choice',
+        state,
+        visitCount,
+        label,
+      })) ?? unavailable()
+    );
+  }
+
   return {
     parkOwnerInput(params) {
       if (pendingOwnerInput !== null) {
@@ -182,10 +214,16 @@ export function createBrowserReplyController(
     async handleReply(payload) {
       const kind = isRecord(payload) ? payload['kind'] : undefined;
       const requestId = isRecord(payload) ? payload['requestId'] : undefined;
+      const state = isRecord(payload) ? payload['state'] : undefined;
+      const visitCount = isRecord(payload) ? payload['visitCount'] : undefined;
+      const label = isRecord(payload) ? payload['label'] : undefined;
       const lifecycle = {
         payload,
         ...(typeof kind === 'string' ? { kind } : {}),
         ...(typeof requestId === 'string' ? { requestId } : {}),
+        ...(typeof state === 'string' ? { state } : {}),
+        ...(typeof visitCount === 'number' ? { visitCount } : {}),
+        ...(typeof label === 'string' ? { label } : {}),
       };
       callLifecycleHook(() => options.onReplySubmitted?.(lifecycle));
       if (!isRecord(payload) || typeof kind !== 'string') {
@@ -202,6 +240,9 @@ export function createBrowserReplyController(
             break;
           case 'user-prompt':
             result = await handleUserPromptReply(payload);
+            break;
+          case 'owner-choice':
+            result = await handleOwnerChoiceReply(payload);
             break;
           case 'approval':
           case 'permission':

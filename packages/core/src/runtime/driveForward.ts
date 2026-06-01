@@ -9,6 +9,8 @@
  *    open via the tool call).
  *  - `isOpen()` true (Phase 3c) → return without issuing a fresh
  *    `turn/start`; browser free-text owns the next turn.
+ *  - `isChoice()` true → return without issuing a fresh `turn/start`;
+ *    browser owner-choice replies own the next transition.
  *  - `submittedThisTurn()` true (Phase 2a) → return without issuing a
  *    fresh `turn/start`. The cross-state dispatcher's dance owns the
  *    next turn-start; drive-forward must not double-fire.
@@ -56,6 +58,8 @@ export interface CreateDriveForwardOpts {
   readonly onTurnCompletedBeforeDecision?: () => void;
   /** Phase 3c: browser free-text prompt posture. */
   readonly isOpen?: () => boolean;
+  /** Framework-owned owner-choice posture. */
+  readonly isChoice?: () => boolean;
   /**
    * Phase 2a: returns true when the cross-state dispatcher has scheduled
    * its own `turn/start` for the current turn. When true, drive-forward
@@ -116,6 +120,9 @@ export function createDriveForward(o: CreateDriveForwardOpts): DriveForwardHandl
       if (o.isOpen?.() === true) {
         return;
       }
+      if (o.isChoice?.() === true) {
+        return;
+      }
       if (o.submittedThisTurn?.() === true) {
         // Cross-state dispatcher already scheduled the next `turn/start`
         // via the §4.3.3 dance. Drive-forward must not double-fire.
@@ -143,6 +150,9 @@ export function createDriveForward(o: CreateDriveForwardOpts): DriveForwardHandl
         return;
       }
       if (o.isOpen?.() === true) {
+        return;
+      }
+      if (o.isChoice?.() === true) {
         return;
       }
       if (o.submittedThisTurn?.() === true) {

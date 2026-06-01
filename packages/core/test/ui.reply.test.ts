@@ -334,4 +334,77 @@ describe('createBrowserReplyController', () => {
       expect(result.body).toEqual({ error: 'reply-kind-unavailable' });
     },
   );
+
+  it('validates owner-choice reply shape before dispatch', async () => {
+    const handleOwnerChoiceReply = vi.fn();
+    const controller = createBrowserReplyController({
+      isOpen: () => false,
+      sendUserPrompt: vi.fn(),
+      handleOwnerChoiceReply,
+    });
+
+    const result = await controller.handleReply({
+      kind: 'owner-choice',
+      state: 'pick',
+      visitCount: '1',
+      label: 'Done',
+    });
+
+    expect(result).toEqual({ status: 400, body: { error: 'invalid-owner-choice-reply' } });
+    expect(handleOwnerChoiceReply).not.toHaveBeenCalled();
+  });
+
+  it('returns unavailable for valid owner-choice replies when no handler is wired', async () => {
+    const controller = createBrowserReplyController({
+      isOpen: () => false,
+      sendUserPrompt: vi.fn(),
+    });
+
+    const result = await controller.handleReply({
+      kind: 'owner-choice',
+      state: 'pick',
+      visitCount: 1,
+      label: 'Done',
+    });
+
+    expect(result).toEqual({ status: 501, body: { error: 'reply-kind-unavailable' } });
+  });
+
+  it('passes owner-choice callback results through and records lifecycle identity', async () => {
+    const lifecycle: unknown[] = [];
+    const handleOwnerChoiceReply = vi.fn(async () => ({
+      status: 409,
+      body: { error: 'owner-choice-visit-mismatch' },
+    }));
+    const controller = createBrowserReplyController({
+      isOpen: () => false,
+      sendUserPrompt: vi.fn(),
+      handleOwnerChoiceReply,
+      onReplySubmitted: (input) => lifecycle.push({ phase: 'submitted', ...input }),
+      onReplyResolved: (input) => lifecycle.push({ phase: 'resolved', ...input }),
+    });
+
+    const payload = { kind: 'owner-choice', state: 'pick', visitCount: 1, label: 'Done' };
+    const result = await controller.handleReply(payload);
+
+    expect(result).toEqual({ status: 409, body: { error: 'owner-choice-visit-mismatch' } });
+    expect(handleOwnerChoiceReply).toHaveBeenCalledExactlyOnceWith(payload);
+    expect(lifecycle).toEqual([
+      expect.objectContaining({
+        phase: 'submitted',
+        kind: 'owner-choice',
+        state: 'pick',
+        visitCount: 1,
+        label: 'Done',
+      }),
+      expect.objectContaining({
+        phase: 'resolved',
+        kind: 'owner-choice',
+        state: 'pick',
+        visitCount: 1,
+        label: 'Done',
+        result: expect.objectContaining({ status: 409 }),
+      }),
+    ]);
+  });
 });

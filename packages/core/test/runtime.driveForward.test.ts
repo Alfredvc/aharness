@@ -178,6 +178,32 @@ describe('drive-forward (Phase 1)', () => {
     expect(requests).toEqual([]);
   });
 
+  it('returns without issuing turn/start when isChoice returns true', async () => {
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const isTerminal = vi.fn(() => {
+      throw new Error('isTerminal must not be called when isChoice returns true');
+    });
+    const client = makeStubClient({
+      request: (async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        return {};
+      }) as JsonRpcClient['request'],
+    });
+    const driveForward = createDriveForward({
+      client,
+      activeThreadBinding: activeThread('p'),
+      isTerminal,
+      composeActiveStateNudge: () => 'x',
+      onShutdown: () => {},
+      isChoice: () => true,
+    });
+
+    await driveForward.onTurnCompleted();
+
+    expect(isTerminal).not.toHaveBeenCalled();
+    expect(requests).toEqual([]);
+  });
+
   it('submittedThisTurn() === true short-circuits before isTerminal check', async () => {
     const requests: Array<{ method: string; params: unknown }> = [];
     const isTerminal = vi.fn(() => {
@@ -384,6 +410,32 @@ describe('drive-forward salvageAfterDanceFailure (F1)', () => {
 
     expect(isTerminal).not.toHaveBeenCalled();
     expect(onShutdown).not.toHaveBeenCalled();
+    expect(requests).toEqual([]);
+  });
+
+  it('salvageAfterDanceFailure returns without issuing turn/start when isChoice returns true', async () => {
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const isTerminal = vi.fn(() => {
+      throw new Error('isTerminal must not be called when isChoice returns true');
+    });
+    const client = makeStubClient({
+      request: (async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        return {};
+      }) as JsonRpcClient['request'],
+    });
+    const driveForward = createDriveForward({
+      client,
+      activeThreadBinding: activeThread('p'),
+      isTerminal,
+      composeActiveStateNudge: () => 'unused',
+      onShutdown: () => {},
+      isChoice: () => true,
+    });
+
+    await driveForward.salvageAfterDanceFailure();
+
+    expect(isTerminal).not.toHaveBeenCalled();
     expect(requests).toEqual([]);
   });
 

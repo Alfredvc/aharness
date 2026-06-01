@@ -1,11 +1,11 @@
 # Deterministic Owner Choice States Implementation Recipe
 
 **Parent roadmap:** `docs/plans/2026-06-01-deterministic-owner-choice-states-roadmap.md`
-**Current slice:** Slice 1 - runtime choice parking and reply dispatch
+**Current slice:** Slice 2 - durable owner-choice run events and browser interaction
 **Current phase:** needs detailed plan
-**Current detailed plan:** `docs/plans/2026-06-01-deterministic-owner-choice-states-slice-1.md`
+**Current detailed plan:** none
 **Current fix source:** none
-**Last completed:** Slice 0 accepted and committed
+**Last completed:** Slice 1 accepted and committed in this commit
 
 ## Durable Grounding
 
@@ -15,11 +15,11 @@
 
 ## Iteration Workflow
 
-1. Write the detailed plan for Slice 0 only.
+1. Write the detailed plan for the current slice only.
 2. Review the detailed plan and resolve any blockers before implementation.
-3. Execute only Slice 0.
-4. Review the completed Slice 0 diff.
-5. Run Slice 0 verification and record results before advancing.
+3. Execute only the current slice.
+4. Review the completed current-slice diff.
+5. Run current-slice verification and record results before advancing.
 6. Update this recipe to the next slice after verification and commit.
 
 ## Orchestrator Rules
@@ -33,18 +33,24 @@
 
 ## Current State
 
-Slice 0 implementation was accepted and committed. The next slice is Slice 1:
-runtime choice parking and reply dispatch. A detailed Slice 1 plan should be
-created before implementation:
-`docs/plans/2026-06-01-deterministic-owner-choice-states-slice-1.md`.
+Slice 1 implementation was accepted and is being committed. The current slice
+is now Slice 2: durable owner-choice run events and browser interaction. A
+detailed Slice 2 plan should be created before implementation.
 
 Implemented scope includes `ChoiceMeta`, `createFsm().choice(...)`, choice
 metadata validation, `OWNER_CHOICE__<stateId>` synthesis, generated-prefix
 reservation, verifier-safe metadata diagnostics, choice target and authored
-behavior checks, direct-`createMachine` loader detection for `choice(...)`, and
-focused runtime/type tests. Runtime parking, browser replies, run events,
-topology, public docs/example migration, and legacy ask/await removal remain
-out of scope for Slice 0 and are owned by later slices.
+behavior checks, direct-`createMachine` loader detection for `choice(...)`,
+runtime active-choice data resolution, generated owner-choice dry-run and
+commit helpers, browser `owner-choice` reply parsing and lifecycle data, choice
+parking during kickoff and drive-forward, serialized owner-choice reply
+dispatch, `StateChange.cause: 'choice'`, submit-to-choice parking, passive
+settlement into choice/stateful/terminal leaves, runtime transition
+state-change publishing for hook/permission paths, and web-ui contract widening
+for `currentState.kind: 'choice'`. Durable owner-choice run events, browser
+interaction rendering, topology, public docs/example migration, and legacy
+ask/await removal remain out of scope for Slices 0-1 and are owned by later
+slices.
 
 Verification completed on 2026-06-02:
 
@@ -68,3 +74,42 @@ Post-fix verification completed on 2026-06-02:
 - `pnpm run verify` passed, including format check, lint, stale contract checks,
   root typecheck, web-ui typecheck, codex bump check, build, and full Vitest:
   151 files passed, 7 skipped; 1669 tests passed, 19 skipped.
+
+Slice 1 implementation is ready for acceptance review. Implemented scope now
+includes runtime active-choice data resolution, generated owner-choice dry-run
+and commit helpers, browser `owner-choice` reply parsing and lifecycle data,
+choice parking during kickoff and drive-forward, serialized owner-choice reply
+dispatch, `StateChange.cause: 'choice'`, submit-to-choice parking, passive
+settlement into choice, runtime transition state-change publishing for
+hook/permission paths, and web-ui contract widening for `currentState.kind:
+'choice'`.
+
+Slice 1 verification completed on 2026-06-02:
+
+- `pnpm exec vitest run packages/core/test/ui.reply.test.ts packages/core/test/runtime.driveForward.test.ts packages/core/test/runtime.dispatchSubmit.test.ts packages/core/test/cli.runCli.test.ts packages/core/test/runtime.actorHost.test.ts packages/core/test/runtime.dispatchChoice.test.ts packages/core/test/runtime.dispatchEvent.test.ts packages/core/test/runtime.hookDispatchers.test.ts packages/core/test/runtime.permissionRequest.test.ts packages/core/test/runtime.awaitResolver.test.ts` passed: 10 files, 189 tests.
+- `pnpm exec vitest run packages/web-ui/src/api/client.test.ts packages/web-ui/src/state/store.test.ts` passed: 2 files, 80 tests.
+- `pnpm run typecheck` passed.
+- `pnpm --dir packages/web-ui run typecheck` passed.
+- `pnpm run verify` passed, including format check, lint, stale contract
+  checks, root typecheck, web-ui typecheck, codex bump check, build, and full
+  Vitest: 152 files passed, 7 skipped; 1680 tests passed, 19 skipped.
+
+Slice 1 fix cycle 0 resolved the acceptance blockers:
+
+- Owner-choice reply dispatch now waits through passive settlement before
+  publishing and classifying the `choice` state change.
+- Submit passive settlement now accepts stateful leaves, runs state entry, and
+  schedules the normal cross-state continuation instead of returning an
+  internal error after mutation.
+- Submit transitions that land on choice now resolve active choice data so
+  dynamic question failures fail the run instead of silently parking.
+
+Fix verification completed on 2026-06-02:
+
+- `pnpm exec vitest run packages/core/test/runtime.dispatchSubmit.test.ts packages/core/test/runtime.dispatchChoice.test.ts packages/core/test/cli.runCli.test.ts` passed: 3 files, 81 tests.
+- `pnpm exec vitest run packages/core/test/ui.reply.test.ts packages/core/test/runtime.driveForward.test.ts packages/core/test/runtime.dispatchSubmit.test.ts packages/core/test/cli.runCli.test.ts packages/core/test/runtime.actorHost.test.ts packages/core/test/runtime.dispatchChoice.test.ts packages/core/test/runtime.dispatchEvent.test.ts packages/core/test/runtime.hookDispatchers.test.ts packages/core/test/runtime.permissionRequest.test.ts packages/core/test/runtime.awaitResolver.test.ts` passed: 10 files, 190 tests.
+- `pnpm run typecheck` passed.
+- `pnpm --dir packages/web-ui run typecheck` passed.
+- `pnpm run verify` passed, including format check, lint, stale contract
+  checks, root typecheck, web-ui typecheck, codex bump check, build, and full
+  Vitest: 152 files passed, 7 skipped; 1681 tests passed, 19 skipped.

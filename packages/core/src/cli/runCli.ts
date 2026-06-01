@@ -124,6 +124,11 @@ import {
 } from '../runtime/abandonedThreadResponses.js';
 import { createDriveForward, type DriveForwardHandle } from '../runtime/driveForward.js';
 import {
+  activeChoiceData,
+  commitOwnerChoice,
+  validateOwnerChoiceReply,
+} from '../runtime/dispatchChoice.js';
+import {
   createSubmitDispatcher,
   publicSubmitFailureMetadataSymbol,
   type PublicSubmitFailureMetadata,
@@ -654,6 +659,32 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     );
   };
 
+  async function handleCommittedRuntimeTransition(
+    info: {
+      readonly from: string;
+      readonly to: string;
+      readonly oldThreadId?: string;
+      readonly oldTurnId?: string;
+      readonly afterReply?: (callback: () => void | Promise<void>) => void;
+    },
+    cause: Extract<AppEvent, { kind: 'StateChange' }>['cause'],
+  ): Promise<void> {
+    publishUiEvent({
+      kind: 'StateChange',
+      from: info.from,
+      to: info.to,
+      cause,
+      newState: deriveUiFsmState(host),
+    });
+    publishOpenPosture();
+    await runActiveOnEntry();
+    scheduleFreshClearAfterTransition(info);
+    if (host.currentMeta()?.kind === 'choice') {
+      const data = activeChoiceData(host);
+      if (!data.ok) failRunAndShutdown(`choice question failed: ${data.error}`);
+    }
+  }
+
   const permissionRequestDispatch = createPermissionRequestDispatcher({
     host,
     ops: opsHandle.ops,
@@ -662,7 +693,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     isTerminalState: (stateId) => terminalMetaById(machine, stateId)?.kind === 'terminal',
     onTerminal: () => signalTerminalCompletion(),
     onCanonicalEventError: reportCanonicalBuiltinEventError,
-    onCommittedTransition: scheduleFreshClearAfterTransition,
+    onCommittedTransition: (info) => {
+      void handleCommittedRuntimeTransition(info, 'always');
+    },
     onAuthorHandlerError: ({ stateId, matcher, error }) => {
       o.stderr.write(
         `aharness: PermissionRequest hook for state '${stateId}' matcher '${matcher}' threw: ${error.message}\n`,
@@ -720,6 +753,63 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       publishUiEventNonRecording({ kind: 'OwnerInputResolved', id: requestId });
     },
     handleApprovalReply: (payload) => approvalDispatcher.handleBrowserReply(payload),
+    handleOwnerChoiceReply: (payload) =>
+      serializeDispatch(async () => {
+        const validation = validateOwnerChoiceReply(host, payload);
+        if (!validation.ok) {
+          return {
+            status: validation.status,
+            body: {
+              error: validation.error,
+              ...(validation.message !== undefined ? { message: validation.message } : {}),
+            },
+          };
+        }
+        const committed = await commitOwnerChoice(host, {
+          state: validation.state,
+          label: validation.label,
+          ops: opsHandle.ops,
+        });
+        if (!committed.ok) {
+          return {
+            status: committed.status,
+            body: {
+              error: committed.error,
+              ...(committed.message !== undefined ? { message: committed.message } : {}),
+            },
+          };
+        }
+        if (host.currentMeta()?.kind === 'passive') {
+          await host.waitForSnapshot(() => host.currentMeta()?.kind !== 'passive');
+        }
+        const to = host.currentStateId();
+        if (host.currentMeta()?.kind === 'terminal') {
+          await writeActiveFinalArtifacts(to);
+        }
+        publishUiEvent({
+          kind: 'StateChange',
+          from: committed.from,
+          to,
+          cause: 'choice',
+          newState: deriveUiFsmState(host),
+        });
+        publishOpenPosture();
+        await runActiveOnEntry();
+        scheduleFreshClearAfterTransition({ from: committed.from, to });
+        if (host.currentMeta()?.kind === 'terminal') {
+          setImmediate(() => signalTerminalCompletion());
+        } else if (
+          host.currentMeta()?.kind === 'stateful' &&
+          !isOpenState(host) &&
+          !currentStateDeclaresClearOnEntry(host)
+        ) {
+          scheduleStatefulOrientationAfterReply();
+        } else if (host.currentMeta()?.kind === 'choice') {
+          const data = activeChoiceData(host);
+          if (!data.ok) failRunAndShutdown(`choice question failed: ${data.error}`);
+        }
+        return { status: 200, body: { ok: true } };
+      }),
     onReplySubmitted: (input) => {
       recordRunEvent(replySubmittedRunEvent(input));
     },
@@ -1023,6 +1113,25 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     });
   }
 
+  function scheduleStatefulOrientationAfterReply(): void {
+    setImmediate(() => {
+      void (async () => {
+        if (!client) throw new Error('internal: client unbound for owner-choice orientation');
+        await stateModelSettings.waitForSettled();
+        const orientation = composeActiveStateNudge(host, sidecar);
+        publishOrientationNote(orientation);
+        await client.request(METHOD.turnStart, {
+          threadId: activeThreadBinding.require(),
+          input: [{ type: 'text', text: orientation }],
+        } satisfies TurnStartParams);
+      })().catch((error: unknown) => {
+        const message = `owner-choice orientation failed: ${(error as Error).message}`;
+        o.stderr.write(`aharness: ${message}\n`);
+        failRunAndShutdown(message);
+      });
+    });
+  }
+
   // Phase 2b owner-yield wiring.
   //
   // `pendingOwnerYieldCount` is the number of parked
@@ -1059,7 +1168,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   // count-read seam below lets the Task-3 count-ordering test poll the
   // value directly across the run.
   o._testReadPendingOwnerYieldCount?.(() => pendingOwnerYieldCount);
-  const runActiveOnEntry = async (): Promise<void> => {
+  async function runActiveOnEntry(): Promise<void> {
     const meta = host.currentMeta();
     if (!meta || meta.kind !== 'stateful' || meta.onEntry === undefined) return;
     try {
@@ -1068,7 +1177,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       const msg = e instanceof Error ? e.message : String(e);
       o.stderr.write(`aharness: onEntry hook for state '${host.currentStateId()}' threw: ${msg}\n`);
     }
-  };
+  }
 
   const dispatch = createSubmitDispatcher({
     host,
@@ -1086,6 +1195,10 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         newState: deriveUiFsmState(host),
       });
       publishOpenPosture();
+      if (host.currentMeta()?.kind === 'choice') {
+        const data = activeChoiceData(host);
+        if (!data.ok) failRunAndShutdown(`choice question failed: ${data.error}`);
+      }
     },
     composeActiveStateNudge: () => composeActiveStateNudge(host, sidecar),
     runOnEntry: runActiveOnEntry,
@@ -1253,6 +1366,10 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     onAfterTransition: async (info) => {
       await runActiveOnEntry();
       scheduleFreshClearAfterTransition(info);
+      if (host.currentMeta()?.kind === 'choice') {
+        const data = activeChoiceData(host);
+        if (!data.ok) failRunAndShutdown(`choice question failed: ${data.error}`);
+      }
     },
   });
 
@@ -1504,7 +1621,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
           onTerminal: () => signalTerminalCompletion(),
           onCanonicalEventError: reportCanonicalBuiltinEventError,
           onAbandonedThreadDiagnostic: publishAbandonedThreadDiagnostic,
-          onCommittedTransition: scheduleFreshClearAfterTransition,
+          onCommittedTransition: (info) => {
+            void handleCommittedRuntimeTransition(info, 'always');
+          },
         }),
       });
     } catch (e) {
@@ -1537,6 +1656,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     submittedThisTurn: () => submittedThisTurnFlag,
     isAwaiting,
     isOpen: () => isOpenState(host),
+    isChoice: () => isChoiceState(host),
     waitForSettled: () => stateModelSettings.waitForSettled(),
   });
   const driveForwardHandle = driveForward;
@@ -1629,12 +1749,17 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   try {
     await runActiveOnEntry();
     await applyStateModelForActiveState();
-    const orientation = composeActiveStateNudge(host, sidecar);
-    publishOrientationNote(orientation);
-    await ws.request(METHOD.turnStart, {
-      threadId: activeThreadBinding.require(),
-      input: [{ type: 'text', text: orientation }],
-    } satisfies TurnStartParams);
+    if (isChoiceState(host)) {
+      const data = activeChoiceData(host);
+      if (!data.ok) throw new Error(`choice question failed: ${data.error}`);
+    } else {
+      const orientation = composeActiveStateNudge(host, sidecar);
+      publishOrientationNote(orientation);
+      await ws.request(METHOD.turnStart, {
+        threadId: activeThreadBinding.require(),
+        input: [{ type: 'text', text: orientation }],
+      } satisfies TurnStartParams);
+    }
   } catch (e) {
     const message = `kickoff turn/start failed: ${(e as Error).message}`;
     o.stderr.write(`aharness: ${message}\n`);
@@ -1678,6 +1803,9 @@ function replySubmittedRunEvent(input: {
   payload: unknown;
   kind?: string;
   requestId?: string;
+  state?: string;
+  visitCount?: number;
+  label?: string;
 }): RunEventAppendInput {
   return {
     type: 'reply.submitted',
@@ -1685,6 +1813,9 @@ function replySubmittedRunEvent(input: {
     data: compactRunEventPayload({
       kind: input.kind,
       requestId: input.requestId,
+      state: input.state,
+      visitCount: input.visitCount,
+      label: input.label,
       status: 'submitted',
       row: {
         kind: 'reply',
@@ -1701,6 +1832,9 @@ function replyResolvedRunEvent(input: {
   payload: unknown;
   kind?: string;
   requestId?: string;
+  state?: string;
+  visitCount?: number;
+  label?: string;
   result?: { status: number; body: unknown };
   error?: Error;
 }): RunEventAppendInput {
@@ -1711,6 +1845,9 @@ function replyResolvedRunEvent(input: {
     data: compactRunEventPayload({
       kind: input.kind,
       requestId: input.requestId,
+      state: input.state,
+      visitCount: input.visitCount,
+      label: input.label,
       status: ok ? 'accepted' : 'failed',
       ok,
       httpStatus: input.result?.status,
@@ -3257,6 +3394,15 @@ function isTerminal(host: ActorHost): boolean {
 function isOpenState(host: ActorHost): boolean {
   const meta = host.currentMeta();
   return meta?.kind === 'stateful' && meta.open === true;
+}
+
+function isChoiceState(host: ActorHost): boolean {
+  return host.currentMeta()?.kind === 'choice';
+}
+
+function currentStateDeclaresClearOnEntry(host: ActorHost): boolean {
+  const meta = host.currentMeta();
+  return meta?.kind === 'stateful' && Object.prototype.hasOwnProperty.call(meta, 'clearOnEntry');
 }
 
 // ---------------------------------------------------------------------------

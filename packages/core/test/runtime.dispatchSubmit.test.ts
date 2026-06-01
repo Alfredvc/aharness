@@ -549,6 +549,29 @@ function buildPassiveTargetMachine() {
   });
 }
 
+function buildPassiveSettlesStatefulMachine() {
+  return aharness.machine({
+    id: 'm',
+    initial: 'a',
+    context: (): Ctx => ({ count: 0 }),
+    states: {
+      a: state({
+        exits: { go: exit<GoPayload>({ to: 'b' }) },
+        entryPrompt: 'in a',
+      }),
+      b: {
+        ...passive(),
+        always: 'c',
+      },
+      c: state({
+        exits: { done: exit<{}>({ to: 'done' }) },
+        entryPrompt: 'in c',
+      }),
+      done: terminal('success'),
+    },
+  });
+}
+
 const sidecarPassiveTarget: SchemaSidecar = {
   a: {
     go: {
@@ -1570,5 +1593,42 @@ describe('createSubmitDispatcher — Phase 1', () => {
     expect(onTransition).not.toHaveBeenCalled();
     expect(onTerminal).not.toHaveBeenCalled();
     expect(host.currentStateId()).toBe('a');
+  });
+
+  it('routes passive submit settlement to a stateful leaf through cross-state scheduling', async () => {
+    const machine = buildPassiveSettlesStatefulMachine();
+    const host = new ActorHost(machine, undefined);
+    host.start();
+    const flush = vi.fn();
+    const onTransition = vi.fn();
+    const runOnEntry = vi.fn();
+    const composeActiveStateNudge = vi.fn(() => 'settled c nudge');
+    const scheduleCrossStateDance = vi.fn();
+    const dispatch = createSubmitDispatcher({
+      host,
+      machine,
+      sidecar: sidecarPassiveTarget,
+      flushSnapshot: flush,
+      onTransition,
+      runOnEntry,
+      composeActiveStateNudge,
+      scheduleCrossStateDance,
+    });
+
+    const r = await dispatch(call(JSON.stringify({ state: 'a', exit: 'go', data: {} })));
+
+    expect(r.success).toBe(true);
+    expect(r.contentItems).toEqual([{ type: 'inputText', text: 'ok' }]);
+    expect(host.currentStateId()).toBe('c');
+    expect(flush).toHaveBeenCalledTimes(1);
+    expect(onTransition).toHaveBeenCalledExactlyOnceWith({ from: 'a', exit: 'go', to: 'c' });
+    expect(runOnEntry).toHaveBeenCalledTimes(1);
+    expect(composeActiveStateNudge).toHaveBeenCalledTimes(1);
+    expect(scheduleCrossStateDance).toHaveBeenCalledExactlyOnceWith({
+      threadId: 't',
+      turnId: 'tr',
+      callId: 'c1',
+      orientationText: 'settled c nudge',
+    });
   });
 });

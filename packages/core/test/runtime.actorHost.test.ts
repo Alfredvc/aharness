@@ -21,7 +21,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { promises as fs } from 'node:fs';
 
-import { aharness, state, terminal, exit, final, arg } from '@aharness/core';
+import { aharness, state, terminal, exit, final, arg, createFsm } from '@aharness/core';
 
 import { ActorHost } from '../src/runtime/actorHost.js';
 import { ensureRunDir } from '../src/run.js';
@@ -110,6 +110,54 @@ describe('ActorHost', () => {
     host.commitSubmit('a', 'go', { inc: 1 });
     const next = host.currentMeta();
     expect(next?.kind).toBe('terminal');
+  });
+
+  it('dryRunChoice projects a choice without mutating and commitChoice advances it', () => {
+    const fsm = createFsm<{ selected: string | null }>();
+    const machine = fsm.machine({
+      id: 'm',
+      data: () => ({ selected: null }),
+      initial: 'pick',
+      states: {
+        pick: fsm.choice({
+          question: 'Pick',
+          options: [
+            { label: 'Again', to: 'pick' },
+            { label: 'Done', to: 'done' },
+          ],
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+    const host = new ActorHost(machine, undefined);
+    host.start();
+
+    const projected = host.dryRunChoice('pick', 'Done');
+    expect(projected.ok).toBe(true);
+    if (projected.ok) expect(projected.nextStateId).toBe('done');
+    expect(host.currentStateId()).toBe('pick');
+
+    host.commitChoice('pick', 'Done');
+    expect(host.currentStateId()).toBe('done');
+  });
+
+  it('commitChoice self-loop increments the active choice visit count', () => {
+    const fsm = createFsm();
+    const machine = fsm.machine({
+      id: 'm',
+      initial: 'pick',
+      states: {
+        pick: fsm.choice({
+          question: 'Pick',
+          options: [{ label: 'Again', to: 'pick' }],
+        }),
+      },
+    });
+    const host = new ActorHost(machine, undefined);
+    host.start();
+    expect(host.currentContext().__aharness_visitCount).toEqual({ pick: 1 });
+    host.commitChoice('pick', 'Again');
+    expect(host.currentContext().__aharness_visitCount).toEqual({ pick: 2 });
   });
 });
 

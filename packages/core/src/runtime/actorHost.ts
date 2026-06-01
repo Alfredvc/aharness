@@ -158,6 +158,24 @@ export class ActorHost {
     };
   }
 
+  dryRunChoice(stateId: string, label: string): DryRunResult {
+    const snap = this.actor.getSnapshot() as SnapshotFrom<AnyStateMachine>;
+    const event = { type: `OWNER_CHOICE__${stateId}`, payload: { label } };
+    let nextSnapshot: SnapshotFrom<AnyStateMachine>;
+    try {
+      [nextSnapshot] = withCanonicalDryRun(() =>
+        transition(this.machine, snap, event as Parameters<typeof transition>[2]),
+      );
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+    return {
+      ok: true,
+      nextStateId: leafStateId(nextSnapshot as AnyMachineSnapshot),
+      nextContext: nextSnapshot.context as Record<string, unknown>,
+    };
+  }
+
   /**
    * Send `SUBMIT__<stateId>__<exitName>` with the validated payload.
    * The actor advances synchronously; the daemon's inspector observes
@@ -206,6 +224,21 @@ export class ActorHost {
    */
   commitEvent(eventName: string, payload: unknown): void {
     this.actor.send({ type: eventName, payload } as unknown as Parameters<AnyActor['send']>[0]);
+  }
+
+  commitChoice(
+    stateId: string,
+    label: string,
+    embeddedFinalContext?: Record<string, unknown>,
+  ): void {
+    let payload: unknown = { label };
+    if (embeddedFinalContext !== undefined) {
+      payload = payloadWithCanonicalEmbeddedFinalCommit(payload, embeddedFinalContext);
+    }
+    this.actor.send({
+      type: `OWNER_CHOICE__${stateId}`,
+      payload,
+    } as unknown as Parameters<AnyActor['send']>[0]);
   }
 
   async prepareEmbeddedFinalCommit(args: {

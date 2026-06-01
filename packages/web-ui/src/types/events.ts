@@ -26,7 +26,7 @@ export type Posture = {
 export type FsmState = {
   path: string; // qualified, dot-separated
   leaf: string; // last segment
-  kind: 'stateful' | 'terminal' | 'passive' | 'final';
+  kind: 'stateful' | 'terminal' | 'passive' | 'choice' | 'final';
   awaitsOwnerText?: { messageToUser: string };
   exits: Array<{ name: string; kind: 'submit' | 'await'; branchCount?: number }>;
   visitCount: number;
@@ -445,7 +445,7 @@ export type StateChange = {
   kind: 'StateChange';
   from: string | null;
   to: string;
-  cause: 'submit' | 'await' | 'always' | 'embed-final' | 'boot';
+  cause: 'submit' | 'await' | 'always' | 'embed-final' | 'boot' | 'choice';
   newState: FsmState;
 };
 
@@ -1014,7 +1014,13 @@ function isFileUpdateChange(value: unknown): value is FileUpdateChange {
 }
 
 function isFsmStateKind(value: unknown): value is FsmState['kind'] {
-  return value === 'stateful' || value === 'terminal' || value === 'passive' || value === 'final';
+  return (
+    value === 'stateful' ||
+    value === 'terminal' ||
+    value === 'passive' ||
+    value === 'choice' ||
+    value === 'final'
+  );
 }
 
 function isRunScopedResyncReason(value: unknown): value is RunScopedResyncReason {

@@ -163,7 +163,7 @@ export type StateChange = {
   kind: 'StateChange';
   from: string | null;
   to: string;
-  cause: 'submit' | 'await' | 'always' | 'embed-final' | 'boot';
+  cause: 'submit' | 'await' | 'always' | 'embed-final' | 'boot' | 'choice';
   newState: FsmState;
 };
 
