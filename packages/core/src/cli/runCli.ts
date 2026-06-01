@@ -55,6 +55,10 @@ import {
   resolveCodexAuthFile,
 } from '../codexHome/index.js';
 import { ActorHost } from '../runtime/actorHost.js';
+import {
+  createContextSnapshotRecorder,
+  publicContextFromRunContext,
+} from '../runtime/contextSnapshots.js';
 import { composeStateNudge, type ExitSpec } from '../runtime/nudge.js';
 import { resolveEntryPrompt } from '../runtime/resolvePrompt.js';
 import {
@@ -450,6 +454,13 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     ...(o._testOnUiEvent !== undefined ? { onUiEvent: o._testOnUiEvent } : {}),
     ...(o._testRunEventRecorder !== undefined ? { recorder: o._testRunEventRecorder } : {}),
   });
+  const contextRecorder = createContextSnapshotRecorder({
+    host,
+    record: (input) => livePublisher.record(input),
+  });
+  const closeContextRecorder = (): void => {
+    contextRecorder.close();
+  };
   livePublisher.publishRunStarted();
   let finalRunEventPublished = false;
   const publishRunFailedOnce = (message: string): void => {
@@ -461,7 +472,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     return livePublisher.publish(event);
   };
   const recordRunEvent = (input: RunEventAppendInput): void => {
-    livePublisher.record(input);
+    void livePublisher.record(input);
   };
   const publishUiEventNonRecording = (
     event: Parameters<typeof uiEventLog.publish>[0],
@@ -546,6 +557,8 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     cause: 'boot',
     newState: deriveUiFsmState(host),
   });
+  contextRecorder.recordInitialContext();
+  contextRecorder.start();
   publishOpenPosture();
   // Phase 3c reply path. The UI server starts before the WebSocket
   // thread exists, so the callbacks close over late-bound `client` and
@@ -827,6 +840,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     const message = `UI server failed: ${(e as Error).message}`;
     o.stderr.write(`aharness: ${message}\n`);
     publishRunFailedOnce(message);
+    closeContextRecorder();
     return { exitCode: 1 };
   }
 
@@ -1152,6 +1166,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     const message = `app-server failed: ${(e as Error).message}`;
     o.stderr.write(`aharness: ${message}\n`);
     publishRunFailedOnce(message);
+    closeContextRecorder();
     await closeUiServer();
     return { exitCode: 1 };
   }
@@ -1432,6 +1447,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         `aharness: WS diagnostics:\n${wsDiagnostics.map((m) => `  - ${m}`).join('\n')}\n`,
       );
     }
+    closeContextRecorder();
     await appServer.close();
     await closeUiServer();
     return { exitCode: 1 };
@@ -1450,6 +1466,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     if (handle) await handle.close();
   };
   const shutdown = runOnce(async (): Promise<void> => {
+    closeContextRecorder();
     await closeHookSocket();
     approvalDispatcher.close();
     await closeUiServer();
@@ -1647,6 +1664,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     const terminalResult = await terminalPromise;
     return { exitCode: terminalResult?.exitCode ?? 0 };
   } finally {
+    closeContextRecorder();
     signals.close();
     router.close();
     await closeHookSocket();
@@ -3107,7 +3125,7 @@ function deriveUiFsmState(host: ActorHost): FsmState {
   const context = host.currentContext() as RunCtx;
   const visits = context.__aharness_visitCount;
   const visitCount = visits !== undefined && typeof visits[path] === 'number' ? visits[path] : 0;
-  const publicContext = stripInternalCtx(context);
+  const publicContext = publicContextFromRunContext(context);
 
   if (!meta || meta.kind !== 'stateful') {
     return {
@@ -3166,16 +3184,6 @@ function deriveUiFsmState(host: ActorHost): FsmState {
     entryPrompt,
     context: publicContext,
   };
-}
-
-function stripInternalCtx(ctx: RunCtx): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(ctx)) {
-    if (k.startsWith('__aharness_')) continue;
-    if (k === 'aharness') continue;
-    out[k] = v;
-  }
-  return out;
 }
 
 function leafFromStatePath(path: string): string {
