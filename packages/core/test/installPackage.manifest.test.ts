@@ -25,7 +25,7 @@ async function writeSource(root: string, relativePath: string, body = 'export de
 
 function validPackageJson(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    name: '@aharness/superpowers',
+    name: '@acme/workflows',
     version: '1.2.3',
     dependencies: {
       '@aharness/core': '^0.1.0',
@@ -110,11 +110,11 @@ describe('install package manifest validation', () => {
     const result = await validatePackage(
       root,
       validPackageJson({
-        bin: { 'ah-superpowers': './bin/ah-superpowers.mjs' },
+        bin: { 'ah-workflows': './bin/ah-workflows.mjs' },
         files: ['bin', 'fsms'],
         aharness: {
           package: {
-            bin: 'ah-superpowers',
+            bin: 'ah-workflows',
             fsmsDir: 'fsms',
           },
         },
@@ -239,7 +239,7 @@ describe('install package manifest validation', () => {
     await writeSource(root, 'fsms/second.fsm.ts');
     const packageJsonText = JSON.stringify(
       {
-        name: '@aharness/superpowers',
+        name: '@acme/workflows',
         version: '1.2.3',
         scripts: { build: 'tsc' },
         dependencies: { '@aharness/core': '^0.1.0' },

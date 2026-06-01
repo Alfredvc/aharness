@@ -18,7 +18,6 @@ The repo is a pnpm + Node `>=20` TypeScript monorepo:
   generated into ignored `packages/web-ui/dist/` and copied into
   `packages/core/dist/ui/static/` during the core build.
 - `packages/test-support` — deterministic fixtures and integration-test helpers.
-- `packages/superpowers` — installable FSM package.
 - `examples` — runnable examples and workflow references.
 - `docs` — public guides, reference material, architecture notes, and archival
   plans/specs.

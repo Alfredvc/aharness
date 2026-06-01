@@ -248,8 +248,6 @@ behavior, `--ask`, and `--yolo`.
   CLI binary.
 - [`@aharness/test-support`](packages/test-support/README.md) provides
   integration-test fixtures for aharness runs.
-- [`@aharness/superpowers`](packages/superpowers/README.md) is an installable
-  FSM package with Superpowers-inspired commands.
 - `packages/web-ui` is the private React/Vite browser UI bundled into the core
   CLI build.
 

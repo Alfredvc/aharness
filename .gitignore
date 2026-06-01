@@ -44,4 +44,4 @@ coverage/
 .aharness/cache/
 
 # Local vendored checkouts
-vendored/superpowers/
+vendored/

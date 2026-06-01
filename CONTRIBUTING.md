@@ -98,16 +98,9 @@ The normal npm release path is `.github/workflows/release.yml`. It runs on
 `@aharness/test-support`, publishes those tarballs to npm with provenance, and
 creates a GitHub release from `CHANGELOG.md`.
 
-`@aharness/superpowers` is intentionally not part of the tag-triggered release.
-Publish it only through `.github/workflows/release-superpowers.yml`, which is a
-manual `workflow_dispatch` action. That workflow verifies the requested
-Superpowers version, confirms the matching `@aharness/core` version is already
-published, builds and verifies the package, then publishes the Superpowers
-tarball with provenance.
-
-Both workflows expect the npm secret `NPM_TOKEN` to be available to GitHub
-Actions. The release jobs also request `id-token: write` so npm provenance can
-be attached to published packages.
+The workflow expects the npm secret `NPM_TOKEN` to be available to GitHub
+Actions. The release jobs request `id-token: write` so npm provenance can be
+attached to published packages.
 
 ## Documentation Maintenance
 

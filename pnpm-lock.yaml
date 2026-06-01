@@ -91,12 +91,6 @@ importers:
         specifier: ^8.5.13
         version: 8.18.1
 
-  packages/superpowers:
-    dependencies:
-      '@aharness/core':
-        specifier: ^0.1.0
-        version: link:../core
-
   packages/test-support:
     dependencies:
       '@aharness/core':

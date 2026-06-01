@@ -22,12 +22,6 @@ function expectIncludes(relativePath, body, needle) {
   }
 }
 
-function expectExcludes(relativePath, body, needle) {
-  if (body.includes(needle)) {
-    checks.push(`${relativePath} must not include ${JSON.stringify(needle)}`);
-  }
-}
-
 const releasePath = '.github/workflows/release.yml';
 const release = requireFile(releasePath);
 if (release) {
@@ -41,23 +35,6 @@ if (release) {
   expectIncludes(releasePath, release, 'npm publish');
   expectIncludes(releasePath, release, '--provenance --access public');
   expectIncludes(releasePath, release, 'id-token: write');
-  expectExcludes(releasePath, release, 'packages/superpowers');
-  expectExcludes(releasePath, release, '@aharness/superpowers');
-}
-
-const superpowersPath = '.github/workflows/release-superpowers.yml';
-const superpowers = requireFile(superpowersPath);
-if (superpowers) {
-  expectIncludes(superpowersPath, superpowers, 'workflow_dispatch:');
-  expectIncludes(superpowersPath, superpowers, 'packages/superpowers');
-  expectIncludes(superpowersPath, superpowers, '@aharness/superpowers');
-  expectIncludes(superpowersPath, superpowers, 'npm view "@aharness/core@$VERSION" version');
-  expectIncludes(superpowersPath, superpowers, 'npm publish');
-  expectIncludes(superpowersPath, superpowers, '--provenance --access public');
-  expectIncludes(superpowersPath, superpowers, 'id-token: write');
-  expectExcludes(superpowersPath, superpowers, 'push:');
-  expectExcludes(superpowersPath, superpowers, 'tags: ["v*"]');
-  expectExcludes(superpowersPath, superpowers, "tags: ['v*']");
 }
 
 if (checks.length > 0) {

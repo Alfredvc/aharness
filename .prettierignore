@@ -32,7 +32,3 @@ skills-lock.json
 # Scaffolded into user projects by `aharness init`; not part of this repo's source.
 packages/*/templates/**
 packages/core/src/ui/static/assets/**
-
-# Vendored Superpowers skill assets are copied verbatim into package assets.
-vendored/superpowers/**
-packages/superpowers/skills/superpowers/**
