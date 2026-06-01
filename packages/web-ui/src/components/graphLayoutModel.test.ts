@@ -151,6 +151,39 @@ describe('buildGraphLayoutModel', () => {
     expect(scope.localSinkTerminalIds).toEqual(['done']);
   });
 
+  it('accepts choice nodes and choice edges as visible semantic topology', () => {
+    const model = buildGraphLayoutModel(
+      topology(
+        'pick',
+        [
+          node('pick', 'choice', {
+            detail: {
+              question: { kind: 'static', text: 'Pick a route.' },
+              options: ['left', 'right'],
+            },
+          }),
+          node('left'),
+          node('right', 'terminal'),
+        ],
+        [
+          edge('pick', 'left', 'pick-left', { exit: 'left', kind: 'choice' }),
+          edge('pick', 'right', 'pick-right', { exit: 'right', kind: 'choice' }),
+        ],
+      ),
+      new Set(),
+    );
+
+    expect(model.visibleNodes.map((candidate) => [candidate.id, candidate.kind])).toEqual([
+      ['pick', 'choice'],
+      ['left', 'stateful'],
+      ['right', 'terminal'],
+    ]);
+    expect(model.visibleEdges.map((candidate) => [candidate.semanticId, candidate.kind])).toEqual([
+      ['pick-left', 'choice'],
+      ['pick-right', 'choice'],
+    ]);
+  });
+
   it('uses longest distance through branch joins when ranking reachable components', () => {
     const model = buildGraphLayoutModel(
       topology(

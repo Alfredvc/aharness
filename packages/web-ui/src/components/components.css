@@ -456,6 +456,12 @@
   stroke-dasharray: 2 4;
   opacity: 0.7;
 }
+.edge.edge-choice:not(.fired):not(.candidate-fired) path {
+  stroke: var(--mint);
+  color: var(--mint);
+  stroke-dasharray: 4 3;
+  opacity: 0.9;
+}
 .edge.edge-role-auxiliary.edge-await:not(.fired):not(.candidate-fired) path {
   stroke-dasharray: 8 4;
 }
@@ -1286,6 +1292,17 @@
 /* passive */
 .node-passive .node-rect {
   rx: 4;
+}
+
+.node-choice .node-rect {
+  fill: var(--mint-soft);
+  stroke: var(--mint);
+  rx: 10;
+  ry: 10;
+  stroke-dasharray: 5 3;
+}
+.node-choice .node-label {
+  fill: var(--mint);
 }
 
 /* terminal */

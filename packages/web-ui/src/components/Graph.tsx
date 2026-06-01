@@ -321,6 +321,7 @@ function visibleEdgeLabel(
 
 function shouldDrawIndividualEdgeLabel(edge: LaidOutEdge): boolean {
   if (edge.labelPolicy !== 'default-visible') return false;
+  if (edge.kind === 'choice') return true;
   return (
     edge.layoutRole === 'branch' ||
     edge.layoutRole === 'terminal' ||
@@ -541,6 +542,10 @@ function scaleGraphBy(
 
 function joinClassNames(...classNames: Array<string | false | null | undefined>): string {
   return classNames.filter(Boolean).join(' ');
+}
+
+function selfLoopKindClass(edge: Pick<LaidOutEdge, 'kind'>): string {
+  return joinClassNames('edge-self', `edge-${edge.kind}`);
 }
 
 function edgeInteractionClassName(
@@ -798,11 +803,12 @@ export function Graph({
     const selfLoopItems = layout.selfLoops.flatMap((edge) => {
       const node = nodeById.get(edge.from);
       if (!node) return [];
+      const kindClass = selfLoopKindClass(edge);
       return [
         {
           ...edge,
           edge,
-          kindClass: 'edge-self',
+          kindClass,
           pathId: `edge-path-self-${edge.id}`,
           d: selfLoopPath(node).d,
         },
@@ -1111,7 +1117,7 @@ export function Graph({
                   <g
                     key={`l-${e.id}`}
                     className={joinClassNames(
-                      edgeClassName(e, fired, isVisited, 'edge-self'),
+                      edgeClassName(e, fired, isVisited, selfLoopKindClass(e)),
                       edgeInteractionClassName(e, focusState, hoveredEdgeIds),
                     )}
                     aria-label={tooltip}
@@ -1491,6 +1497,7 @@ export const graphInternalsForTest = {
   edgeGroupTooltipText,
   edgeInteractionClassName,
   focusableEdgesForNodeFocus,
+  selfLoopKindClass,
   clampGraphTooltipPoint,
   nodeClassName,
   pointerMovedBeyondThreshold,

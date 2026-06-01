@@ -36,10 +36,11 @@ export const topology: Topology = {
     {
       id: path('review'),
       label: path('review'),
-      kind: 'stateful',
-      awaitsOwnerText: true,
-      entryPrompt:
-        'Present the draft for owner review. Branch on `approve`, return to drafting on `reject`, or `revisit` (self-loop) to re-render.',
+      kind: 'choice',
+      detail: {
+        question: { kind: 'static', text: 'How should the draft proceed?' },
+        options: ['approve', 'reject', 'revisit'],
+      },
     },
     {
       id: path('present'),
@@ -90,36 +91,25 @@ export const topology: Topology = {
       kind: 'submit',
     },
     {
-      id: `${path('review')}::approve#0`,
+      id: `${path('review')}::approve`,
       from: path('review'),
       to: path('present'),
       exit: 'approve',
-      kind: 'submit',
-      branchIndex: 0,
-      branchTotal: 2,
-    },
-    {
-      id: `${path('review')}::approve#1`,
-      from: path('review'),
-      to: path('done_success'),
-      exit: 'approve',
-      kind: 'submit',
-      branchIndex: 1,
-      branchTotal: 2,
+      kind: 'choice',
     },
     {
       id: `${path('review')}::reject`,
       from: path('review'),
       to: path('drafting_drivers'),
       exit: 'reject',
-      kind: 'submit',
+      kind: 'choice',
     },
     {
       id: `${path('review')}::revisit`,
       from: path('review'),
       to: path('review'),
       exit: 'revisit',
-      kind: 'submit',
+      kind: 'choice',
     },
     {
       id: `${path('present')}::ship`,

@@ -157,6 +157,74 @@ describe('extractUiTopology', () => {
     });
   });
 
+  it('emits choice nodes and one choice edge per authored option label', () => {
+    function dynamicQuestion() {
+      return 'Choose the next route.';
+    }
+
+    const fsm = createFsm<Record<string, never>>();
+    const machine = fsm.machine({
+      id: 'choice-topology',
+      initial: 'pick',
+      states: {
+        pick: fsm.choice({
+          main: true,
+          question: dynamicQuestion,
+          options: [
+            { label: 'Go left', to: 'left' },
+            { label: 'Retry / stay?', to: 'pick' },
+          ],
+        }),
+        left: fsm.state({
+          prompt: 'Continue after the selected branch.',
+          on: {
+            finish: fsm.submit<Record<string, never>>({ to: 'done' }),
+          },
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+
+    const topology = extractUiTopology(machine);
+    const pick = topology.nodes.find((node) => node.id === 'pick');
+
+    expect(pick).toMatchObject({
+      id: 'pick',
+      kind: 'choice',
+      main: true,
+      detail: {
+        question: {
+          kind: 'dynamic',
+          text: dynamicQuestion.toString(),
+        },
+        options: ['Go left', 'Retry / stay?'],
+      },
+    });
+    expect(pick?.detail).not.toHaveProperty('exits');
+    expect(pick?.detail).not.toHaveProperty('awaitsOwnerText');
+    expect(pick?.detail).not.toHaveProperty('entryPrompt');
+    expect(pick?.detail).not.toHaveProperty('open');
+    expect(topology.edges).toEqual(
+      expect.arrayContaining([
+        {
+          id: 'pick::choice#0',
+          from: 'pick',
+          to: 'left',
+          exit: 'Go left',
+          kind: 'choice',
+        },
+        {
+          id: 'pick::choice#1',
+          from: 'pick',
+          to: 'pick',
+          exit: 'Retry / stay?',
+          kind: 'choice',
+        },
+      ]),
+    );
+    expect(topology.edges.filter((edge) => edge.from === 'pick')).toHaveLength(2);
+  });
+
   it('connects adventure routes directly to final artifact terminals', async () => {
     const loaded = await loadFsm({ filePath: adventurePath, repoRoot, noCache: true });
 

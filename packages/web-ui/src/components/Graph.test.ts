@@ -31,6 +31,7 @@ const {
   edgeGroupTooltipText,
   edgeInteractionClassName,
   edgePathD,
+  selfLoopKindClass,
   fallbackEdgeLabelPoint,
   fitGraphTransform,
   focusableEdgesForNodeFocus,
@@ -838,6 +839,18 @@ describe('Graph focus styling stylesheet', () => {
     expect(cssRuleBody('.graph-edge-tooltip')).not.toContain('right:');
   });
 
+  it('styles choice nodes and edges distinctly', () => {
+    expectCssRule('.node-choice .node-rect', [
+      'fill: var(--mint-soft);',
+      'stroke: var(--mint);',
+      'stroke-dasharray: 5 3;',
+    ]);
+    expectCssRule('.edge.edge-choice:not(.fired):not(.candidate-fired) path', [
+      'stroke: var(--mint);',
+      'stroke-dasharray: 4 3;',
+    ]);
+  });
+
   it('keeps reduced motion disabling animation-only graph affordances', () => {
     expect(componentCss).toContain('@media (prefers-reduced-motion: reduce)');
     expect(componentCss).toContain('.edge.fired path,');
@@ -928,6 +941,28 @@ describe('Graph edge rendering helpers', () => {
     expect(feedback).toContain('edge-self');
     expect(firedForward).toContain('main-forward');
     expect(firedForward).toContain('fired');
+  });
+
+  it('adds distinct choice node and edge classes through generic class paths', () => {
+    const nodeClasses = nodeClassName(node({ id: 'pick', kind: 'choice' }), {
+      activeStateId: null,
+      visitedNodeIds: new Set(),
+      awaitsOwner: false,
+      isTerminal: false,
+    });
+    const edgeClasses = edgeClassName(edge({ kind: 'choice' }), 'none', false);
+
+    expect(nodeClasses).toContain('node-choice');
+    expect(edgeClasses).toContain('edge-choice');
+  });
+
+  it('keeps choice self-loops styled as both self-loop and choice edges', () => {
+    const kindClass = selfLoopKindClass(edge({ kind: 'choice' }));
+    const className = edgeClassName(edge({ kind: 'choice' }), 'none', false, kindClass);
+
+    expect(kindClass).toBe('edge-self edge-choice');
+    expect(className).toContain('edge-self');
+    expect(className).toContain('edge-choice');
   });
 
   it('paints passive main edges above lower-priority edges but below fired edges', () => {
@@ -1207,6 +1242,28 @@ describe('Graph edge rendering helpers', () => {
         new Map(),
       ),
     ).toEqual([]);
+  });
+
+  it('draws single primary choice labels from the authored option label', () => {
+    const labels = buildEdgeLabelRenderItems(
+      [
+        edge({
+          kind: 'choice',
+          exit: 'approve draft',
+          layoutRole: 'primary',
+          labelPolicy: 'default-visible',
+          parallelTotal: 1,
+        }),
+      ],
+      new Map(),
+    );
+
+    expect(labels).toHaveLength(1);
+    expect(labels[0]).toMatchObject({
+      label: 'approve draft',
+      title: 'approve draft',
+      grouped: false,
+    });
   });
 
   it('offsets fallback labels for parallel rendered edges', () => {

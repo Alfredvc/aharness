@@ -1,11 +1,11 @@
 # Deterministic Owner Choice States Implementation Recipe
 
 **Parent roadmap:** `docs/plans/2026-06-01-deterministic-owner-choice-states-roadmap.md`
-**Current slice:** Slice 3 - choice topology visualization
+**Current slice:** Slice 4 - legacy owner-decision API retirement and migration
 **Current phase:** needs detailed plan
 **Current detailed plan:** none
 **Current fix source:** none
-**Last completed:** Slice 2 accepted and committed in this commit
+**Last completed:** Slice 3 accepted and committed in this commit
 
 ## Durable Grounding
 
@@ -144,4 +144,32 @@ Slice 2 verification completed on 2026-06-02:
   skipped.
 
 Slice 2 was accepted. The current slice is now Slice 3: choice topology
-visualization. A detailed Slice 3 plan should be created before implementation.
+visualization. The detailed Slice 3 plan has been created at
+`docs/plans/2026-06-02-deterministic-owner-choice-states-slice-3.md` and is
+ready for plan review before implementation.
+
+Slice 3 implementation is ready for acceptance review. Implemented scope now
+includes semantic topology `choice` node and edge kinds, choice node details
+with authored questions and option labels, browser topology type mirrors,
+choice-aware graph fixture/layout handling, distinct choice node and edge graph
+styling, visible option labels for single primary choice edges, choice self-loop
+classification that retains both self-loop and choice styling, choice question
+and option rows in ActivePanel inspect mode, and a narrow architecture note
+update for choice topology semantics.
+
+Slice 3 verification completed on 2026-06-02:
+
+- `pnpm exec vitest run packages/core/test/ui.topology.test.ts` passed: 1 file,
+  5 tests.
+- `pnpm exec vitest run packages/web-ui/src/components/graphLayoutModel.test.ts packages/web-ui/src/components/Graph.test.ts packages/web-ui/src/components/ActivePanel.test.ts` passed:
+  3 files, 114 tests.
+- `pnpm run typecheck` passed.
+- `pnpm --dir packages/web-ui run typecheck` passed.
+- `pnpm run verify` passed, including format check, lint, workflow-term and
+  stale-contract checks, root typecheck, web-ui typecheck, codex bump check,
+  build, and full Vitest: 152 files passed, 7 skipped; 1694 tests passed, 19
+  skipped.
+
+Slice 3 was accepted. The current slice is now Slice 4: legacy owner-decision
+API retirement and migration. A detailed Slice 4 plan should be created before
+implementation.

@@ -192,6 +192,23 @@ describe('ActivePanel inspect node details', () => {
       { label: 'exits', value: 'submitPlan -> review: Plan is ready.' },
     ]);
   });
+
+  it('formats choice question and option labels without stateful-only rows', () => {
+    expect(
+      buildNodeDetailRowsForTest({
+        id: 'pick',
+        label: 'pick',
+        kind: 'choice',
+        detail: {
+          question: { kind: 'static', text: 'Pick a route.' },
+          options: ['Left', 'Right'],
+        },
+      }),
+    ).toEqual([
+      { label: 'question', value: 'Pick a route.' },
+      { label: 'options', value: 'Left\nRight' },
+    ]);
+  });
 });
 
 describe('ActivePanel tool rows', () => {

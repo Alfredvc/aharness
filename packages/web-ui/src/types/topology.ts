@@ -2,7 +2,7 @@
 // through run-scoped bootstrap; fixture/demo flows may still provide topology
 // outside the production entry path.
 
-export type NodeKind = 'stateful' | 'terminal' | 'passive' | 'embed';
+export type NodeKind = 'stateful' | 'terminal' | 'passive' | 'choice' | 'embed';
 
 export type TextDetail = {
   kind: 'static' | 'dynamic';
@@ -33,6 +33,8 @@ export type ExitDetail = {
 export type VizNodeDetail = {
   entryPrompt?: TextDetail;
   awaitsOwnerText?: TextDetail;
+  question?: TextDetail;
+  options?: string[];
   open?: boolean;
   clearOnEntry?: boolean;
   hasStopGuidance?: boolean;
@@ -58,7 +60,7 @@ export type VizNode = {
   detail?: VizNodeDetail;
 };
 
-export type EdgeKind = 'submit' | 'await' | 'always';
+export type EdgeKind = 'submit' | 'await' | 'always' | 'choice';
 
 export type VizEdge = {
   id: string;

@@ -3,7 +3,7 @@ import { getAharnessMeta, iterStates, stateKeyPath } from '../state.js';
 import type { EmbeddedMeta } from '../state/embed.js';
 import type { DefaultedExitDef, AharnessStateMeta } from '../state/exits.js';
 import type { SkillRef } from '../state/skills.js';
-import type { SchemaSidecar } from '../types.js';
+import type { ChoiceMeta, SchemaSidecar } from '../types.js';
 import type {
   ExitDetail,
   HookDetail,
@@ -233,6 +233,24 @@ export function extractUiTopology(
           });
         }
       }
+    } else if (meta.kind === 'choice') {
+      nodes.push({
+        id: path,
+        label: path,
+        kind: 'choice',
+        ...(meta.main === true ? { main: true } : {}),
+        detail: describeChoiceNode(meta),
+        ...parentField,
+      });
+      meta.options.forEach((option, i) => {
+        edges.push({
+          id: `${path}::choice#${String(i)}`,
+          from: path,
+          to: resolveTarget(option.to, path),
+          exit: option.label,
+          kind: 'choice',
+        });
+      });
     } else if (meta.kind === 'terminal') {
       nodes.push({
         id: path,
@@ -330,6 +348,13 @@ function describeStatefulNode(
     ...(hooks.length > 0 ? { hooks } : {}),
     ...(skills.length > 0 ? { skills } : {}),
     exits,
+  };
+}
+
+function describeChoiceNode(meta: ChoiceMeta): NonNullable<VizNode['detail']> {
+  return {
+    question: describeText(meta.question, '<dynamic owner choice question>'),
+    options: meta.options.map((option) => option.label),
   };
 }
 

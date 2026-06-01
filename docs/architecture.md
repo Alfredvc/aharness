@@ -52,6 +52,13 @@ optional visualization-only `main` marker declared by the FSM author; edges
 describe authored transitions and exits. They do not carry renderer-only ranks,
 ports, feedback classes, or expansion state.
 
+Choice states are represented as first-class semantic topology nodes rather
+than as stateful submit or await exits. Their node detail carries the authored
+question and option labels, and topology includes one `choice` edge per authored
+option label. Those labels are the public route identity; the topology contract
+does not expose generated owner-choice event names, request ids, or
+renderer-specific layout hints.
+
 The browser graph derives visualization details locally from that semantic
 topology. It projects collapsed or expanded embedded FSM hierarchy, ranks each
 visible scope from its entry state, keeps local sink terminals at the bottom of
@@ -108,6 +115,8 @@ Owner input has two paths:
 
 - `fsm.await(...)` asks the owner for free text through Codex
   `request_user_input` and advances on the configured await exit.
+- Framework-owned choice states park the run on authored option labels and
+  resume through aharness owner-choice replies.
 - Built-in approval and hook events route Codex permission, pre-tool,
   post-tool, and prompt-submission events through the active state's `on` map.
 

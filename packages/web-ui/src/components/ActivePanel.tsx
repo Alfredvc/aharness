@@ -504,6 +504,12 @@ function buildNodeDetailRows(node: VizNode): DetailRow[] {
     rows.push({ label: 'mode', value: detail.open ? 'open' : 'strict' });
     rows.push({ label: 'clear on entry', value: detail.clearOnEntry ? 'yes' : 'no' });
   }
+  if (node.kind === 'choice' && detail.question) {
+    rows.push({ label: 'question', value: detail.question.text });
+  }
+  if (node.kind === 'choice' && detail.options && detail.options.length > 0) {
+    rows.push({ label: 'options', value: detail.options.join('\n') });
+  }
   if (detail.entryPrompt) {
     rows.push({ label: 'entry prompt', value: detail.entryPrompt.text });
   }
