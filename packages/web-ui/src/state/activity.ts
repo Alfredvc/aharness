@@ -157,6 +157,16 @@ export function deriveActivity(s: UiState): Activity {
     };
   }
 
+  if (s.pending.ownerChoice) {
+    return {
+      kind: 'awaiting.owner',
+      label: 'awaiting your choice',
+      detail: trim(s.pending.ownerChoice.question, 80),
+      tone: 'indigo',
+      motion: 'pulse',
+    };
+  }
+
   const live = findLastStreamingOrPending(s.transcript);
   if (live?.type === 'tool_call') {
     return {

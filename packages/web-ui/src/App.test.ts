@@ -48,6 +48,7 @@ function baseSession(overrides: Partial<TestSession> = {}): TestSession {
       permissionApprovals: [],
       elicitations: [],
       ownerInput: null,
+      ownerChoice: null,
     },
     diagnostics: [],
     stateVisits: [

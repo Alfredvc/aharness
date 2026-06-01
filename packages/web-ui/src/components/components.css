@@ -2490,6 +2490,25 @@
 .choice.on .text {
   color: var(--ink);
 }
+.slot-owner-choice {
+  border-color: var(--indigo);
+  background: linear-gradient(180deg, var(--indigo-soft), transparent 80%), var(--panel);
+}
+.slot-owner-choice .slot-head .dot {
+  background: var(--indigo);
+  box-shadow: 0 0 8px var(--indigo-glow);
+}
+.slot-owner-choice .slot-head .label {
+  color: var(--indigo);
+}
+.slot-owner-choice .choice.on {
+  border-color: var(--indigo);
+  background: var(--indigo-soft);
+}
+.slot-owner-choice .choice.on .num {
+  border-color: var(--indigo);
+  color: var(--indigo);
+}
 
 /* multi-question */
 .multi-form {

@@ -34,6 +34,7 @@ const EMPTY_TOPOLOGY: Topology = {
 function emptyPending(): UiAppState['pending'] {
   return {
     ownerInput: null,
+    ownerChoice: null,
     fileApprovals: [],
     cmdApprovals: [],
     permissionApprovals: [],

@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import type { OwnerInputRequest } from '../types/events';
+import type { OwnerChoiceRequest, OwnerInputRequest } from '../types/events';
 import type { UiActions } from '../state/store';
 
 type Props = {
   req: OwnerInputRequest;
+  reply: UiActions['reply'];
+};
+
+type OwnerChoiceProps = {
+  req: OwnerChoiceRequest;
   reply: UiActions['reply'];
 };
 
@@ -12,6 +17,93 @@ export function InteractionSlot({ req, reply }: Props) {
   if (flavor === 'choice') return <ChoiceSlot req={req} reply={reply} />;
   if (flavor === 'multi') return <MultiQuestionSlot req={req} reply={reply} />;
   return <FreeTextSlot req={req} reply={reply} />;
+}
+
+export function OwnerChoiceSlot({ req, reply }: OwnerChoiceProps) {
+  const [cursor, setCursor] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const options = req.options;
+
+  useEffect(() => {
+    setCursor(0);
+    setSubmitting(false);
+    setError(null);
+  }, [req.requestId]);
+
+  async function commit(label: string) {
+    if (submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      await reply({
+        kind: 'owner-choice',
+        state: req.state,
+        visitCount: req.visitCount,
+        label,
+      });
+    } catch {
+      setError('choice failed; selection retained');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function pick(i: number) {
+    if (i < 0 || i >= options.length) return;
+    void commit(options[i]?.label ?? '');
+  }
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault();
+        setCursor((c) => Math.min(options.length - 1, c + 1));
+      } else if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault();
+        setCursor((c) => Math.max(0, c - 1));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        pick(cursor);
+      } else if (/^[1-9]$/.test(e.key)) {
+        const i = Number(e.key) - 1;
+        if (i < options.length) {
+          e.preventDefault();
+          pick(i);
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [cursor, options, req.requestId, submitting]);
+
+  return (
+    <div className="slot slot-choice slot-owner-choice">
+      <div className="slot-head">
+        <span className="dot" aria-hidden />
+        <span className="label">framework choice</span>
+      </div>
+      <div className="slot-q">{req.question}</div>
+      <ul className="choices">
+        {options.map((option, i) => (
+          <li
+            key={option.label}
+            className={`choice ${i === cursor ? 'on' : ''}`}
+            onMouseEnter={() => setCursor(i)}
+            onClick={() => pick(i)}
+          >
+            <span className="num">{i + 1}</span>
+            <span className="text">{option.label}</span>
+          </li>
+        ))}
+      </ul>
+      {error ? <div className="slot-error">{error}</div> : null}
+      <div className="slot-hint">
+        <kbd>↑</kbd>/<kbd>↓</kbd> nav · <kbd>↵</kbd> confirm · <kbd>1</kbd>–
+        <kbd>{options.length}</kbd> jump
+      </div>
+    </div>
+  );
 }
 
 function pickFlavor(req: OwnerInputRequest): 'free' | 'choice' | 'multi' {
@@ -96,12 +188,7 @@ function FreeTextSlot({ req, reply }: Props) {
   );
 }
 
-/* ─────────────────────────────────────────────────────── choice
- * Fixture-only path: codex's `request_user_input` schema (CF-3 in the headless
- * spec) carries `{id, header, question, isOther, isSecret}` — no `choices`.
- * Production SSE will never emit a choice list; this flavor exists to exercise
- * a future UI affordance during design work.
- */
+/* ─────────────────────────────────────────────────────── owner-input choice */
 
 function ChoiceSlot({ req, reply }: Props) {
   const q = req.questions[0];

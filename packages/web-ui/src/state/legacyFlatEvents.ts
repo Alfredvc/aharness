@@ -15,6 +15,7 @@ function emptyPending(): UiState['pending'] {
     permissionApprovals: [],
     elicitations: [],
     ownerInput: null,
+    ownerChoice: null,
   };
 }
 
@@ -64,6 +65,7 @@ export function hydrateFromSnapshot(snapshot: UiSnapshot): UiState {
     pending: {
       ...emptyPending(),
       ownerInput: snapshot.state.pending?.ownerInput ?? null,
+      ownerChoice: snapshot.state.pending?.ownerChoice ?? null,
       fileApprovals: snapshot.state.pending?.fileApprovals ?? [],
       cmdApprovals: snapshot.state.pending?.cmdApprovals ?? [],
       permissionApprovals: snapshot.state.pending?.permissionApprovals ?? [],

@@ -52,6 +52,7 @@ export {
   compactRunEventPayload,
   enrichRunEventAppendInput,
   legacyEventInputToRunEventAppendInput,
+  ownerChoicePendingRunEvent,
 } from './adapter.js';
 export {
   appendRunEvent,

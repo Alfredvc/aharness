@@ -60,6 +60,7 @@ function baseSession(overrides: Partial<TestSession> = {}): TestSession {
       permissionApprovals: [],
       elicitations: [],
       ownerInput: null,
+      ownerChoice: null,
     },
     diagnostics: [],
     stateVisits: [
@@ -467,6 +468,7 @@ describe('ActivePanel timeline rows', () => {
           cmdApprovals: [],
           permissionApprovals: [],
           elicitations: [],
+          ownerChoice: null,
           ownerInput: {
             kind: 'ServerRequest',
             id: 'owner-1',
@@ -535,6 +537,53 @@ describe('ActivePanel timeline rows', () => {
     expect(html).not.toContain('owner input reply plumbing');
     expect(html).not.toContain('owner input reply accepted plumbing');
     expect(html).not.toContain('workflow.ownerApproval');
+  });
+
+  it('renders framework owner choices before owner-input prompts', () => {
+    const html = renderActivePanel(
+      baseSession({
+        posture: {
+          isTerminal: false,
+          isAwaiting: true,
+          submittedThisTurn: false,
+          open: false,
+        },
+        pending: {
+          fileApprovals: [],
+          cmdApprovals: [],
+          permissionApprovals: [],
+          elicitations: [],
+          ownerChoice: {
+            kind: 'OwnerChoice',
+            id: 'owner-choice:workflow.pick#2',
+            requestId: 'owner-choice:workflow.pick#2',
+            state: 'workflow.pick',
+            visitCount: 2,
+            question: 'Pick a path',
+            options: [{ label: 'Left' }, { label: 'Right' }],
+          },
+          ownerInput: {
+            kind: 'ServerRequest',
+            id: 'owner-1',
+            method: 'item/tool/requestUserInput',
+            questions: [
+              {
+                id: 'q1',
+                header: 'Plan',
+                question: 'Approve this plan?',
+                isOther: false,
+                isSecret: false,
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(html).toContain('framework choice');
+    expect(html).toContain('Pick a path');
+    expect(html).toContain('Left');
+    expect(html).not.toContain('Approve this plan?');
   });
 
   it('still suppresses duplicate state transitions inside scoped visit rows', () => {
@@ -1143,6 +1192,7 @@ describe('OwnerInputComposer reply hint', () => {
             cmdApprovals: [],
             permissionApprovals: [],
             elicitations: [],
+            ownerChoice: null,
             ownerInput: {
               kind: 'ServerRequest',
               id: 'owner-1',

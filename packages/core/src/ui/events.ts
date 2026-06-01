@@ -216,6 +216,16 @@ export type OwnerInputRequest = {
   }>;
 };
 
+export type OwnerChoiceRequest = {
+  kind: 'OwnerChoice';
+  id: string;
+  requestId: string;
+  state: string;
+  visitCount: number;
+  question: string;
+  options: Array<{ label: string }>;
+};
+
 export type FileChangeApprovalRequest = {
   kind: 'ServerRequest';
   id: string;
@@ -341,6 +351,7 @@ export type UiAppState = {
   topology: Topology;
   pending: {
     ownerInput: OwnerInputRequest | null;
+    ownerChoice: OwnerChoiceRequest | null;
     fileApprovals: FileChangeApprovalRequest[];
     cmdApprovals: CommandApprovalRequest[];
     permissionApprovals: PermissionApprovalRequest[];

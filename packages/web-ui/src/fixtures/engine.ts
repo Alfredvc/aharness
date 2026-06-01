@@ -14,6 +14,7 @@ export type ApprovalDecision = 'accept' | 'acceptForSession' | 'decline' | 'canc
 
 export type ReplyPayload =
   | { kind: 'owner-input'; requestId: string; answers: Record<string, string> }
+  | { kind: 'owner-choice'; state: string; visitCount: number; label: string }
   | { kind: 'approval'; requestId: string; decision: ApprovalDecision }
   | { kind: 'permission'; requestId: string; decision: 'accept' | 'decline' }
   | {

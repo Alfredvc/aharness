@@ -98,10 +98,12 @@ import {
   compactRunEventPayload,
   createLiveRunEventPublisher,
   createRunEventQueryService,
+  ownerChoicePendingRunEvent,
   type RunEventAppendInput,
   type RunEventPayload,
   type RunEventRecorder,
 } from '../runEvents/index.js';
+import { ownerChoiceRequestId } from '../ownerChoice.js';
 import { buildDynamicToolsRegistration } from '../transport/dynamicToolsRegistration.js';
 import { createApprovalDispatcher } from '../transport/approvalDispatch.js';
 import { createItemCompletedWatcherRegistry } from '../transport/itemCompletedWatcher.js';
@@ -679,10 +681,24 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     publishOpenPosture();
     await runActiveOnEntry();
     scheduleFreshClearAfterTransition(info);
-    if (host.currentMeta()?.kind === 'choice') {
-      const data = activeChoiceData(host);
-      if (!data.ok) failRunAndShutdown(`choice question failed: ${data.error}`);
+    publishActiveOwnerChoicePending();
+  }
+
+  function publishActiveOwnerChoicePending(): void {
+    if (host.currentMeta()?.kind !== 'choice') return;
+    const data = activeChoiceData(host);
+    if (!data.ok) {
+      failRunAndShutdown(`choice question failed: ${data.error}`);
+      return;
     }
+    recordRunEvent(
+      ownerChoicePendingRunEvent({
+        state: data.state,
+        visitCount: data.visitCount,
+        question: data.question,
+        options: data.labels.map((label) => ({ label })),
+      }),
+    );
   }
 
   const permissionRequestDispatch = createPermissionRequestDispatcher({
@@ -796,6 +812,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         publishOpenPosture();
         await runActiveOnEntry();
         scheduleFreshClearAfterTransition({ from: committed.from, to });
+        publishActiveOwnerChoicePending();
         if (host.currentMeta()?.kind === 'terminal') {
           setImmediate(() => signalTerminalCompletion());
         } else if (
@@ -804,9 +821,6 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
           !currentStateDeclaresClearOnEntry(host)
         ) {
           scheduleStatefulOrientationAfterReply();
-        } else if (host.currentMeta()?.kind === 'choice') {
-          const data = activeChoiceData(host);
-          if (!data.ok) failRunAndShutdown(`choice question failed: ${data.error}`);
         }
         return { status: 200, body: { ok: true } };
       }),
@@ -1195,10 +1209,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         newState: deriveUiFsmState(host),
       });
       publishOpenPosture();
-      if (host.currentMeta()?.kind === 'choice') {
-        const data = activeChoiceData(host);
-        if (!data.ok) failRunAndShutdown(`choice question failed: ${data.error}`);
-      }
+      publishActiveOwnerChoicePending();
     },
     composeActiveStateNudge: () => composeActiveStateNudge(host, sidecar),
     runOnEntry: runActiveOnEntry,
@@ -1366,10 +1377,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     onAfterTransition: async (info) => {
       await runActiveOnEntry();
       scheduleFreshClearAfterTransition(info);
-      if (host.currentMeta()?.kind === 'choice') {
-        const data = activeChoiceData(host);
-        if (!data.ok) failRunAndShutdown(`choice question failed: ${data.error}`);
-      }
+      publishActiveOwnerChoicePending();
     },
   });
 
@@ -1750,8 +1758,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     await runActiveOnEntry();
     await applyStateModelForActiveState();
     if (isChoiceState(host)) {
-      const data = activeChoiceData(host);
-      if (!data.ok) throw new Error(`choice question failed: ${data.error}`);
+      publishActiveOwnerChoicePending();
     } else {
       const orientation = composeActiveStateNudge(host, sidecar);
       publishOrientationNote(orientation);
@@ -1807,21 +1814,32 @@ function replySubmittedRunEvent(input: {
   visitCount?: number;
   label?: string;
 }): RunEventAppendInput {
+  const requestId = replyLifecycleRequestId(input);
   return {
     type: 'reply.submitted',
-    ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
+    ...(requestId !== undefined ? { requestId } : {}),
     data: compactRunEventPayload({
       kind: input.kind,
-      requestId: input.requestId,
+      requestId,
       state: input.state,
       visitCount: input.visitCount,
       label: input.label,
       status: 'submitted',
       row: {
         kind: 'reply',
-        label: input.kind ?? 'reply',
+        label: input.kind === 'owner-choice' ? 'owner choice' : (input.kind ?? 'reply'),
         status: 'submitted',
-        summary: input.requestId,
+        summary: input.kind === 'owner-choice' ? input.label : requestId,
+        data:
+          input.kind === 'owner-choice'
+            ? compactRunEventPayload({
+                kind: 'owner-choice',
+                requestId,
+                state: input.state,
+                visitCount: input.visitCount,
+                label: input.label,
+              })
+            : undefined,
       },
     }),
     raw: { payload: input.payload },
@@ -1839,12 +1857,13 @@ function replyResolvedRunEvent(input: {
   error?: Error;
 }): RunEventAppendInput {
   const ok = input.result !== undefined && input.result.status >= 200 && input.result.status < 400;
+  const requestId = replyLifecycleRequestId(input);
   return {
     type: 'reply.resolved',
-    ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
+    ...(requestId !== undefined ? { requestId } : {}),
     data: compactRunEventPayload({
       kind: input.kind,
-      requestId: input.requestId,
+      requestId,
       state: input.state,
       visitCount: input.visitCount,
       label: input.label,
@@ -1854,9 +1873,22 @@ function replyResolvedRunEvent(input: {
       error: input.error?.message ?? errorCode(input.result?.body),
       row: {
         kind: 'reply',
-        label: input.kind ?? 'reply',
+        label: input.kind === 'owner-choice' ? 'owner choice' : (input.kind ?? 'reply'),
         status: ok ? 'accepted' : 'failed',
-        summary: input.requestId ?? input.error?.message ?? errorCode(input.result?.body),
+        summary:
+          input.kind === 'owner-choice'
+            ? (input.label ?? input.error?.message ?? errorCode(input.result?.body))
+            : (requestId ?? input.error?.message ?? errorCode(input.result?.body)),
+        data:
+          input.kind === 'owner-choice'
+            ? compactRunEventPayload({
+                kind: 'owner-choice',
+                requestId,
+                state: input.state,
+                visitCount: input.visitCount,
+                label: input.label,
+              })
+            : undefined,
       },
     }),
     raw: compactRunEventPayload({
@@ -1868,6 +1900,22 @@ function replyResolvedRunEvent(input: {
           : undefined,
     }),
   };
+}
+
+function replyLifecycleRequestId(input: {
+  kind?: string;
+  requestId?: string;
+  state?: string;
+  visitCount?: number;
+}): string | undefined {
+  if (
+    input.kind === 'owner-choice' &&
+    input.state !== undefined &&
+    input.visitCount !== undefined
+  ) {
+    return ownerChoiceRequestId(input.state, input.visitCount);
+  }
+  return input.requestId;
 }
 
 function errorCode(body: unknown): string | undefined {

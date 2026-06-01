@@ -22,6 +22,7 @@ import type {
   OwnerInputRequest,
   PermissionApproval,
   ElicitationRequest,
+  OwnerChoiceRequest,
   AbandonedThreadDiagnostic,
   UiMode,
   RunScopedAggregateStats,
@@ -233,6 +234,7 @@ export type UiState = {
     permissionApprovals: PermissionApproval[];
     elicitations: ElicitationRequest[];
     ownerInput: OwnerInputRequest | null;
+    ownerChoice: OwnerChoiceRequest | null;
   };
   diagnostics: AbandonedThreadDiagnostic[];
   stateVisits: RunScopedStateVisit[];
@@ -274,6 +276,7 @@ export type ReplyPayload =
       values?: Record<string, unknown>;
     }
   | { kind: 'owner-input'; requestId: string; answers: Record<string, string> }
+  | { kind: 'owner-choice'; state: string; visitCount: number; label: string }
   | { kind: 'user-prompt'; text: string };
 
 export const EMPTY_TOPOLOGY: Topology = {
@@ -290,6 +293,7 @@ function emptyPending(): UiState['pending'] {
     permissionApprovals: [],
     elicitations: [],
     ownerInput: null,
+    ownerChoice: null,
   };
 }
 
@@ -375,9 +379,9 @@ function pendingFromSummaries(
 ): UiState['pending'] {
   const buckets = emptyPending();
   for (const summary of pending) {
-    if (summary.status !== 'pending') continue;
     const card = summary.pendingCard;
     if (card === undefined) continue;
+    if (summary.status !== 'pending' && card.kind !== 'owner-choice') continue;
     switch (card.kind) {
       case 'owner-input':
         buckets.ownerInput = {
@@ -392,6 +396,17 @@ function pendingFromSummaries(
             isSecret: question.isSecret,
             ...(question.choices === undefined ? {} : { choices: [...question.choices] }),
           })),
+        };
+        break;
+      case 'owner-choice':
+        buckets.ownerChoice = {
+          kind: 'OwnerChoice',
+          id: card.id,
+          requestId: card.requestId,
+          state: card.state,
+          visitCount: card.visitCount,
+          question: card.question,
+          options: card.options.map((option) => ({ label: option.label })),
         };
         break;
       case 'file-approval':
@@ -538,6 +553,7 @@ type Action =
   | { type: 'resolvePermission'; id: string }
   | { type: 'resolveElicitation'; id: string }
   | { type: 'resolveOwnerInput' }
+  | { type: 'resolveOwnerChoice'; state: string; visitCount: number }
   | { type: 'rowLoadStarted'; visitId: string }
   | { type: 'rowPageLoaded'; visitId: string; page: RunScopedRowPage }
   | { type: 'rowLoadFailed'; visitId: string; error: string }
@@ -1081,6 +1097,26 @@ function pendingCardFromUnknown(value: unknown): RunScopedPendingCard | null {
     if (parsed.length !== questions.length) return null;
     return { kind, id, requestId, method: value['method'], questions: parsed };
   }
+  if (kind === 'owner-choice') {
+    const state = readString(value['state']);
+    const visitCount = readNumber(value['visitCount']);
+    const question = readString(value['question']);
+    const options = Array.isArray(value['options']) ? value['options'] : null;
+    if (
+      state === undefined ||
+      visitCount === undefined ||
+      question === undefined ||
+      options === null
+    ) {
+      return null;
+    }
+    const parsedOptions = options
+      .map((option) => (isRecord(option) ? readString(option['label']) : undefined))
+      .filter((label): label is string => label !== undefined)
+      .map((label) => ({ label }));
+    if (parsedOptions.length !== options.length) return null;
+    return { kind, id, requestId, state, visitCount, question, options: parsedOptions };
+  }
   const threadId = readString(value['threadId']);
   const turnId = readString(value['turnId']);
   const itemId = readString(value['itemId']);
@@ -1200,6 +1236,7 @@ function addPendingCard(state: UiState, e: RunScopedApiEvent): UiState {
     ...state,
     pending: {
       ownerInput: pending.ownerInput ?? state.pending.ownerInput,
+      ownerChoice: pending.ownerChoice ?? state.pending.ownerChoice,
       fileApprovals: mergeById(state.pending.fileApprovals, pending.fileApprovals),
       cmdApprovals: mergeById(state.pending.cmdApprovals, pending.cmdApprovals),
       permissionApprovals: mergeById(
@@ -1309,6 +1346,7 @@ function currentStateFromRunEvent(e: RunScopedApiEvent): FsmState | null {
     ...(data?.['kind'] === 'stateful' ||
     data?.['kind'] === 'terminal' ||
     data?.['kind'] === 'passive' ||
+    data?.['kind'] === 'choice' ||
     data?.['kind'] === 'final'
       ? { kind: data['kind'] }
       : {}),
@@ -1531,6 +1569,8 @@ function reduceRunEvent(previous: UiState, e: RunScopedApiEvent): UiState {
             ...state.pending,
             ownerInput:
               state.pending.ownerInput?.id === requestId ? null : state.pending.ownerInput,
+            ownerChoice:
+              state.pending.ownerChoice?.requestId === requestId ? null : state.pending.ownerChoice,
             fileApprovals: state.pending.fileApprovals.filter(
               (item) => item.id !== requestId && item.requestId !== requestId,
             ),
@@ -1626,6 +1666,18 @@ function reducer(s: UiState, a: Action): UiState {
       ...s,
       replyError: null,
       pending: { ...s.pending, ownerInput: null },
+      posture: { ...s.posture, isAwaiting: false },
+    };
+  }
+  if (a.type === 'resolveOwnerChoice') {
+    const current = s.pending.ownerChoice;
+    if (current === null || current.state !== a.state || current.visitCount !== a.visitCount) {
+      return { ...s, replyError: null };
+    }
+    return {
+      ...s,
+      replyError: null,
+      pending: { ...s.pending, ownerChoice: null },
       posture: { ...s.posture, isAwaiting: false },
     };
   }
@@ -1818,6 +1870,9 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
         if (p.kind === 'permission') dispatch({ type: 'resolvePermission', id: p.requestId });
         if (p.kind === 'elicitation') dispatch({ type: 'resolveElicitation', id: p.requestId });
         if (p.kind === 'owner-input') dispatch({ type: 'resolveOwnerInput' });
+        if (p.kind === 'owner-choice') {
+          dispatch({ type: 'resolveOwnerChoice', state: p.state, visitCount: p.visitCount });
+        }
       } catch (error) {
         dispatch({
           type: 'replyFailed',
@@ -1980,6 +2035,14 @@ function isVisibleTranscriptItem(i: TranscriptItem): boolean {
   if (i.type === 'tool_call' && i.reserved) return false;
   if (i.type === 'tool_result' && i.reserved) return false;
   if (i.type === 'compact_status' && i.reserved) return false;
+  if (
+    i.type === 'compact_status' &&
+    i.category === 'reply' &&
+    i.status === 'failed' &&
+    i.label === 'owner choice'
+  ) {
+    return true;
+  }
   if (
     i.type === 'compact_status' &&
     (i.category === 'request' || i.category === 'reply' || i.category === 'lifecycle')

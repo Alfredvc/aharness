@@ -167,6 +167,15 @@ export type RunEventPendingCard =
       readonly questions: ReadonlyArray<RunEventOwnerInputPendingCardQuestion>;
     }
   | {
+      readonly kind: 'owner-choice';
+      readonly id: string;
+      readonly requestId: string;
+      readonly state: string;
+      readonly visitCount: number;
+      readonly question: string;
+      readonly options: ReadonlyArray<{ readonly label: string }>;
+    }
+  | {
       readonly kind: 'file-approval';
       readonly id: string;
       readonly requestId: string;

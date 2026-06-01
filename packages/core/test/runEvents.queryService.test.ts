@@ -250,6 +250,95 @@ describe('run event query service', () => {
     expect(changed.bootstrap.run.threadId).toBe('thread-after-start');
   });
 
+  it('serves owner-choice pending cards and failed reply rows from bootstrap', () => {
+    const eventsPath = tempEventsPath();
+    const requestId = 'owner-choice:root.pick#2';
+    writeJsonl(
+      eventsPath,
+      event(1, 'state.changed', {
+        stateVisitId: 'root.pick#2',
+        data: {
+          from: null,
+          to: 'root.pick',
+          path: 'root.pick',
+          leaf: 'pick',
+          kind: 'choice',
+          visitCount: 2,
+        },
+      }),
+      event(2, 'request.updated', {
+        stateVisitId: 'root.pick#2',
+        requestId,
+        data: {
+          kind: 'owner-choice',
+          requestId,
+          pendingCard: {
+            kind: 'owner-choice',
+            id: requestId,
+            requestId,
+            state: 'root.pick',
+            visitCount: 2,
+            question: 'Pick one',
+            options: [{ label: 'A' }, { label: 'B' }],
+          },
+          row: {
+            kind: 'request',
+            label: 'owner choice',
+            status: 'pending',
+            summary: '2 options',
+          },
+        },
+      }),
+      event(3, 'reply.resolved', {
+        stateVisitId: 'root.pick#2',
+        requestId,
+        data: {
+          kind: 'owner-choice',
+          requestId,
+          status: 'failed',
+          ok: false,
+          row: {
+            kind: 'reply',
+            label: 'owner choice',
+            status: 'failed',
+            summary: 'A',
+          },
+        },
+      }),
+    );
+    const service = createRunEventQueryService({ runId: RUN_ID, eventsPath });
+
+    const bootstrap = service.getBootstrap({
+      getRunMeta: () => ({ runId: RUN_ID }),
+      recentLimit: 10,
+    });
+
+    expect(bootstrap.ok).toBe(true);
+    if (!bootstrap.ok) return;
+    expect(bootstrap.bootstrap.currentState).toEqual({
+      path: 'root.pick',
+      leaf: 'pick',
+      kind: 'choice',
+      visitCount: 2,
+    });
+    expect(bootstrap.bootstrap.pending).toEqual([
+      expect.objectContaining({
+        requestId,
+        status: 'pending',
+        pendingCard: expect.objectContaining({
+          kind: 'owner-choice',
+          state: 'root.pick',
+          question: 'Pick one',
+          options: [{ label: 'A' }, { label: 'B' }],
+        }),
+      }),
+    ]);
+    expect(bootstrap.bootstrap.recentRows).toEqual([
+      expect.objectContaining({ type: 'request.updated', label: 'owner choice' }),
+      expect.objectContaining({ type: 'reply.resolved', label: 'owner choice', status: 'failed' }),
+    ]);
+  });
+
   it('attaches the latest context snapshot to the current state projection', () => {
     const eventsPath = tempEventsPath();
     writeJsonl(

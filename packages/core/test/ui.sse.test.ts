@@ -120,6 +120,7 @@ describe('createUiEventLog', () => {
         },
         pending: {
           ownerInput: null,
+          ownerChoice: null,
           fileApprovals: [],
           cmdApprovals: [],
           permissionApprovals: [],

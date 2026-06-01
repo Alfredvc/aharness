@@ -431,6 +431,139 @@ describe('headless production store helpers', () => {
     );
   });
 
+  it('hydrates owner-choice pending cards from run-scoped bootstrap', () => {
+    const state = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      pending: [
+        {
+          requestId: 'owner-choice:workflow.pick#3',
+          status: 'submitted',
+          kind: 'owner-choice',
+          summary: 'pick a path',
+          createdAt: '2026-05-29T00:00:04.000Z',
+          updatedAt: '2026-05-29T00:00:05.000Z',
+          stateVisitId: 'workflow.pick#3',
+          lastEventId: 'run-1:5',
+          pendingCard: {
+            kind: 'owner-choice',
+            id: 'owner-choice:workflow.pick#3',
+            requestId: 'owner-choice:workflow.pick#3',
+            state: 'workflow.pick',
+            visitCount: 3,
+            question: 'Pick a path',
+            options: [{ label: 'Left' }, { label: 'Right' }],
+          },
+        },
+      ],
+    });
+
+    expect(state.pending.ownerChoice).toEqual({
+      kind: 'OwnerChoice',
+      id: 'owner-choice:workflow.pick#3',
+      requestId: 'owner-choice:workflow.pick#3',
+      state: 'workflow.pick',
+      visitCount: 3,
+      question: 'Pick a path',
+      options: [{ label: 'Left' }, { label: 'Right' }],
+    });
+  });
+
+  it('keeps owner-choice pending through failed replies and shows the failed row by default', () => {
+    const requested = applyRunEvent(
+      hydrateFromBootstrap(runScopedBootstrap()),
+      apiEvent({
+        type: 'request.updated',
+        id: 'run-1:5',
+        seq: 5,
+        requestId: 'owner-choice:workflow.pick#3',
+        stateVisitId: 'workflow.pick#3',
+        data: {
+          kind: 'owner-choice',
+          requestId: 'owner-choice:workflow.pick#3',
+          pendingCard: {
+            kind: 'owner-choice',
+            id: 'owner-choice:workflow.pick#3',
+            requestId: 'owner-choice:workflow.pick#3',
+            state: 'workflow.pick',
+            visitCount: 3,
+            question: 'Pick a path',
+            options: [{ label: 'Left' }, { label: 'Right' }],
+          },
+          row: {
+            kind: 'request',
+            label: 'owner choice',
+            status: 'pending',
+            summary: '2 options',
+          },
+        },
+      }),
+    );
+    const failed = applyRunEvent(
+      requested,
+      apiEvent({
+        type: 'reply.resolved',
+        id: 'run-1:6',
+        seq: 6,
+        requestId: 'owner-choice:workflow.pick#3',
+        stateVisitId: 'workflow.pick#3',
+        data: {
+          kind: 'owner-choice',
+          requestId: 'owner-choice:workflow.pick#3',
+          status: 'failed',
+          ok: false,
+          row: {
+            kind: 'reply',
+            label: 'owner choice',
+            status: 'failed',
+            summary: 'Left',
+            data: {
+              kind: 'owner-choice',
+              requestId: 'owner-choice:workflow.pick#3',
+              state: 'workflow.pick',
+              visitCount: 3,
+              label: 'Left',
+            },
+          },
+        },
+      }),
+    );
+    const accepted = applyRunEvent(
+      failed,
+      apiEvent({
+        type: 'reply.resolved',
+        id: 'run-1:7',
+        seq: 7,
+        requestId: 'owner-choice:workflow.pick#3',
+        stateVisitId: 'workflow.pick#3',
+        data: {
+          kind: 'owner-choice',
+          requestId: 'owner-choice:workflow.pick#3',
+          status: 'accepted',
+          ok: true,
+          row: {
+            kind: 'reply',
+            label: 'owner choice',
+            status: 'accepted',
+            summary: 'Right',
+          },
+        },
+      }),
+    );
+
+    expect(requested.pending.ownerChoice?.question).toBe('Pick a path');
+    expect(failed.pending.ownerChoice?.state).toBe('workflow.pick');
+    expect(visibleItems(failed.transcript, false)).toContainEqual(
+      expect.objectContaining({
+        type: 'compact_status',
+        category: 'reply',
+        label: 'owner choice',
+        status: 'failed',
+        summary: 'Left',
+      }),
+    );
+    expect(accepted.pending.ownerChoice).toBeNull();
+  });
+
   it('formats aggregate run stats with explicit zero values and omitted missing fields', () => {
     const state = hydrateFromBootstrap({
       ...runScopedBootstrap(),
@@ -3024,6 +3157,7 @@ describe('headless production store helpers', () => {
       permissionApprovals: [],
       elicitations: [],
       ownerInput: null,
+      ownerChoice: null,
     });
     expect(state.turns).toEqual([]);
     expect(state.posture.isAwaiting).toBe(false);

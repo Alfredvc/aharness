@@ -1,11 +1,11 @@
 # Deterministic Owner Choice States Implementation Recipe
 
 **Parent roadmap:** `docs/plans/2026-06-01-deterministic-owner-choice-states-roadmap.md`
-**Current slice:** Slice 2 - durable owner-choice run events and browser interaction
+**Current slice:** Slice 3 - choice topology visualization
 **Current phase:** needs detailed plan
 **Current detailed plan:** none
 **Current fix source:** none
-**Last completed:** Slice 1 accepted and committed in this commit
+**Last completed:** Slice 2 accepted and committed in this commit
 
 ## Durable Grounding
 
@@ -34,8 +34,17 @@
 ## Current State
 
 Slice 1 implementation was accepted and is being committed. The current slice
-is now Slice 2: durable owner-choice run events and browser interaction. A
-detailed Slice 2 plan should be created before implementation.
+is now Slice 2: durable owner-choice run events and browser interaction. The
+detailed Slice 2 plan has been created at
+`docs/plans/2026-06-02-deterministic-owner-choice-states-slice-2.md` and is
+ready for plan review before implementation. Plan review fix cycle 0 updated
+the plan to require deterministic owner-choice request-id propagation, a
+central choice-pending publisher across all choice-entry paths, run-scoped
+server route coverage, and default transcript visibility for failed
+owner-choice replies. Plan review fix cycle 1 aligned the owner-choice pending
+card contract with the approved spec's `options: [{ label }]` shape and made
+`packages/web-ui/src/components/ActivePanel.tsx` an explicit browser
+integration point for rendering `pending.ownerChoice`.
 
 Implemented scope includes `ChoiceMeta`, `createFsm().choice(...)`, choice
 metadata validation, `OWNER_CHOICE__<stateId>` synthesis, generated-prefix
@@ -113,3 +122,26 @@ Fix verification completed on 2026-06-02:
 - `pnpm run verify` passed, including format check, lint, stale contract
   checks, root typecheck, web-ui typecheck, codex bump check, build, and full
   Vitest: 152 files passed, 7 skipped; 1681 tests passed, 19 skipped.
+
+Slice 2 implementation is ready for acceptance review. Implemented scope now
+includes deterministic owner-choice request ids, canonical owner-choice pending
+cards and reply lifecycle rows, JSONL/bootstrap/reconnect reconstruction,
+browser `pending.ownerChoice` store state, owner-choice reply payload posting,
+default visibility for failed owner-choice reply rows, and a distinct React
+interaction slot for framework-owned choices while preserving Codex
+owner-input choices and `isOther` custom text.
+
+Slice 2 verification completed on 2026-06-02:
+
+- `pnpm exec vitest run packages/core/test/runEvents.adapter.test.ts packages/core/test/runEvents.index.test.ts packages/core/test/runEvents.queryService.test.ts packages/core/test/ui.runScopedServer.test.ts packages/core/test/ui.reply.test.ts` passed: 5 files, 111 tests.
+- `pnpm exec vitest run packages/web-ui/src/api/client.test.ts packages/web-ui/src/state/store.test.ts packages/web-ui/src/components/InteractionSlot.test.tsx packages/web-ui/src/components/ActivePanel.test.ts` passed: 3 files, 111 tests.
+- `pnpm run typecheck` passed.
+- `pnpm --dir packages/web-ui run typecheck` passed.
+- `pnpm exec vitest run packages/core/test/cli.runCli.test.ts packages/core/test/runtime.actorHost.test.ts packages/core/test/runtime.dispatchChoice.test.ts packages/core/test/runtime.dispatchSubmit.test.ts packages/core/test/runtime.dispatchEvent.test.ts packages/core/test/runtime.hookDispatchers.test.ts packages/core/test/runtime.permissionRequest.test.ts packages/core/test/runtime.awaitResolver.test.ts` passed: 8 files, 155 tests.
+- `pnpm run verify` passed, including format check, lint, workflow-term and
+  stale-contract checks, root typecheck, web-ui typecheck, codex bump check,
+  build, and full Vitest: 152 files passed, 7 skipped; 1687 tests passed, 19
+  skipped.
+
+Slice 2 was accepted. The current slice is now Slice 3: choice topology
+visualization. A detailed Slice 3 plan should be created before implementation.

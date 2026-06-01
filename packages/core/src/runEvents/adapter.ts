@@ -10,6 +10,7 @@ import type {
   PermissionApprovalRequest,
 } from '../ui/events.js';
 import type { RunEventAppendInput, RunEventPayload, RunEventPendingCard } from './types.js';
+import { ownerChoiceRequestId } from '../ownerChoice.js';
 
 const ABANDONED_THREAD_RESIDUE_SOURCE_MAX_BYTES = 128;
 const ABANDONED_THREAD_RESIDUE_MESSAGE_MAX_BYTES = 512;
@@ -202,6 +203,53 @@ function ownerInputRequestData(event: OwnerInputRequest): RunEventPayload {
       summary: `${event.questions.length} question${event.questions.length === 1 ? '' : 's'}`,
     },
   });
+}
+
+export function ownerChoicePendingRunEvent(input: {
+  readonly state: string;
+  readonly visitCount: number;
+  readonly question: string;
+  readonly options: ReadonlyArray<{ readonly label: string }>;
+}): RunEventAppendInput {
+  const requestId = ownerChoiceRequestId(input.state, input.visitCount);
+  const stateVisitId = `${input.state}#${input.visitCount}`;
+  const pendingCard: RunEventPendingCard = {
+    kind: 'owner-choice',
+    id: requestId,
+    requestId,
+    state: input.state,
+    visitCount: input.visitCount,
+    question: input.question,
+    options: input.options.map((option) => ({ label: option.label })),
+  };
+  return {
+    type: 'request.updated',
+    requestId,
+    stateVisitId,
+    data: compactRecord({
+      requestId,
+      stateVisitId,
+      kind: 'owner-choice',
+      status: 'pending',
+      state: input.state,
+      visitCount: input.visitCount,
+      question: input.question,
+      optionCount: input.options.length,
+      pendingCard,
+      row: {
+        kind: 'request',
+        label: 'owner choice',
+        status: 'pending',
+        summary: `${input.options.length} option${input.options.length === 1 ? '' : 's'}`,
+        data: compactRecord({
+          kind: 'owner-choice',
+          requestId,
+          state: input.state,
+          visitCount: input.visitCount,
+        }),
+      },
+    }),
+  };
 }
 
 function fileApprovalRequestData(event: FileChangeApprovalRequest): RunEventPayload {

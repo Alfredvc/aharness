@@ -307,6 +307,70 @@ describe('canonical run event index', () => {
     ]);
   });
 
+  it('tracks owner-choice request, submitted, failed, and accepted lifecycle by request id', () => {
+    const requestId = 'owner-choice:workflow.pick#3';
+    const pendingCard = {
+      kind: 'owner-choice',
+      id: requestId,
+      requestId,
+      state: 'workflow.pick',
+      visitCount: 3,
+      question: 'Pick a path',
+      options: [{ label: 'Left' }, { label: 'Right' }],
+    };
+    const failedIndex = buildRunEventIndex({
+      events: withOffsets([
+        event(1, 'request.updated', {
+          requestId,
+          stateVisitId: 'workflow.pick#3',
+          data: { kind: 'owner-choice', summary: '2 options', pendingCard },
+        }),
+        event(2, 'reply.submitted', {
+          requestId,
+          stateVisitId: 'workflow.pick#3',
+          data: { kind: 'owner-choice', status: 'submitted', label: 'Left' },
+        }),
+        event(3, 'reply.resolved', {
+          requestId,
+          stateVisitId: 'workflow.pick#3',
+          data: { kind: 'owner-choice', status: 'failed', ok: false, label: 'Left' },
+        }),
+      ]),
+    });
+
+    expect(failedIndex.getPendingRequests()).toEqual([
+      expect.objectContaining({
+        requestId,
+        status: 'pending',
+        kind: 'owner-choice',
+        stateVisitId: 'workflow.pick#3',
+        lastEventId: 'run-index:3',
+        pendingCard,
+      }),
+    ]);
+    expect(failedIndex.getRequestRange(requestId)?.eventIds).toEqual([
+      'run-index:1',
+      'run-index:2',
+      'run-index:3',
+    ]);
+
+    const acceptedIndex = buildRunEventIndex({
+      events: withOffsets([
+        event(1, 'request.updated', {
+          requestId,
+          stateVisitId: 'workflow.pick#3',
+          data: { kind: 'owner-choice', summary: '2 options', pendingCard },
+        }),
+        event(2, 'reply.resolved', {
+          requestId,
+          stateVisitId: 'workflow.pick#3',
+          data: { kind: 'owner-choice', status: 'accepted', ok: true, label: 'Right' },
+        }),
+      ]),
+    });
+    expect(acceptedIndex.getPendingRequests()).toEqual([]);
+  });
+
   it('updates pending-card data on request updates and removes it after accepted resolution', () => {
     const index = buildRunEventIndex({
       events: withOffsets([

@@ -74,6 +74,18 @@ function resolveSuccessfulFixtureReply(state: UiState, payload: ReplyPayload): U
       posture: { ...state.posture, isAwaiting: false },
     };
   }
+  if (payload.kind === 'owner-choice') {
+    return {
+      ...state,
+      replyError: null,
+      pending:
+        state.pending.ownerChoice?.state === payload.state &&
+        state.pending.ownerChoice.visitCount === payload.visitCount
+          ? { ...state.pending, ownerChoice: null }
+          : state.pending,
+      posture: { ...state.posture, isAwaiting: false },
+    };
+  }
 
   return { ...state, replyError: null };
 }

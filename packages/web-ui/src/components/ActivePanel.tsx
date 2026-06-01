@@ -18,7 +18,7 @@ import type { VizNode } from '../types/topology';
 import { displayItems, hasVisibleContent } from '../state/store';
 import { deriveActivity, formatElapsed } from '../state/activity';
 import type { Activity } from '../state/activity';
-import { InteractionSlot } from './InteractionSlot';
+import { InteractionSlot, OwnerChoiceSlot } from './InteractionSlot';
 import { canAcceptElicitation } from './elicitationActions';
 
 type Props = { session: UiState & UiActions };
@@ -295,6 +295,7 @@ export function ActivePanel({ session }: Props) {
   const showInlineIndicator =
     isRunTranscript &&
     !session.posture.isTerminal &&
+    !session.pending.ownerChoice &&
     !session.pending.ownerInput &&
     totalApprovals === 0 &&
     (activity.kind === 'thinking' || activity.kind === 'submitted');
@@ -302,6 +303,7 @@ export function ActivePanel({ session }: Props) {
     isRunTranscript &&
     fsmState.kind === 'stateful' &&
     session.posture.open &&
+    !session.pending.ownerChoice &&
     !session.pending.ownerInput &&
     !session.posture.isAwaiting &&
     !session.posture.isTerminal;
@@ -457,7 +459,9 @@ export function ActivePanel({ session }: Props) {
         itemContent={(_, row) => <ActivePanelTimelineRowView row={row} session={session} />}
       />
 
-      {isRunTranscript && session.pending.ownerInput ? (
+      {isRunTranscript && session.pending.ownerChoice ? (
+        <OwnerChoiceSlot req={session.pending.ownerChoice} reply={session.reply} />
+      ) : isRunTranscript && session.pending.ownerInput ? (
         <InteractionSlot req={session.pending.ownerInput} reply={session.reply} />
       ) : showOpenComposer ? (
         <OpenStateComposer onReply={session.reply} />

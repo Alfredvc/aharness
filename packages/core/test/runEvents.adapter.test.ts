@@ -11,6 +11,7 @@ import {
   createLiveRunEventPublisher,
   createRunEventQueryService,
   legacyEventInputToRunEventAppendInput,
+  ownerChoicePendingRunEvent,
 } from '../src/runEvents/index.js';
 import { createUiEventLog } from '../src/ui/sse.js';
 import type { AppEvent, FsmState, RunMeta } from '../src/ui/events.js';
@@ -75,6 +76,45 @@ function expectNoSensitivePayload(value: unknown): void {
 }
 
 describe('run event adapter', () => {
+  it('builds deterministic owner-choice pending request events', () => {
+    const input = ownerChoicePendingRunEvent({
+      state: 'workflow.pick',
+      visitCount: 3,
+      question: 'Pick a path',
+      options: [{ label: 'Left' }, { label: 'Right' }],
+    });
+
+    expect(input).toEqual({
+      type: 'request.updated',
+      requestId: 'owner-choice:workflow.pick#3',
+      stateVisitId: 'workflow.pick#3',
+      data: expect.objectContaining({
+        kind: 'owner-choice',
+        requestId: 'owner-choice:workflow.pick#3',
+        stateVisitId: 'workflow.pick#3',
+        state: 'workflow.pick',
+        visitCount: 3,
+        question: 'Pick a path',
+        optionCount: 2,
+        pendingCard: {
+          kind: 'owner-choice',
+          id: 'owner-choice:workflow.pick#3',
+          requestId: 'owner-choice:workflow.pick#3',
+          state: 'workflow.pick',
+          visitCount: 3,
+          question: 'Pick a path',
+          options: [{ label: 'Left' }, { label: 'Right' }],
+        },
+        row: expect.objectContaining({
+          kind: 'request',
+          label: 'owner choice',
+          status: 'pending',
+          summary: '2 options',
+        }),
+      }),
+    });
+  });
+
   it.each([
     [
       'AgentMessageDelta',

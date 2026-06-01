@@ -88,6 +88,16 @@ export type RunScopedOwnerInputPendingCard = {
   questions: ReadonlyArray<RunScopedOwnerInputPendingCardQuestion>;
 };
 
+export type RunScopedOwnerChoicePendingCard = {
+  kind: 'owner-choice';
+  id: string;
+  requestId: string;
+  state: string;
+  visitCount: number;
+  question: string;
+  options: ReadonlyArray<{ readonly label: string }>;
+};
+
 export type RunScopedFileApprovalPendingCard = {
   kind: 'file-approval';
   id: string;
@@ -147,6 +157,7 @@ export type RunScopedElicitationPendingCard = {
 
 export type RunScopedPendingCard =
   | RunScopedOwnerInputPendingCard
+  | RunScopedOwnerChoicePendingCard
   | RunScopedFileApprovalPendingCard
   | RunScopedCommandApprovalPendingCard
   | RunScopedPermissionApprovalPendingCard
@@ -375,6 +386,16 @@ export type OwnerInputRequest = {
   }>;
 };
 
+export type OwnerChoiceRequest = {
+  kind: 'OwnerChoice';
+  id: string;
+  requestId: string;
+  state: string;
+  visitCount: number;
+  question: string;
+  options: Array<{ label: string }>;
+};
+
 export type PermissionApproval = {
   kind: 'ServerRequest';
   id: string;
@@ -514,6 +535,7 @@ export type UiAppState = {
   completedTurns: TurnCompleted[];
   pending?: {
     ownerInput: OwnerInputRequest | null;
+    ownerChoice?: OwnerChoiceRequest | null;
     fileApprovals?: FileChangeApproval[];
     cmdApprovals?: CommandApproval[];
     permissionApprovals?: PermissionApproval[];
@@ -655,6 +677,7 @@ function pendingCardsToUiPending(
 ): UiAppState['pending'] {
   const uiPending: NonNullable<UiAppState['pending']> = {
     ownerInput: null,
+    ownerChoice: null,
     fileApprovals: [],
     cmdApprovals: [],
     permissionApprovals: [],
@@ -678,6 +701,17 @@ function pendingCardsToUiPending(
             isSecret: question.isSecret,
             ...(question.choices === undefined ? {} : { choices: [...question.choices] }),
           })),
+        };
+        break;
+      case 'owner-choice':
+        uiPending.ownerChoice = {
+          kind: 'OwnerChoice',
+          id: card.id,
+          requestId: card.requestId,
+          state: card.state,
+          visitCount: card.visitCount,
+          question: card.question,
+          options: card.options.map((option) => ({ label: option.label })),
         };
         break;
       case 'file-approval':
@@ -827,6 +861,8 @@ function isRunScopedPendingCard(value: unknown): value is RunScopedPendingCard {
   switch (value['kind']) {
     case 'owner-input':
       return isRunScopedOwnerInputPendingCard(value);
+    case 'owner-choice':
+      return isRunScopedOwnerChoicePendingCard(value);
     case 'file-approval':
       return isRunScopedFileApprovalPendingCard(value);
     case 'command-approval':
@@ -838,6 +874,24 @@ function isRunScopedPendingCard(value: unknown): value is RunScopedPendingCard {
     default:
       return false;
   }
+}
+
+function isRunScopedOwnerChoicePendingCard(
+  value: Record<string, unknown>,
+): value is RunScopedOwnerChoicePendingCard {
+  return (
+    value['kind'] === 'owner-choice' &&
+    isNonEmptyString(value['id']) &&
+    isNonEmptyString(value['requestId']) &&
+    isNonEmptyString(value['state']) &&
+    isSafeNumber(value['visitCount']) &&
+    isNonEmptyString(value['question']) &&
+    isArrayOf(value['options'], isOwnerChoiceOption)
+  );
+}
+
+function isOwnerChoiceOption(value: unknown): value is { readonly label: string } {
+  return isRecord(value) && isNonEmptyString(value['label']);
 }
 
 function isRunScopedOwnerInputPendingCard(
