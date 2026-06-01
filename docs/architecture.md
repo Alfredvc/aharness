@@ -127,23 +127,31 @@ For new runs, `events.jsonl` is a canonical `aharness.event.v1` transcript. It
 stores compact normalized event data plus full raw runtime payloads inline,
 including secret-marked owner input, browser replies, tool arguments/results,
 command output, file diffs, approval/permission/elicitation payloads, and token
-usage notifications, plus parent-visible sub-thread notifications. Run
-directories should therefore be handled as sensitive material.
+usage notifications, plus parent-visible sub-thread notifications. It can also
+contain public workflow context snapshots recorded as `context.initialized` and
+`context.changed` events. Run directories should therefore be handled as
+sensitive material, even when the browser transcript does not display those
+context values by default.
 
 Run-scoped routes under `/api/runs/:runId/` serve compact JSONL-backed
 projections for bootstrap state, visit rows, recent rows, diagnostic event
 pages, canonical run-event SSE, and replies. These HTTP/SSE responses omit raw
 payloads; raw evidence remains in `events.jsonl`. Compact rows include durable
 run lifecycle status and normalized transition-failure summaries for failed
-internal submit attempts without exposing submitted payloads. The React browser
-uses the run-scoped bootstrap, row, stream, and reply routes after the CLI hands
-it `token` and `runId` query params. Its shell defaults to compact JSONL-backed
-chronological run rows, supports selected-state visit grouping, and shows
-aggregate running-time, token, and context-window stats; the old top turn count
-and bottom turn ribbon are no longer user-facing chrome. The old flat
-`/api/state`, `/api/stream`, and `/api/reply` browser routes are no longer
-served for new runs. Production live runs do not write `snapshot.json`; retained
-snapshot helper exports are legacy/internal compatibility only.
+internal submit attempts without exposing submitted payloads. Run-scoped
+bootstrap and SSE projections reconstruct `currentState.context` from ordered
+`context.initialized` / `context.changed` events when those events exist.
+Context snapshot events are visible through `/api/runs/:runId/events` and
+`/api/runs/:runId/stream`, but they do not create compact rows and therefore do
+not appear in the default transcript. The React browser uses the run-scoped
+bootstrap, row, stream, and reply routes after the CLI hands it `token` and
+`runId` query params. Its shell defaults to compact JSONL-backed chronological
+run rows, supports selected-state visit grouping, and shows aggregate
+running-time, token, and context-window stats; the old top turn count and bottom
+turn ribbon are no longer user-facing chrome. The old flat `/api/state`,
+`/api/stream`, and `/api/reply` browser routes are no longer served for new
+runs. Production live runs do not write `snapshot.json`; retained snapshot
+helper exports are legacy/internal compatibility only.
 
 ## Package Boundaries
 

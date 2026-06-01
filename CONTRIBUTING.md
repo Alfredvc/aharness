@@ -84,9 +84,11 @@ timed playback. Open the printed URL in a browser to inspect the run transcript
 and visualizations.
 
 This helper is intentionally not a public CLI command. It starts only a local
-UI server for dev/test inspection, does not launch Codex, and replays the
-selected prefix through the run-scoped SSE reducer path. If source changes need
-fresh built server or UI assets, run `pnpm run build` first.
+UI server for dev/test inspection, does not launch Codex, and drains selected
+canonical events through the same run-scoped SSE reducer path as live runs,
+including context snapshot events. Its bootstrap seed remains minimal so ordered
+event replay is what restores the latest context. If source changes need fresh
+built server or UI assets, run `pnpm run build` first.
 
 ## Publishing
 

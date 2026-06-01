@@ -203,7 +203,10 @@ browser URL for owner input and any approval prompts routed to the user.
 
 Run directories are sensitive. `.aharness/runs/<runId>/events.jsonl` can include
 raw owner input, browser replies, tool arguments and results, command output,
-file diffs, approval data, and token usage payloads.
+file diffs, approval data, and token usage payloads. `events.jsonl` can also
+contain public workflow context snapshots recorded as `context.initialized` and
+`context.changed` events. Treat run directories as sensitive even when the
+browser transcript does not display those context values by default.
 
 ## When To Use It
 
