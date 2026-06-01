@@ -27,6 +27,12 @@ import { spawnSync } from 'node:child_process';
 import * as tabtab from '@pnpm/tabtab';
 import { runCompletionInstall, runCompletionUninstall } from '../src/cli/completion.js';
 import { enumerateFs, runCompletionBridge } from '../src/cli/completionBridge.js';
+import {
+  computeLockFingerprint,
+  INSTALL_STORE_SCHEMA_VERSION,
+  type TrustedCommandIndexEntry,
+  type TrustedInstallRecord,
+} from '../src/installStore/index.js';
 
 vi.mock('@pnpm/tabtab', { spy: true });
 
@@ -86,15 +92,365 @@ function makeEnv(line: string, point?: number): NodeJS.ProcessEnv {
   } as NodeJS.ProcessEnv;
 }
 
-async function captureBridge(line: string): Promise<string[]> {
+function makeEnvWithHome(line: string, storeRoot: string): NodeJS.ProcessEnv {
+  return { ...makeEnv(line), AHARNESS_HOME: storeRoot };
+}
+
+async function captureBridge(
+  line: string,
+  opts: { readonly cwd?: string; readonly env?: NodeJS.ProcessEnv } = {},
+): Promise<string[]> {
   const out = new PassThrough();
   const chunks: string[] = [];
   out.on('data', (c) => chunks.push(c.toString()));
-  await runCompletionBridge({ env: makeEnv(line), cwd: process.cwd(), stdout: out });
+  await runCompletionBridge({
+    env: { ...makeEnv(line), ...opts.env },
+    cwd: opts.cwd ?? process.cwd(),
+    stdout: out,
+  });
   return chunks.join('').split('\n').filter(Boolean);
 }
 
+function writeCompletionStore(
+  storeRoot: string,
+  opts: {
+    readonly installs: Record<string, TrustedInstallRecord>;
+    readonly commands: Record<string, TrustedCommandIndexEntry>;
+    readonly generation: string;
+  },
+): void {
+  fs.mkdirSync(storeRoot, { recursive: true });
+  fs.writeFileSync(
+    path.join(storeRoot, 'installs.json'),
+    JSON.stringify({
+      schemaVersion: INSTALL_STORE_SCHEMA_VERSION,
+      generation: opts.generation,
+      installs: opts.installs,
+    }),
+  );
+  fs.writeFileSync(
+    path.join(storeRoot, 'commands.json'),
+    JSON.stringify({
+      schemaVersion: INSTALL_STORE_SCHEMA_VERSION,
+      generation: opts.generation,
+      commands: opts.commands,
+    }),
+  );
+}
+
+async function writeInstalledCompletionFixture(
+  storeRoot: string,
+  opts: {
+    readonly source: string;
+    readonly lockFingerprint?: string;
+    readonly commandName?: string;
+  },
+): Promise<{
+  readonly managedProjectRoot: string;
+  readonly packageRoot: string;
+  readonly entryFile: string;
+  readonly lockFingerprint: string;
+}> {
+  const commandName = opts.commandName ?? 'build';
+  const managedProjectRoot = path.join(storeRoot, 'packages');
+  const packageRoot = path.join(managedProjectRoot, 'node_modules/@scope/tools');
+  const entryFile = path.join(packageRoot, `fsms/${commandName}.fsm.ts`);
+  fs.mkdirSync(path.dirname(entryFile), { recursive: true });
+  fs.writeFileSync(entryFile, opts.source);
+  fs.writeFileSync(
+    path.join(managedProjectRoot, 'package-lock.json'),
+    JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        '': {
+          dependencies: {
+            '@scope/tools': '1.0.0',
+          },
+        },
+        'node_modules/@scope/tools': {
+          version: '1.0.0',
+        },
+      },
+    }),
+  );
+
+  const computed = await computeLockFingerprint({
+    managedProjectRoot,
+    dependencyKey: '@scope/tools',
+    packageName: '@scope/tools',
+    packageVersion: '1.0.0',
+  });
+  if (!computed.ok) {
+    throw new Error(computed.diagnostics.map((d) => d.message).join('\n'));
+  }
+  const lockFingerprint = opts.lockFingerprint ?? computed.value;
+  const install: TrustedInstallRecord = {
+    packageName: '@scope/tools',
+    dependencyKey: '@scope/tools',
+    requestedSpec: '@scope/tools@1.0.0',
+    packageRoot,
+    packageVersion: '1.0.0',
+    sourceIntentKey: 'registry:@scope/tools@1.0.0',
+    lockFingerprint,
+    commands: {
+      [commandName]: {
+        commandName,
+        entry: `fsms/${commandName}.fsm.ts`,
+      },
+    },
+  };
+  writeCompletionStore(storeRoot, {
+    installs: {
+      '@scope/tools': install,
+    },
+    generation: 'test-generation',
+    commands: {
+      [`@scope/tools/${commandName}`]: {
+        packageName: '@scope/tools',
+        commandName,
+        entry: `fsms/${commandName}.fsm.ts`,
+        packageRoot,
+        packageVersion: '1.0.0',
+        lockFingerprint,
+      },
+    },
+  });
+
+  return { managedProjectRoot, packageRoot, entryFile, lockFingerprint };
+}
+
+function staticInstalledFsmSource(prefix = ''): string {
+  return `${prefix}
+import { aharness, state, exit, final, arg } from '@aharness/core';
+
+export default aharness.machine({
+  input: {
+    choice: arg<string>({ description: 'Choice', completion: { values: ['alpha', 'beta'] } }),
+    topic: arg<string>({ description: 'Topic' }),
+  },
+  initial: 'go',
+  states: {
+    go: state({
+      entryPrompt: 'go',
+      exits: { out: exit<{ ok: boolean }>({ to: 'done' }) },
+    }),
+    done: final({ outcome: 'success' }),
+  },
+});
+`;
+}
+
+function dynamicInstalledFsmSource(prefix = ''): string {
+  return `${prefix}
+import { aharness, state, exit, final, arg } from '@aharness/core';
+
+export default aharness.machine({
+  input: {
+    project: arg<string>({
+      description: 'Project',
+      completion: {
+        dynamic: (partial) => ['alpha', 'beta'].filter((value) => value.startsWith(partial)),
+      },
+    }),
+  },
+  initial: 'go',
+  states: {
+    go: state({
+      entryPrompt: 'go',
+      exits: { out: exit<{ ok: boolean }>({ to: 'done' }) },
+    }),
+    done: final({ outcome: 'success' }),
+  },
+});
+`;
+}
+
+function commandIndexEntry(
+  packageName: string,
+  commandName: string,
+  description?: string,
+): TrustedCommandIndexEntry {
+  return {
+    packageName,
+    commandName,
+    entry: `${commandName}.fsm.ts`,
+    packageRoot: `/virtual/${packageName}`,
+    lockFingerprint: `${packageName}-${commandName}-lock`,
+    ...(description !== undefined ? { description } : {}),
+  };
+}
+
+describe('runCompletionBridge — root completion', () => {
+  it('emits sorted root subcommands when completing after aharness', async () => {
+    const lines = await captureBridge('aharness ');
+    expect(lines).toEqual([
+      'completion',
+      'doctor',
+      'init',
+      'install',
+      'list',
+      'run',
+      'uninstall',
+      'verify',
+      'visualize',
+    ]);
+  });
+
+  it('filters root subcommands by partial', async () => {
+    const lines = await captureBridge('aharness ru');
+    expect(lines).toEqual(['run']);
+  });
+
+  it('delegates path-like first tokens to native file completion', async () => {
+    const lines = await captureBridge('aharness ./');
+    expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+});
+
+describe('runCompletionBridge — run target completion', () => {
+  let cwd: string;
+  let storeRoot: string;
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-run-completion-cwd-'));
+    storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-run-completion-store-'));
+    fs.writeFileSync(path.join(cwd, 'alpha.fsm.ts'), '');
+    fs.writeFileSync(path.join(cwd, 'alpha.txt'), '');
+    fs.mkdirSync(path.join(cwd, 'nested'));
+  });
+  afterEach(() => {
+    fs.rmSync(cwd, { recursive: true, force: true });
+    fs.rmSync(storeRoot, { recursive: true, force: true });
+  });
+
+  it('includes local .fsm.ts files and directories after run', async () => {
+    const lines = await captureBridge('aharness run ', { cwd });
+    expect(lines).toContain('alpha.fsm.ts');
+    expect(lines).toContain('nested');
+    expect(lines).not.toContain('alpha.txt');
+  });
+
+  it('filters local run targets by partial', async () => {
+    const lines = await captureBridge('aharness run a', { cwd });
+    expect(lines).toContain('alpha.fsm.ts');
+    expect(lines).not.toContain('nested');
+  });
+
+  it('includes local run targets after run flags', async () => {
+    const lines = await captureBridge('aharness run --yolo ', { cwd });
+    expect(lines).toContain('alpha.fsm.ts');
+  });
+
+  it('includes unique bare installed names and fully qualified installed identities', async () => {
+    writeCompletionStore(storeRoot, {
+      installs: {},
+      generation: 'test-generation',
+      commands: {
+        '@scope/tools/build': commandIndexEntry('@scope/tools', 'build'),
+        '@scope/tools/deploy': commandIndexEntry('@scope/tools', 'deploy'),
+      },
+    });
+
+    const lines = await captureBridge('aharness run ', {
+      cwd,
+      env: makeEnvWithHome('aharness run ', storeRoot),
+    });
+    expect(lines).toContain('build');
+    expect(lines).toContain('deploy');
+    expect(lines).toContain('@scope/tools/build');
+    expect(lines).toContain('@scope/tools/deploy');
+  });
+
+  it('filters installed identities by scoped partial', async () => {
+    writeCompletionStore(storeRoot, {
+      installs: {},
+      generation: 'test-generation',
+      commands: {
+        '@scope/tools/build': commandIndexEntry('@scope/tools', 'build'),
+        '@scope/tools/deploy': commandIndexEntry('@scope/tools', 'deploy'),
+      },
+    });
+
+    const lines = await captureBridge('aharness run @scope/', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/', storeRoot),
+    });
+    expect(lines).toContain('@scope/tools/build');
+    expect(lines).toContain('@scope/tools/deploy');
+  });
+
+  it('omits ambiguous bare installed names and keeps qualified alternatives', async () => {
+    writeCompletionStore(storeRoot, {
+      installs: {},
+      generation: 'test-generation',
+      commands: {
+        '@scope/tools/build': commandIndexEntry('@scope/tools', 'build'),
+        '@other/tools/build': commandIndexEntry('@other/tools', 'build'),
+      },
+    });
+
+    const lines = await captureBridge('aharness run b', {
+      cwd,
+      env: makeEnvWithHome('aharness run b', storeRoot),
+    });
+    expect(lines).not.toContain('build');
+    expect(lines).toContain('@scope/tools/build');
+    expect(lines).toContain('@other/tools/build');
+  });
+
+  it('suppresses installed bare names that collide with local regular files', async () => {
+    fs.writeFileSync(path.join(cwd, 'build'), '');
+    writeCompletionStore(storeRoot, {
+      installs: {},
+      generation: 'test-generation',
+      commands: {
+        '@scope/tools/build': commandIndexEntry('@scope/tools', 'build'),
+      },
+    });
+
+    const lines = await captureBridge('aharness run b', {
+      cwd,
+      env: makeEnvWithHome('aharness run b', storeRoot),
+    });
+    expect(lines).not.toContain('build');
+    expect(lines).toContain('@scope/tools/build');
+  });
+
+  it('omits installed suggestions and does not create or rewrite store files for malformed or missing stores', async () => {
+    const missingLines = await captureBridge('aharness run b', {
+      cwd,
+      env: makeEnvWithHome('aharness run b', storeRoot),
+    });
+    expect(missingLines).not.toContain('build');
+    expect(fs.existsSync(path.join(storeRoot, 'commands.json'))).toBe(false);
+
+    const malformedInstalls = '{ "schemaVersion": 1, "generation": "", "installs": {} }';
+    const commands = JSON.stringify({
+      schemaVersion: INSTALL_STORE_SCHEMA_VERSION,
+      generation: 'test-generation',
+      commands: {
+        '@scope/tools/build': commandIndexEntry('@scope/tools', 'build'),
+      },
+    });
+    fs.writeFileSync(path.join(storeRoot, 'installs.json'), malformedInstalls);
+    fs.writeFileSync(path.join(storeRoot, 'commands.json'), commands);
+
+    const malformedLines = await captureBridge('aharness run b', {
+      cwd,
+      env: makeEnvWithHome('aharness run b', storeRoot),
+    });
+    expect(malformedLines).not.toContain('build');
+    expect(malformedLines).not.toContain('@scope/tools/build');
+    expect(fs.readFileSync(path.join(storeRoot, 'commands.json'), 'utf8')).toBe(commands);
+  });
+});
+
 describe('runCompletionBridge — flag-name completion', () => {
+  it('emits local FSM flags after aharness run <target> --', async () => {
+    const lines = await captureBridge(`aharness run ${fixture} --`);
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
+  });
+
   it('emits matching --<kebab-name> when cursor is on --<partial>', async () => {
     const lines = await captureBridge(`aharness ${fixture} --id`);
     expect(lines.some((l) => l.startsWith('--ideafile-path'))).toBe(true);
@@ -106,6 +462,62 @@ describe('runCompletionBridge — flag-name completion', () => {
     expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
   });
 
+  it('emits direct FSM flags for a cwd-relative .ts target that is not path-like', async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-direct-completion-cwd-'));
+    try {
+      const source = fs.readFileSync(fixture, 'utf8');
+      fs.writeFileSync(path.join(cwd, 'workflow.fsm.ts'), source);
+
+      const lines = await captureBridge('aharness workflow.fsm.ts --', { cwd });
+      const names = lines.map((l) => l.split(':')[0]).sort();
+      expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('emits direct FSM flags after leading --yolo', async () => {
+    const lines = await captureBridge(`aharness --yolo ${fixture} --`);
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
+  });
+
+  it('emits visualize FSM flags after the target', async () => {
+    const lines = await captureBridge(`aharness visualize ${fixture} --`);
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
+  });
+
+  it('does not scan later .ts flag values for direct FSM input completion', async () => {
+    const lines = await captureBridge(`aharness build --spec ${fixture} --`);
+    expect(lines).toEqual([]);
+  });
+
+  it('does not treat a later run --spec value as the run target', async () => {
+    const lines = await captureBridge(`aharness run build --spec ./other.fsm.ts --`);
+    expect(lines).toEqual([]);
+  });
+
+  it('emits nothing for malformed run input flags before the target', async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-run-malformed-cwd-'));
+    const storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-run-malformed-store-'));
+    try {
+      await writeInstalledCompletionFixture(storeRoot, {
+        source: staticInstalledFsmSource(),
+        commandName: 'auth',
+      });
+
+      const lines = await captureBridge('aharness run --topic auth --', {
+        cwd,
+        env: makeEnvWithHome('aharness run --topic auth --', storeRoot),
+      });
+      expect(lines).toEqual([]);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+      fs.rmSync(storeRoot, { recursive: true, force: true });
+    }
+  });
+
   it('emits all flag names when cursor is empty after fsm path', async () => {
     const lines = await captureBridge(`aharness ${fixture} `);
     const names = lines.map((l) => l.split(':')[0]).sort();
@@ -113,20 +525,160 @@ describe('runCompletionBridge — flag-name completion', () => {
   });
 });
 
+describe('runCompletionBridge — installed input completion', () => {
+  let cwd: string;
+  let storeRoot: string;
+
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-installed-completion-cwd-'));
+    storeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-installed-completion-store-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(cwd, { recursive: true, force: true });
+    fs.rmSync(storeRoot, { recursive: true, force: true });
+  });
+
+  it('emits installed static input flags after a qualified run target', async () => {
+    await writeInstalledCompletionFixture(storeRoot, { source: staticInstalledFsmSource() });
+
+    const lines = await captureBridge('aharness run @scope/tools/build --', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/tools/build --', storeRoot),
+    });
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--choice', '--topic']);
+  });
+
+  it('emits installed static value completion after a qualified run target', async () => {
+    await writeInstalledCompletionFixture(storeRoot, { source: staticInstalledFsmSource() });
+
+    const lines = await captureBridge('aharness run @scope/tools/build --choice a', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/tools/build --choice a', storeRoot),
+    });
+    expect(lines).toEqual(['alpha']);
+  });
+
+  it('uses static sidecar extraction for installed flags and values without importing the FSM', async () => {
+    await writeInstalledCompletionFixture(storeRoot, {
+      source: staticInstalledFsmSource("throw new Error('top-level import should not run');"),
+    });
+
+    const flagLines = await captureBridge('aharness run @scope/tools/build --', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/tools/build --', storeRoot),
+    });
+    const valueLines = await captureBridge('aharness run @scope/tools/build --choice a', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/tools/build --choice a', storeRoot),
+    });
+    expect(flagLines.map((l) => l.split(':')[0]).sort()).toEqual(['--choice', '--topic']);
+    expect(valueLines).toEqual(['alpha']);
+  });
+
+  it('emits flags after a unique bare installed command when no local build file exists', async () => {
+    await writeInstalledCompletionFixture(storeRoot, { source: staticInstalledFsmSource() });
+
+    const lines = await captureBridge('aharness run build --', {
+      cwd,
+      env: makeEnvWithHome('aharness run build --', storeRoot),
+    });
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--choice', '--topic']);
+  });
+
+  it('uses a local regular file named build before installed command completion', async () => {
+    fs.writeFileSync(path.join(cwd, 'build'), staticInstalledFsmSource());
+    await writeInstalledCompletionFixture(storeRoot, { source: dynamicInstalledFsmSource() });
+
+    const lines = await captureBridge('aharness run build --', {
+      cwd,
+      env: makeEnvWithHome('aharness run build --', storeRoot),
+    });
+    expect(lines).toEqual([]);
+  });
+
+  it('emits installed dynamic value completion for a trusted installed command', async () => {
+    await writeInstalledCompletionFixture(storeRoot, { source: dynamicInstalledFsmSource() });
+
+    const lines = await captureBridge('aharness run @scope/tools/build --project a', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/tools/build --project a', storeRoot),
+    });
+    expect(lines).toEqual(['alpha']);
+  });
+
+  it('does not import an installed FSM for dynamic completion when the lock fingerprint mismatches', async () => {
+    const marker = path.join(storeRoot, 'imported-marker');
+    await writeInstalledCompletionFixture(storeRoot, {
+      source: dynamicInstalledFsmSource(
+        `import * as fs from 'node:fs';\nfs.writeFileSync(${JSON.stringify(marker)}, 'imported');`,
+      ),
+      lockFingerprint: 'stale-lock',
+    });
+
+    const lines = await captureBridge('aharness run @scope/tools/build --project a', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/tools/build --project a', storeRoot),
+    });
+    expect(lines).toEqual([]);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it('emits no installed input flags when the lock fingerprint mismatches', async () => {
+    await writeInstalledCompletionFixture(storeRoot, {
+      source: staticInstalledFsmSource(),
+      lockFingerprint: 'stale-lock',
+    });
+
+    const lines = await captureBridge('aharness run @scope/tools/build --', {
+      cwd,
+      env: makeEnvWithHome('aharness run @scope/tools/build --', storeRoot),
+    });
+    expect(lines).toEqual([]);
+  });
+});
+
 describe('runCompletionBridge — FSM path completion', () => {
-  it('delegates to shell file completion when the cursor is after aharness', async () => {
-    const lines = await captureBridge('aharness ');
+  it('delegates to shell file completion while completing a direct FSM path', async () => {
+    const lines = await captureBridge('aharness packages/core/test/fixtures/args/');
     expect(lines).toEqual(['__tabtab_complete_files__']);
   });
 
-  it('delegates to shell file completion while completing a direct FSM path', async () => {
-    const lines = await captureBridge('aharness packages/core/test/fixtures/args/');
+  it('delegates to shell file completion after leading direct-run --yolo', async () => {
+    const lines = await captureBridge('aharness --yolo ');
+    expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+
+  it('delegates to shell file completion while completing a direct-run path after --yolo', async () => {
+    const lines = await captureBridge('aharness --yolo ./');
     expect(lines).toEqual(['__tabtab_complete_files__']);
   });
 
   it('delegates to shell file completion after the visualize subcommand', async () => {
     const lines = await captureBridge('aharness visualize ');
     expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+
+  it('delegates to shell file completion while completing a visualize target path', async () => {
+    const lines = await captureBridge('aharness visualize ./');
+    expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+
+  it('delegates to shell file completion while completing a verify target path', async () => {
+    const lines = await captureBridge('aharness verify ./');
+    expect(lines).toEqual(['__tabtab_complete_files__']);
+  });
+
+  it('does not delegate to shell file completion after a verify target', async () => {
+    const lines = await captureBridge(`aharness verify ${fixture} `);
+    expect(lines).toEqual([]);
+  });
+
+  it('does not delegate to shell file completion after a visualize target', async () => {
+    const lines = await captureBridge(`aharness visualize ${fixture} `);
+    expect(lines).not.toContain('__tabtab_complete_files__');
   });
 });
 
@@ -135,6 +687,11 @@ describe('runCompletionBridge — static value completion', () => {
     const lines = await captureBridge(`aharness ${fixture} --choice a`);
     const names = lines.map((l) => l.split(':')[0]);
     expect(names).toContain('a');
+  });
+
+  it('delegates file-valued input completion to native file completion', async () => {
+    const lines = await captureBridge(`aharness ${fixture} --ideafile-path `);
+    expect(lines).toEqual(['__tabtab_complete_files__']);
   });
 });
 

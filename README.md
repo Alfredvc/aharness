@@ -88,14 +88,15 @@ Run an existing FSM directly:
 ```bash
 npx aharness verify ./workflow.fsm.ts
 npx aharness visualize ./workflow.fsm.ts
-npx aharness ./workflow.fsm.ts
+npx aharness run ./workflow.fsm.ts
 ```
 
 - `verify` checks the machine before Codex starts.
 - `visualize` opens the graph/details UI without starting Codex.
-- `aharness ./workflow.fsm.ts` starts a foreground Codex run and opens the
+- `aharness run ./workflow.fsm.ts` starts a foreground Codex run and opens the
   browser UI for approvals and owner input.
 
+`aharness ./workflow.fsm.ts` remains supported as a compatibility form.
 Machine inputs become kebab-case flags, so `fixtureRoot` is passed as
 `--fixture-root`.
 

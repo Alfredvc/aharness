@@ -10,7 +10,7 @@ node --version
 ```
 
 Use Node 20 or newer before rerunning `npm install`, `npx aharness verify`, or
-`npx aharness <file.fsm.ts>`.
+`npx aharness run <file.fsm.ts>`.
 
 ## Codex CLI Is Missing Or Too Old
 
@@ -53,8 +53,11 @@ Machine input fields become kebab-case flags. For example, `fixtureRoot` is
 passed as:
 
 ```bash
-npx aharness ./workflow.fsm.ts --fixture-root ./examples/coding-smoke/fixture
+npx aharness run ./workflow.fsm.ts --fixture-root ./examples/coding-smoke/fixture
 ```
+
+The older `npx aharness ./workflow.fsm.ts ...` form remains supported for
+compatibility.
 
 Every flag value must be a separate token and values may not start with `--`.
 If an input field shadows a framework flag, aharness warns that the field is
