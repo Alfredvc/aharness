@@ -44,6 +44,9 @@ runs leave inspectable artifacts.
   transitions.
 - **Repair loops.** Failed evidence can route to repair, rerun checks, and only
   then continue.
+- **Composable, publishable workflows.** FSMs can embed child FSMs and ship as
+  installable package commands, so large workflows can be built from small,
+  typed, reusable pieces.
 - **Inspectable runs.** Every run writes a canonical transcript and declared
   artifacts under `.aharness/runs/<runId>/`.
 - **A browser view.** Live runs and `visualize` show the workflow graph,
