@@ -81,6 +81,24 @@ function fixtureEvents() {
   ];
 }
 
+function contextFixtureEvents() {
+  return [
+    event(1, 'run.started', { data: { startedAt: '2026-05-31T00:00:01.000Z' } }),
+    event(2, 'state.changed', {
+      stateVisitId: 'root.plan#1',
+      data: {
+        path: 'root.plan',
+        leaf: 'plan',
+        kind: 'stateful',
+        visitCount: 1,
+        exits: [{ name: 'done', kind: 'submit' }],
+      },
+    }),
+    event(3, 'context.initialized', { data: { context: { draft: 'boot' } } }),
+    event(4, 'context.changed', { data: { context: { draft: 'latest' } } }),
+  ];
+}
+
 function writeEventsJsonl(eventsPath, events) {
   writeFileSync(
     eventsPath,
@@ -95,6 +113,13 @@ function makeFixtureLog() {
   const root = tempRoot();
   const eventsPath = join(root, 'events.jsonl');
   writeEventsJsonl(eventsPath, fixtureEvents());
+  return eventsPath;
+}
+
+function makeContextFixtureLog() {
+  const root = tempRoot();
+  const eventsPath = join(root, 'events.jsonl');
+  writeEventsJsonl(eventsPath, contextFixtureEvents());
   return eventsPath;
 }
 
@@ -239,6 +264,39 @@ describe('replay-run-prefix-ui spike helper', () => {
         `${RUN_ID}:2`,
         `${RUN_ID}:3`,
       ]);
+    } finally {
+      replay.dispose();
+    }
+  });
+
+  it('replays context events without attaching later snapshots to the bootstrap state seed', () => {
+    const eventsPath = makeContextFixtureLog();
+    const replay = createReplayRunPrefixRouteService({ inputPath: eventsPath, eventCount: 4 });
+    tempRoots.push(resolve(replay.prefixPath, '..'));
+    try {
+      const result = replay.service.getBootstrap({
+        getRunMeta: () => ({ runId: RUN_ID }),
+      });
+      expect(result.ok).toBe(true);
+      const { bootstrap } = result;
+      expect(bootstrap.currentState).toEqual({
+        path: 'root.plan',
+        leaf: 'plan',
+        kind: 'stateful',
+        visitCount: 1,
+        exits: [{ name: 'done', kind: 'submit' }],
+      });
+      expect(bootstrap.currentState).not.toHaveProperty('context');
+
+      const drained = replay.service.eventsAfter(null);
+      expect(drained.ok).toBe(true);
+      expect(drained.events.map((runEvent) => runEvent.type)).toEqual([
+        'run.started',
+        'state.changed',
+        'context.initialized',
+        'context.changed',
+      ]);
+      expect(drained.events.at(-1).data).toEqual({ context: { draft: 'latest' } });
     } finally {
       replay.dispose();
     }
