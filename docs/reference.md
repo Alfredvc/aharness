@@ -243,7 +243,8 @@ inspectable.
 During live runs, the same browser shell also shows the active turn state and a
 polished transcript with state transitions, lifecycle rows, markdown assistant
 messages, concise tool/MCP/subagent rows, and fresh-clear boundaries. Internal
-aharness submit and owner-input plumbing remains hidden from the default view.
+aharness submit plumbing remains hidden from all transcript views; owner-input
+plumbing remains hidden from the default view.
 Current live and dev replay transcript rows are driven by API-safe compact rows,
 including command display fields such as `data.row.data.displayKind`,
 `data.row.data.command`, row `output`, and row `elapsedMs`; raw runtime payloads

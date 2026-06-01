@@ -142,8 +142,9 @@ such as `data.row.data.displayKind`, `data.row.data.command`, row `output`, and
 row `elapsedMs`. The browser does not provide raw JSONL inspection or
 compatibility backfill for old compact-row shapes. Compact rows include durable
 run lifecycle status and normalized transition-failure summaries for failed
-internal submit attempts without exposing submitted payloads. Run-scoped
-bootstrap and SSE projections reconstruct `currentState.context` from ordered
+internal submit attempts without exposing submitted payloads. Successful
+internal submit tool calls are not rendered, including in dev transcript mode.
+Run-scoped bootstrap and SSE projections reconstruct `currentState.context` from ordered
 `context.initialized` / `context.changed` events when those events exist.
 Context snapshot events are visible through `/api/runs/:runId/events` and
 `/api/runs/:runId/stream`, but they do not create compact rows and therefore do

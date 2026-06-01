@@ -140,6 +140,28 @@ describe('ActivePanel elicitation actions', () => {
 });
 
 describe('ActivePanel inspect node details', () => {
+  it('labels dev diagnostics generically instead of abandoned-only', () => {
+    const html = renderActivePanel(
+      baseSession({
+        devMode: true,
+        diagnostics: [
+          {
+            kind: 'AbandonedThreadDiagnostic',
+            id: 'diag-1',
+            threadId: '',
+            source: 'compactRow',
+            message: 'Ignored unsupported compact row kind "not-renderable" from run-1:10',
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain('diagnostics');
+    expect(html).toContain('1 events');
+    expect(html).toContain('compactRow');
+    expect(html).not.toContain('abandoned</span>');
+  });
+
   it('formats prompt, clear, hooks, and exit details for visualize mode', () => {
     expect(
       buildNodeDetailRowsForTest({
@@ -771,7 +793,7 @@ describe('ActivePanel historical visits', () => {
     expect(html).not.toContain('<pre');
   });
 
-  it('keeps aharness internal tools hidden by default and visible in dev mode', () => {
+  it('keeps aharness submit tools hidden by default and in dev mode', () => {
     const transcript: TestSession['transcript'] = [
       {
         id: 'internal-tool',
@@ -798,7 +820,8 @@ describe('ActivePanel historical visits', () => {
 
     expect(hidden).toContain('activity hidden in this view');
     expect(hidden).not.toContain('aharness_submit');
-    expect(dev).toContain('aharness_submit');
+    expect(dev).toContain('activity hidden in this view');
+    expect(dev).not.toContain('aharness_submit');
   });
 
   it('renders frozen historical scope visits from loaded row pages without false empty placeholders', () => {

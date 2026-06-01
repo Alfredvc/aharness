@@ -1,6 +1,6 @@
 // Reducer + custom hook consuming run-scoped JSONL bootstrap, row pages, and
-// live run events. Produces UI state with filter rules that hide internal
-// aharness noise (reserved tools, framework orientation) by default.
+// live run events. Produces UI state with filter rules that always hide
+// aharness submit plumbing and hide other internal noise by default.
 
 import { useCallback, useEffect, useReducer, useRef } from 'react';
 import {
@@ -37,23 +37,45 @@ import type {
 import { runScopedCurrentStateToFsmState } from '../types/events.js';
 import type { Topology } from '../types/topology.js';
 
-// Tools the UI hides from the default transcript view: aharness_submit is the
-// model-visible name of the dynamic_tools submit channel (headless spec §4.3.1);
-// request_user_input is codex's built-in owner-yield tool whose ServerRequest
-// is rendered separately. Dev mode reveals both.
-export const RESERVED_TOOLS = new Set<string>([
+// Tool names used by aharness' internal submit channel. They are protocol
+// plumbing, not user work, so the transcript hides them even in dev mode.
+const SUBMIT_TOOLS = new Set<string>([
   'aharness_submit',
-  'request_user_input',
   'mcp__aharness_fsm__submit',
   'mcp:aharness_fsm/submit',
 ]);
+
+// Tools the UI hides from the default transcript view: request_user_input is
+// codex's built-in owner-yield tool whose ServerRequest is rendered separately.
+export const RESERVED_TOOLS = new Set<string>([...SUBMIT_TOOLS, 'request_user_input']);
 const DIAGNOSTIC_LIMIT = 100;
 const UNKNOWN_ROW_DIAGNOSTIC_LIMIT = 25;
 const RUN_LEVEL_VISIT_ID = '__run';
 
-export function isReservedToolName(name: string): boolean {
-  return RESERVED_TOOLS.has(name) || /^mcp__aharness(?:_|-).*__submit$/.test(name);
+function isSubmitToolName(name: string): boolean {
+  return SUBMIT_TOOLS.has(name) || /^mcp__aharness(?:_|-).*__submit$/.test(name);
 }
+
+export function isReservedToolName(name: string): boolean {
+  return name === 'request_user_input' || isSubmitToolName(name);
+}
+
+const KNOWN_COMPACT_ROW_KINDS = new Set<string>([
+  'message',
+  'reasoning',
+  'tool',
+  'request',
+  'reply',
+  'framework_note',
+  'diagnostic',
+  'run_lifecycle',
+  'state_change',
+  'transition_failure',
+  'fresh_clear',
+  // Legacy/protocol bookkeeping row shape. Visible dynamic tools are emitted
+  // through canonical `tool` rows; raw dynamicToolCall rows should stay quiet.
+  'dynamicToolCall',
+]);
 
 type TranscriptBase = {
   id: string;
@@ -855,6 +877,8 @@ function transcriptItemFromCompactRow(
           row.label ?? readString(row.data?.['statePath']) ?? stateVisitId.split('#')[0] ?? '',
       };
     }
+    case 'dynamicToolCall':
+      return null;
     default:
       return null;
   }
@@ -869,7 +893,10 @@ function transcriptFromCompactRows(
   for (const row of rows) {
     const item = transcriptItemFromCompactRow(row, options);
     if (item === null) {
-      if (diagnostics.length < UNKNOWN_ROW_DIAGNOSTIC_LIMIT) {
+      if (
+        !KNOWN_COMPACT_ROW_KINDS.has(row.kind) &&
+        diagnostics.length < UNKNOWN_ROW_DIAGNOSTIC_LIMIT
+      ) {
         diagnostics.push(compactRowDiagnostic(row));
       }
       continue;
@@ -1968,6 +1995,8 @@ function isVisibleTranscriptItem(i: TranscriptItem): boolean {
 
 function isAlwaysHiddenTranscriptItem(i: TranscriptItem): boolean {
   if (i.type === 'user_message' && i.synthetic) return true;
+  if (i.type === 'tool_call' && isSubmitToolName(i.name)) return true;
+  if (i.type === 'tool_result' && isSubmitToolName(i.name)) return true;
   if (i.type === 'reasoning' && i.text.trim().length === 0) return true;
   return false;
 }

@@ -2365,6 +2365,19 @@ describe('runCliForTest — pre-spawn gates', () => {
       expect(JSON.stringify(badSubmitReply.result)).not.toContain('do not show');
       transport.onMessage?.({
         jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          item: {
+            type: 'dynamicToolCall',
+            id: 'call-bad-submit',
+            status: 'completed',
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
         id: 9300,
         method: METHOD.toolDynamicCall,
         params: {
@@ -2582,6 +2595,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(JSON.stringify(compactRows)).not.toContain('command-action-must-stay-out');
     expect(JSON.stringify(compactRows)).not.toContain('hidden-request-payload-must-stay-out');
     expect(JSON.stringify(compactRows)).not.toContain('raw shell arguments must stay out');
+    expect(compactRows.map((row) => row.kind)).not.toContain('dynamicToolCall');
   });
 
   it('routes browser replies, notifications, metadata, and file-change correlation through the active binding', async () => {

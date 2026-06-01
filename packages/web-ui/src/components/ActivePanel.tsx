@@ -686,9 +686,9 @@ function DevDiagnosticsBox({ diagnostics }: { diagnostics: UiState['diagnostics'
   if (diagnostics.length === 0) return null;
   const visible = diagnostics.slice(-5).reverse();
   return (
-    <section className="dev-context-box dev-diagnostics-box" aria-label="abandoned diagnostics">
+    <section className="dev-context-box dev-diagnostics-box" aria-label="run diagnostics">
       <header className="dcb-head">
-        <span className="dcb-kicker">abandoned</span>
+        <span className="dcb-kicker">diagnostics</span>
         <span className="dcb-state">{diagnostics.length} events</span>
       </header>
       <div className="diagnostic-list">

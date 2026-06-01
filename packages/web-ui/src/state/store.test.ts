@@ -1156,7 +1156,7 @@ describe('headless production store helpers', () => {
     expect(visibleItems(state.transcript, false)).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'internal-tool' })]),
     );
-    expect(visibleItems(state.transcript, true)).toEqual(
+    expect(visibleItems(state.transcript, true)).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'internal-tool' })]),
     );
   });
@@ -1235,6 +1235,9 @@ describe('headless production store helpers', () => {
     expect(visibleItems(state.transcript, true)).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'orientation-row' })]),
     );
+    expect(state.diagnostics).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'compactRow' })]),
+    );
   });
 
   it('suppresses empty compact reasoning envelopes instead of rendering labels or summaries', () => {
@@ -1279,6 +1282,49 @@ describe('headless production store helpers', () => {
         text: 'actual reasoning',
       }),
     ]);
+    expect(state.diagnostics).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'compactRow' })]),
+    );
+  });
+
+  it('ignores protocol dynamic-tool compact rows without rendering submit tools or diagnostics', () => {
+    const state = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      recentRows: [
+        row({
+          id: 'submit-started-row',
+          eventId: 'run-1:36',
+          seq: 36,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'dynamicToolCall',
+          label: 'dynamicToolCall',
+          status: 'started',
+        }),
+        row({
+          id: 'submit-tool-row',
+          eventId: 'run-1:37',
+          seq: 37,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'tool',
+          label: 'aharness_submit',
+          status: 'completed',
+          summary: '{}',
+        }),
+      ],
+    });
+
+    expect(state.transcript).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'submit-started-row' })]),
+    );
+    expect(visibleItems(state.transcript, false)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'submit-tool-row' })]),
+    );
+    expect(visibleItems(state.transcript, true)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'submit-tool-row' })]),
+    );
+    expect(state.diagnostics).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'compactRow' })]),
+    );
   });
 
   it('accepts only known tool display hints and subagent actions from compact rows', () => {

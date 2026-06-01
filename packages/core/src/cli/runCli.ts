@@ -1999,6 +1999,12 @@ function threadItemRowData(
   receiverCorrelations: ReadonlyArray<SubThreadCorrelation>,
 ): RunEventPayload | undefined {
   if (item === null || itemType === undefined) return undefined;
+  if (itemType === 'dynamicToolCall') {
+    // The item/tool/dynamicCall request handler owns dynamic-tool compact rows.
+    // Generic item notifications duplicate that protocol bookkeeping and can
+    // otherwise leak internal aharness_submit calls into dev transcripts.
+    return undefined;
+  }
   if (isUiToolThreadItemType(itemType)) {
     return compactRunEventPayload({
       kind: 'tool',
