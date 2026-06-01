@@ -290,10 +290,7 @@ describe('run event query service', () => {
 
   it('omits context from old state-only logs', () => {
     const eventsPath = tempEventsPath();
-    writeJsonl(
-      eventsPath,
-      event(1, 'state.changed', { data: { path: 'root.plan' } }),
-    );
+    writeJsonl(eventsPath, event(1, 'state.changed', { data: { path: 'root.plan' } }));
     const service = createRunEventQueryService({ runId: RUN_ID, eventsPath });
 
     const bootstrap = service.getBootstrap({ getRunMeta: () => ({ runId: RUN_ID }) });
