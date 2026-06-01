@@ -1232,14 +1232,8 @@ describe('headless production store helpers', () => {
     expect(visibleItems(state.transcript, false)).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'orientation-row' })]),
     );
-    expect(visibleItems(state.transcript, true)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          id: 'orientation-row',
-          type: 'user_message',
-          synthetic: true,
-        }),
-      ]),
+    expect(visibleItems(state.transcript, true)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'orientation-row' })]),
     );
   });
 
@@ -2287,7 +2281,6 @@ describe('headless production store helpers', () => {
 
     expect(visibleItems(items, false).map((item) => item.id)).toEqual(['state-change-1']);
     expect(visibleItems(items, true).map((item) => item.id)).toEqual([
-      'orientation-user-1',
       'framework-info-1',
       'framework-orientation-1',
       'state-change-1',
@@ -2337,7 +2330,7 @@ describe('headless production store helpers', () => {
         }),
       ]),
     );
-    expect(visibleInDevMode).toEqual(
+    expect(visibleInDevMode).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'orientation-user-1' })]),
     );
     expect(visibleInDevMode).not.toEqual(

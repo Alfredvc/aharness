@@ -135,7 +135,7 @@ function TopHeader({
         <button
           className={`top-btn ${devMode ? 'on' : ''}`}
           onClick={toggleDevMode}
-          title="Show internal events (aharness_submit, framework notes, synthetic orientation)."
+          title="Show internal events (aharness_submit and framework notes)."
         >
           dev <kbd>V</kbd>
         </button>

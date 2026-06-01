@@ -1967,6 +1967,7 @@ function isVisibleTranscriptItem(i: TranscriptItem): boolean {
 }
 
 function isAlwaysHiddenTranscriptItem(i: TranscriptItem): boolean {
+  if (i.type === 'user_message' && i.synthetic) return true;
   if (i.type === 'reasoning' && i.text.trim().length === 0) return true;
   return false;
 }
