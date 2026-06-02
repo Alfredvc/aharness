@@ -2746,9 +2746,10 @@ function checkAvailableSkillsWellFormed(machine: AnyStateMachine): VerifyIssue[]
 }
 
 /**
- * `skills:` is meaningful only on stateful states — passive and terminal
- * states have no `entryPrompt` lowering path, so a skill body declared on
- * one would never be injected. Mirrors `onEntry-only-on-stateful-states`.
+ * `skills:` is meaningful only on stateful states. Passive and terminal states
+ * do not produce aharness-owned orientation turns, so there is no state turn
+ * where a selected skill item could be sent. Mirrors
+ * `onEntry-only-on-stateful-states`.
  */
 function checkSkillsOnlyOnStatefulStates(machine: AnyStateMachine): VerifyIssue[] {
   const issues: VerifyIssue[] = [];

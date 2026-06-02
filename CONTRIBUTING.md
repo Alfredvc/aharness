@@ -9,7 +9,7 @@ Prerequisites:
 
 - Node.js `>=20`
 - pnpm `9.15.4`, matching the root `packageManager`
-- Codex CLI `>=0.130.0` for runtime work and Codex compatibility checks
+- Codex CLI `>=0.136.0` for runtime work and Codex compatibility checks
 
 Install dependencies:
 

@@ -346,12 +346,11 @@ export interface AharnessStateMeta {
   readonly hooks?: StateHooks<unknown>;
   readonly canonicalEvents?: Readonly<Record<string, CanonicalEventMeta>>;
   /**
-   * Skill bodies the framework injects into the per-state orientation
-   * nudge on entry. Each entry is a `SkillRef` returned by the `skill()`
-   * factory (`state/skills.ts`). Once-per-run dedupe — the same key only
-   * injects on the first entry that references it; later entries (any
-   * state) skip. Fresh `clearOnEntry` threads begin with empty model
-   * context and receive the active state's orientation again.
+   * Structured Codex skill selections for this state turn. Each entry is a
+   * `SkillRef` returned by the `skill()` factory (`state/skills.ts`).
+   * Selection is deduped per live parent thread; fresh `clearOnEntry` threads
+   * begin with empty model context and receive the active state's orientation
+   * and selected skill items again.
    */
   readonly skills?: ReadonlyArray<SkillRef>;
 }

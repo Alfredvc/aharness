@@ -1,30 +1,27 @@
 /**
- * Skill primitive — author surface for declaring SKILL.md bodies that the
- * framework injects into the per-state orientation nudge on entry.
+ * Skill primitive — author surface for declaring Codex skills that aharness
+ * can make discoverable for a run or select for a state turn.
  *
  * Three author ref shapes:
- *   - **Name-form** — `skill('spec-review')`. Resolved against codex's
- *     skill roots in this order: `<repoRoot>/.agents/skills/<name>/SKILL.md`,
- *     `~/.agents/skills/<name>/SKILL.md`, `$CODEX_HOME/skills/<name>/SKILL.md`.
- *     If none exists, verifier errors (or skips silently when `optional`).
+ *   - **Name-form** — `skill('spec-review')`. Valid only for state-level
+ *     `skills`; Codex's startup skill catalog preflight is authoritative for
+ *     resolving it to exactly one enabled skill.
  *   - **Path-form** — `skill({ path: './foo/SKILL.md' })`. Relative paths resolve
  *     against the FSM file's directory (loader threads it to the daemon);
  *     absolute paths used as-is. No fallback search.
  *   - **Dir-form** — `fsm.skill.dir('./skills')`. Valid only in top-level
  *     machine `availableSkills`, not in state-level `skills`.
  *
- * `optional: true` downgrades a missing-resolution from error to warning at
- * verify time and from inject-failure to silent-skip at runtime.
+ * `optional: true` lets startup preflight warn and skip a missing state skill
+ * instead of failing the run.
  *
  * `__aharnessSkillRef: true` is an opaque sentinel the rest of the framework
  * uses to validate that an entry on a state's `skills:` array came from this
  * factory. Authors never set it directly.
  *
- * Injection runs once per `(run, key)` — same skill referenced from multiple
- * states injects on the first entry and is skipped thereafter (the model
- * already has it in context). A `clearOnEntry` fresh thread starts with
- * empty model context, so runtime injection state is scoped to the live
- * parent thread.
+ * State skill selection runs once per live parent thread and selected skill
+ * items are deduped by resolved path. A `clearOnEntry` fresh thread starts with
+ * empty model context, so the dedupe set is reset for that replacement thread.
  */
 
 /** Stable key derived from the resolved source — `name:<n>`, `path:<absPath>`, or `dir:<absPath>`. */
@@ -116,7 +113,7 @@ export function skillDir(path: string): SkillRefDir {
   };
 }
 
-/** Type-guard for state-injectable refs (verifier, daemon). */
+/** Type-guard for state-selectable refs (verifier, runtime catalog preflight). */
 export function isSkillRef(v: unknown): v is SkillRef {
   if (!isAnySkillRef(v)) return false;
   if (v.source === 'name') {

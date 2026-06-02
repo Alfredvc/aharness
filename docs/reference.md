@@ -6,9 +6,9 @@ authoring entry point is `createFsm` from `@aharness/core`.
 ## Prerequisites
 
 - Node.js `>=20`
-- Codex CLI `>=0.130.0`
+- Codex CLI `>=0.136.0`
 
-The latest repository validation is `codex-cli 0.133.0` on 2026-05-24. See
+The latest repository validation is `codex-cli 0.136.0` on 2026-06-02. See
 [`packages/core/SUPPORTED_CODEX.md`](../packages/core/SUPPORTED_CODEX.md) for
 the compatibility gate and drift-check details.
 
@@ -16,8 +16,8 @@ the compatibility gate and drift-check details.
 
 `createFsm<Data>()` returns the current FSM factory:
 
-- `fsm.machine(config)` declares the machine, optional typed `input`, initial
-  data, initial state, and states map.
+- `fsm.machine(config)` declares the machine, optional typed `input`, optional
+  run-global `availableSkills`, initial data, initial state, and states map.
 - `fsm.state(options)` declares an active Codex state with `prompt`, `on`,
   `entry`, `model`, `clearOnEntry`, visualization-only `main`,
   `guidance`, `skills`, `mode`, and low-level `xstate` escape hatch.
@@ -34,6 +34,8 @@ the compatibility gate and drift-check details.
 - `fsm.input.values([...])` declares a static completion set.
 - `fsm.skill(name, options)` references an installed skill by name.
 - `fsm.skill.path(path, options)` references a skill by `SKILL.md` path.
+- `fsm.skill.dir(path)` references a directory of skills for
+  `machine.availableSkills`.
 - `fsm.event<T>()` declares a signal event for `withEvents`.
 - `fsm.event<T, R>({ defaultReturn })` declares a request event for
   `withEvents`.
@@ -158,7 +160,47 @@ primary spine. It is visualization-only metadata and never changes transition
 legality, verifier checks, emitted run state, or runtime behavior.
 
 `skills` attaches name-form or `SKILL.md` path-form skill references for the
-active state.
+active state. State skill refs are the only declarations that select structured
+Codex skill items for a state turn.
+
+Allowed state skill forms:
+
+- `fsm.skill('reviewing-code')` selects exactly one enabled Codex catalog skill
+  by name during startup preflight.
+- `fsm.skill.path('../skills/reviewing-code/SKILL.md')` selects the exact
+  bundled skill at that path.
+
+`fsm.skill.dir(...)` is invalid in state `skills`.
+
+Top-level `availableSkills` declares run-global skill availability:
+
+```ts
+export default fsm.machine({
+  id: 'workflow',
+  availableSkills: [
+    fsm.skill.dir('../skills'),
+    fsm.skill.path('../support/review/SKILL.md'),
+  ],
+  initial: 'plan',
+  states: {
+    plan: fsm.state({
+      skills: [fsm.skill.path('../skills/writing-plans-v2/SKILL.md')],
+      prompt: 'Write the current implementation plan.',
+      on: {
+        done: fsm.submit<{ summary: string }>({ to: 'done' }),
+      },
+    }),
+    done: fsm.final({ outcome: 'success' }),
+  },
+});
+```
+
+`availableSkills` accepts `fsm.skill.path(...)` and `fsm.skill.dir(...)`.
+Path-form availability contributes the containing skill directory to the Codex
+startup root set. Dir-form availability contributes that directory as a Codex
+skill root. `availableSkills` never injects a skill into a state turn by itself.
+Name-form refs are invalid in `availableSkills`, because the field is for
+declaring concrete package- or repository-owned roots.
 
 ## Submit, Choice, And Events
 
@@ -457,6 +499,9 @@ Reusable FSM packages are npm-shaped packages with explicit command metadata in
 Each command entry must be a package-root-relative `.fsm.ts` file. aharness
 validates entries, package-relative asset calls, and `@aharness/core`
 compatibility during install before writing trusted command-index records.
+FSM source remains the source of truth for bundled skill availability: declare
+supporting skill directories or paths in `fsm.machine({ availableSkills })`, and
+declare immediate per-state skill selections in state `skills`.
 Packages are installed and run through the global CLI:
 
 ```bash

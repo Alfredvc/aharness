@@ -1,21 +1,14 @@
 /**
- * Skill resolver — turns author-declared `SkillRef`s into absolute
- * `SKILL.md` paths plus a stable dedupe key.
+ * Skill resolver — turns path/dir refs into absolute filesystem locations for
+ * static validation and availability roots.
  *
- * Two ref shapes:
- *   - **Name-form** — search codex's skill roots in order:
- *       1. `<repoRoot>/.agents/skills/<name>/SKILL.md`
- *       2. `~/.agents/skills/<name>/SKILL.md`
- *       3. `$CODEX_HOME/skills/<name>/SKILL.md`  (default `~/.codex/skills/<name>/SKILL.md`)
- *     First hit wins. No fallback to bundled paths — bundling is a
- *     path-form concern.
- *   - **Path-form** — relative paths resolve against `fsmFileDir`,
- *     absolute paths used as-is. No search.
+ * Name-form state refs are resolved by Codex's startup skill catalog preflight,
+ * not by static filesystem lookup. Path-form refs resolve against `fsmFileDir`
+ * when relative; dir-form refs do the same for top-level `availableSkills`.
  *
  * Resolution is deterministic given `(ref, fsmFileDir, repoRoot, env)`.
- * Used by both the verifier (static check) and the daemon (runtime
- * inject). `existsSync` is the only filesystem dependency; `homedir`
- * and `process.env.CODEX_HOME` are read at the call site.
+ * `resolveSkill` still accepts name-form refs for compatibility with older
+ * validation paths, but new runtime selection uses the Codex catalog result.
  */
 import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';

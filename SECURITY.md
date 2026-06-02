@@ -24,7 +24,7 @@ release, that means the `0.1.x` line represented by this repository.
 aharness requires:
 
 - Node.js `>=20`
-- Codex CLI `>=0.130.0`
+- Codex CLI `>=0.136.0`
 
 Older Node or Codex versions are outside the supported security boundary.
 

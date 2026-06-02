@@ -9,7 +9,7 @@ transitions, repair paths, and inspectable run logs for any workflow.
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Node >=20](https://img.shields.io/badge/node-%3E%3D20-43853d.svg)](package.json)
-[![Codex CLI >=0.130.0](https://img.shields.io/badge/codex%20cli-%3E%3D0.130.0-111827.svg)](packages/core/SUPPORTED_CODEX.md)
+[![Codex CLI compatibility gate](https://img.shields.io/badge/codex%20cli-compatibility%20gate-111827.svg)](packages/core/SUPPORTED_CODEX.md)
 
 </div>
 
@@ -46,7 +46,8 @@ runs leave inspectable artifacts.
   then continue.
 - **Composable, publishable workflows.** FSMs can embed child FSMs and ship as
   installable package commands, so large workflows can be built from small,
-  typed, reusable pieces.
+  typed, reusable pieces. Package FSMs can bundle skills and declare
+  run-global skill availability from FSM source.
 - **Inspectable runs.** Every run writes a canonical transcript and declared
   artifacts under `.aharness/runs/<runId>/`.
 - **A browser view.** Live runs and `visualize` show the workflow graph,
@@ -57,7 +58,9 @@ runs leave inspectable artifacts.
 Prerequisites:
 
 - Node.js `>=20`
-- Codex CLI `>=0.130.0` on `PATH`
+- Codex CLI on `PATH`; see
+  [`packages/core/SUPPORTED_CODEX.md`](packages/core/SUPPORTED_CODEX.md) for
+  the current compatibility gate
 
 ```bash
 npm install --save-dev @aharness/core

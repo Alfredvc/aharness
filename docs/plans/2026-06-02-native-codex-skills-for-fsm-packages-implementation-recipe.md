@@ -1,11 +1,11 @@
 # Native Codex Skills for Self-Contained FSM Packages Implementation Recipe
 
 **Parent roadmap:** `docs/plans/2026-06-02-native-codex-skills-for-fsm-packages-roadmap.md`
-**Current slice:** Slice 4 - docs and codeflow package preparation
-**Current phase:** plan-writing
-**Current detailed plan:** none yet
+**Current slice:** complete
+**Current phase:** complete
+**Current detailed plan:** `docs/plans/2026-06-02-native-codex-skills-for-fsm-packages-slice-4-docs-codeflow-prep.md`
 **Current fix source:** none
-**Last completed:** Slice 3 - native structured state skill injection
+**Last completed:** Slice 4 - docs and codeflow package preparation
 
 ## Durable Grounding
 
@@ -111,5 +111,41 @@ Acceptance verification re-run during finish:
 - `pnpm exec vitest run packages/core/test/cli.runCli.test.ts packages/core/test/cli.runCli.phase1.test.ts` passed with 2 files / 55 passed / 1 skipped.
 - `pnpm run typecheck` passed.
 
-Slice 4 is next. It should produce the detailed plan for public documentation
-and codeflow package preparation before changing docs or FSM/package files.
+Slice 4 was implemented in this working tree and is ready for acceptance
+review. It updated public authoring/reference/architecture/troubleshooting and
+README prerequisite docs for native Codex skill availability and structured
+state skill selection, aligned source comments with catalog-based skill
+selection, added repository-owned `writing-plans-v2` and `reviewing-code`
+support skills under `skills/`, and made
+`fsms/recipe-driven-development.fsm.ts` declare `../skills` through
+`availableSkills`.
+
+Final verification for Slice 4:
+
+- `pnpm exec prettier --check README.md docs/authoring.md docs/reference.md docs/architecture.md docs/troubleshooting.md fsms/README.md fsms/recipe-driven-development.fsm.ts`
+- `pnpm exec prettier --check packages/core/README.md CONTRIBUTING.md SECURITY.md packages/core/src/state/skills.ts packages/core/src/state/exits.ts packages/core/src/state/skillResolver.ts`
+- `pnpm exec prettier --check skills/writing-plans-v2/SKILL.md skills/reviewing-code/SKILL.md packages/core/src/verify/verify.ts`
+- `pnpm exec aharness verify fsms/recipe-driven-development.fsm.ts` passed with 0 warnings after rerun outside the sandbox; the sandboxed attempt failed because Codex app-server could not start with `Operation not permitted`.
+- `pnpm exec vitest run packages/core/test/state.skills.test.ts packages/core/test/verify.test.ts packages/core/test/cli.runCli.test.ts packages/core/test/cli.runCli.phase1.test.ts`
+- `pnpm run typecheck`
+- `rg -n "0\\.130\\.0|0\\.133\\.0" README.md docs packages/core/README.md CONTRIBUTING.md SECURITY.md`
+- `rg -n "skill bod|<skill>|manual skill|filesystem search|runtime inject|reads skill" packages/core/src`
+- Direct prompt-to-root mapping check: `agentfiles:writing-plans-v2` maps to
+  `skills/writing-plans-v2/SKILL.md`, and `agentfiles:reviewing-code` maps to
+  `skills/reviewing-code/SKILL.md`, both under the recipe FSM's declared
+  `../skills` root.
+
+Acceptance verification re-run during finish:
+
+- `pnpm exec aharness verify fsms/recipe-driven-development.fsm.ts` passed with
+  0 warnings after rerun outside the sandbox; the sandboxed attempt failed
+  because Codex app-server could not start with `Operation not permitted`.
+- `pnpm exec vitest run packages/core/test/state.skills.test.ts packages/core/test/verify.test.ts packages/core/test/cli.runCli.test.ts packages/core/test/cli.runCli.phase1.test.ts`
+  passed with 4 files / 145 passed / 1 skipped.
+- `pnpm run typecheck` passed.
+- Targeted Prettier checks for touched docs, FSM, source comments, and support
+  skill files passed.
+- Stale Codex floor and stale manual skill-body searches returned no hits.
+- `git diff --check` passed.
+
+Roadmap complete after Slice 4.

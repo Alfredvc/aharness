@@ -23,7 +23,8 @@ Start here:
   boundary.
 - [Supported Codex versions](SUPPORTED_CODEX.md) for the runtime version gate.
 
-Public prerequisites are Node.js `>=20` and Codex CLI `>=0.130.0`.
+Public prerequisites are Node.js `>=20` and Codex CLI `>=0.136.0`. See
+[`SUPPORTED_CODEX.md`](SUPPORTED_CODEX.md) for the compatibility gate.
 
 Release verification from this repository is:
 

@@ -17,9 +17,12 @@ At runtime, `aharness <file.fsm.ts>` runs foreground-only:
 1. It verifies and loads the FSM.
 2. It starts one Codex `app-server` child process.
 3. It connects as the sole WebSocket client for that run.
-4. It hosts the XState actor, submit handling, owner input, approval dispatch,
+4. It registers FSM-declared skill roots with Codex, calls `skills/list`, and
+   validates required state skills against the startup catalog.
+5. It starts the Codex thread only after skill preflight succeeds.
+6. It hosts the XState actor, submit handling, owner input, approval dispatch,
    hook dispatch and canonical JSONL event logging in the same CLI process.
-5. It opens a loopback browser UI protected by a per-run token.
+7. It opens a loopback browser UI protected by a per-run token.
 
 For read-only FSM inspection, `aharness visualize <file.fsm.ts>` verifies and
 opens the same graph/details UI without starting Codex, hooks, a thread, or the
@@ -131,6 +134,13 @@ pending approval cards in the browser; `--yolo` bypasses approval prompts.
 This is the core boundary: Codex performs the work; aharness constrains the
 process around that work.
 
+State skills follow the same boundary. FSM `availableSkills` declarations make
+package- or repository-owned skill roots discoverable for the run. State
+`skills` declarations select the skills needed for the active state. Aharness
+sends those selections as structured `turn/start.input` skill items alongside
+the orientation text, so it does not append skill file contents to the prompt
+text.
+
 ## Artifacts And Runs
 
 Each invocation creates a fresh run directory under `.aharness/runs/<runId>/`.
@@ -188,6 +198,11 @@ Reusable FSM packages are npm-shaped packages with explicit
 `fsms/`, bundled `skills/`, helper modules, and package-relative assets; the
 global `aharness install` / `aharness run` surface indexes and executes verified
 commands from the installed package tree.
+
+Bundled skill discovery is declared in FSM source, not package metadata. A
+package command FSM can list support skill directories in top-level
+`availableSkills` and select required state skills through state `skills`.
+Imported child FSMs carry their own transitive availability declarations.
 
 The installed package tree remains npm-managed. aharness trusts only
 `installs.json` and the derived `commands.json` after command verification, and

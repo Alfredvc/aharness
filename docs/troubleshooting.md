@@ -38,11 +38,15 @@ Codex and asks Codex to scan the skill catalog. Failures are reported as:
 aharness: skill preflight failed: ...
 ```
 
-Common causes are missing `SKILL.md` files for required path-form state skills,
-disabled or missing required name-form skills in the Codex catalog, ambiguous
-name-form skills, or invalid skill metadata reported by Codex during
-`skills/list`. Fix the referenced skill path/name or Codex skill configuration,
-then rerun the FSM.
+Common causes are:
+
+- a required path-form state skill points at a missing or disabled `SKILL.md`;
+- a required name-form state skill is missing from the enabled Codex catalog;
+- a name-form state skill matches more than one enabled Codex catalog entry;
+- Codex reports invalid skill metadata or parse errors during `skills/list`.
+
+Fix the referenced skill path/name, package-bundled skill file, or Codex skill
+configuration, then rerun the FSM.
 
 ## Verify Fails Before Runtime
 
@@ -58,9 +62,14 @@ The verifier catches invalid FSM shape before Codex starts. Common causes are:
   events, nor events declared with `withEvents(...)`.
 - Missing child-final handlers for `fsm.embed(...)`.
 - Input flags whose defaults or metadata do not match the declared helper.
+- Skill shape errors, such as a state-level `fsm.skill.dir(...)`, a
+  name-form ref in top-level `availableSkills`, or a path ref that does not
+  point at `SKILL.md`.
 - TypeScript import errors in the `.fsm.ts` file.
 
 Fix verification failures first. Runtime does not start an invalid machine.
+Name-form state skill availability remains a runtime catalog concern, so verify
+checks its shape while startup preflight checks whether Codex can resolve it.
 
 ## CLI Input Flags Do Not Work
 

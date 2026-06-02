@@ -250,10 +250,42 @@ input: {
 Inputs become kebab-case CLI flags such as `--fixture-root` and
 `--max-repair-attempts`.
 
-Attach state skills with `fsm.skill(name)` or `fsm.skill.path(path)`.
-Path-form references must point at a `SKILL.md` file. Packaged FSMs should use
-path-form references for bundled skills so the installed package can resolve
-them reliably.
+Attach state skills with `fsm.skill(name)` or `fsm.skill.path(path)`. State
+`skills` are per-state guidance selections: when aharness enters that state, it
+sends the state's orientation text plus structured Codex skill items for the
+declared skills. Path-form references must point at a `SKILL.md` file. Name-form
+references are resolved by Codex's startup skill catalog preflight.
+
+Use top-level `availableSkills` for skills that should be discoverable during
+the whole run but not automatically selected for a state turn. It accepts
+`fsm.skill.path(path)` and `fsm.skill.dir(path)` refs; name-form refs are not
+valid there. Dir-form refs are valid only in `availableSkills`.
+
+```ts
+export default fsm.machine({
+  id: 'package-workflow',
+  availableSkills: [
+    fsm.skill.dir('../skills'),
+    fsm.skill.path('../support/review/SKILL.md'),
+  ],
+  initial: 'review',
+  states: {
+    review: fsm.state({
+      skills: [fsm.skill.path('../skills/reviewing-code/SKILL.md')],
+      prompt: 'Review the change and submit findings.',
+      on: {
+        reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
+      },
+    }),
+    done: fsm.final({ outcome: 'success' }),
+  },
+});
+```
+
+Package authors should prefer path-form refs for bundled state skills that a
+state requires immediately. Use availability path or dir refs for supporting
+skills that prompts may ask Codex to use later. `availableSkills` makes those
+skills visible to Codex; it does not inject them into any state by itself.
 
 ## Where To Start
 
