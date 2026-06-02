@@ -1,4 +1,16 @@
+import { useRef, useState, type MutableRefObject } from 'react';
 import type { RunCompletionStats } from '../types/events.js';
+import {
+  RunCompletionShareCard,
+  buildRunCompletionShareCardProps,
+  type RunCompletionShareCardProps,
+} from './RunCompletionShareCard.js';
+import {
+  copyShareCardPng,
+  downloadShareCardPng,
+  type ShareCardCopyStatus,
+  type ShareCardDownloadStatus,
+} from './shareCardExport.js';
 
 type FinalOverviewModalProps = {
   completionStats: RunCompletionStats | null;
@@ -49,6 +61,12 @@ export function FinalOverviewModal({
 }
 
 function StatsBody({ stats }: { stats: RunCompletionStats }) {
+  const shareProps = buildRunCompletionShareCardProps(stats);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<ShareCardCopyStatus | null>(null);
+  const [downloadStatus, setDownloadStatus] = useState<ShareCardDownloadStatus | null>(null);
+  const [exporting, setExporting] = useState<'download' | 'copy' | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
   const topBuckets = stats.stateBuckets.slice(0, 6);
   const remainingBuckets = stats.stateBuckets.slice(6);
   const otherBucket =
@@ -87,6 +105,65 @@ function StatsBody({ stats }: { stats: RunCompletionStats }) {
         <Metric label="Subthread turns" value={formatNumber(stats.subthreadTurnCount)} />
         <Metric label="Topology" value={stats.topologyStatus} />
       </div>
+
+      {shareProps ? (
+        <section className="final-overview-section">
+          <div className="final-overview-share-row">
+            <h3>Share Card</h3>
+            <button
+              className="final-overview-action"
+              type="button"
+              onClick={() => {
+                setPreviewOpen((open) => !open);
+                setCopyStatus(null);
+                setDownloadStatus(null);
+              }}
+            >
+              {previewOpen ? 'Hide preview' : 'Share'}
+            </button>
+          </div>
+          {previewOpen ? (
+            <div className="final-overview-share-preview">
+              <div className="final-overview-share-card-frame">
+                <RunCompletionShareCardRef props={shareProps} svgRef={svgRef} />
+              </div>
+              <div className="final-overview-share-actions">
+                <button
+                  className="final-overview-action"
+                  type="button"
+                  disabled={exporting !== null}
+                  onClick={() => {
+                    const svg = svgRef.current;
+                    if (!svg) return;
+                    setExporting('download');
+                    void downloadShareCardPng(svg, shareProps)
+                      .then(setDownloadStatus)
+                      .finally(() => setExporting(null));
+                  }}
+                >
+                  {exporting === 'download' ? 'Downloading...' : 'Download PNG'}
+                </button>
+                <button
+                  className="final-overview-action"
+                  type="button"
+                  disabled={exporting !== null}
+                  onClick={() => {
+                    const svg = svgRef.current;
+                    if (!svg) return;
+                    setExporting('copy');
+                    void copyShareCardPng(svg)
+                      .then(setCopyStatus)
+                      .finally(() => setExporting(null));
+                  }}
+                >
+                  {exporting === 'copy' ? 'Copying...' : 'Copy PNG'}
+                </button>
+              </div>
+              <ShareExportStatus copyStatus={copyStatus} downloadStatus={downloadStatus} />
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="final-overview-section">
         <h3>Tokens</h3>
@@ -152,6 +229,52 @@ function StatsBody({ stats }: { stats: RunCompletionStats }) {
       </section>
     </div>
   );
+}
+
+function RunCompletionShareCardRef({
+  props,
+  svgRef,
+}: {
+  props: RunCompletionShareCardProps;
+  svgRef: MutableRefObject<SVGSVGElement | null>;
+}) {
+  return (
+    <div
+      ref={(node) => {
+        svgRef.current = node?.querySelector('svg') ?? null;
+      }}
+      className="final-overview-share-card"
+      aria-label="Share-card preview"
+    >
+      <RunCompletionShareCard {...props} />
+    </div>
+  );
+}
+
+function ShareExportStatus({
+  copyStatus,
+  downloadStatus,
+}: {
+  copyStatus: ShareCardCopyStatus | null;
+  downloadStatus: ShareCardDownloadStatus | null;
+}) {
+  if (!copyStatus && !downloadStatus) return null;
+  return (
+    <div className="final-overview-share-status" role="status">
+      {downloadStatus ? (
+        <p>{downloadStatus.ok ? 'Download PNG ready.' : 'Download PNG failed.'}</p>
+      ) : null}
+      {copyStatus ? <p>{copyStatusLabel(copyStatus)}</p> : null}
+    </div>
+  );
+}
+
+function copyStatusLabel(status: ShareCardCopyStatus): string {
+  if (status.ok) return 'Copy PNG complete.';
+  if (status.kind === 'unsupported') return 'Copy PNG unsupported in this browser.';
+  if (status.kind === 'permission-denied') return 'Copy PNG denied by the browser.';
+  if (status.kind === 'encoding-failed') return 'Copy PNG failed while encoding.';
+  return 'Copy PNG failed because the image dimensions changed.';
 }
 
 function Metric({ label, value }: { label: string; value: string }) {

@@ -82,14 +82,22 @@ describe('FinalOverviewModal', () => {
     expect(html).toContain('collect');
   });
 
-  it('renders failure and unknown outcomes distinctly without share controls', () => {
+  it('renders share controls for failure but not unknown outcomes', () => {
     const failureHtml = render({ completionStats: stats({ outcome: 'failure' }) });
     const unknownHtml = render({ completionStats: stats({ outcome: 'unknown' }) });
 
     expect(failureHtml).toContain('workflow failed');
+    expect(failureHtml).toContain('Share Card');
+    expect(failureHtml).toContain('Share');
     expect(unknownHtml).toContain('workflow summary');
     expect(unknownHtml).toContain('Partial terminal summary');
-    expect(`${failureHtml}${unknownHtml}`).not.toMatch(/download|copy png|share/i);
+    expect(unknownHtml).not.toMatch(/download|copy png|share/i);
+  });
+
+  it('does not render share controls without shareable stats', () => {
+    const html = render({ completionStats: null, loading: true });
+
+    expect(html).not.toMatch(/download|copy png|share/i);
   });
 
   it('renders unavailable work delta as N/A with explanatory copy', () => {

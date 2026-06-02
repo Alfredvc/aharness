@@ -319,6 +319,15 @@ When those facts are unavailable, the overview renders work-delta values as
 `N/A`; aharness does not infer file or line deltas from the current checkout at
 summary time.
 
+Terminal success and failure overviews can open a share-card preview with
+browser-native `Download PNG` and `Copy PNG` actions. The exported image is a
+fixed `1320 x 2868` PNG. Share cards use display-safe summary fields only:
+sanitized FSM display name, outcome, duration, transition and turn counts,
+token totals, committed-work counts or `N/A`, top state buckets, and neutral
+aharness branding. They do not include raw run metadata, transcript text,
+command output, owner input, repo paths, git object ids, or Codex pins.
+Partial summaries with `outcome: 'unknown'` are not shareable.
+
 `aharness install <source>` delegates package-spec handling to npm inside the
 aharness managed npm project. The source may be any package spec npm accepts.
 Install may run npm lifecycle scripts, and v1 does not provide an aharness

@@ -1,11 +1,11 @@
 # FSM Run Final Overview And Share Card Implementation Recipe
 
 **Parent roadmap:** `docs/plans/2026-06-02-fsm-run-final-overview-share-card-roadmap.md`
-**Current slice:** Slice 5 - share-card preview and PNG export
+**Current slice:** Slice 6 - docs audit and full acceptance
 **Current phase:** plan-slice
 **Current detailed plan:** not written yet
 **Current fix source:** none
-**Last completed:** Slice 4 - final overview modal and terminal reopen action
+**Last completed:** Slice 5 - share-card preview and PNG export
 
 ## Grounding Documents
 
@@ -111,5 +111,30 @@ Final Slice 4 verification passed:
 - `git diff --check`
 - `rg -n "Download PNG|Copy PNG|Clipboard|toBlob|share-card|share card|RunCompletionShare" packages/web-ui/src/App.tsx packages/web-ui/src/components/FinalOverviewModal.tsx packages/web-ui/src/state/store.ts docs/reference.md`
 
-Next step: write and review a bounded detailed plan for Slice 5 - share-card
-preview and PNG export.
+Slice 5 detailed plan was updated after plan review. The update fixes the
+`.test.tsx` discovery issue by planning `RunCompletionShareCard.test.ts`, adds
+an explicit success/failure fixture route for manual Playwright validation,
+requires the exported SVG card to be self-contained for SVG-to-canvas PNG
+export, and marks the new fixture-store test file as created rather than
+modified.
+
+- `docs/plans/2026-06-02-fsm-run-final-overview-share-card-slice-5-share-card-preview-png-export.md`
+
+Slice 5 was implemented and verified. It added low-disclosure share-card props,
+a fixed `1320 x 2868` self-contained SVG card, browser-native PNG download and
+clipboard copy helpers, final-overview Share preview controls gated to success
+and failure outcomes, success/failure validation fixture routes, focused tests,
+and public reference/troubleshooting documentation.
+
+Final Slice 5 verification passed:
+
+- `pnpm exec vitest run packages/web-ui/src/components/RunCompletionShareCard.test.ts packages/web-ui/src/components/shareCardExport.test.ts packages/web-ui/src/components/FinalOverviewModal.test.ts packages/web-ui/src/App.test.ts packages/web-ui/src/App.dom.test.ts packages/web-ui/src/state/fixtureStore.test.ts`
+- `pnpm --dir packages/web-ui run typecheck`
+- `git diff --check`
+- Manual `playwright-cli` validation against `/demo.html?fsm=auto&share=success`
+  and `/demo.html?fsm=auto&share=failure`; both routes exposed Share, rendered
+  nonblank fixed-size SVG previews, and generated browser PNG blobs that decoded
+  to `1320 x 2868`.
+
+Next step: write and review a bounded detailed plan for Slice 6 - docs audit
+and full acceptance.

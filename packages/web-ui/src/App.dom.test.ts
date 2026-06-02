@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AharnessShell } from './App.js';
 import type { UiActions, UiState } from './state/store.js';
+import type { RunCompletionStats } from './types/events.js';
 
 type TestSession = UiState & UiActions;
 
@@ -90,6 +91,49 @@ function baseSession(overrides: Partial<TestSession> = {}): TestSession {
   };
 }
 
+function completionStats(overrides: Partial<RunCompletionStats> = {}): RunCompletionStats {
+  return {
+    outcome: 'success',
+    fsmDisplayName: 'workflow',
+    duration: { elapsedMs: 60_000 },
+    transitionCount: 3,
+    freshClearCount: 1,
+    mainTurnCount: 2,
+    subthreadTurnCount: 1,
+    tokenTotals: {
+      totalTokens: 1000,
+      inputTokens: 400,
+      cachedInputTokens: 100,
+      outputTokens: 600,
+      reasoningOutputTokens: 200,
+      mainTokens: 800,
+      subthreadTokens: 200,
+      unattributedTokens: 0,
+    },
+    topologyStatus: 'available',
+    stateBuckets: [
+      {
+        id: 'workflow.collect',
+        label: 'collect',
+        elapsedMs: 30_000,
+        eventCount: 4,
+        transitionCount: 1,
+        mainTurnCount: 1,
+        subthreadTurnCount: 0,
+        tokenTotals: {
+          totalTokens: 700,
+          inputTokens: 300,
+          cachedInputTokens: 80,
+          outputTokens: 400,
+          reasoningOutputTokens: 120,
+        },
+      },
+    ],
+    workDelta: { status: 'available', filesChanged: 2, linesAdded: 10, linesDeleted: 3 },
+    ...overrides,
+  };
+}
+
 function render(session: TestSession): HTMLDivElement {
   host = document.createElement('div');
   document.body.appendChild(host);
@@ -156,5 +200,31 @@ describe('AharnessShell final overview interactions', () => {
     });
 
     expect(dismissFinalOverview).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens the share-card preview from terminal success stats', () => {
+    const container = render(
+      baseSession({
+        completionStats: completionStats(),
+        finalOverview: {
+          open: true,
+          autoOpened: true,
+          dismissed: false,
+          loading: false,
+          error: null,
+        },
+      }),
+    );
+
+    const shareButton = Array.from(container.querySelectorAll('button')).find(
+      (button) => button.textContent === 'Share',
+    );
+    act(() => {
+      shareButton?.click();
+    });
+
+    expect(container.querySelector('.final-overview-share-card svg')).not.toBeNull();
+    expect(container.textContent).toContain('Download PNG');
+    expect(container.textContent).toContain('Copy PNG');
   });
 });

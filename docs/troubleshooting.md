@@ -144,3 +144,10 @@ or bottom turn ribbon as the primary run chrome. The old flat `/api/state`,
 `/api/stream`, and `/api/reply` browser routes are no longer served for new
 runs. Production live runs do not write `snapshot.json`; retained snapshot
 helper exports are legacy/internal compatibility only.
+
+## Copy PNG Does Not Work
+
+Final overview share cards use the browser Clipboard API for `Copy PNG`.
+Copying can fail when the browser does not support image clipboard writes, when
+the browser denies the write, or when the browser cannot encode the card as a
+PNG. The preview stays open and `Download PNG` remains available as the fallback.

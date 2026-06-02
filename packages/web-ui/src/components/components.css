@@ -377,6 +377,77 @@
   white-space: nowrap;
 }
 
+.final-overview-share-row,
+.final-overview-share-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.final-overview-action {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  border: var(--hair) solid var(--line-strong);
+  border-radius: var(--r-sm);
+  color: var(--ink-soft);
+  background: var(--panel);
+  font-family: var(--font-mono);
+  font-size: var(--t-micro);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.final-overview-action:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink-quiet);
+}
+
+.final-overview-action:disabled {
+  cursor: wait;
+  opacity: 0.66;
+}
+
+.final-overview-share-preview {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border: var(--hair) solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+}
+
+.final-overview-share-card-frame {
+  max-height: min(520px, 54vh);
+  overflow: auto;
+  border: var(--hair) solid var(--line);
+  border-radius: var(--r-sm);
+  background: #f7f7f2;
+}
+
+.final-overview-share-card {
+  width: min(100%, 360px);
+  margin: 0 auto;
+}
+
+.final-overview-share-card svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.final-overview-share-status {
+  display: grid;
+  gap: 4px;
+  color: var(--ink-soft);
+  font-size: var(--t-small);
+}
+
+.final-overview-share-status p {
+  margin: 0;
+}
+
 @media (max-width: 760px) {
   .final-overview-layer {
     padding: 14px;
@@ -403,6 +474,16 @@
   .final-overview-bucket span:nth-child(4),
   .final-overview-bucket span:nth-child(5) {
     display: none;
+  }
+
+  .final-overview-share-row,
+  .final-overview-share-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .final-overview-action {
+    width: 100%;
   }
 }
 
