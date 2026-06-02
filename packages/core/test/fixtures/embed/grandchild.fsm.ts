@@ -1,4 +1,4 @@
-import { aharness, state, exit, final } from '@aharness/core';
+import { aharness, state, exit, final, skillDir } from '@aharness/core';
 
 interface LeafPayload {
   readonly leafOk: boolean;
@@ -6,6 +6,7 @@ interface LeafPayload {
 
 export default aharness.machine({
   id: 'grandchild',
+  availableSkills: [skillDir('./grandchild-skills')],
   initial: 'leaf',
   states: {
     leaf: state({

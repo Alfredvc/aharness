@@ -58,6 +58,42 @@ describe('installed package loader', () => {
     expect(loaded.sidecar['router']?.['go']?.jsonSchema).toBeDefined();
     expect(loaded.sidecar['same.local']?.['done']?.jsonSchema).toBeDefined();
     expect(loaded.sidecar['dependency.dependency']?.['done']?.jsonSchema).toBeDefined();
+    const packageFsmDir = path.resolve(packageRoot, 'fsms');
+    const dependencyFsmDir = path.resolve(dependencyRoot, 'fsms');
+    expect(loaded.skillOriginManifest.rootSourceDir).toBe(packageFsmDir);
+    const dependencyPrefix = loaded.skillOriginManifest.sourceDirPrefixes.find(
+      (prefix) => prefix.stateIdPrefix === 'dependency',
+    );
+    expect(normalizeMacTmpPath(dependencyPrefix?.sourceDir ?? '')).toBe(
+      normalizeMacTmpPath(dependencyFsmDir),
+    );
+    expect(loaded.skillOriginManifest.sourceDirPrefixes).toEqual(
+      expect.arrayContaining([
+        { stateIdPrefix: 'same', sourceDir: packageFsmDir },
+        { stateIdPrefix: 'dependency', sourceDir: dependencyPrefix?.sourceDir },
+      ]),
+    );
+    expect(loaded.skillOriginManifest.availableSkills).toEqual(
+      expect.arrayContaining([
+        {
+          sourceDir: packageFsmDir,
+          ref: { __aharnessSkillRef: true, source: 'dir', path: './command-skills' },
+        },
+        {
+          sourceDir: packageFsmDir,
+          ref: {
+            __aharnessSkillRef: true,
+            source: 'path',
+            path: './same-child-skill/SKILL.md',
+            optional: false,
+          },
+        },
+        {
+          sourceDir: dependencyPrefix?.sourceDir,
+          ref: { __aharnessSkillRef: true, source: 'dir', path: './dependency-skills' },
+        },
+      ]),
+    );
     expect(loaded.modulePath).toContain(
       path.join(managedProjectRoot, '.aharness', 'cache', 'installed'),
     );
@@ -78,6 +114,7 @@ describe('installed package loader', () => {
     expect(cached.hash).toBe(loaded.hash);
     expect(cached.modulePath).toBe(loaded.modulePath);
     expect(cached.sidecar['dependency.dependency']?.['done']?.jsonSchema).toBeDefined();
+    expect(cached.skillOriginManifest).toEqual(loaded.skillOriginManifest);
 
     const forced = await loadInstalledFsm({
       entryFile: command.entryPath,
@@ -92,6 +129,70 @@ describe('installed package loader', () => {
 
     expect(forced.cacheHit).toBe(false);
     expect(forced.hash).toBe(loaded.hash);
+  });
+
+  it('changes the installed cache key when origin metadata declarations change', async () => {
+    const command = await readMainCommand();
+    const before = await loadInstalledFsm({
+      entryFile: command.entryPath,
+      packageName: '@scope/command-package',
+      commandName: command.commandName,
+      packageRoot,
+      managedProjectRoot,
+      storeRoot,
+      lockFingerprint: 'lock:fixture',
+    });
+
+    await writeFile(
+      path.join(packageRoot, 'fsms', 'child.fsm.ts'),
+      [
+        "import { aharness, exit, final, state, skill } from '@aharness/core';",
+        '',
+        'interface LocalPayload {',
+        '  readonly ok: boolean;',
+        '}',
+        '',
+        'export default aharness.machine({',
+        "  id: 'same-package-child',",
+        "  availableSkills: [skill({ path: './same-child-skill-renamed/SKILL.md' })],",
+        "  initial: 'local',",
+        '  states: {',
+        '    local: state({',
+        "      entryPrompt: 'same package child',",
+        '      exits: {',
+        '        done: exit<LocalPayload>({',
+        "          when: [{ guard: ({ event }) => event.payload.ok, to: 'shipped' }, { to: 'failed' }],",
+        '        }),',
+        '      },',
+        '    }),',
+        "    shipped: final({ outcome: 'success' }),",
+        "    failed: final({ outcome: 'failure' }),",
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+    );
+
+    const after = await loadInstalledFsm({
+      entryFile: command.entryPath,
+      packageName: '@scope/command-package',
+      commandName: command.commandName,
+      packageRoot,
+      managedProjectRoot,
+      storeRoot,
+      lockFingerprint: 'lock:fixture',
+    });
+
+    expect(after.hash).not.toBe(before.hash);
+    expect(after.skillOriginManifest.availableSkills).toContainEqual({
+      sourceDir: path.resolve(packageRoot, 'fsms'),
+      ref: {
+        __aharnessSkillRef: true,
+        source: 'path',
+        path: './same-child-skill-renamed/SKILL.md',
+        optional: false,
+      },
+    });
   });
 
   it('changes the installed cache key when same-package helper source changes', async () => {
@@ -279,3 +380,7 @@ describe('installed package loader', () => {
     );
   }
 });
+
+function normalizeMacTmpPath(value: string): string {
+  return value.startsWith('/private/tmp/') ? value.replace('/private/tmp/', '/tmp/') : value;
+}

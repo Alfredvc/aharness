@@ -1,4 +1,4 @@
-import { aharness, exit, final, state } from '@aharness/core';
+import { aharness, exit, final, state, skill } from '@aharness/core';
 
 interface LocalPayload {
   readonly ok: boolean;
@@ -6,6 +6,7 @@ interface LocalPayload {
 
 export default aharness.machine({
   id: 'same-package-child',
+  availableSkills: [skill({ path: './same-child-skill/SKILL.md' })],
   initial: 'local',
   states: {
     local: state({

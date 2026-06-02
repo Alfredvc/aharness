@@ -15,11 +15,10 @@
  * load time. The user's local files (`./types`, `./render`) bundle in
  * the normal way.
  *
- * The bundle additionally re-exports a `__sidecar` literal (the
- * `SerializedSidecar` blob produced by `extractSchemaSidecar`) injected
- * via esbuild's `banner` option. Warm-cache hits read it back off the
- * imported module instead of going through a separate `sidecar.json`
- * file — see `cache.ts` v4 history.
+ * The bundle additionally re-exports a `__sidecar` literal (schemas, issues,
+ * input metadata, and loader skill-origin metadata) injected via esbuild's
+ * `banner` option. Warm-cache hits read it back off the imported module instead
+ * of going through a separate `sidecar.json` file — see `cache.ts` history.
  *
  * This deviates from `SPEC_SDK.md` §6.2 step 1's `bundle: false`. The
  * spec line was written assuming a single-file FSM in a node project;

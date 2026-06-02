@@ -1,11 +1,11 @@
 # Native Codex Skills for Self-Contained FSM Packages Implementation Recipe
 
 **Parent roadmap:** `docs/plans/2026-06-02-native-codex-skills-for-fsm-packages-roadmap.md`
-**Current slice:** Slice 1 - loader origin manifest and transitive availability
+**Current slice:** Slice 2 - Codex protocol and startup skill catalog
 **Current phase:** plan
 **Current detailed plan:** none yet
 **Current fix source:** none
-**Last completed:** Slice 0 - authoring and static validation foundation
+**Last completed:** Slice 1 - loader origin manifest and transitive availability
 
 ## Durable Grounding
 
@@ -56,5 +56,23 @@ Final verification for Slice 0:
 - `pnpm exec vitest run packages/core/test/loader.inputSchema.test.ts packages/core/test/cli.verifyCli.test.ts packages/core/test/example.publicLoadVerify.test.ts`
 - `pnpm run typecheck`
 
-Next action: write the detailed Slice 1 plan for loader origin manifests and
-transitive availability before changing loader/cache code.
+Slice 1 was accepted after no fix cycles. It added loader-side
+`SkillOriginManifest` serialization with root source dir, embedded child source
+prefixes, and transitive `availableSkills`; preserved the manifest through
+direct and installed warm-cache paths; and bumped direct/installed cache
+serialization versions. A review finding around non-literal `optional` values
+in extracted `availableSkills` was fixed before acceptance so unevaluable refs
+are omitted.
+
+Final verification for Slice 1:
+
+- `pnpm exec vitest run packages/core/test/loader.embed-sidecar.test.ts packages/core/test/loader.cache.test.ts packages/core/test/loader.installed.test.ts`
+- `pnpm run typecheck`
+
+Acceptance verification re-run during finish:
+
+- `pnpm exec vitest run packages/core/test/loader.embed-sidecar.test.ts packages/core/test/loader.cache.test.ts packages/core/test/loader.installed.test.ts` passed with 3 files / 18 tests.
+- `pnpm run typecheck` passed.
+
+Next action: write the detailed Slice 2 plan for Codex protocol and startup
+skill catalog before changing protocol/runtime code.

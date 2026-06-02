@@ -9,17 +9,17 @@
  *   - the verifier (`verify(machine, sidecar, issues)`);
  *   - the submit-tool builder (`buildSubmitTools(machine, sidecar, runId)`);
  *   - the submit dispatcher (validates payloads via `sidecar[stateId].validate`).
+ *   - later runtime skill-resolution slices (`skillOriginManifest`).
  *
  * Cache semantics: hash all `.ts`/`.tsx` files under `dirname(filePath)`
  * (recursive, skipping `node_modules`/`dist`/`.aharness`/dot-dirs) plus a
- * loader-version salt and the entry file's basename. The entry-basename
- * salt keeps two FSMs in the same directory (e.g. `parent.fsm.ts` +
- * `child-spec.fsm.ts`) from colliding on the same cache entry. On hit,
- * dynamic-import the cached `fsm.mjs`; the bundle re-exports a `__sidecar`
- * literal (injected by `compileFsm`'s esbuild banner) which the loader
- * reads back to recompile ajv validators. On miss, run the extractor +
- * esbuild bundler. `noCache: true` skips the read side; the write side
- * always runs so subsequent loads warm up.
+ * loader-version salt and the absolute entry file path. The absolute entry
+ * salt keeps serialized skill-origin metadata correct for identical source
+ * trees loaded under one repoRoot. On hit, dynamic-import the cached `fsm.mjs`;
+ * the bundle re-exports a `__sidecar` literal (injected by `compileFsm`'s
+ * esbuild banner) which the loader reads back to recompile ajv validators. On
+ * miss, run the extractor + esbuild bundler. `noCache: true` skips the read
+ * side; the write side always runs so subsequent loads warm up.
  *
  * Cache location is `<repoRoot>/.aharness/cache/<hash>/`. `repoRoot` is the
  * user's project root (where their `package.json` and `node_modules` sit).
@@ -42,6 +42,7 @@ import {
   installedCachePathsFor,
   moduleExists,
   type SerializedSidecar,
+  type SkillOriginManifest,
 } from './cache.js';
 import { buildInstalledFsmBundle, compileFsm, importFsmModule } from './compile.js';
 import { getInstallPaths } from './installPath.js';
@@ -93,6 +94,8 @@ export interface LoadFsmResult {
    * Tab on a dynamic flag value.
    */
   readonly inputFlags?: Record<string, ArgFlagMeta>;
+  /** Loader-only source-origin metadata for native Codex skill refs. */
+  readonly skillOriginManifest: SkillOriginManifest;
 }
 
 export class RetiredOwnerDecisionSurfaceError extends Error {
@@ -132,6 +135,7 @@ export async function loadFsm(opts: LoadFsmOptions): Promise<LoadFsmResult> {
         issues: cached.issues,
         cacheHit: true,
         hash,
+        skillOriginManifest: cached.skillOriginManifest,
         ...(cached.inputSchema
           ? { inputSchema: cached.inputSchema, inputFlags: cached.inputFlags ?? {} }
           : {}),
@@ -148,6 +152,7 @@ export async function loadFsm(opts: LoadFsmOptions): Promise<LoadFsmResult> {
   const serialized: SerializedSidecar = {
     schemas: schemasOnly(extraction.sidecar),
     issues: extraction.issues,
+    skillOriginManifest: extraction.skillOriginManifest,
     ...(extraction.inputSchema
       ? { inputSchema: extraction.inputSchema, inputFlags: extraction.inputFlags ?? {} }
       : {}),
@@ -161,6 +166,7 @@ export async function loadFsm(opts: LoadFsmOptions): Promise<LoadFsmResult> {
     issues: extraction.issues,
     cacheHit: false,
     hash,
+    skillOriginManifest: extraction.skillOriginManifest,
     ...(extraction.inputSchema
       ? { inputSchema: extraction.inputSchema, inputFlags: extraction.inputFlags ?? {} }
       : {}),
@@ -215,6 +221,7 @@ export async function loadInstalledFsm(opts: LoadInstalledFsmOptions): Promise<L
         issues: cached.issues,
         cacheHit: true,
         hash,
+        skillOriginManifest: cached.skillOriginManifest,
         ...(cached.inputSchema
           ? { inputSchema: cached.inputSchema, inputFlags: cached.inputFlags ?? {} }
           : {}),
@@ -232,6 +239,7 @@ export async function loadInstalledFsm(opts: LoadInstalledFsmOptions): Promise<L
     issues: extraction.issues,
     cacheHit: false,
     hash,
+    skillOriginManifest: extraction.skillOriginManifest,
     ...(extraction.inputSchema
       ? { inputSchema: extraction.inputSchema, inputFlags: extraction.inputFlags ?? {} }
       : {}),
@@ -262,12 +270,14 @@ function normalizeRequiredPath(label: string, value: string): string {
 function serializeExtraction(extraction: {
   readonly sidecar: SchemaSidecar;
   readonly issues: readonly SidecarIssue[];
+  readonly skillOriginManifest: SkillOriginManifest;
   readonly inputSchema?: JSONSchema7;
   readonly inputFlags?: Record<string, ArgFlagMeta>;
 }): SerializedSidecar {
   return {
     schemas: schemasOnly(extraction.sidecar),
     issues: extraction.issues,
+    skillOriginManifest: extraction.skillOriginManifest,
     ...(extraction.inputSchema
       ? { inputSchema: extraction.inputSchema, inputFlags: extraction.inputFlags ?? {} }
       : {}),

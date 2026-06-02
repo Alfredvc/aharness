@@ -1,4 +1,4 @@
-import { aharness, state, exit, final, embed } from '@aharness/core';
+import { aharness, state, exit, final, embed, skill, skillDir } from '@aharness/core';
 import child from './loader-child.fsm.js';
 
 interface RoutePayload {
@@ -7,6 +7,7 @@ interface RoutePayload {
 
 export default aharness.machine({
   id: 'loaderParent',
+  availableSkills: [skill({ path: './root-skill/SKILL.md' }), skillDir('./root-skills')],
   initial: 'router',
   states: {
     router: state({

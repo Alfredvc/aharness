@@ -4,11 +4,10 @@
  * Keyed by content hash of the user's source tree (the file containing
  * `state({ exits: { … } })` calls plus its sibling `.ts` files in the
  * same source directory, recursively, excluding `node_modules`, `dist`,
- * and the cache directory itself) plus the entry file's basename. The
- * entry-basename salt is required because two FSMs in the same directory
- * (e.g. `parent.fsm.ts` and `child-spec.fsm.ts`) share a tree-content
- * hash; without the salt the second `loadFsm` would hit the first's
- * cache entry and return the wrong compiled machine. On hit, the loader
+ * and the cache directory itself) plus the absolute entry file path. The
+ * absolute entry salt is required because the serialized sidecar includes
+ * absolute skill-origin metadata; without it, identical source trees loaded
+ * under one repoRoot could replay another tree's origins. On hit, the loader
  * skips esbuild bundling and `ts-json-schema-generator` extraction; it
  * dynamic-imports the cached `fsm.mjs` and recompiles ajv validators
  * from the `__sidecar` JSON-Schema blob the bundle re-exports.
@@ -38,7 +37,7 @@
  *     hash). The user can still place a project source file under a
  *     dot-directory; that's a deliberate trade-off for cache stability.
  *   - Salts the hash with the loader's own version marker so a future
- *     change to the schema-extraction algorithm invalidates every cache
+ *     change to the schema/origin-extraction algorithm invalidates every cache
  *     without having to clear `.aharness/cache/` manually.
  */
 
@@ -47,11 +46,16 @@ import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import type { JSONSchema7 } from 'json-schema';
 import { canonicalJson } from '../internal/canonicalJson.js';
+import type { AvailableSkillRef } from '../state/skills.js';
 import type { SidecarIssue } from './sidecar.js';
 import type { ArgFlagMeta } from './inputSchema.js';
 
 /**
  * Bumped when the loader's serialisation shape changes.
+ *
+ * v5 (2026-06-02): adds required `skillOriginManifest` metadata to the
+ *   serialized sidecar and salts direct-cache keys with the absolute FSM entry
+ *   path so warm hits cannot replay another source tree's absolute origins.
  *
  * v4 (2026-05-09): merge `sidecar.json` into `fsm.mjs` as a re-exported
  *   `__sidecar` literal. The two-file split is gone; warm-cache hits
@@ -72,9 +76,13 @@ import type { ArgFlagMeta } from './inputSchema.js';
  *   `type: "object"` so MCP's `inputSchema.type === "object"` contract holds.
  *   Pre-v2 caches encode the bare-`anyOf` shape MCP rejects.
  */
-const CACHE_VERSION = 'v4';
+const CACHE_VERSION = 'v5';
 /**
  * Installed-package cache key version.
+ *
+ * v3 (2026-06-02): adds required `skillOriginManifest` metadata to the
+ *   serialized sidecar. The installed cache key already includes the full
+ *   serialized sidecar, so origin declaration changes affect the hash.
  *
  * v2 (2026-05-29): adds a separate validated asset-file section so package
  *   asset content changes invalidate installed bundles without changing the
@@ -84,7 +92,7 @@ const CACHE_VERSION = 'v4';
  *   source inputs plus package identity, host runtime identity, sidecar
  *   serialization, and lock fingerprint.
  */
-const INSTALLED_CACHE_VERSION = 'v2';
+const INSTALLED_CACHE_VERSION = 'v3';
 
 const SKIP_DIR_NAMES = new Set(['node_modules', 'dist', '.aharness']);
 
@@ -111,6 +119,18 @@ export interface InstalledCacheKeyOptions {
   readonly assetFiles?: readonly string[];
 }
 
+export interface SkillOriginManifest {
+  readonly rootSourceDir: string;
+  readonly sourceDirPrefixes: readonly {
+    readonly stateIdPrefix: string;
+    readonly sourceDir: string;
+  }[];
+  readonly availableSkills: readonly {
+    readonly sourceDir: string;
+    readonly ref: AvailableSkillRef;
+  }[];
+}
+
 /**
  * Shape of the `__sidecar` re-export injected into the compiled `fsm.mjs`
  * via esbuild's `banner` option (`compile.ts`). The bundle stringifies a
@@ -122,6 +142,8 @@ export interface SerializedSidecar {
   /** Schemas keyed by `[stateId][exitName]` to mirror the runtime sidecar shape. */
   readonly schemas: Record<string, Record<string, JSONSchema7>>;
   readonly issues: readonly SidecarIssue[];
+  /** Loader-only metadata used by later runtime slices to resolve native skill refs. */
+  readonly skillOriginManifest: SkillOriginManifest;
   /**
    * Top-level JSON Schema for the FSM's `input` declaration. Present iff the
    * source file's default-export `aharness.machine(...)` declared `input: {...}`.
@@ -140,9 +162,9 @@ export interface SerializedSidecar {
 /**
  * Compute a SHA-256 over every `.ts`/`.tsx` file under `sourceRoot`,
  * excluding the directories listed in `SKIP_DIR_NAMES`. The hash is
- * salted with `CACHE_VERSION` (so a loader update invalidates prior
- * caches) and the entry file's basename (so two FSMs in the same
- * directory get distinct cache entries).
+ * salted with `CACHE_VERSION` (so a loader update invalidates prior caches)
+ * and the absolute entry file path (so absolute skill-origin metadata cannot
+ * be shared across identical source trees at different locations).
  */
 export async function hashSourceTree(sourceRoot: string, entryFile: string): Promise<string> {
   const files: string[] = [];
@@ -151,7 +173,7 @@ export async function hashSourceTree(sourceRoot: string, entryFile: string): Pro
 
   const hasher = createHash('sha256');
   hasher.update(`aharness-loader-cache:${CACHE_VERSION}\n`);
-  hasher.update(`E:${path.basename(entryFile)}\n`);
+  hasher.update(`E:${path.resolve(entryFile)}\n`);
   for (const file of files) {
     const rel = path.relative(sourceRoot, file);
     const buf = await fs.readFile(file);
@@ -282,7 +304,7 @@ function relativeOrAbsolute(root: string, filePath: string): string {
 export function isSerializedSidecar(parsed: unknown): parsed is SerializedSidecar {
   if (!parsed || typeof parsed !== 'object') return false;
   const obj = parsed as Record<string, unknown>;
-  if (!('schemas' in obj) || !('issues' in obj)) return false;
+  if (!('schemas' in obj) || !('issues' in obj) || !('skillOriginManifest' in obj)) return false;
   const schemas = obj['schemas'];
   if (!schemas || typeof schemas !== 'object') return false;
   for (const exits of Object.values(schemas as Record<string, unknown>)) {
@@ -302,6 +324,7 @@ export function isSerializedSidecar(parsed: unknown): parsed is SerializedSideca
     if (i['stateId'] !== null && typeof i['stateId'] !== 'string') return false;
     if (i['exitName'] !== null && typeof i['exitName'] !== 'string') return false;
   }
+  if (!isSkillOriginManifest(obj['skillOriginManifest'])) return false;
   if ('inputSchema' in obj) {
     const inSchema = obj['inputSchema'];
     if (inSchema !== undefined && (!inSchema || typeof inSchema !== 'object')) return false;
@@ -316,6 +339,43 @@ export function isSerializedSidecar(parsed: unknown): parsed is SerializedSideca
     }
   }
   return true;
+}
+
+function isSkillOriginManifest(parsed: unknown): parsed is SkillOriginManifest {
+  if (!parsed || typeof parsed !== 'object') return false;
+  const obj = parsed as Record<string, unknown>;
+  if (typeof obj['rootSourceDir'] !== 'string') return false;
+  const prefixes = obj['sourceDirPrefixes'];
+  if (!Array.isArray(prefixes)) return false;
+  for (const prefix of prefixes) {
+    if (!prefix || typeof prefix !== 'object') return false;
+    const p = prefix as Record<string, unknown>;
+    if (typeof p['stateIdPrefix'] !== 'string' || typeof p['sourceDir'] !== 'string') {
+      return false;
+    }
+  }
+  const availableSkills = obj['availableSkills'];
+  if (!Array.isArray(availableSkills)) return false;
+  for (const entry of availableSkills) {
+    if (!entry || typeof entry !== 'object') return false;
+    const e = entry as Record<string, unknown>;
+    if (typeof e['sourceDir'] !== 'string') return false;
+    if (!isSerializedAvailableSkillRef(e['ref'])) return false;
+  }
+  return true;
+}
+
+function isSerializedAvailableSkillRef(parsed: unknown): parsed is AvailableSkillRef {
+  if (!parsed || typeof parsed !== 'object') return false;
+  const obj = parsed as Record<string, unknown>;
+  if (obj['__aharnessSkillRef'] !== true) return false;
+  if (obj['source'] === 'path') {
+    return typeof obj['path'] === 'string' && typeof obj['optional'] === 'boolean';
+  }
+  if (obj['source'] === 'dir') {
+    return typeof obj['path'] === 'string';
+  }
+  return false;
 }
 
 export async function moduleExists(p: CachePaths): Promise<boolean> {

@@ -55,9 +55,11 @@ import * as path from 'node:path';
 import { Ajv, type Schema, type ValidateFunction } from 'ajv';
 import type { JSONSchema7 } from 'json-schema';
 import type { SchemaSidecar, SidecarValidateResult, ValidationError } from '../types.js';
+import type { AvailableSkillRef } from '../state/skills.js';
 import { getEnclosingStateId } from './stateId.js';
 import { getInstallPaths, type InstallPaths } from './installPath.js';
 import { collectArgBindings, extractInputFromLiteral, type ArgFlagMeta } from './inputSchema.js';
+import type { SkillOriginManifest } from './cache.js';
 import {
   resolveDirectFsmImport,
   resolvePackageSourceImport,
@@ -93,6 +95,7 @@ export interface SidecarExtractionOptions {
 export interface SidecarExtractionResult {
   readonly sidecar: SchemaSidecar;
   readonly issues: readonly SidecarIssue[];
+  readonly skillOriginManifest: SkillOriginManifest;
   /**
    * Top-level JSON Schema for the FSM's `input` declaration. Present iff the
    * file's default export resolves to a `aharness.machine({input: {...}, ...})`
@@ -174,13 +177,32 @@ export async function extractSchemaSidecar(
   const stateBindings = collectStateBindings(sourceFile, createFsmFactoryNames);
   const exitBindings = collectExitBindings(sourceFile);
   const xstateBindings = collectXstateCreateMachineBindings(sourceFile);
+  const machineBindings = collectMachineBindings(sourceFile, createFsmFactoryNames);
+  const machineCall = findDefaultExportMachineCall(sourceFile, machineBindings);
+  const rootSourceDir = path.dirname(path.resolve(opts.filePath));
+  const rootAvailableSkills = extractAvailableSkillsFromMachineCall(
+    sourceFile,
+    machineCall,
+    createFsmFactoryNames,
+  ).map((ref) => ({ sourceDir: rootSourceDir, ref }));
+  const childResults = await resolveAndExtractChildSidecars(
+    sourceFile,
+    opts.filePath,
+    opts.cycleGuard ?? new Set([opts.filePath]),
+    opts.packageResolution,
+  );
+  const skillOriginManifest = buildSkillOriginManifest({
+    rootSourceDir,
+    rootAvailableSkills,
+    childResults,
+  });
   if (
     stateBindings.directNames.size === 0 &&
     stateBindings.directChoiceNames.size === 0 &&
     stateBindings.namespaceNames.size === 0 &&
     createFsmFactoryNames.size === 0
   ) {
-    return { sidecar: {}, issues: [] };
+    return { sidecar: {}, issues: [], skillOriginManifest };
   }
 
   const completed: CompletedConfig = {
@@ -470,12 +492,6 @@ export async function extractSchemaSidecar(
   }
   visit(sourceFile);
 
-  const childResults = await resolveAndExtractChildSidecars(
-    sourceFile,
-    opts.filePath,
-    opts.cycleGuard ?? new Set([opts.filePath]),
-    opts.packageResolution,
-  );
   for (const { hostKey, childSidecar, childIssues } of childResults) {
     for (const childStateId of Object.keys(childSidecar)) {
       const exits = childSidecar[childStateId];
@@ -504,12 +520,10 @@ export async function extractSchemaSidecar(
   // through the same `ts-json-schema-generator` path used for submit payloads.
   // The walker's multi-machine guard skips files whose default export does not
   // resolve to a single `aharness.machine` call.
-  const machineBindings = collectMachineBindings(sourceFile, createFsmFactoryNames);
   const argBindings = collectArgBindings(sourceFile, createFsmFactoryNames);
   let inputSchema: JSONSchema7 | undefined;
   let inputFlags: Record<string, ArgFlagMeta> | undefined;
 
-  const machineCall = findDefaultExportMachineCall(sourceFile, machineBindings);
   if (machineCall) {
     const machineArg0 = machineCall.arguments[0];
     if (machineArg0 && ts.isObjectLiteralExpression(machineArg0)) {
@@ -529,9 +543,9 @@ export async function extractSchemaSidecar(
   }
 
   if (inputSchema && inputFlags) {
-    return { sidecar, issues, inputSchema, inputFlags };
+    return { sidecar, issues, skillOriginManifest, inputSchema, inputFlags };
   }
-  return { sidecar, issues };
+  return { sidecar, issues, skillOriginManifest };
 }
 
 /**
@@ -551,6 +565,8 @@ async function resolveAndExtractChildSidecars(
     hostKey: string;
     childSidecar: SchemaSidecar;
     childIssues: SidecarIssue[];
+    childSkillOriginManifest: SkillOriginManifest;
+    childSourceDir: string;
   }>
 > {
   const fsmImports = collectFsmDefaultImports(sourceFile, parentFilePath, packageResolution);
@@ -587,6 +603,8 @@ async function resolveAndExtractChildSidecars(
     hostKey: string;
     childSidecar: SchemaSidecar;
     childIssues: SidecarIssue[];
+    childSkillOriginManifest: SkillOriginManifest;
+    childSourceDir: string;
   }> = [];
   for (const { hostKey, childTsPath } of embedHosts) {
     if (cycleGuard.has(childTsPath)) continue;
@@ -601,9 +619,74 @@ async function resolveAndExtractChildSidecars(
       hostKey,
       childSidecar: childResult.sidecar,
       childIssues: [...childResult.issues],
+      childSkillOriginManifest: childResult.skillOriginManifest,
+      childSourceDir: path.dirname(path.resolve(childTsPath)),
     });
   }
   return results;
+}
+
+type ChildOriginResult = Awaited<ReturnType<typeof resolveAndExtractChildSidecars>>[number];
+
+function buildSkillOriginManifest(opts: {
+  readonly rootSourceDir: string;
+  readonly rootAvailableSkills: readonly SkillOriginManifest['availableSkills'][number][];
+  readonly childResults: readonly ChildOriginResult[];
+}): SkillOriginManifest {
+  const prefixes: Array<SkillOriginManifest['sourceDirPrefixes'][number]> = [];
+  const availableSkills: Array<SkillOriginManifest['availableSkills'][number]> = [
+    ...opts.rootAvailableSkills,
+  ];
+
+  for (const child of opts.childResults) {
+    prefixes.push({ stateIdPrefix: child.hostKey, sourceDir: child.childSourceDir });
+    for (const prefix of child.childSkillOriginManifest.sourceDirPrefixes) {
+      prefixes.push({
+        stateIdPrefix: `${child.hostKey}.${prefix.stateIdPrefix}`,
+        sourceDir: prefix.sourceDir,
+      });
+    }
+    availableSkills.push(...child.childSkillOriginManifest.availableSkills);
+  }
+
+  return {
+    rootSourceDir: opts.rootSourceDir,
+    sourceDirPrefixes: dedupeAndSortPrefixes(prefixes),
+    availableSkills: dedupeAndSortAvailableSkills(availableSkills),
+  };
+}
+
+function dedupeAndSortPrefixes(
+  prefixes: readonly SkillOriginManifest['sourceDirPrefixes'][number][],
+): SkillOriginManifest['sourceDirPrefixes'] {
+  const byKey = new Map<string, SkillOriginManifest['sourceDirPrefixes'][number]>();
+  for (const prefix of prefixes) {
+    byKey.set(`${prefix.stateIdPrefix}\0${prefix.sourceDir}`, prefix);
+  }
+  return Array.from(byKey.values()).sort(
+    (a, b) =>
+      a.stateIdPrefix.localeCompare(b.stateIdPrefix) || a.sourceDir.localeCompare(b.sourceDir),
+  );
+}
+
+function dedupeAndSortAvailableSkills(
+  entries: readonly SkillOriginManifest['availableSkills'][number][],
+): SkillOriginManifest['availableSkills'] {
+  const byKey = new Map<string, SkillOriginManifest['availableSkills'][number]>();
+  for (const entry of entries) {
+    byKey.set(`${entry.sourceDir}\0${availableSkillRefKey(entry.ref)}`, entry);
+  }
+  return Array.from(byKey.values()).sort(
+    (a, b) =>
+      a.sourceDir.localeCompare(b.sourceDir) ||
+      availableSkillRefKey(a.ref).localeCompare(availableSkillRefKey(b.ref)),
+  );
+}
+
+function availableSkillRefKey(ref: AvailableSkillRef): string {
+  return ref.source === 'path'
+    ? `path:${ref.path}:${ref.optional ? 'optional' : 'required'}`
+    : `dir:${ref.path}`;
 }
 
 /**
@@ -970,6 +1053,152 @@ function findDefaultExportMachineCall(
       if (cached) return cached;
     }
   }
+  return null;
+}
+
+interface AvailableSkillBindings {
+  readonly directSkillNames: ReadonlySet<string>;
+  readonly directSkillDirNames: ReadonlySet<string>;
+  readonly factoryNames: ReadonlySet<string>;
+}
+
+function collectAvailableSkillBindings(
+  sourceFile: ts.SourceFile,
+  createFsmFactoryNames: ReadonlySet<string>,
+): AvailableSkillBindings {
+  const directSkillNames = new Set<string>();
+  const directSkillDirNames = new Set<string>();
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isImportDeclaration(stmt)) continue;
+    const spec = stmt.moduleSpecifier;
+    if (!ts.isStringLiteral(spec)) continue;
+    if (!SDK_MODULE_SPECIFIERS.has(spec.text)) continue;
+    const bindings = stmt.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const elem of bindings.elements) {
+      const importedName = (elem.propertyName ?? elem.name).text;
+      if (importedName === 'skill') directSkillNames.add(elem.name.text);
+      if (importedName === 'skillDir') directSkillDirNames.add(elem.name.text);
+    }
+  }
+  return {
+    directSkillNames,
+    directSkillDirNames,
+    factoryNames: createFsmFactoryNames,
+  };
+}
+
+function extractAvailableSkillsFromMachineCall(
+  sourceFile: ts.SourceFile,
+  machineCall: ts.CallExpression | null,
+  createFsmFactoryNames: ReadonlySet<string>,
+): AvailableSkillRef[] {
+  if (!machineCall) return [];
+  const machineArg0 = machineCall.arguments[0];
+  if (!machineArg0 || !ts.isObjectLiteralExpression(machineArg0)) return [];
+  const availableSkillsProp = findProperty(machineArg0, 'availableSkills');
+  if (!availableSkillsProp || !ts.isArrayLiteralExpression(availableSkillsProp.initializer)) {
+    return [];
+  }
+  const bindings = collectAvailableSkillBindings(sourceFile, createFsmFactoryNames);
+  const refs: AvailableSkillRef[] = [];
+  for (const element of availableSkillsProp.initializer.elements) {
+    const ref = extractAvailableSkillRef(element, bindings);
+    if (ref) refs.push(ref);
+  }
+  return refs;
+}
+
+function extractAvailableSkillRef(
+  expression: ts.Expression,
+  bindings: AvailableSkillBindings,
+): AvailableSkillRef | null {
+  const expr = unwrapTypeAssertion(expression);
+  if (!ts.isCallExpression(expr)) return null;
+  if (isDirectSkillPathCall(expr, bindings)) {
+    const firstArg = expr.arguments[0];
+    if (!firstArg || !ts.isObjectLiteralExpression(firstArg)) return null;
+    const pathProp = findProperty(firstArg, 'path');
+    if (!pathProp) return null;
+    const refPath = getStringLiteralValue(pathProp.initializer);
+    if (!refPath) return null;
+    const optional = readOptionalBoolean(firstArg);
+    if (optional === null) return null;
+    return {
+      __aharnessSkillRef: true,
+      source: 'path',
+      path: refPath,
+      optional,
+    };
+  }
+  if (isDirectSkillDirCall(expr, bindings)) {
+    const firstArg = expr.arguments[0];
+    const refPath = firstArg ? getStringLiteralValue(firstArg) : null;
+    if (!refPath) return null;
+    return { __aharnessSkillRef: true, source: 'dir', path: refPath };
+  }
+  if (isCanonicalSkillPathCall(expr, bindings)) {
+    const firstArg = expr.arguments[0];
+    const refPath = firstArg ? getStringLiteralValue(firstArg) : null;
+    if (!refPath) return null;
+    const secondArg = expr.arguments[1];
+    const optional =
+      secondArg && ts.isObjectLiteralExpression(secondArg) ? readOptionalBoolean(secondArg) : false;
+    if (optional === null) return null;
+    return { __aharnessSkillRef: true, source: 'path', path: refPath, optional };
+  }
+  if (isCanonicalSkillDirCall(expr, bindings)) {
+    const firstArg = expr.arguments[0];
+    const refPath = firstArg ? getStringLiteralValue(firstArg) : null;
+    if (!refPath) return null;
+    return { __aharnessSkillRef: true, source: 'dir', path: refPath };
+  }
+  return null;
+}
+
+function isDirectSkillPathCall(call: ts.CallExpression, bindings: AvailableSkillBindings): boolean {
+  return ts.isIdentifier(call.expression) && bindings.directSkillNames.has(call.expression.text);
+}
+
+function isDirectSkillDirCall(call: ts.CallExpression, bindings: AvailableSkillBindings): boolean {
+  return ts.isIdentifier(call.expression) && bindings.directSkillDirNames.has(call.expression.text);
+}
+
+function isCanonicalSkillPathCall(
+  call: ts.CallExpression,
+  bindings: AvailableSkillBindings,
+): boolean {
+  const expr = call.expression;
+  if (!ts.isPropertyAccessExpression(expr) || expr.name.text !== 'path') return false;
+  const skillExpr = expr.expression;
+  return (
+    ts.isPropertyAccessExpression(skillExpr) &&
+    skillExpr.name.text === 'skill' &&
+    ts.isIdentifier(skillExpr.expression) &&
+    bindings.factoryNames.has(skillExpr.expression.text)
+  );
+}
+
+function isCanonicalSkillDirCall(
+  call: ts.CallExpression,
+  bindings: AvailableSkillBindings,
+): boolean {
+  const expr = call.expression;
+  if (!ts.isPropertyAccessExpression(expr) || expr.name.text !== 'dir') return false;
+  const skillExpr = expr.expression;
+  return (
+    ts.isPropertyAccessExpression(skillExpr) &&
+    skillExpr.name.text === 'skill' &&
+    ts.isIdentifier(skillExpr.expression) &&
+    bindings.factoryNames.has(skillExpr.expression.text)
+  );
+}
+
+function readOptionalBoolean(literal: ts.ObjectLiteralExpression): boolean | null {
+  const optionalProp = findProperty(literal, 'optional');
+  if (!optionalProp) return false;
+  if (optionalProp.initializer.kind === ts.SyntaxKind.TrueKeyword) return true;
+  if (optionalProp.initializer.kind === ts.SyntaxKind.FalseKeyword) return false;
   return null;
 }
 

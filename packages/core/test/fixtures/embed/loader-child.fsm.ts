@@ -1,4 +1,7 @@
 import { aharness, state, exit, final } from '@aharness/core';
+import { createFsm } from '@aharness/core';
+
+const fsm = createFsm();
 
 interface PayloadOk {
   readonly ok: boolean;
@@ -6,6 +9,7 @@ interface PayloadOk {
 
 export default aharness.machine({
   id: 'loaderChild',
+  availableSkills: [fsm.skill.path('./child-skill/SKILL.md'), fsm.skill.dir('./child-skills')],
   initial: 'go',
   states: {
     go: state({

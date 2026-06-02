@@ -1,5 +1,5 @@
 import { assign } from 'xstate';
-import { aharness, state, exit, final, embed, arg } from '@aharness/core';
+import { aharness, state, exit, final, embed, arg, skillDir } from '@aharness/core';
 import child from './child-spec.fsm.js';
 
 interface ParentCtx {
@@ -12,6 +12,7 @@ interface GoPayload {
 
 export default aharness.machine({
   id: 'pipeline',
+  availableSkills: [skillDir('./pipeline-skills')],
   input: {
     topic: arg<string>({ description: 'Project topic' }),
   },

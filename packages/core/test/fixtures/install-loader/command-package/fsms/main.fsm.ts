@@ -1,4 +1,4 @@
-import { aharness, embed, exit, final, state } from '@aharness/core';
+import { aharness, embed, exit, final, state, skillDir } from '@aharness/core';
 import dependencyChild from '@scope/dependency-package/fsms/dependency-child.fsm.js';
 import { dependencyHelper } from '@scope/dependency-package/src/dependency-helper.js';
 import { assign } from 'xstate';
@@ -12,6 +12,7 @@ interface RouteContext {
 
 export default aharness.machine({
   id: `installed-${commandHelper()}-${dependencyHelper()}`,
+  availableSkills: [skillDir('./command-skills')],
   initial: 'router',
   states: {
     router: state<RouteContext>({

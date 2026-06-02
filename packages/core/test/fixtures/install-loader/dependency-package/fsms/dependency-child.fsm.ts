@@ -1,4 +1,4 @@
-import { aharness, exit, final, state } from '@aharness/core';
+import { aharness, exit, final, state, skillDir } from '@aharness/core';
 import { dependencyHelper } from '../src/dependency-helper.js';
 
 interface DependencyPayload {
@@ -7,6 +7,7 @@ interface DependencyPayload {
 
 export default aharness.machine({
   id: `dependency-child-${dependencyHelper()}`,
+  availableSkills: [skillDir('./dependency-skills')],
   initial: 'dependency',
   states: {
     dependency: state({

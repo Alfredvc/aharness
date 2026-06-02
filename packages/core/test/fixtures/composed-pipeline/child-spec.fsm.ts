@@ -1,4 +1,4 @@
-import { aharness, state, exit, final, arg } from '@aharness/core';
+import { aharness, state, exit, final, arg, skill } from '@aharness/core';
 
 interface ChildCtx {
   readonly topic: string;
@@ -9,6 +9,7 @@ interface Decision {
 
 export default aharness.machine({
   id: 'spec',
+  availableSkills: [skill({ path: './spec-skill/SKILL.md' })],
   input: {
     topic: arg<string>({ description: 'Topic to spec' }),
   },
