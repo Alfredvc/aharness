@@ -48,6 +48,13 @@ import type {
   ResponseItem,
   ServerRequestResolvedNotification,
   ServerNotification,
+  SkillCatalogEntry,
+  SkillCatalogError,
+  SkillsExtraRootsSetParams,
+  SkillsExtraRootsSetResponse,
+  SkillsListEntry,
+  SkillsListParams,
+  SkillsListResponse,
   ThreadInjectItemsParams,
   ThreadInjectItemsResponse,
   ThreadNameSetParams,
@@ -74,6 +81,7 @@ import type {
   TurnStartResponse,
   TurnStartedNotification,
   UserInput,
+  UserInputSkill,
 } from '../src/protocol/index.js';
 import { DAEMON_PROBE_CLIENT_NAME } from '../src/protocol/types.js';
 
@@ -175,6 +183,47 @@ describe('protocol request/response types', () => {
     expect(response.data[0]?.isDefault).toBe(true);
   });
 
+  it('skills/extraRoots/set request and empty response shape', () => {
+    const params: SkillsExtraRootsSetParams = { extraRoots: ['/tmp/project/.agents/skills'] };
+    expectTypeOf<SkillsExtraRootsSetParams>().toMatchTypeOf<{
+      extraRoots: ReadonlyArray<string>;
+    }>();
+    expectTypeOf<SkillsExtraRootsSetResponse>().toEqualTypeOf<Record<string, never>>();
+    expect(params.extraRoots).toEqual(['/tmp/project/.agents/skills']);
+  });
+
+  it('skills/list request and response expose narrow catalog fields', () => {
+    const skill: SkillCatalogEntry = {
+      name: 'review-plan',
+      path: '/tmp/project/.agents/skills/review-plan/SKILL.md',
+      enabled: true,
+    };
+    const error: SkillCatalogError = {
+      path: '/tmp/project/.agents/skills/bad/SKILL.md',
+      message: 'parse failed',
+    };
+    const entry: SkillsListEntry = {
+      cwd: '/tmp/project',
+      skills: [skill],
+      errors: [error],
+    };
+    const params: SkillsListParams = { cwds: ['/tmp/project'], forceReload: true };
+    const response: SkillsListResponse = { data: [entry] };
+    expectTypeOf<SkillsListParams>().toMatchTypeOf<{
+      cwds: ReadonlyArray<string>;
+      forceReload: boolean;
+    }>();
+    expectTypeOf<SkillsListResponse>().toMatchTypeOf<{
+      data: ReadonlyArray<{
+        cwd: string;
+        skills: ReadonlyArray<SkillCatalogEntry>;
+        errors: ReadonlyArray<SkillCatalogError>;
+      }>;
+    }>();
+    expect(params.forceReload).toBe(true);
+    expect(response.data[0]?.skills[0]?.name).toBe('review-plan');
+  });
+
   it('ThreadResume params + response', () => {
     expectTypeOf<ThreadResumeParams>().toMatchTypeOf<{ threadId: string }>();
     expectTypeOf<ThreadResumeResponse>().toMatchTypeOf<{ thread: ThreadSnapshot }>();
@@ -233,6 +282,21 @@ describe('protocol request/response types', () => {
       input: ReadonlyArray<UserInput>;
     }>();
     expectTypeOf<TurnStartResponse>().toMatchTypeOf<{ turn: { id: string } }>();
+  });
+
+  it('UserInput includes text and skill variants', () => {
+    const skillInput: UserInputSkill = {
+      type: 'skill',
+      name: 'review-plan',
+      path: '/tmp/project/.agents/skills/review-plan/SKILL.md',
+    };
+    const input: UserInput = skillInput;
+    expectTypeOf<UserInputSkill>().toMatchTypeOf<{
+      type: 'skill';
+      name: string;
+      path: string;
+    }>();
+    expect(input.type).toBe('skill');
   });
 
   it('DynamicToolCallParams shape (v2.rs:7740-7747)', () => {

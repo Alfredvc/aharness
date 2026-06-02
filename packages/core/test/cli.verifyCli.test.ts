@@ -293,7 +293,7 @@ describe('runVerifyCli', () => {
     await fs.rm(dirname(fsmPath), { recursive: true, force: true });
   });
 
-  it('flags missing skill refs via skill-must-resolve when neither root nor path exists', async () => {
+  it('flags missing path-form skill refs while leaving name-form refs to catalog preflight', async () => {
     const log = vi.fn();
     const r = await runVerifyCli({
       fsmPath: join(fixtureDir, 'skills.fsm.ts'),
@@ -302,12 +302,9 @@ describe('runVerifyCli', () => {
     });
     expect(r.exitCode).toBe(1);
     const lines = log.mock.calls.map((c) => String(c[0]));
-    // Both refs miss in this fresh repoRoot — the name-form (no
-    // `.agents/skills/` tree) and the path-form (sibling SKILL.md file does
-    // not exist).
     const skillLines = lines.filter((l) => l.includes('skill-must-resolve'));
-    expect(skillLines.length).toBeGreaterThanOrEqual(2);
-    expect(skillLines.some((l) => l.includes('not-installed'))).toBe(true);
+    expect(skillLines).toHaveLength(1);
+    expect(skillLines.some((l) => l.includes('not-installed'))).toBe(false);
     expect(skillLines.some((l) => l.includes('local/SKILL.md'))).toBe(true);
   });
 

@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { exit, state } from '../src/state/exits.js';
 import { createFsm } from '../src/state/createFsm.js';
 import {
@@ -27,7 +27,10 @@ import {
   type SkillRef,
 } from '../src/state/skills.js';
 import { resolveSkill } from '../src/state/skillResolver.js';
+import type { SkillOriginManifest } from '../src/loader/cache.js';
+import { buildSkillCatalogPreflight, validateSkillCatalog } from '../src/runtime/skillCatalog.js';
 import { resolveAndReadSkills } from '../src/runtime/skillInjection.js';
+import { aharness, terminal } from '../src/index.js';
 
 describe('skill() factory', () => {
   it('builds a name-form ref with default optional=false', () => {
@@ -332,5 +335,180 @@ describe('resolveAndReadSkills', () => {
     expect(r.blocks).toHaveLength(1);
     expect(r.blocks[0]?.text).toContain(`BODY[${localPath}]`);
     expect(r.newKeys).toEqual([`path:${localPath}`]);
+  });
+});
+
+describe('runtime skill catalog preflight', () => {
+  function manifest(rootSourceDir: string, childSourceDir: string): SkillOriginManifest {
+    return {
+      rootSourceDir,
+      sourceDirPrefixes: [{ stateIdPrefix: 'child', sourceDir: childSourceDir }],
+      availableSkills: [
+        { sourceDir: rootSourceDir, ref: skillDir('./support') },
+        { sourceDir: childSourceDir, ref: skill({ path: './child-available/SKILL.md' }) },
+      ],
+    };
+  }
+
+  it('builds sorted extra roots and uses dot-boundary state origins', () => {
+    const root = '/tmp/root-fsm';
+    const child = '/tmp/child-fsm';
+    const machine = aharness.machine({
+      id: 'catalog-roots',
+      initial: 'child',
+      states: {
+        child: {
+          initial: 'review',
+          states: {
+            review: state({
+              entryPrompt: 'child',
+              skills: [skill({ path: './child-skill/../child-skill/SKILL.md' })],
+              exits: { done: exit({ to: '#catalog-roots.done' }) },
+            }),
+          },
+        },
+        childish: state({
+          entryPrompt: 'sibling',
+          skills: [skill({ path: './root-skill/SKILL.md' })],
+          exits: { done: exit({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+
+    const preflight = buildSkillCatalogPreflight({
+      machine,
+      skillOriginManifest: manifest(root, child),
+    });
+
+    expect(preflight.extraRoots).toEqual(
+      [
+        resolve(child, 'child-available'),
+        resolve(child, 'child-skill'),
+        resolve(root, 'root-skill'),
+        resolve(root, 'support'),
+      ].sort(),
+    );
+    expect(preflight.requirements).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          stateId: 'child.review',
+          resolvedPath: resolve(child, 'child-skill/SKILL.md'),
+        }),
+        expect.objectContaining({
+          stateId: 'childish',
+          resolvedPath: resolve(root, 'root-skill/SKILL.md'),
+        }),
+      ]),
+    );
+  });
+
+  it('validates required and optional catalog entries', () => {
+    const root = '/tmp/root-fsm';
+    const machine = aharness.machine({
+      id: 'catalog-validate',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'a',
+          skills: [
+            skill('review-plan'),
+            skill('missing-required'),
+            skill('missing-optional', { optional: true }),
+            skill({ path: './path-skill/./SKILL.md' }),
+          ],
+          exits: { done: exit({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const preflight = buildSkillCatalogPreflight({
+      machine,
+      skillOriginManifest: {
+        rootSourceDir: root,
+        sourceDirPrefixes: [],
+        availableSkills: [],
+      },
+    });
+
+    const result = validateSkillCatalog({
+      repoRoot: root,
+      preflight,
+      response: {
+        data: [
+          {
+            cwd: root,
+            errors: [{ path: '/tmp/bad/SKILL.md', message: 'invalid frontmatter' }],
+            skills: [
+              { name: 'review-plan', path: '/tmp/skills/review-plan/SKILL.md', enabled: true },
+              { name: 'disabled', path: '/tmp/skills/disabled/SKILL.md', enabled: false },
+              { name: 'path-skill', path: resolve(root, 'path-skill/SKILL.md'), enabled: true },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("catalog error at '/tmp/bad/SKILL.md'"),
+        expect.stringContaining("name 'missing-required' is missing"),
+      ]),
+    );
+    expect(result.warnings).toEqual([
+      expect.stringContaining("name 'missing-optional' is missing"),
+    ]);
+    expect(result.resolvedSkills).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'review-plan' }),
+        expect.objectContaining({ name: 'path-skill', path: resolve(root, 'path-skill/SKILL.md') }),
+      ]),
+    );
+  });
+
+  it('treats ambiguous required names and wrong cwd entries as fatal', () => {
+    const root = '/tmp/root-fsm';
+    const machine = aharness.machine({
+      id: 'catalog-ambiguous',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'a',
+          skills: [skill('review-plan')],
+          exits: { done: exit({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const preflight = buildSkillCatalogPreflight({
+      machine,
+      skillOriginManifest: { rootSourceDir: root, sourceDirPrefixes: [], availableSkills: [] },
+    });
+
+    const result = validateSkillCatalog({
+      repoRoot: root,
+      preflight,
+      response: {
+        data: [
+          {
+            cwd: '/tmp/other',
+            errors: [],
+            skills: [
+              { name: 'review-plan', path: '/tmp/one/SKILL.md', enabled: true },
+              { name: 'review-plan', path: '/tmp/two/SKILL.md', enabled: true },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("returned cwd '/tmp/other'"),
+        expect.stringContaining('matched 2 enabled Codex skills'),
+      ]),
+    );
   });
 });

@@ -62,6 +62,12 @@ const AUTO_REVIEW_OVERRIDES = [
   ['approvals_reviewer', '"auto_review"'],
 ] as const;
 
+const EMPTY_SKILL_ORIGIN_MANIFEST = {
+  rootSourceDir: '/tmp',
+  sourceDirPrefixes: [],
+  availableSkills: [],
+} as const;
+
 function hasCodex(): boolean {
   try {
     execFileSync('codex', ['--version'], { stdio: 'ignore' });
@@ -214,6 +220,7 @@ describe('runCliForTest — Phase 2d zero-hook regression', () => {
         sidecar,
         modulePath: '/tmp/zero.mjs',
         issues: [],
+        skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
         cacheHit: false,
         hash: 'zero',
       })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -244,6 +251,35 @@ function makeStubAppServer(wsUrl = 'ws+unix:///nonexistent.sock'): AppServerHand
       /* no-op */
     },
   } as unknown as AppServerHandle;
+}
+
+function replyToSkillPreflightIfNeeded(
+  transport: Transport,
+  envelope: { id?: number; method?: string; params?: unknown },
+): boolean {
+  if (envelope.method === METHOD.skillsExtraRootsSet) {
+    queueMicrotask(() =>
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: envelope.id,
+        result: {},
+      }),
+    );
+    return true;
+  }
+  if (envelope.method === METHOD.skillsList) {
+    const params = envelope.params as { cwds?: readonly string[] } | undefined;
+    const cwd = params?.cwds?.[0] ?? '/tmp/project';
+    queueMicrotask(() =>
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: envelope.id,
+        result: { data: [{ cwd, skills: [], errors: [] }] },
+      }),
+    );
+    return true;
+  }
+  return false;
 }
 
 function onlyRunRootForCliRegression(repoRoot: string): string {
@@ -326,6 +362,10 @@ function makeSyntheticConnectStub(): {
             }),
           );
         }
+        replyToSkillPreflightIfNeeded(
+          transport,
+          msg as { id?: number; method?: string; params?: unknown },
+        );
       },
       async close() {
         /* no-op */
@@ -561,6 +601,7 @@ describe('runCliForTest — Phase 2a cross-state (mocked transport)', () => {
         sidecar,
         modulePath: '/tmp/cs1.mjs',
         issues: [],
+        skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
         cacheHit: false,
         hash: 'cs1',
       })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -574,19 +615,21 @@ describe('runCliForTest — Phase 2a cross-state (mocked transport)', () => {
 
     expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
 
-    // Assert call order: thread/start → turn/start (kickoff) →
-    // turn/interrupt → turn/start (cross-state).
+    // Assert call order: skill preflight → thread/start → turn/start
+    // (kickoff) → turn/interrupt → turn/start (cross-state).
     const orderedMethods = handle.outbound
       .filter(
         (m) =>
           typeof m.method === 'string' &&
           typeof m.id === 'number' &&
           // Drop the initialize handshake; the boot-sequence call order
-          // begins with `thread/start`.
+          // begins with skill preflight.
           m.method !== METHOD.initialize,
       )
       .map((m) => m.method as string);
-    expect(orderedMethods.slice(0, 4)).toEqual([
+    expect(orderedMethods.slice(0, 6)).toEqual([
+      METHOD.skillsExtraRootsSet,
+      METHOD.skillsList,
       METHOD.threadStart,
       METHOD.turnStart,
       METHOD.turnInterrupt,
@@ -783,6 +826,7 @@ describe('runCliForTest — Phase 2a cross-state (mocked transport)', () => {
         sidecar,
         modulePath: '/tmp/cs2.mjs',
         issues: [],
+        skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
         cacheHit: false,
         hash: 'cs2',
       })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -1032,6 +1076,7 @@ describe('runCliForTest — request-user-input ServerRequest handler', () => {
         sidecar,
         modulePath: '/tmp/rui-abandoned.mjs',
         issues: [],
+        skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
         cacheHit: false,
         hash: 'rui-abandoned',
       })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -1144,6 +1189,7 @@ describe('runCliForTest — request-user-input ServerRequest handler', () => {
         sidecar,
         modulePath: '/tmp/rui1.mjs',
         issues: [],
+        skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
         cacheHit: false,
         hash: 'rui1',
       })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -1286,6 +1332,7 @@ describe('runCliForTest — request-user-input ServerRequest handler', () => {
         sidecar,
         modulePath: '/tmp/rui2.mjs',
         issues: [],
+        skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
         cacheHit: false,
         hash: 'rui2',
       })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -1405,6 +1452,7 @@ describe('runCliForTest — request-user-input ServerRequest handler', () => {
         sidecar,
         modulePath: '/tmp/rui3.mjs',
         issues: [],
+        skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
         cacheHit: false,
         hash: 'rui3',
       })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -1542,6 +1590,7 @@ describe('runCliForTest — request-user-input ServerRequest handler', () => {
         sidecar,
         modulePath: '/tmp/rui4.mjs',
         issues: [],
+        skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
         cacheHit: false,
         hash: 'rui4',
       })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -1677,6 +1726,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
         sidecar: o.sidecar,
         modulePath: `/tmp/${o.fsmName}.mjs`,
         issues: [],
+        skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
         cacheHit: false,
         hash: o.fsmName,
       })) as unknown as RunCliTestHooks['loadFsmImpl'],

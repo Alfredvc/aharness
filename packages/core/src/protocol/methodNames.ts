@@ -6,7 +6,7 @@
  * bump can update every site by editing one file.
  *
  * Verification: every literal below was confirmed against codex-rs at
- * pinned commit `7d47056ea426` (see `SUPPORTED_CODEX.md` §R18). Source
+ * pinned commit `7ca611348db9` (see `SUPPORTED_CODEX.md` §R18). Source
  * paths are recorded inline. The verification grep was:
  *
  *   git grep -nE '"(thread|tool|turn|item|hook|response|user_input|userInput|initialize)/[a-zA-Z_/]*"' \
@@ -43,6 +43,12 @@ export const METHOD = {
   threadRollback: 'thread/rollback',
   // app-server-protocol/src/protocol/common.rs:575
   threadInjectItems: 'thread/inject_items',
+  // app-server-protocol/src/protocol/common.rs:608
+  // (`SkillsList => "skills/list"`).
+  skillsList: 'skills/list',
+  // app-server-protocol/src/protocol/common.rs:613
+  // (`SkillsExtraRootsSet => "skills/extraRoots/set"`).
+  skillsExtraRootsSet: 'skills/extraRoots/set',
   // app-server-protocol/src/protocol/common.rs:481
   threadNameSet: 'thread/name/set',
   // app-server-protocol/src/protocol/common.rs:457

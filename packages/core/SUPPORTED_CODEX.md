@@ -1,22 +1,24 @@
 # Supported Codex versions
 
 This package requires the installed `codex` CLI to report version
-**`0.130.0`** or newer.
+**`0.136.0`** or newer.
 
 The latest compatibility check in this repository validated
-**`codex-cli 0.133.0`** on 2026-05-24. The minimum remains `0.130.0`;
-`0.133.0` is an observed-compatible version, not a new floor.
+**`codex-cli 0.136.0`** on 2026-06-02. The minimum is `0.136.0`
+because aharness now calls Codex's runtime skill-root registration API before
+starting a thread.
 
 The offline protocol drift checker still targets `codex-rs` commit
-**`7d47056ea42636271ac020b86347fbbef49490aa`** (short: `7d47056ea426`).
+**`7ca611348db9446711ed16ed81c84095e3721cee`** (short: `7ca611348db9`).
 
 Source-path references and JSON-RPC method names recorded in this package's
 code and docs are valid at this commit. Earlier versions may lack
 `dynamic_tools` immutability, the `default_mode_request_user_input` feature
-flag, the `app-server` JSON-RPC surface this code relies on, or specific
-notification field shapes documented below.
+flag, the `app-server` JSON-RPC surface this code relies on, runtime
+`skills/extraRoots/set` skill-root registration, `skills/list` catalog
+preflight, or specific notification field shapes documented below.
 
-The version string written to `scripts/codex-version-min.txt` is `0.130.0`.
+The version string written to `scripts/codex-version-min.txt` is `0.136.0`.
 
 ---
 
@@ -31,17 +33,20 @@ the JSON-RPC method names, request shapes, approval enum spellings, and
 `request_user_input` server-request behavior against the pinned source commit
 without fetching from the network or trusting a mutable local `HEAD`.
 
-Rationale for the current pair: `0.130.0` is the CLI version used for the
-real Codex E2E release checks, and the pinned commit contains the upstream
+Rationale for the current pair: `0.136.0` is the first released CLI version
+selected for Slice 2 that contains `skills/extraRoots/set`; the method was
+introduced at codex-rs commit
+`f0a839ea0c594a53704b83f6bfde1d557b473cf0` and the drift checker pins the
+`rust-v0.136.0` release tag commit. The pinned commit contains the upstream
 surfaces this package depends on: `dynamic_tools`, the
 `default_mode_request_user_input` feature flag, required
 `request_user_input` question options, clear-on-entry model/effort
 selection surfaces, thread-settings updates, and the JSON-RPC methods
 `item/tool/call`, `item/tool/requestUserInput`, `thread/inject_items`,
-`thread/settings/update`, `config/read`, and `model/list`.
-The `0.133.0` validation rechecked those runtime surfaces with the installed
-CLI, including the `request_user_input` server-request path for
-model-originated owner prompts and app-server command approval E2E paths.
+`thread/settings/update`, `config/read`, `model/list`, `skills/list`, and
+`skills/extraRoots/set`.
+The `0.136.0` validation rechecked those runtime surfaces with the installed
+CLI, including the skill catalog preflight methods.
 
 ---
 
@@ -63,7 +68,7 @@ pnpm --dir packages/core run verify:codex-bump -- --checkout /path/to/codex
 ```
 
 The checker is offline and commit-addressed: it uses `git show
-7d47056ea42636271ac020b86347fbbef49490aa:<path>` and `git cat-file`
+7ca611348db9446711ed16ed81c84095e3721cee:<path>` and `git cat-file`
 against the local checkout. It does not fetch, read a remote branch, or
 trust the checkout's mutable worktree `HEAD`.
 
@@ -71,6 +76,8 @@ Current check families:
 
 - Aharness `METHOD` literals versus Codex's pinned app-server request and
   notification macro table.
+- `skills/extraRoots/set`, `skills/list`, catalog entry/error fields, and the
+  structured `UserInput::Skill` input variant.
 - `request_user_input` source shape, including the
   `default_mode_request_user_input` feature gate and handler path.
 - `thread/settings/update` contract and empty acknowledgement semantics:
@@ -99,7 +106,7 @@ at `/Users/alfredvc/src/codex` or at `CODEX_CHECKOUT=/path/to/codex`.
 
 State-level `model: { name, effort }` declarations may request a Codex model
 and reasoning effort. Aharness relies on the following pinned source surfaces
-at `7d47056ea426`:
+at `7ca611348db9`:
 
 - `codex-rs/app-server-protocol/src/protocol/v2/thread.rs` declares
   `ThreadStartParams { model, cwd, config, ... }`; aharness sends the requested
@@ -141,7 +148,7 @@ at `7d47056ea426`:
 
 The offline drift checker validates these method literals and source spans at
 the pinned commit. Do not weaken the check to rely on mutable Codex `HEAD`; if a
-future feature needs a source surface absent from `7d47056ea426`, bump the
+future feature needs a source surface absent from `7ca611348db9`, bump the
 documented pin deliberately.
 
 ## Aharness hook override shape
@@ -300,7 +307,7 @@ Yolo mode passes `-c approval_policy="never"` and
 prompts are disabled. These are aharness runtime modes, not a public
 `aharness --approval-policy` or `aharness --approvals-reviewer` surface.
 
-Source verification at pinned Codex commit `7d47056ea426`:
+Source verification at pinned Codex commit `7ca611348db9`:
 
 - `cli/src/main.rs:833-850` passes root `CliConfigOverrides` into
   `codex_app_server::run_main_with_transport(...)` for
@@ -354,7 +361,7 @@ Approval notification audit:
 
 The clear-state lowering of state-level `model: { name, effort }`
 declarations depends on Codex app-server surfaces that are present at the
-pinned commit `7d47056ea426`.
+pinned commit `7ca611348db9`.
 
 Source verification at the pinned commit:
 
@@ -558,7 +565,7 @@ re-verify.
 
 ### `turn/interrupt` wire literal and params struct
 
-Verified at pinned commit `7d47056ea426`:
+Verified at pinned commit `7ca611348db9`:
 
 - Wire literal: `"turn/interrupt"` at
   `app-server-protocol/src/protocol/common.rs:729`

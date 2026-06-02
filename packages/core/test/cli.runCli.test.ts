@@ -31,7 +31,7 @@ import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assign, createActor } from 'xstate';
 
-import { aharness, state, exit, terminal } from '../src/index.js';
+import { aharness, state, exit, terminal, skill } from '../src/index.js';
 import { runCliForTest, type RunCliForTestOpts, type RunCliTestHooks } from '../src/cli/runCli.js';
 import type { AppServerHandle, SpawnAppServerOptions } from '../src/appServer/index.js';
 import { JsonRpcClient, type Transport } from '../src/jsonrpc/client.js';
@@ -60,6 +60,12 @@ const YOLO_OVERRIDES = [
   ['approval_policy', '"never"'],
   ['sandbox_mode', '"danger-full-access"'],
 ] as const;
+
+const EMPTY_SKILL_ORIGIN_MANIFEST = {
+  rootSourceDir: '/tmp',
+  sourceDirPrefixes: [],
+  availableSkills: [],
+} as const;
 
 // ---------------------------------------------------------------------------
 // Stubs.
@@ -152,6 +158,35 @@ function failingRunEventRecorder(): RunEventRecorder {
   };
 }
 
+function replyToSkillPreflightIfNeeded(
+  transport: Transport,
+  envelope: { id?: number; method?: string; params?: unknown },
+): boolean {
+  if (envelope.method === METHOD.skillsExtraRootsSet) {
+    queueMicrotask(() =>
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: envelope.id,
+        result: {},
+      }),
+    );
+    return true;
+  }
+  if (envelope.method === METHOD.skillsList) {
+    const params = envelope.params as { cwds?: readonly string[] } | undefined;
+    const cwd = params?.cwds?.[0] ?? '/tmp/project';
+    queueMicrotask(() =>
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        id: envelope.id,
+        result: { data: [{ cwd, skills: [], errors: [] }] },
+      }),
+    );
+    return true;
+  }
+  return false;
+}
+
 /**
  * Build a minimal stub `LoadFsmResult`. The runCli body only reads
  * `.machine`, `.sidecar`, `.inputSchema?`, `.inputFlags?` — the rest of
@@ -174,6 +209,7 @@ function makeStubLoadFsmResult() {
     sidecar: {},
     modulePath: '/tmp/stub.mjs',
     issues: [],
+    skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
     cacheHit: false,
     hash: 'stub',
   };
@@ -366,6 +402,7 @@ describe('runCliForTest — pre-spawn gates', () => {
         send(msg: unknown) {
           const envelope = msg as { id?: number; method?: string };
           if (envelope.method) outboundMethods.push(envelope.method);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -423,6 +460,106 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(r.exitCode).toBe(1);
     expect(outboundMethods).toContain(METHOD.threadStart);
     expect(outboundMethods).not.toContain(METHOD.threadResume);
+    expect(outboundMethods.slice(0, 4)).toEqual([
+      METHOD.initialize,
+      METHOD.skillsExtraRootsSet,
+      METHOD.skillsList,
+      METHOD.threadStart,
+    ]);
+  });
+
+  it('fails skill catalog preflight before thread/start for missing required catalog skills', async () => {
+    const fsmName = 'skill-preflight-missing.fsm.ts';
+    const fsmPath = makeFsmFile(repoRoot, fsmName);
+    const machine = aharness.machine({
+      id: 'skill-preflight-missing',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'needs skill',
+          skills: [skill('required-skill')],
+          exits: { done: exit({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const outboundMethods: string[] = [];
+    let transport!: Transport;
+    const connectStub = async (opts: ConnectHeadlessWsOptions) => {
+      transport = {
+        send(msg: unknown) {
+          const envelope = msg as { id?: number; method?: string; params?: unknown };
+          if (envelope.method) outboundMethods.push(envelope.method);
+          if (envelope.method === METHOD.initialize) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+              }),
+            );
+          } else if (envelope.method === METHOD.skillsExtraRootsSet) {
+            queueMicrotask(() =>
+              transport.onMessage?.({ jsonrpc: '2.0', id: envelope.id, result: {} }),
+            );
+          } else if (envelope.method === METHOD.skillsList) {
+            const params = envelope.params as { cwds?: readonly string[] };
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { data: [{ cwd: params.cwds?.[0] ?? repoRoot, skills: [], errors: [] }] },
+              }),
+            );
+          }
+        },
+        async close() {
+          /* no-op */
+        },
+      };
+      const client = new JsonRpcClient(transport);
+      opts.registerHandlers?.(client);
+      await client.request(METHOD.initialize, {
+        clientInfo: opts.clientInfo,
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      });
+      return {
+        client,
+        close: async () => {
+          await client.close();
+        },
+      };
+    };
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        loadFsmImpl: (async () => ({
+          machine,
+          sidecar: {},
+          modulePath: '/tmp/skill-preflight-missing.mjs',
+          issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
+          cacheHit: false,
+          hash: 'skill-preflight-missing',
+        })) as unknown as RunCliTestHooks['loadFsmImpl'],
+        spawnAppServer: (async () =>
+          makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+        connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      },
+    });
+    opts.stderr = stderrSink;
+
+    const r = await runCliForTest(opts);
+
+    expect(r.exitCode).toBe(1);
+    expect(stderrBuf.join('')).toContain('aharness: skill preflight failed');
+    expect(stderrBuf.join('')).toContain("name 'required-skill' is missing");
+    expect(outboundMethods).toEqual([
+      METHOD.initialize,
+      METHOD.skillsExtraRootsSet,
+      METHOD.skillsList,
+    ]);
   });
 
   it('case 3c: bare invocation mints a fresh run dir even when a prior one exists', async () => {
@@ -761,6 +898,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar: {},
           modulePath: '/tmp/stub.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'stub',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -816,6 +954,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar: {},
           modulePath: '/tmp/stub.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'stub',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -867,6 +1006,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar: {},
           modulePath: '/tmp/stub.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'stub',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -948,6 +1088,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -1016,6 +1157,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar,
           modulePath: '/tmp/entry-throw.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'entry-throw',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -1208,6 +1350,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -1363,6 +1506,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar,
           modulePath: '/tmp/run-scoped-live.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'run-scoped-live',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -1527,6 +1671,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar: {},
           modulePath: '/tmp/boot-public-context.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'boot-public-context',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -1584,7 +1729,8 @@ describe('runCliForTest — pre-spawn gates', () => {
     const connectStub = async (opts: ConnectHeadlessWsOptions) => {
       transport = {
         send(msg: unknown) {
-          const envelope = msg as { id?: number; method?: string };
+          const envelope = msg as { id?: number; method?: string; params?: unknown };
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -1715,6 +1861,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -1816,6 +1963,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar,
           modulePath: '/tmp/browser-owner-input.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'browser-owner-input',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -1993,6 +2141,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -2076,6 +2225,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar,
           modulePath: '/tmp/open-user-prompt.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'open-user-prompt',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -2169,6 +2319,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -2401,6 +2552,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar,
           modulePath: '/tmp/raw-runtime-events.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'raw-runtime-events',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -2671,6 +2823,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -2930,6 +3083,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar,
           modulePath: '/tmp/active-binding-routing.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'active-binding-routing',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -3124,6 +3278,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -3250,6 +3405,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar,
           modulePath: '/tmp/active-binding-approval-cleanup.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'active-binding-approval-cleanup',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -3354,6 +3510,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -3510,6 +3667,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar,
           modulePath: '/tmp/fresh-clear-boundary.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'fresh-clear-boundary',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -3592,6 +3750,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -3680,6 +3839,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar,
           modulePath: '/tmp/initial-model-thread-settings-update.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'initial-model-thread-settings-update',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -3776,6 +3936,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -3901,6 +4062,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar,
           modulePath: '/tmp/cross-state-model-update.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'cross-state-model-update',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -3995,6 +4157,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -4079,6 +4242,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar,
           modulePath: '/tmp/cross-state-model-update-failure.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'cross-state-model-update-failure',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -4229,6 +4393,7 @@ describe('runCliForTest — pre-spawn gates', () => {
               result?: unknown;
             };
             outbound.push(envelope);
+            replyToSkillPreflightIfNeeded(transport, envelope);
             if (envelope.method === METHOD.initialize) {
               queueMicrotask(() =>
                 transport.onMessage?.({
@@ -4385,6 +4550,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             sidecar,
             modulePath: `/tmp/fresh-clear-cwd-${scenario.name}.mjs`,
             issues: [],
+            skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
             cacheHit: false,
             hash: `fresh-clear-cwd-${scenario.name}`,
           })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -4493,6 +4659,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -4590,6 +4757,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar,
           modulePath: '/tmp/fresh-clear-unsupported-effort.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'fresh-clear-unsupported-effort',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -4698,6 +4866,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -4762,6 +4931,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar,
           modulePath: '/tmp/fresh-clear-invalid-cwd.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'fresh-clear-invalid-cwd',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -4865,6 +5035,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -4944,6 +5115,7 @@ describe('runCliForTest — pre-spawn gates', () => {
           sidecar,
           modulePath: '/tmp/closed-user-prompt.mjs',
           issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
           cacheHit: false,
           hash: 'closed-user-prompt',
         })) as unknown as RunCliTestHooks['loadFsmImpl'],
@@ -5004,6 +5176,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({
@@ -5156,6 +5329,7 @@ describe('runCliForTest — pre-spawn gates', () => {
             result?: unknown;
           };
           outbound.push(envelope);
+          replyToSkillPreflightIfNeeded(transport, envelope);
           if (envelope.method === METHOD.initialize) {
             queueMicrotask(() =>
               transport.onMessage?.({

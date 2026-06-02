@@ -1,6 +1,6 @@
 /**
  * JSON-RPC types for the Codex `app-server` surface that `@aharness/core`
- * consumes. Pinned to codex-rs commit `7d47056ea426` (see
+ * consumes. Pinned to codex-rs commit `7ca611348db9` (see
  * `SUPPORTED_CODEX.md`).
  *
  * Wire convention: every codex `app-server` request/response struct uses
@@ -207,6 +207,64 @@ export interface ModelListResponse {
 }
 
 /**
+ * `skills/extraRoots/set` request params. Matches
+ * `app-server-protocol/src/protocol/v2/plugin.rs:41-43`.
+ */
+export interface SkillsExtraRootsSetParams {
+  extraRoots: ReadonlyArray<string>;
+}
+
+/** Empty success body for `skills/extraRoots/set`. */
+export type SkillsExtraRootsSetResponse = Record<string, never>;
+
+/**
+ * `skills/list` request params. Matches
+ * `app-server-protocol/src/protocol/v2/plugin.rs:21-31`.
+ */
+export interface SkillsListParams {
+  cwds: ReadonlyArray<string>;
+  forceReload: boolean;
+}
+
+/**
+ * Narrow skill catalog entry returned by `skills/list`. Matches the
+ * fields aharness reads from
+ * `app-server-protocol/src/protocol/v2/plugin.rs:410-433`.
+ */
+export interface SkillCatalogEntry {
+  name: string;
+  path: string;
+  enabled: boolean;
+}
+
+/**
+ * Narrow skills catalog load error. Matches the fields aharness reads from
+ * `app-server-protocol/src/protocol/v2/plugin.rs:480-484`.
+ */
+export interface SkillCatalogError {
+  path: string;
+  message: string;
+}
+
+/**
+ * Per-cwd entry returned by `skills/list`. Matches
+ * `app-server-protocol/src/protocol/v2/plugin.rs:489-493`.
+ */
+export interface SkillsListEntry {
+  cwd: string;
+  skills: ReadonlyArray<SkillCatalogEntry>;
+  errors: ReadonlyArray<SkillCatalogError>;
+}
+
+/**
+ * `skills/list` response. Matches
+ * `app-server-protocol/src/protocol/v2/plugin.rs:34-36`.
+ */
+export interface SkillsListResponse {
+  data: ReadonlyArray<SkillsListEntry>;
+}
+
+/**
  * `thread/resume` request params. Matches
  * `app-server-protocol/src/protocol/v2.rs:3685-...`. Upstream carries
  * many optional override fields; only `threadId` is required and used
@@ -303,16 +361,23 @@ export interface ThreadInjectItemsParams {
 export type ThreadInjectItemsResponse = Record<string, never>;
 
 /**
- * `UserInput` variant the aharness emits in `turn/start.input`. Matches
- * `app-server-protocol/src/protocol/v2.rs:5785-5806`. The aharness only
- * sends `Text` inputs; other variants (Image, LocalImage, Skill,
- * Mention) are not modelled here.
+ * `UserInput` variants relevant to aharness-owned `turn/start.input`.
+ * Matches `app-server-protocol/src/protocol/v2/turn.rs:275-294`.
+ * Runtime call sites still send only `Text` inputs in Slice 2; `Skill`
+ * is modelled now so Slice 3 can use the Codex-native skill item shape.
  */
 export interface UserInputText {
   type: 'text';
   text: string;
 }
-export type UserInput = UserInputText;
+
+export interface UserInputSkill {
+  type: 'skill';
+  name: string;
+  path: string;
+}
+
+export type UserInput = UserInputText | UserInputSkill;
 
 /**
  * `turn/start` request params. Matches

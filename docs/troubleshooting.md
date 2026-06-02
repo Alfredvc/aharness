@@ -15,8 +15,8 @@ Use Node 20 or newer before rerunning `npm install`, `npx aharness verify`, or
 ## Codex CLI Is Missing Or Too Old
 
 aharness starts Codex as the local coding worker. The public runtime requires
-the installed `codex` CLI to report version `0.130.0` or newer. The repository
-most recently validated `codex-cli 0.133.0` on 2026-05-24.
+the installed `codex` CLI to report version `0.136.0` or newer. The repository
+most recently validated `codex-cli 0.136.0` on 2026-06-02.
 
 Check the environment with:
 
@@ -27,7 +27,22 @@ npx aharness doctor
 
 If `aharness doctor` reports that `codex` is not on `PATH`, install or expose
 the Codex CLI in the shell that runs aharness. If it reports a version below
-`0.130.0`, upgrade Codex before running an FSM.
+`0.136.0`, upgrade Codex before running an FSM.
+
+## Skill Preflight Fails At Startup
+
+Before creating the Codex thread, aharness registers FSM skill roots with
+Codex and asks Codex to scan the skill catalog. Failures are reported as:
+
+```text
+aharness: skill preflight failed: ...
+```
+
+Common causes are missing `SKILL.md` files for required path-form state skills,
+disabled or missing required name-form skills in the Codex catalog, ambiguous
+name-form skills, or invalid skill metadata reported by Codex during
+`skills/list`. Fix the referenced skill path/name or Codex skill configuration,
+then rerun the FSM.
 
 ## Verify Fails Before Runtime
 

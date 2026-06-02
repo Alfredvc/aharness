@@ -22,6 +22,8 @@ describe('METHOD wire literals', () => {
     threadResume: 'thread/resume',
     threadRollback: 'thread/rollback',
     threadInjectItems: 'thread/inject_items',
+    skillsList: 'skills/list',
+    skillsExtraRootsSet: 'skills/extraRoots/set',
     threadNameSet: 'thread/name/set',
     threadUnsubscribe: 'thread/unsubscribe',
     turnStart: 'turn/start',

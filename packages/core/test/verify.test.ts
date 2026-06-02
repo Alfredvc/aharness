@@ -36,6 +36,7 @@ import {
   type SchemaSidecar,
 } from '@aharness/core';
 
+import type { SkillOriginManifest } from '../src/loader/cache.js';
 import { verify } from '../src/verify/index.js';
 
 const stubValidate = (): { ok: true; data: undefined } => ({ ok: true as const, data: undefined });
@@ -75,8 +76,8 @@ describe('@aharness/core verify (happy path)', () => {
       },
     });
     const result = verify(m, sidecarWith([['a', 'ok']]), []);
-    expect(result.ok).toBe(true);
     expect(result.issues).toEqual([]);
+    expect(result.ok).toBe(true);
   });
 
   it('reports ok=true on a well-formed choice machine', () => {
@@ -97,8 +98,8 @@ describe('@aharness/core verify (happy path)', () => {
       },
     });
     const result = verify(m, {});
-    expect(result.ok).toBe(true);
     expect(result.issues).toEqual([]);
+    expect(result.ok).toBe(true);
   });
 });
 
@@ -452,8 +453,8 @@ describe('@aharness/core verify: skill authoring validation', () => {
 
     const result = verify(m, minimalSidecar(), [], { skillEnv });
 
-    expect(result.ok).toBe(true);
     expect(result.issues).toEqual([]);
+    expect(result.ok).toBe(true);
   });
 
   it('rejects name-form refs in availableSkills at static verify time', () => {
@@ -616,7 +617,78 @@ describe('@aharness/core verify: skill authoring validation', () => {
     );
   });
 
-  it('keeps optional missing state skills as warnings', () => {
+  it('does not perform filesystem checks for state-level name-form refs', () => {
+    const fsm = createFsmVerify();
+    const m = fsm.machine({
+      id: 'name-state-skill',
+      initial: 'a',
+      states: {
+        a: fsm.state({
+          prompt: 'go',
+          skills: [fsm.skill('catalog-owned'), fsm.skill('optional-catalog', { optional: true })],
+          on: { ok: fsm.submit<{ ok: boolean }>({ to: 'done' }) },
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+
+    const result = verify(m, minimalSidecar(), [], { skillEnv });
+
+    expect(result.ok).toBe(true);
+    expect(result.issues.map((issue) => issue.check)).not.toContain('skill-must-resolve');
+  });
+
+  it('resolves state-level path refs through state-origin manifest boundaries', () => {
+    const fsm = createFsmVerify();
+    const m = fsm.machine({
+      id: 'origin-state-skill',
+      initial: 'child',
+      states: {
+        child: {
+          initial: 'review',
+          states: {
+            review: fsm.state({
+              prompt: 'child',
+              skills: [fsm.skill.path('./child-skill/SKILL.md')],
+              on: { ok: fsm.submit<{ ok: boolean }>({ to: '#origin-state-skill.childish' }) },
+            }),
+          },
+        },
+        childish: fsm.state({
+          prompt: 'sibling',
+          skills: [fsm.skill.path('./root-skill/SKILL.md')],
+          on: { ok: fsm.submit<{ ok: boolean }>({ to: 'done' }) },
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+    const originManifest: SkillOriginManifest = {
+      rootSourceDir: '/repo/root',
+      sourceDirPrefixes: [{ stateIdPrefix: 'child', sourceDir: '/repo/child' }],
+      availableSkills: [],
+    };
+    const result = verify(
+      m,
+      sidecarWith([
+        ['child.review', 'ok'],
+        ['childish', 'ok'],
+      ]),
+      [],
+      {
+        skillEnv: {
+          ...skillEnv,
+          fileExists: (p: string) =>
+            p === '/repo/child/child-skill/SKILL.md' || p === '/repo/root/root-skill/SKILL.md',
+        },
+        skillOriginManifest: originManifest,
+      },
+    );
+
+    expect(result.issues).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it('keeps optional missing state path skills as warnings', () => {
     const fsm = createFsmVerify();
     const m = fsm.machine({
       id: 'optional-state-skill',

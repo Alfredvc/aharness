@@ -68,6 +68,7 @@ export async function runVerifyCli(opts: RunVerifyCliOpts): Promise<RunVerifyCli
   const fsmFileDir = dirname(resolve(repoRoot, opts.fsmPath));
   const result = verify(loaded.machine, loaded.sidecar, loaded.issues, {
     skillEnv: { fsmFileDir, repoRoot },
+    skillOriginManifest: loaded.skillOriginManifest,
   });
   if (result.ok) {
     const catalogIssues = await verifyStateModelCatalog({

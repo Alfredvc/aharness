@@ -60,6 +60,11 @@ import {
   publicContextFromRunContext,
 } from '../runtime/contextSnapshots.js';
 import { composeStateNudge, type ExitSpec } from '../runtime/nudge.js';
+import {
+  buildSkillCatalogPreflight,
+  isSkillsListResponse,
+  validateSkillCatalog,
+} from '../runtime/skillCatalog.js';
 import { resolveEntryPrompt } from '../runtime/resolvePrompt.js';
 import {
   createPerStateHookDispatcher,
@@ -79,6 +84,9 @@ import { METHOD } from '../protocol/methodNames.js';
 import { SUBMIT_TOOL_NAME } from '../protocol/submitTool.js';
 import { DAEMON_PROBE_CLIENT_NAME } from '../protocol/types.js';
 import type {
+  SkillsExtraRootsSetParams,
+  SkillsExtraRootsSetResponse,
+  SkillsListParams,
   ThreadTokenUsageUpdatedNotification,
   TokenUsageBreakdown,
 } from '../protocol/index.js';
@@ -1486,7 +1494,44 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   });
   shutdownAfterTerminal.current = shutdown;
 
-  // 11. thread/start.
+  // 11. Register Codex skill roots and validate the startup catalog before
+  //     creating the thread. Slice 2 keeps turn payloads text-only; this
+  //     preflight only proves required skills are discoverable.
+  const skillPreflight = buildSkillCatalogPreflight({
+    machine,
+    skillOriginManifest: loaded.skillOriginManifest,
+  });
+  try {
+    await ws.request<SkillsExtraRootsSetResponse>(METHOD.skillsExtraRootsSet, {
+      extraRoots: skillPreflight.extraRoots,
+    } satisfies SkillsExtraRootsSetParams);
+    const skillListResponse = await ws.request<unknown>(METHOD.skillsList, {
+      cwds: [repoRoot],
+      forceReload: true,
+    } satisfies SkillsListParams);
+    if (!isSkillsListResponse(skillListResponse)) {
+      throw new Error('skills/list returned malformed response');
+    }
+    const validation = validateSkillCatalog({
+      repoRoot,
+      preflight: skillPreflight,
+      response: skillListResponse,
+    });
+    for (const warning of validation.warnings) {
+      o.stderr.write(`aharness: skill preflight warning: ${warning}\n`);
+    }
+    if (!validation.ok) {
+      throw new Error(validation.errors.join('; '));
+    }
+  } catch (e) {
+    const message = `skill preflight failed: ${(e as Error).message}`;
+    o.stderr.write(`aharness: ${message}\n`);
+    publishRunFailedOnce(message);
+    await shutdown();
+    return { exitCode: 1 };
+  }
+
+  // 12. thread/start.
   try {
     const r = await ws.request<ThreadStartResponse>(METHOD.threadStart, {
       cwd: repoRoot,

@@ -1,11 +1,11 @@
 # Native Codex Skills for Self-Contained FSM Packages Implementation Recipe
 
 **Parent roadmap:** `docs/plans/2026-06-02-native-codex-skills-for-fsm-packages-roadmap.md`
-**Current slice:** Slice 2 - Codex protocol and startup skill catalog
+**Current slice:** Slice 3 - native structured state skill injection
 **Current phase:** plan
 **Current detailed plan:** none yet
 **Current fix source:** none
-**Last completed:** Slice 1 - loader origin manifest and transitive availability
+**Last completed:** Slice 2 - Codex protocol and startup skill catalog
 
 ## Durable Grounding
 
@@ -74,5 +74,20 @@ Acceptance verification re-run during finish:
 - `pnpm exec vitest run packages/core/test/loader.embed-sidecar.test.ts packages/core/test/loader.cache.test.ts packages/core/test/loader.installed.test.ts` passed with 3 files / 18 tests.
 - `pnpm run typecheck` passed.
 
-Next action: write the detailed Slice 2 plan for Codex protocol and startup
-skill catalog before changing protocol/runtime code.
+Slice 2 was implemented in this working tree and is ready for acceptance
+review. It added narrow Codex skill protocol types and methods, bumped the
+runtime Codex floor to `0.136.0` with offline drift checks at
+`rust-v0.136.0`, added state-origin-aware skill catalog preflight, delegated
+state name-form refs from static verify to Codex catalog startup validation,
+and wired `skills/extraRoots/set` plus `skills/list` before startup
+`thread/start`.
+
+Final verification for Slice 2:
+
+- `pnpm exec vitest run packages/core/test/protocol.methodNames.test.ts packages/core/test/protocol.types.test.ts packages/core/test/state.skills.test.ts packages/core/test/verify.test.ts packages/core/test/cli.verifyCli.test.ts packages/core/test/verifyInstalledCli.test.ts`
+- `pnpm exec vitest run packages/core/test/cli.runCli.test.ts packages/core/test/cli.runCli.phase1.test.ts`
+- `pnpm run typecheck`
+- `pnpm --dir packages/core run verify:codex-bump`
+
+Next action: write the detailed Slice 3 plan for native structured state skill
+injection before changing runtime turn payload code.

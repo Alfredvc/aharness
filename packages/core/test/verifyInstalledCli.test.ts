@@ -58,6 +58,17 @@ describe('aharness verify installed packages and commands', () => {
       }),
     );
     expect(verifyImpl).toHaveBeenCalledTimes(2);
+    expect(verifyImpl).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({
+        skillOriginManifest: expect.objectContaining({
+          rootSourceDir: '/store/packages/node_modules/@scope/tools/fsms',
+        }),
+      }),
+    );
     expect(stdout.text().split('\n').filter(Boolean)).toEqual([
       'verify: ok (@scope/tools/alpha, 0 warnings)',
       'verify: ok (@scope/tools/zeta, 0 warnings)',
@@ -505,6 +516,11 @@ function makeLoadedFsm(): LoadFsmResult {
     sidecar: {},
     modulePath: '/tmp/fsm.mjs',
     issues: [],
+    skillOriginManifest: {
+      rootSourceDir: '/store/packages/node_modules/@scope/tools/fsms',
+      sourceDirPrefixes: [],
+      availableSkills: [],
+    },
     cacheHit: false,
     hash: 'hash',
   };

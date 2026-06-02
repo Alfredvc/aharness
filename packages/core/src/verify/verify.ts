@@ -94,6 +94,7 @@ import type { AnyStateMachine, StateNode } from 'xstate';
 import { getAharnessMeta as unsafeGetAharnessMeta, iterStates, stateKeyPath } from '../state.js';
 import type { AharnessMeta, AharnessStateMeta, ChoiceMeta, SchemaSidecar } from '../types.js';
 import type { SidecarIssue } from '../loader/index.js';
+import type { SkillOriginManifest } from '../loader/cache.js';
 import { SUBMIT_TOOL_NAME } from '../protocol/submitTool.js';
 import {
   availableSkillKey,
@@ -102,6 +103,11 @@ import {
   isSkillRef,
 } from '../state/skills.js';
 import { resolveSkill, resolveSkillDir, type SkillResolverEnv } from '../state/skillResolver.js';
+import {
+  skillOriginEnvFromManifest,
+  sourceDirForState,
+  type SkillOriginEnv,
+} from '../state/skillOrigins.js';
 
 import {
   asPlainObject,
@@ -211,6 +217,12 @@ export interface VerifyOpts {
    * do not exercise skills omit it.
    */
   readonly skillEnv?: SkillResolverEnv;
+  /**
+   * Source-origin map for state-level path-form skill refs. When supplied,
+   * static verification resolves each state skill against the declaring FSM
+   * source directory instead of a single root FSM directory.
+   */
+  readonly skillOriginManifest?: SkillOriginManifest;
 }
 
 export function verify(
@@ -277,7 +289,7 @@ export function verify(
     issues.push(...checkStateSkillPathsUseSkillMd(machine));
     if (opts?.skillEnv !== undefined) {
       issues.push(...checkAvailableSkillsResolve(machine, opts.skillEnv));
-      issues.push(...checkSkillsResolve(machine, opts.skillEnv));
+      issues.push(...checkSkillsResolve(machine, opts.skillEnv, opts.skillOriginManifest));
     }
   } finally {
     activeMetaReader = previousReader;
@@ -2905,8 +2917,16 @@ function checkAvailableSkillsResolve(
  * the supplied `SkillResolverEnv`. Non-optional misses produce an error;
  * optional misses produce a warning.
  */
-function checkSkillsResolve(machine: AnyStateMachine, env: SkillResolverEnv): VerifyIssue[] {
+function checkSkillsResolve(
+  machine: AnyStateMachine,
+  env: SkillResolverEnv,
+  skillOriginManifest?: SkillOriginManifest,
+): VerifyIssue[] {
   const issues: VerifyIssue[] = [];
+  const originEnv: SkillOriginEnv =
+    skillOriginManifest !== undefined
+      ? skillOriginEnvFromManifest(skillOriginManifest)
+      : { rootSourceDir: env.fsmFileDir, sourceDirPrefixes: [] };
   for (const node of iterStates(machine)) {
     const meta = asStatefulMeta(node);
     if (!meta || !meta.skills) continue;
@@ -2914,7 +2934,11 @@ function checkSkillsResolve(machine: AnyStateMachine, env: SkillResolverEnv): Ve
     for (let i = 0; i < meta.skills.length; i++) {
       const ref = meta.skills[i];
       if (!isSkillRef(ref)) continue;
-      const res = resolveSkill(ref, env);
+      if (ref.source === 'name') continue;
+      const res = resolveSkill(ref, {
+        ...env,
+        fsmFileDir: sourceDirForState(sid, originEnv),
+      });
       if (res.kind === 'resolved') continue;
       const ctx = `state '${sid}' skills[${String(i)}] (${res.displayName}): not found in any of:\n  - ${res.searched.join('\n  - ')}`;
       issues.push(

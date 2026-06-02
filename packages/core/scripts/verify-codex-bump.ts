@@ -8,17 +8,19 @@ import { fileURLToPath } from 'node:url';
 import { METHOD } from '../src/protocol/methodNames.js';
 import { DAEMON_PROBE_CLIENT_NAME } from '../src/protocol/types.js';
 
-export const PINNED_CODEX_COMMIT = '7d47056ea42636271ac020b86347fbbef49490aa';
+export const PINNED_CODEX_COMMIT = '7ca611348db9446711ed16ed81c84095e3721cee';
 export const DEFAULT_CODEX_CHECKOUT = '/Users/alfredvc/src/codex';
 export const CODEX_CHECKOUT_ENV = 'CODEX_CHECKOUT';
 
 const CODEX_PATHS = {
   commonProtocol: 'codex-rs/app-server-protocol/src/protocol/common.rs',
   v2ThreadProtocol: 'codex-rs/app-server-protocol/src/protocol/v2/thread.rs',
+  v2TurnProtocol: 'codex-rs/app-server-protocol/src/protocol/v2/turn.rs',
   v2ModelProtocol: 'codex-rs/app-server-protocol/src/protocol/v2/model.rs',
   v2ConfigProtocol: 'codex-rs/app-server-protocol/src/protocol/v2/config.rs',
   v2ItemProtocol: 'codex-rs/app-server-protocol/src/protocol/v2/item.rs',
   v2PermissionsProtocol: 'codex-rs/app-server-protocol/src/protocol/v2/permissions.rs',
+  v2PluginProtocol: 'codex-rs/app-server-protocol/src/protocol/v2/plugin.rs',
   v2SharedProtocol: 'codex-rs/app-server-protocol/src/protocol/v2/shared.rs',
   askForApprovalTs: 'codex-rs/app-server-protocol/schema/typescript/v2/AskForApproval.ts',
   permissionGrantScopeTs:
@@ -53,6 +55,8 @@ const METHOD_LITERAL_SOURCES: ReadonlyArray<{
   { key: 'threadSettingsUpdate', variant: 'ThreadSettingsUpdate' },
   { key: 'threadRollback', variant: 'ThreadRollback' },
   { key: 'threadInjectItems', variant: 'ThreadInjectItems' },
+  { key: 'skillsList', variant: 'SkillsList' },
+  { key: 'skillsExtraRootsSet', variant: 'SkillsExtraRootsSet' },
   { key: 'threadNameSet', variant: 'ThreadSetName' },
   { key: 'threadUnsubscribe', variant: 'ThreadUnsubscribe' },
   { key: 'turnStart', variant: 'TurnStart' },
@@ -687,6 +691,69 @@ export function createThreadSettingsUpdateContractCheck(): CodexBumpCheck {
   };
 }
 
+export function createSkillsProtocolContractCheck(): CodexBumpCheck {
+  return {
+    name: 'skills-protocol-contract',
+    async run(context) {
+      const [commonSource, pluginSource, turnSource] = await Promise.all([
+        context.readFile(CODEX_PATHS.commonProtocol),
+        context.readFile(CODEX_PATHS.v2PluginProtocol),
+        context.readFile(CODEX_PATHS.v2TurnProtocol),
+      ]);
+
+      return [
+        ...missingSnippetMessages(
+          CODEX_PATHS.commonProtocol,
+          commonSource,
+          [
+            'SkillsList => "skills/list"',
+            'params: v2::SkillsListParams',
+            'response: v2::SkillsListResponse',
+            'SkillsExtraRootsSet => "skills/extraRoots/set"',
+            'params: v2::SkillsExtraRootsSetParams',
+            'response: v2::SkillsExtraRootsSetResponse',
+          ],
+          context.pinnedCommit,
+        ),
+        ...missingSnippetMessages(
+          CODEX_PATHS.v2PluginProtocol,
+          pluginSource,
+          [
+            'pub struct SkillsListParams',
+            'pub cwds: Vec<PathBuf>',
+            'pub force_reload: bool',
+            'pub struct SkillsListResponse',
+            'pub data: Vec<SkillsListEntry>',
+            'pub struct SkillsExtraRootsSetParams',
+            'pub extra_roots: Vec<AbsolutePathBuf>',
+            'pub struct SkillsExtraRootsSetResponse {}',
+            'pub struct SkillsListEntry',
+            'pub cwd: PathBuf',
+            'pub skills: Vec<SkillMetadata>',
+            'pub errors: Vec<SkillErrorInfo>',
+            'pub struct SkillMetadata',
+            'pub name: String',
+            'pub path: AbsolutePathBuf',
+            'pub enabled: bool',
+            'pub struct SkillErrorInfo',
+            'pub path: PathBuf',
+            'pub message: String',
+          ],
+          context.pinnedCommit,
+        ),
+        ...missingSpanSnippetMessages(
+          CODEX_PATHS.v2ThreadProtocol,
+          turnSource,
+          'pub enum UserInput {',
+          'impl UserInput {',
+          ['Skill {', 'name: String', 'path: PathBuf'],
+          context.pinnedCommit,
+        ),
+      ];
+    },
+  };
+}
+
 export function createDaemonProbeClientNameCheck(): CodexBumpCheck {
   return {
     name: 'daemon-probe-client-name',
@@ -716,6 +783,7 @@ export const DEFAULT_CHECKS: readonly CodexBumpCheck[] = [
   createAppServerCliSurfaceCheck(),
   createClearOnEntryModelContractCheck(),
   createThreadSettingsUpdateContractCheck(),
+  createSkillsProtocolContractCheck(),
   createDaemonProbeClientNameCheck(),
 ];
 

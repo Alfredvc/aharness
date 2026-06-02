@@ -146,6 +146,7 @@ async function verifyOneCommand(args: {
       fsmFileDir: path.dirname(entryFile),
       repoRoot: args.install.packageRoot,
     },
+    skillOriginManifest: loaded.skillOriginManifest,
   });
   if (result.ok) {
     args.opts.stdout.write(
