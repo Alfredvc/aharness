@@ -798,6 +798,7 @@ export const machine = fsm.machine({
     }),
     reviewPlan: fsm.state({
       main: true,
+      clearOnEntry: { cwd: workflowCwd },
       model: DEFAULT_STATE_MODEL,
       prompt: (data) =>
         [
@@ -1186,6 +1187,7 @@ export const machine = fsm.machine({
     }),
     acceptSlice: fsm.state({
       main: true,
+      clearOnEntry: { cwd: workflowCwd },
       model: DEFAULT_STATE_MODEL,
       prompt: (data) =>
         [
@@ -1202,6 +1204,10 @@ export const machine = fsm.machine({
           'Verification commands:',
           ...formatList(data.verificationCommands),
           '',
+          'Changed files:',
+          ...formatList(data.changedFiles),
+          '',
+          'Use git status and git diff as the acceptance basis for these files, along with the current plan, recipe, and verification evidence.',
           'Use agentfiles:reviewing-code when useful. Blocking findings must be critical or important and concrete.',
           REVIEW_SUBAGENT_LINE,
           'Do not block on style preferences, speculative cleanup, later-slice work, or non-issues. Submit approved=true only when no blocking findings remain and verification evidence is credible.',

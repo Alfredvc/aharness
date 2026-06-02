@@ -11,9 +11,9 @@ slice-by-slice until every slice is committed:
 1. read the roadmap, identify required grounding files, and create the
    implementation recipe
 2. confirm or write the current slice plan
-3. clear context before executing the planned slice
-4. execute the slice
-5. review, repair when needed, and verify
+3. clear context and review the current slice plan
+4. clear context before executing the reviewed plan
+5. clear context to accept the completed diff, repair when needed, and verify
 6. update the recipe, stage only slice-owned files plus the recipe, and commit
 7. clear context, re-read the recipe, and repeat from the next slice until the
    roadmap is complete
@@ -38,8 +38,10 @@ is exhausted, recovery is exhausted, or the slice safety cap is hit.
 Live workflow states declare `gpt-5.5` with medium reasoning effort. Recovery
 attempts declare `gpt-5.5` with xhigh effort, and the implementation/review
 prompts require delegated implementation subagents to use `gpt-5.5` with high
-effort. Plan-review prompts keep the initial plan review at two xhigh reviewers,
-then follow the reviewer-selected follow-up mode for later proof checks.
+effort. Plan review and slice acceptance start in fresh parent threads so review
+work is not biased by planning or implementation context. Plan-review prompts
+keep the initial plan review at two xhigh reviewers, then follow the
+reviewer-selected follow-up mode for later proof checks.
 
 The first state stores required context files such as idea files, specs,
 architecture docs, parent plans, API contracts, and migration notes. Later
