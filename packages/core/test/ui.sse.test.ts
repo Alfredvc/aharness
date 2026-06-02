@@ -597,6 +597,7 @@ function fakeRunEventQueryService(options: {
     getLatestEventId: () => options.latestEventId ?? null,
     getDiagnostics: () => [],
     getBootstrap: () => ({ ok: false, error: 'run-event-log-unavailable', diagnostics: [] }),
+    getCompletionStats: () => ({ ok: true, completionStats: null }),
     getStateVisitRows: () => ({ ok: true, rows: [], nextCursor: null }),
     getRecentRows: () => ({ ok: true, rows: [], nextCursor: null }),
     getEventPage: () => ({ ok: true, events: [], nextCursor: null, diagnostics: [] }),

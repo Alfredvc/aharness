@@ -645,6 +645,99 @@ describe('run event query service', () => {
     expect(notified).toEqual(['run-query:2']);
   });
 
+  it('serves completion stats for terminal runs without changing bootstrap', () => {
+    const eventsPath = tempEventsPath();
+    writeJsonl(
+      eventsPath,
+      event(1, 'run.started', { data: { startedAt: '2026-05-29T00:00:01.000Z' } }),
+      event(2, 'state.changed', {
+        stateVisitId: 'visit-plan',
+        data: { path: 'root.plan', stateVisitId: 'visit-plan', kind: 'stateful' },
+        raw: { ownerInput: 'raw owner input must not leak' },
+      }),
+      event(3, 'token.updated', {
+        data: { total: { totalTokens: 11, inputTokens: 8, outputTokens: 3 } },
+      }),
+      event(4, 'git.diff.recorded', {
+        data: {
+          status: 'available',
+          from: 'from-object-id',
+          to: 'to-object-id',
+          filesChanged: 2,
+          linesAdded: 9,
+          linesDeleted: 1,
+        },
+      }),
+      event(5, 'run.completed', { data: { endedAt: '2026-05-29T00:00:05.000Z' } }),
+    );
+    const service = createRunEventQueryService({ runId: RUN_ID, eventsPath });
+
+    const completion = service.getCompletionStats({
+      getRunMeta: () => ({ fsmFile: '/secret/demo.fsm.ts', codexPin: 'secret-pin' }),
+      topology: { nodes: [{ id: 'root.plan', label: 'Plan', kind: 'stateful' }] },
+    });
+
+    expect(completion.ok).toBe(true);
+    if (!completion.ok) return;
+    expect(completion.completionStats).toEqual(
+      expect.objectContaining({
+        outcome: 'success',
+        fsmDisplayName: 'demo.fsm',
+        workDelta: { status: 'available', filesChanged: 2, linesAdded: 9, linesDeleted: 1 },
+      }),
+    );
+    expect(JSON.stringify(completion.completionStats)).not.toContain('/secret');
+    expect(JSON.stringify(completion.completionStats)).not.toContain('from-object-id');
+    expect(JSON.stringify(completion.completionStats)).not.toContain(
+      'raw owner input must not leak',
+    );
+
+    const bootstrap = service.getBootstrap({
+      getRunMeta: () => ({ fsmFile: '/secret/demo.fsm.ts' }),
+    });
+    expect(bootstrap.ok).toBe(true);
+    if (!bootstrap.ok) return;
+    expect(bootstrap.bootstrap).not.toHaveProperty('completionStats');
+  });
+
+  it('returns active-null and unavailable completion results through the query service', () => {
+    const activePath = tempEventsPath();
+    writeJsonl(activePath, event(1, 'run.started'));
+    const active = createRunEventQueryService({ runId: RUN_ID, eventsPath: activePath });
+
+    expect(active.getCompletionStats({ getRunMeta: () => ({ fsmFile: 'active.ts' }) })).toEqual({
+      ok: true,
+      completionStats: null,
+    });
+
+    const corruptPath = tempEventsPath();
+    writeFileSync(corruptPath, 'not json\n');
+    const corrupt = createRunEventQueryService({ runId: RUN_ID, eventsPath: corruptPath });
+    expect(corrupt.getCompletionStats({ getRunMeta: () => ({ fsmFile: 'corrupt.ts' }) })).toEqual({
+      ok: false,
+      error: 'run-event-log-unavailable',
+      diagnostics: [expect.objectContaining({ code: 'malformed-non-final-line' })],
+    });
+  });
+
+  it('updates completion stats after live terminal append', () => {
+    const eventsPath = tempEventsPath();
+    writeJsonl(eventsPath, event(1, 'run.started'));
+    const service = createRunEventQueryService({ runId: RUN_ID, eventsPath });
+
+    expect(service.getCompletionStats({ getRunMeta: () => ({ fsmFile: 'live.ts' }) })).toEqual({
+      ok: true,
+      completionStats: null,
+    });
+
+    expect(service.acceptAppend(withOffsets([event(2, 'run.failed')])[0]!).ok).toBe(true);
+    const completion = service.getCompletionStats({ getRunMeta: () => ({ fsmFile: 'live.ts' }) });
+
+    expect(completion.ok).toBe(true);
+    if (!completion.ok) return;
+    expect(completion.completionStats?.outcome).toBe('failure');
+  });
+
   it('drains all currently indexed events after a cursor across multiple pages', () => {
     const eventsPath = tempEventsPath();
     writeJsonl(eventsPath, ...fixtureEvents());

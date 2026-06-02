@@ -318,6 +318,76 @@ export interface RunEventAggregateStats {
   readonly modelContextWindow?: number;
 }
 
+export type RunCompletionOutcome = 'success' | 'failure' | 'unknown';
+
+export interface RunCompletionDuration {
+  readonly startedAt?: string;
+  readonly endedAt?: string;
+  readonly elapsedMs?: number;
+}
+
+export interface RunCompletionTokenTotals {
+  readonly totalTokens: number;
+  readonly inputTokens: number;
+  readonly cachedInputTokens: number;
+  readonly outputTokens: number;
+  readonly reasoningOutputTokens: number;
+}
+
+export interface RunCompletionTokenSummary extends RunCompletionTokenTotals {
+  readonly mainTokens: number;
+  readonly subthreadTokens: number;
+  readonly unattributedTokens: number;
+}
+
+export interface RunCompletionStateBucket {
+  readonly id: string;
+  readonly label: string;
+  readonly path?: string;
+  readonly elapsedMs: number;
+  readonly eventCount: number;
+  readonly transitionCount: number;
+  readonly mainTurnCount: number;
+  readonly subthreadTurnCount: number;
+  readonly tokenTotals: RunCompletionTokenTotals;
+}
+
+export type RunCompletionTopologyStatus = 'available' | 'fallback';
+
+export type RunCompletionWorkDelta =
+  | {
+      readonly status: 'available';
+      readonly filesChanged: number;
+      readonly linesAdded: number;
+      readonly linesDeleted: number;
+    }
+  | {
+      readonly status: 'unavailable';
+      readonly reason: GitFactUnavailableReason | 'missing';
+    };
+
+/**
+ * API-safe terminal run summary projection.
+ *
+ * This type must not expose raw run metadata, event `raw` payloads, transcript
+ * text, owner input, repo paths, raw FSM file paths, run ids, Codex versions or
+ * pins, git object ids, branch names, remote URLs, file paths, or command
+ * output. It is derived from ordered canonical events at query time.
+ */
+export interface RunCompletionStats {
+  readonly outcome: RunCompletionOutcome;
+  readonly fsmDisplayName: string;
+  readonly duration: RunCompletionDuration;
+  readonly transitionCount: number;
+  readonly freshClearCount: number;
+  readonly mainTurnCount: number;
+  readonly subthreadTurnCount: number;
+  readonly tokenTotals: RunCompletionTokenSummary;
+  readonly topologyStatus: RunCompletionTopologyStatus;
+  readonly stateBuckets: ReadonlyArray<RunCompletionStateBucket>;
+  readonly workDelta: RunCompletionWorkDelta;
+}
+
 export interface RunEventPosture {
   readonly isTerminal: boolean;
   readonly isAwaiting: boolean;

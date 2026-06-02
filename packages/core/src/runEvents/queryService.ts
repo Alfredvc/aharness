@@ -1,6 +1,8 @@
 import { buildRunEventIndex, type RunEventIndex, type RowPageQuery } from './indexer.js';
+import { buildRunCompletionStats } from './completionStats.js';
 import { replayRunEvents } from './replay.js';
 import type {
+  RunCompletionStats,
   RunEventAggregateStats,
   RunEventCompactRow,
   RunEventEnvelope,
@@ -111,6 +113,10 @@ export type ApiRunEventsAfterResult =
   | { readonly ok: true; readonly events: ReadonlyArray<ApiSafeRunEvent> }
   | Exclude<ApiRunEventPageResult, { readonly ok: true }>;
 
+export type ApiRunCompletionStatsResult =
+  | { readonly ok: true; readonly completionStats: RunCompletionStats | null }
+  | RunEventQueryServiceUnavailable;
+
 export type RunEventQueryServiceUpdateResult =
   | { readonly ok: true; readonly latestEventId: string }
   | { readonly ok: false; readonly diagnostic: RunEventReplayDiagnostic };
@@ -129,6 +135,10 @@ export interface RunEventQueryService {
     readonly topology?: TTopology;
     readonly recentLimit?: number;
   }) => ApiRunBootstrapResult<TRunMeta, TTopology>;
+  readonly getCompletionStats: <TRunMeta extends object, TTopology = unknown>(options: {
+    readonly getRunMeta: () => TRunMeta;
+    readonly topology?: TTopology;
+  }) => ApiRunCompletionStatsResult;
   readonly getStateVisitRows: (stateVisitId: string, query?: RowPageQuery) => ApiRunRowPageResult;
   readonly getRecentRows: (query?: RowPageQuery) => ApiRunRowPageResult;
   readonly getEventPage: (query?: {
@@ -422,6 +432,20 @@ export function createRunEventQueryService(
           ).rows,
           diagnostics,
         },
+      };
+    },
+    getCompletionStats(statsOptions) {
+      if (!available) return unavailable(diagnostics);
+      return {
+        ok: true,
+        completionStats: buildRunCompletionStats({
+          events,
+          getRunMeta: statsOptions.getRunMeta,
+          topology:
+            statsOptions.topology !== undefined && isRecord(statsOptions.topology)
+              ? statsOptions.topology
+              : null,
+        }),
       };
     },
     getStateVisitRows(stateVisitId, query) {

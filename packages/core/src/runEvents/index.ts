@@ -16,6 +16,14 @@ export {
   type RunEventAggregateStats,
   type RunEventAppendInput,
   type RunEventCompactRow,
+  type RunCompletionDuration,
+  type RunCompletionOutcome,
+  type RunCompletionStateBucket,
+  type RunCompletionStats,
+  type RunCompletionTokenSummary,
+  type RunCompletionTokenTotals,
+  type RunCompletionTopologyStatus,
+  type RunCompletionWorkDelta,
   type RunEventCorrelationFields,
   type RunEventDiagnosticCode,
   type RunEventDiagnosticSeverity,
@@ -63,6 +71,11 @@ export {
   type RunEventIndex,
 } from './indexer.js';
 export {
+  buildRunCompletionStats,
+  safeFsmDisplayName,
+  type BuildRunCompletionStatsOptions,
+} from './completionStats.js';
+export {
   appEventToEnrichedRunEventAppendInput,
   appEventToRunEventAppendInput,
   compactRunEventPayload,
@@ -92,6 +105,7 @@ export {
   createRunEventQueryService,
   type ApiRunBootstrap,
   type ApiRunBootstrapResult,
+  type ApiRunCompletionStatsResult,
   type ApiRunCurrentState,
   type ApiRunCurrentStateExit,
   type ApiRunEventPageResult,

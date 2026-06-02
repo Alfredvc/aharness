@@ -1,11 +1,11 @@
 # FSM Run Final Overview And Share Card Implementation Recipe
 
 **Parent roadmap:** `docs/plans/2026-06-02-fsm-run-final-overview-share-card-roadmap.md`
-**Current slice:** Slice 1 - completion stats projection
+**Current slice:** Slice 2 - summary API and bootstrap contract
 **Current phase:** plan-slice
 **Current detailed plan:** not written yet
 **Current fix source:** none
-**Last completed:** Slice 0 - canonical git facts and terminal event ordering
+**Last completed:** Slice 1 - completion stats projection
 
 ## Grounding Documents
 
@@ -45,6 +45,20 @@ Final Slice 0 verification passed:
 - `git diff --check`
 - `rg -n "publishRunFailedOnce|signalTerminalCompletion" packages/core/src/cli/runCli.ts`
 
-Next step: write and review a bounded detailed plan for Slice 1 - completion
-stats projection. Slice 1 should consume the Slice 0 git fact events and must
-tolerate older logs where those events are absent.
+Slice 1 was implemented and accepted. It added internal `RunCompletionStats`
+types, a pure query-layer projection, topology-aware state buckets,
+query-service access, and focused projection/query tests. Bootstrap, `/summary`,
+web UI behavior, and public docs remain reserved for later slices.
+
+- `docs/plans/2026-06-02-fsm-run-final-overview-share-card-slice-1-completion-stats-projection.md`
+
+Final Slice 1 verification passed:
+
+- `pnpm exec vitest run packages/core/test/runEvents.completionStats.test.ts packages/core/test/runEvents.queryService.test.ts packages/core/test/runEvents.index.test.ts`
+- `pnpm run typecheck`
+- `git diff --check`
+
+Next step: write and review a bounded detailed plan for Slice 2 - summary API
+and bootstrap contract. Slice 2 should expose Slice 1 completion stats through
+terminal bootstrap and authenticated `/api/runs/:runId/summary`, preserve
+existing run-scoped unavailable-log behavior, and update `docs/architecture.md`.
