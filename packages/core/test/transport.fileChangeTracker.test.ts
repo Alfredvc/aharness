@@ -172,6 +172,28 @@ describe('createFileChangeTracker', () => {
     ]);
   });
 
+  it('ignores non-file thread items for inactive threads without diagnostics', () => {
+    let activeThreadId = 'thread-1';
+    const diagnostics: Array<{ threadId: string; source: string; message: string }> = [];
+    const tracker = createFileChangeTracker({
+      isActiveThread: (threadId) => threadId === activeThreadId,
+      onAbandonedThreadDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    });
+
+    activeThreadId = 'thread-2';
+    tracker.noteThreadItem({
+      threadId: 'thread-1',
+      turnId: 'turn-1',
+      item: {
+        type: 'dynamicToolCall',
+        id: 'submit-1',
+        name: 'aharness_submit',
+      },
+    });
+
+    expect(diagnostics).toEqual([]);
+  });
+
   it('accepts active-thread updates when configured with an active predicate', () => {
     const updates: FileApprovalChangesUpdate[] = [];
     const tracker = createFileChangeTracker({

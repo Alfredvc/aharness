@@ -149,6 +149,12 @@ contain public workflow context snapshots recorded as `context.initialized` and
 sensitive material, even when the browser transcript does not display those
 context values by default.
 
+When an authored state uses `clearOnEntry`, expected closeout notifications from
+the outgoing parent thread are drained without transcript diagnostics or stale
+live-run events after the clear is scheduled. Once the replacement thread has
+published its fresh-clear boundary, late notifications from the previous parent
+thread remain canonical `diagnostic.abandoned_thread` evidence.
+
 Run-scoped routes under `/api/runs/:runId/` serve compact JSONL-backed
 projections for bootstrap state, visit rows, recent rows, diagnostic event
 pages, canonical run-event SSE, and replies. These HTTP/SSE responses omit raw
