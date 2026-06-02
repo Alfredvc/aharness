@@ -296,10 +296,14 @@ function createRunScopedService(options) {
           statePathVisits: { [visit.path]: [visit.id] },
           pending: delayedPublished ? [] : options.pending,
           aggregateStats: { turnCount: 0 },
+          completionStats: null,
           recentRows: rows(),
           diagnostics: [],
         },
       };
+    },
+    getCompletionStats() {
+      return { ok: true, completionStats: null };
     },
     getStateVisitRows(visitId) {
       return {

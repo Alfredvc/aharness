@@ -285,6 +285,7 @@ function createInspectRunScopedRouteService(options: {
         diagnostics: [],
       },
     }),
+    getCompletionStats: () => ({ ok: true, completionStats: null }),
     getStateVisitRows: (stateVisitId) => ({
       ok: true,
       rows: stateVisitId === stateVisit.id ? [row] : [],

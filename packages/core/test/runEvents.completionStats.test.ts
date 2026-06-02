@@ -149,6 +149,7 @@ describe('run completion stats projection', () => {
     expect(JSON.stringify(projected)).not.toContain(RUN_ID);
     expect(JSON.stringify(projected)).not.toContain('codex-secret-pin');
     expect(JSON.stringify(projected)).not.toContain('0123456789abcdef');
+    expect(JSON.stringify(projected)).not.toContain('fedcba9876543210');
     expect(JSON.stringify(projected)).not.toContain('RAW_TRANSCRIPT_SECRET');
     expect(JSON.stringify(projected)).not.toContain('RAW_TOOL_OUTPUT_SECRET');
     expect(JSON.stringify(projected)).not.toContain('OWNER_INPUT_SECRET');

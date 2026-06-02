@@ -69,6 +69,7 @@ export interface ApiRunBootstrap<
   readonly statePathVisits: Readonly<Record<string, ReadonlyArray<string>>>;
   readonly pending: ReadonlyArray<RunEventPendingRequestSummary>;
   readonly aggregateStats: RunEventAggregateStats;
+  readonly completionStats: RunCompletionStats | null;
   readonly recentRows: ReadonlyArray<RunEventCompactRow>;
   readonly diagnostics: ReadonlyArray<RunEventReplayDiagnostic>;
 }
@@ -314,6 +315,19 @@ function liveAppendDiagnostic(
   };
 }
 
+function completionStatsFor<TRunMeta extends object, TTopology = unknown>(options: {
+  readonly events: ReadonlyArray<RunEventWithOffset>;
+  readonly getRunMeta: () => TRunMeta;
+  readonly topology?: TTopology;
+}): RunCompletionStats | null {
+  return buildRunCompletionStats({
+    events: options.events,
+    getRunMeta: options.getRunMeta,
+    topology:
+      options.topology !== undefined && isRecord(options.topology) ? options.topology : null,
+  });
+}
+
 export function createRunEventQueryService(
   options: CreateRunEventQueryServiceOptions,
 ): RunEventQueryService {
@@ -425,6 +439,13 @@ export function createRunEventQueryService(
           statePathVisits: statePathVisits(index.stateVisits),
           pending: index.getPendingRequests(),
           aggregateStats: index.aggregateStats,
+          completionStats: completionStatsFor({
+            events,
+            getRunMeta: bootstrapOptions.getRunMeta,
+            ...(bootstrapOptions.topology !== undefined
+              ? { topology: bootstrapOptions.topology }
+              : {}),
+          }),
           recentRows: index.getRecentRows(
             bootstrapOptions.recentLimit === undefined
               ? undefined
@@ -438,13 +459,10 @@ export function createRunEventQueryService(
       if (!available) return unavailable(diagnostics);
       return {
         ok: true,
-        completionStats: buildRunCompletionStats({
+        completionStats: completionStatsFor({
           events,
           getRunMeta: statsOptions.getRunMeta,
-          topology:
-            statsOptions.topology !== undefined && isRecord(statsOptions.topology)
-              ? statsOptions.topology
-              : null,
+          ...(statsOptions.topology !== undefined ? { topology: statsOptions.topology } : {}),
         }),
       };
     },

@@ -120,7 +120,10 @@ export function safeFsmDisplayName(runMeta: RunMetaLike): string {
 
 function statePath(event: RunEventEnvelope): string | undefined {
   const data = dataOf(event);
-  return readString(data['path']) ?? readString(data['to']);
+  if (event.type === 'state.changed') {
+    return readString(data['path']) ?? readString(data['to']);
+  }
+  return readString(data['path']);
 }
 
 function stateVisitId(event: RunEventEnvelope): string | undefined {

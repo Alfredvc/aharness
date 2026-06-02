@@ -5,6 +5,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import type { RunCompletionStats } from '../runEvents/index.js';
 import type { BrowserReplyResult } from './reply.js';
 import { streamRunScopedSseEvents, type RunScopedSseEvent } from './runScopedSse.js';
 
@@ -27,6 +28,10 @@ export type UiRunScopedRowPageResult =
   | UiRunScopedRouteUnavailable;
 
 export type UiRunScopedEvent = RunScopedSseEvent;
+
+export type UiRunScopedCompletionStatsResult =
+  | { readonly ok: true; readonly completionStats: RunCompletionStats | null }
+  | UiRunScopedRouteUnavailable;
 
 export type UiRunScopedEventPageResult =
   | {
@@ -56,6 +61,10 @@ export interface UiRunScopedRouteService {
     readonly topology?: TTopology;
     readonly recentLimit?: number;
   }) => UiRunScopedBootstrapResult;
+  readonly getCompletionStats: <TRunMeta extends object, TTopology = unknown>(options: {
+    readonly getRunMeta: () => TRunMeta;
+    readonly topology?: TTopology;
+  }) => UiRunScopedCompletionStatsResult;
   readonly getStateVisitRows: (
     stateVisitId: string,
     query?: { readonly cursor?: string | null; readonly limit?: number },
@@ -198,6 +207,7 @@ async function handleRequest(
 
 type RunScopedRoute =
   | { readonly kind: 'bootstrap'; readonly runId: string }
+  | { readonly kind: 'summary'; readonly runId: string }
   | { readonly kind: 'visit-rows'; readonly runId: string; readonly visitId: string }
   | { readonly kind: 'recent-rows'; readonly runId: string }
   | { readonly kind: 'events'; readonly runId: string }
@@ -256,6 +266,16 @@ async function handleRunScopedRequest(
         (result) => result.bootstrap,
       );
       return true;
+    case 'summary':
+      sendRunScopedResult(
+        response,
+        runScoped.service.getCompletionStats({
+          getRunMeta: runScoped.getRunMeta,
+          ...(runScoped.topology !== undefined ? { topology: runScoped.topology } : {}),
+        }),
+        (result) => ({ completionStats: result.completionStats }),
+      );
+      return true;
     case 'visit-rows':
       sendRunScopedResult(
         response,
@@ -304,6 +324,9 @@ function parseRunScopedRoute(
   const segment4 = rawSegments[4];
   if (rawSegments.length === 5 && segment4 === 'bootstrap') {
     return { kind: 'bootstrap', runId };
+  }
+  if (rawSegments.length === 5 && segment4 === 'summary') {
+    return { kind: 'summary', runId };
   }
   if (rawSegments.length === 5 && segment4 === 'events') {
     return { kind: 'events', runId };

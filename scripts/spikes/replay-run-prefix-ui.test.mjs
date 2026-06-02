@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-
-import { afterEach, describe, expect, it } from 'vitest';
+import assert from 'node:assert/strict';
+import { afterEach, describe, it } from 'node:test';
 
 import {
   createReplayRunPrefixRouteService,
@@ -14,6 +14,97 @@ const RUN_ID = 'replay-run';
 
 const tempRoots = [];
 const handles = [];
+
+const OBJECT_CONTAINING = Symbol('objectContaining');
+
+function expect(actual) {
+  return {
+    toBe: (expected) => assert.strictEqual(actual, expected),
+    toEqual: (expected) => assertMatch(actual, expected),
+    toContain: (expected) => assert.ok(actual.includes(expected)),
+    toContainEqual: (expected) => assert.ok(actual.some((item) => matchesExpected(item, expected))),
+    toHaveLength: (expected) => assert.strictEqual(actual.length, expected),
+    toBeNull: () => assert.strictEqual(actual, null),
+    toBeUndefined: () => assert.strictEqual(actual, undefined),
+    toMatch: (expected) => assert.match(actual, expected),
+    toHaveProperty: (property) => assert.ok(Object.hasOwn(actual, property)),
+    not: {
+      toContain: (expected) => assert.ok(!actual.includes(expected)),
+      toHaveProperty: (property) => assert.ok(!Object.hasOwn(actual, property)),
+    },
+  };
+}
+
+expect.objectContaining = (shape) => ({ [OBJECT_CONTAINING]: true, shape });
+
+function assertMatch(actual, expected) {
+  const mismatch = explainMismatch(actual, expected);
+  if (mismatch !== null) {
+    assert.fail(mismatch);
+  }
+}
+
+function matchesExpected(actual, expected) {
+  return explainMismatch(actual, expected) === null;
+}
+
+function explainMismatch(actual, expected, path = 'value') {
+  if (isObjectContaining(expected)) {
+    if (!isRecord(actual)) return `${path} expected an object`;
+    for (const [key, value] of Object.entries(expected.shape)) {
+      const mismatch = explainMismatch(actual[key], value, `${path}.${key}`);
+      if (mismatch !== null) return mismatch;
+    }
+    return null;
+  }
+
+  if (Array.isArray(expected)) {
+    if (!Array.isArray(actual)) return `${path} expected an array`;
+    if (actual.length !== expected.length) {
+      return `${path} expected length ${expected.length}, received ${actual.length}`;
+    }
+    for (let index = 0; index < expected.length; index += 1) {
+      const mismatch = explainMismatch(actual[index], expected[index], `${path}[${index}]`);
+      if (mismatch !== null) return mismatch;
+    }
+    return null;
+  }
+
+  if (isPlainObject(expected)) {
+    if (!isPlainObject(actual)) return `${path} expected a plain object`;
+    const actualKeys = Object.keys(actual).sort();
+    const expectedKeys = Object.keys(expected).sort();
+    try {
+      assert.deepStrictEqual(actualKeys, expectedKeys);
+    } catch {
+      return `${path} expected keys ${expectedKeys.join(',')}, received ${actualKeys.join(',')}`;
+    }
+    for (const key of expectedKeys) {
+      const mismatch = explainMismatch(actual[key], expected[key], `${path}.${key}`);
+      if (mismatch !== null) return mismatch;
+    }
+    return null;
+  }
+
+  try {
+    assert.deepStrictEqual(actual, expected);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? `${path}: ${error.message}` : `${path} mismatch`;
+  }
+}
+
+function isObjectContaining(value) {
+  return isRecord(value) && value[OBJECT_CONTAINING] === true;
+}
+
+function isRecord(value) {
+  return typeof value === 'object' && value !== null;
+}
+
+function isPlainObject(value) {
+  return isRecord(value) && Object.getPrototypeOf(value) === Object.prototype;
+}
 
 afterEach(async () => {
   while (handles.length > 0) {
@@ -78,6 +169,34 @@ function fixtureEvents() {
       itemId: 'assistant-message-1',
       data: { delta: ' beyond prefix' },
     }),
+  ];
+}
+
+function terminalFixtureEvents() {
+  return [
+    event(1, 'run.started', { data: { startedAt: '2026-05-31T00:00:01.000Z' } }),
+    event(2, 'state.changed', {
+      stateVisitId: 'root.plan#1',
+      data: {
+        path: 'root.plan',
+        to: 'root.plan',
+        leaf: 'plan',
+        kind: 'stateful',
+        stateVisitId: 'root.plan#1',
+      },
+      raw: { ownerInput: 'raw owner input must not leak from replay summary' },
+    }),
+    event(3, 'git.diff.recorded', {
+      data: {
+        status: 'available',
+        from: 'from-object-id',
+        to: 'to-object-id',
+        filesChanged: 2,
+        linesAdded: 5,
+        linesDeleted: 1,
+      },
+    }),
+    event(4, 'run.completed', { data: { endedAt: '2026-05-31T00:00:04.000Z' } }),
   ];
 }
 
@@ -232,6 +351,13 @@ function makeFixtureLog() {
   return eventsPath;
 }
 
+function makeTerminalFixtureLog() {
+  const root = tempRoot();
+  const eventsPath = join(root, 'events.jsonl');
+  writeEventsJsonl(eventsPath, terminalFixtureEvents());
+  return eventsPath;
+}
+
 function makeContextFixtureLog() {
   const root = tempRoot();
   const eventsPath = join(root, 'events.jsonl');
@@ -318,7 +444,14 @@ describe('replay-run-prefix-ui spike helper', () => {
     });
     expect(bootstrap.stateVisits).toEqual([bootstrap.currentStateVisit]);
     expect(bootstrap.statePathVisits).toEqual({ 'root.plan': ['root.plan#1'] });
+    expect(bootstrap.completionStats).toBeNull();
     expect(bootstrap.recentRows).toEqual([]);
+
+    const summaryResponse = await fetch(`${replay.server.url}/api/runs/${RUN_ID}/summary`, {
+      headers: { 'X-Aharness-Ui-Token': 'test-token' },
+    });
+    expect(summaryResponse.status).toBe(200);
+    expect(await summaryResponse.json()).toEqual({ completionStats: null });
   });
 
   it('drains exactly the first N canonical events immediately through run-scoped SSE', async () => {
@@ -371,6 +504,7 @@ describe('replay-run-prefix-ui spike helper', () => {
       expect(bootstrap.bootstrap.currentStateVisit).toEqual(
         expect.objectContaining({ id: 'root.plan#1' }),
       );
+      expect(bootstrap.bootstrap.completionStats).toBeNull();
       expect(bootstrap.bootstrap.recentRows).toEqual([]);
 
       const drained = replay.service.eventsAfter(null);
@@ -390,6 +524,46 @@ describe('replay-run-prefix-ui spike helper', () => {
     } finally {
       replay.dispose();
     }
+  });
+
+  it('serves terminal replay-prefix completion stats through bootstrap and summary', async () => {
+    const eventsPath = makeTerminalFixtureLog();
+    const replay = await startReplayRunPrefixUi({
+      inputPath: eventsPath,
+      eventCount: 4,
+      token: 'test-token',
+      fsm: '/secret/replay-demo.fsm.ts',
+    });
+    handles.push(replay);
+
+    const bootstrapResponse = await fetch(`${replay.server.url}/api/runs/${RUN_ID}/bootstrap`, {
+      headers: { 'X-Aharness-Ui-Token': 'test-token' },
+    });
+    const bootstrap = await bootstrapResponse.json();
+    expect(bootstrapResponse.status).toBe(200);
+    expect(bootstrap.completionStats).toEqual(
+      expect.objectContaining({
+        outcome: 'success',
+        fsmDisplayName: 'replay-demo.fsm',
+        workDelta: {
+          status: 'available',
+          filesChanged: 2,
+          linesAdded: 5,
+          linesDeleted: 1,
+        },
+      }),
+    );
+
+    const summaryResponse = await fetch(`${replay.server.url}/api/runs/${RUN_ID}/summary`, {
+      headers: { 'X-Aharness-Ui-Token': 'test-token' },
+    });
+    const summary = await summaryResponse.json();
+    expect(summaryResponse.status).toBe(200);
+    expect(summary).toEqual({ completionStats: bootstrap.completionStats });
+    expect(JSON.stringify(summary)).not.toContain('/secret');
+    expect(JSON.stringify(summary)).not.toContain('from-object-id');
+    expect(JSON.stringify(summary)).not.toContain('to-object-id');
+    expect(JSON.stringify(summary)).not.toContain('raw owner input must not leak');
   });
 
   it('replays context events without attaching later snapshots to the bootstrap state seed', () => {

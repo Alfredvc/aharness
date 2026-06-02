@@ -1,11 +1,11 @@
 # FSM Run Final Overview And Share Card Implementation Recipe
 
 **Parent roadmap:** `docs/plans/2026-06-02-fsm-run-final-overview-share-card-roadmap.md`
-**Current slice:** Slice 2 - summary API and bootstrap contract
+**Current slice:** Slice 3 - web client completion contract
 **Current phase:** plan-slice
 **Current detailed plan:** not written yet
 **Current fix source:** none
-**Last completed:** Slice 1 - completion stats projection
+**Last completed:** Slice 2 - summary API and bootstrap contract
 
 ## Grounding Documents
 
@@ -58,7 +58,29 @@ Final Slice 1 verification passed:
 - `pnpm run typecheck`
 - `git diff --check`
 
-Next step: write and review a bounded detailed plan for Slice 2 - summary API
-and bootstrap contract. Slice 2 should expose Slice 1 completion stats through
-terminal bootstrap and authenticated `/api/runs/:runId/summary`, preserve
-existing run-scoped unavailable-log behavior, and update `docs/architecture.md`.
+Slice 2 was implemented and accepted. It exposed terminal completion stats
+through bootstrap and authenticated `GET /api/runs/:runId/summary`, updated the
+run-scoped route-service contract and all known implementers, preserved
+run-scoped unavailable-log and SSE/event boundaries, documented the architecture
+contract, and fixed a completion-projection privacy leak where
+`git.diff.recorded.data.to` could be interpreted as a state path.
+
+- `docs/plans/2026-06-02-fsm-run-final-overview-share-card-slice-2-summary-api-bootstrap-contract.md`
+
+Final Slice 2 verification passed:
+
+- `pnpm run build`
+- `pnpm exec vitest run packages/core/test/runEvents.completionStats.test.ts packages/core/test/runEvents.queryService.test.ts packages/core/test/ui.runScopedServer.test.ts packages/core/test/ui.sse.test.ts packages/core/test/ui.browserGolden.test.ts packages/core/test/runtime.uiExports.types.test.ts packages/core/test/runEvents.index.test.ts`
+- `node --test scripts/spikes/replay-run-prefix-ui.test.mjs`
+- `node --check scripts/spikes/replay-run-prefix-ui.mjs`
+- `node --check packages/core/scripts/browserGoldenServer.mjs`
+- `rg -n "getCompletionStats" packages/core/src/cli/visualizeCli.ts packages/core/test/ui.browserGolden.test.ts packages/core/test/runtime.uiExports.types.test.ts packages/core/test/ui.sse.test.ts scripts/spikes/replay-run-prefix-ui.mjs packages/core/scripts/browserGoldenServer.mjs`
+- `pnpm exec vitest run packages/core/test/runEvents.queryService.test.ts packages/core/test/ui.runScopedServer.test.ts packages/core/test/ui.sse.test.ts packages/core/test/ui.browserGolden.test.ts packages/core/test/runtime.uiExports.types.test.ts packages/core/test/runEvents.index.test.ts`
+- `pnpm run typecheck`
+- `git diff --check`
+
+Next step: write and review a bounded detailed plan for Slice 3 - web client
+completion contract. Slice 3 should add web-side completion-stat types,
+validators, summary fetching, bootstrap completion validation, and SSE allowlist
+entries for git fact events without implementing the final overview modal or
+share-card behavior.

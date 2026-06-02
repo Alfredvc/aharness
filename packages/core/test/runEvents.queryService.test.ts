@@ -235,6 +235,7 @@ describe('run event query service', () => {
         modelContextWindow: 128000,
       }),
     );
+    expect(bootstrap.bootstrap.completionStats).toBeNull();
     expect(bootstrap.bootstrap.recentRows.map((row) => row.text ?? row.summary)).toEqual([
       'root.plan',
       'Hello from data',
@@ -645,7 +646,7 @@ describe('run event query service', () => {
     expect(notified).toEqual(['run-query:2']);
   });
 
-  it('serves completion stats for terminal runs without changing bootstrap', () => {
+  it('serves completion stats for terminal runs through completion and bootstrap projections', () => {
     const eventsPath = tempEventsPath();
     writeJsonl(
       eventsPath,
@@ -653,10 +654,11 @@ describe('run event query service', () => {
       event(2, 'state.changed', {
         stateVisitId: 'visit-plan',
         data: { path: 'root.plan', stateVisitId: 'visit-plan', kind: 'stateful' },
-        raw: { ownerInput: 'raw owner input must not leak' },
+        raw: { ownerInput: 'raw owner input must not leak', fsmFile: '/raw/path.fsm.ts' },
       }),
       event(3, 'token.updated', {
         data: { total: { totalTokens: 11, inputTokens: 8, outputTokens: 3 } },
+        raw: { codexPin: 'raw-codex-pin' },
       }),
       event(4, 'git.diff.recorded', {
         data: {
@@ -688,16 +690,28 @@ describe('run event query service', () => {
     );
     expect(JSON.stringify(completion.completionStats)).not.toContain('/secret');
     expect(JSON.stringify(completion.completionStats)).not.toContain('from-object-id');
+    expect(JSON.stringify(completion.completionStats)).not.toContain('to-object-id');
+    expect(JSON.stringify(completion.completionStats)).not.toContain('secret-pin');
+    expect(JSON.stringify(completion.completionStats)).not.toContain('raw-codex-pin');
     expect(JSON.stringify(completion.completionStats)).not.toContain(
       'raw owner input must not leak',
     );
+    expect(JSON.stringify(completion.completionStats)).not.toContain('"raw"');
 
     const bootstrap = service.getBootstrap({
-      getRunMeta: () => ({ fsmFile: '/secret/demo.fsm.ts' }),
+      getRunMeta: () => ({ fsmFile: '/secret/demo.fsm.ts', codexPin: 'secret-pin' }),
+      topology: { nodes: [{ id: 'root.plan', label: 'Plan', kind: 'stateful' }] },
     });
     expect(bootstrap.ok).toBe(true);
     if (!bootstrap.ok) return;
-    expect(bootstrap.bootstrap).not.toHaveProperty('completionStats');
+    expect(bootstrap.bootstrap.completionStats).toEqual(completion.completionStats);
+    expect(JSON.stringify(bootstrap.bootstrap.completionStats)).not.toContain('/secret');
+    expect(JSON.stringify(bootstrap.bootstrap.completionStats)).not.toContain('from-object-id');
+    expect(JSON.stringify(bootstrap.bootstrap.completionStats)).not.toContain('to-object-id');
+    expect(JSON.stringify(bootstrap.bootstrap.completionStats)).not.toContain('secret-pin');
+    expect(JSON.stringify(bootstrap.bootstrap.completionStats)).not.toContain(
+      'raw owner input must not leak',
+    );
   });
 
   it('returns active-null and unavailable completion results through the query service', () => {
