@@ -3,6 +3,7 @@ import { readBootToken, useAharnessSession } from './state/store';
 import { Graph } from './components/Graph';
 import { ActivePanel } from './components/ActivePanel';
 import { BootSkeleton } from './components/BootSkeleton';
+import { FinalOverviewModal } from './components/FinalOverviewModal';
 import { RunStatsBar } from './components/RunStatsBar';
 import './components/components.css';
 
@@ -28,6 +29,10 @@ export function AharnessShell({ session }: { session: ReturnType<typeof useAharn
       if (target && /^(INPUT|TEXTAREA)$/.test(target.tagName)) return;
       if (e.key === '?') {
         setHelpOpen((o) => !o);
+        return;
+      }
+      if (e.key === 'Escape' && session.posture.isTerminal && session.finalOverview.open) {
+        session.dismissFinalOverview();
         return;
       }
       if (e.key === 'v' || e.key === 'V') {
@@ -81,6 +86,14 @@ export function AharnessShell({ session }: { session: ReturnType<typeof useAharn
         </main>
       )}
       {showBoot ? null : <RunStatsBar session={session} variant="bottom" />}
+      {session.posture.isTerminal && session.finalOverview.open ? (
+        <FinalOverviewModal
+          completionStats={session.completionStats}
+          loading={session.finalOverview.loading}
+          error={session.finalOverview.error}
+          onClose={session.dismissFinalOverview}
+        />
+      ) : null}
       {helpOpen ? <HelpOverlay onClose={() => setHelpOpen(false)} /> : null}
     </div>
   );
@@ -132,6 +145,15 @@ function TopHeader({
         <RunStatsBar session={session} variant="header" />
       </div>
       <div className="top-actions">
+        {posture.isTerminal ? (
+          <button
+            className="top-btn"
+            onClick={session.openFinalOverview}
+            title="Open final run summary"
+          >
+            summary
+          </button>
+        ) : null}
         <button
           className={`top-btn ${devMode ? 'on' : ''}`}
           onClick={toggleDevMode}

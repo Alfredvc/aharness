@@ -1,11 +1,11 @@
 # FSM Run Final Overview And Share Card Implementation Recipe
 
 **Parent roadmap:** `docs/plans/2026-06-02-fsm-run-final-overview-share-card-roadmap.md`
-**Current slice:** Slice 4 - final overview modal and terminal reopen action
+**Current slice:** Slice 5 - share-card preview and PNG export
 **Current phase:** plan-slice
 **Current detailed plan:** not written yet
 **Current fix source:** none
-**Last completed:** Slice 3 - web client completion contract
+**Last completed:** Slice 4 - final overview modal and terminal reopen action
 
 ## Grounding Documents
 
@@ -94,7 +94,22 @@ Final Slice 3 verification passed:
 - `pnpm --dir packages/web-ui run typecheck`
 - `git diff --check`
 
-Next step: write and review a bounded detailed plan for Slice 4 - final overview
-modal and terminal reopen action. Slice 4 should add terminal-only overview
-state and UI behavior using the Slice 3 typed summary client, without enabling
-share-card preview or PNG export behavior reserved for Slice 5.
+Slice 4 was implemented and accepted. It added terminal-only final overview
+state, summary fetching on terminal bootstrap/live completion, modal rendering
+with loading, loaded, partial, failure, unavailable-work-delta, and low-disclosure
+states, terminal header `Summary` reopening, close/Escape/backdrop dismissal,
+focused reducer/hook/App/component tests, and public reference documentation for
+overview behavior and recorded-git-fact work-delta availability. Share-card
+preview and PNG export behavior remain reserved for Slice 5.
+
+- `docs/plans/2026-06-02-fsm-run-final-overview-share-card-slice-4-final-overview-modal.md`
+
+Final Slice 4 verification passed:
+
+- `pnpm exec vitest run packages/web-ui/src/state/store.test.ts packages/web-ui/src/state/store.hook.test.ts packages/web-ui/src/App.test.ts packages/web-ui/src/App.dom.test.ts packages/web-ui/src/components/FinalOverviewModal.test.ts`
+- `pnpm --dir packages/web-ui run typecheck`
+- `git diff --check`
+- `rg -n "Download PNG|Copy PNG|Clipboard|toBlob|share-card|share card|RunCompletionShare" packages/web-ui/src/App.tsx packages/web-ui/src/components/FinalOverviewModal.tsx packages/web-ui/src/state/store.ts docs/reference.md`
+
+Next step: write and review a bounded detailed plan for Slice 5 - share-card
+preview and PNG export.

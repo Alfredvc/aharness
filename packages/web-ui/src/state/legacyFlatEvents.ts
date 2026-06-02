@@ -98,6 +98,14 @@ export function hydrateFromSnapshot(snapshot: UiSnapshot): UiState {
         ? {}
         : { activeTurnId: snapshot.state.activeTurn.turnId }),
     },
+    completionStats: null,
+    finalOverview: {
+      open: false,
+      autoOpened: false,
+      dismissed: false,
+      loading: false,
+      error: null,
+    },
     history: snapshot.state.currentState
       ? [
           {

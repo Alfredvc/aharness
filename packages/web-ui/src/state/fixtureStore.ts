@@ -123,6 +123,16 @@ export function useFixtureAharnessSession(): UiState & UiActions {
   return {
     ...state,
     reply,
+    openFinalOverview: () =>
+      setState((current) => ({
+        ...current,
+        finalOverview: { ...current.finalOverview, open: true, dismissed: false, error: null },
+      })),
+    dismissFinalOverview: () =>
+      setState((current) => ({
+        ...current,
+        finalOverview: { ...current.finalOverview, open: false, dismissed: true },
+      })),
     toggleDevMode: () => setState((current) => ({ ...current, devMode: !current.devMode })),
     setScope: (path: string | null) => setState((current) => ({ ...current, scopedPath: path })),
   };

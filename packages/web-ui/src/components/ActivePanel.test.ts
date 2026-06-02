@@ -89,6 +89,14 @@ function baseSession(overrides: Partial<TestSession> = {}): TestSession {
     recentRowsCursor: null,
     recentRowsLoadStatus: { loading: false, loaded: false, error: null },
     aggregateStats: { turnCount: 0 },
+    completionStats: null,
+    finalOverview: {
+      open: false,
+      autoOpened: false,
+      dismissed: false,
+      loading: false,
+      error: null,
+    },
     history: [
       {
         at: 1,
@@ -115,6 +123,8 @@ function baseSession(overrides: Partial<TestSession> = {}): TestSession {
     reply: () => Promise.resolve(),
     requestRowsForStatePath: () => Promise.resolve(),
     requestRecentRows: () => Promise.resolve(),
+    openFinalOverview: () => undefined,
+    dismissFinalOverview: () => undefined,
     toggleDevMode: () => undefined,
     setScope: () => undefined,
     ...overrides,
