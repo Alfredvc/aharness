@@ -9,7 +9,10 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { replayRunEvents } from '../../packages/core/dist/runEvents/index.js';
+import {
+  buildRunCompletionStats,
+  replayRunEvents,
+} from '../../packages/core/dist/runEvents/index.js';
 import { startUiServer } from '../../packages/core/dist/ui/server.js';
 
 const DEFAULT_HOST = '127.0.0.1';
@@ -82,9 +85,17 @@ export function createReplayRunPrefixRouteService(options) {
           statePathVisits: bootstrapSeed.statePathVisits,
           pending: [],
           aggregateStats: { turnCount: 0 },
+          completionStats: buildReplayCompletionStats({ events, getRunMeta, topology }),
           recentRows: [],
           diagnostics,
         },
+      };
+    },
+    getCompletionStats: ({ getRunMeta, topology }) => {
+      if (!available) return unavailable(diagnostics);
+      return {
+        ok: true,
+        completionStats: buildReplayCompletionStats({ events, getRunMeta, topology }),
       };
     },
     getStateVisitRows: () => ({ ok: true, rows: [], nextCursor: null }),
@@ -304,6 +315,14 @@ function normalizeEventCount(value) {
 
 function unavailable(diagnostics) {
   return { ok: false, error: 'run-event-log-unavailable', diagnostics };
+}
+
+function buildReplayCompletionStats({ events, getRunMeta, topology }) {
+  return buildRunCompletionStats({
+    events,
+    getRunMeta,
+    topology: isRecord(topology) ? topology : null,
+  });
 }
 
 function parseEventCursor(runId, after) {

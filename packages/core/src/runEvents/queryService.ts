@@ -1,6 +1,8 @@
 import { buildRunEventIndex, type RunEventIndex, type RowPageQuery } from './indexer.js';
+import { buildRunCompletionStats } from './completionStats.js';
 import { replayRunEvents } from './replay.js';
 import type {
+  RunCompletionStats,
   RunEventAggregateStats,
   RunEventCompactRow,
   RunEventEnvelope,
@@ -71,6 +73,7 @@ export interface ApiRunBootstrap<
   readonly statePathVisits: Readonly<Record<string, ReadonlyArray<string>>>;
   readonly pending: ReadonlyArray<RunEventPendingRequestSummary>;
   readonly aggregateStats: RunEventAggregateStats;
+  readonly completionStats: RunCompletionStats | null;
   readonly recentRows: ReadonlyArray<RunEventCompactRow>;
   readonly diagnostics: ReadonlyArray<RunEventReplayDiagnostic>;
 }
@@ -115,6 +118,10 @@ export type ApiRunEventsAfterResult =
   | { readonly ok: true; readonly events: ReadonlyArray<ApiSafeRunEvent> }
   | Exclude<ApiRunEventPageResult, { readonly ok: true }>;
 
+export type ApiRunCompletionStatsResult =
+  | { readonly ok: true; readonly completionStats: RunCompletionStats | null }
+  | RunEventQueryServiceUnavailable;
+
 export type RunEventQueryServiceUpdateResult =
   | { readonly ok: true; readonly latestEventId: string }
   | { readonly ok: false; readonly diagnostic: RunEventReplayDiagnostic };
@@ -133,6 +140,10 @@ export interface RunEventQueryService {
     readonly topology?: TTopology;
     readonly recentLimit?: number;
   }) => ApiRunBootstrapResult<TRunMeta, TTopology>;
+  readonly getCompletionStats: <TRunMeta extends object, TTopology = unknown>(options: {
+    readonly getRunMeta: () => TRunMeta;
+    readonly topology?: TTopology;
+  }) => ApiRunCompletionStatsResult;
   readonly getStateVisitRows: (stateVisitId: string, query?: RowPageQuery) => ApiRunRowPageResult;
   readonly getRecentRows: (query?: RowPageQuery) => ApiRunRowPageResult;
   readonly getEventPage: (query?: {
@@ -308,6 +319,19 @@ function liveAppendDiagnostic(
   };
 }
 
+function completionStatsFor<TRunMeta extends object, TTopology = unknown>(options: {
+  readonly events: ReadonlyArray<RunEventWithOffset>;
+  readonly getRunMeta: () => TRunMeta;
+  readonly topology?: TTopology;
+}): RunCompletionStats | null {
+  return buildRunCompletionStats({
+    events: options.events,
+    getRunMeta: options.getRunMeta,
+    topology:
+      options.topology !== undefined && isRecord(options.topology) ? options.topology : null,
+  });
+}
+
 export function createRunEventQueryService(
   options: CreateRunEventQueryServiceOptions,
 ): RunEventQueryService {
@@ -419,6 +443,13 @@ export function createRunEventQueryService(
           statePathVisits: statePathVisits(index.stateVisits),
           pending: index.getPendingRequests(),
           aggregateStats: index.aggregateStats,
+          completionStats: completionStatsFor({
+            events,
+            getRunMeta: bootstrapOptions.getRunMeta,
+            ...(bootstrapOptions.topology !== undefined
+              ? { topology: bootstrapOptions.topology }
+              : {}),
+          }),
           recentRows: index.getRecentRows(
             bootstrapOptions.recentLimit === undefined
               ? undefined
@@ -426,6 +457,17 @@ export function createRunEventQueryService(
           ).rows,
           diagnostics,
         },
+      };
+    },
+    getCompletionStats(statsOptions) {
+      if (!available) return unavailable(diagnostics);
+      return {
+        ok: true,
+        completionStats: completionStatsFor({
+          events,
+          getRunMeta: statsOptions.getRunMeta,
+          ...(statsOptions.topology !== undefined ? { topology: statsOptions.topology } : {}),
+        }),
       };
     },
     getStateVisitRows(stateVisitId, query) {

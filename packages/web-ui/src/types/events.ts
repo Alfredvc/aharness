@@ -199,6 +199,85 @@ export type RunScopedAggregateStats = {
   modelContextWindow?: number;
 };
 
+export type RunCompletionOutcome = 'success' | 'failure' | 'unknown';
+
+export type RunCompletionDuration = {
+  startedAt?: string;
+  endedAt?: string;
+  elapsedMs?: number;
+};
+
+export type RunCompletionTokenTotals = {
+  totalTokens: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+};
+
+export type RunCompletionTokenSummary = RunCompletionTokenTotals & {
+  mainTokens: number;
+  subthreadTokens: number;
+  unattributedTokens: number;
+};
+
+export type RunCompletionStateBucket = {
+  id: string;
+  label: string;
+  path?: string;
+  elapsedMs: number;
+  eventCount: number;
+  transitionCount: number;
+  mainTurnCount: number;
+  subthreadTurnCount: number;
+  tokenTotals: RunCompletionTokenTotals;
+};
+
+export type RunCompletionTopologyStatus = 'available' | 'fallback';
+
+export type RunCompletionWorkDelta =
+  | {
+      status: 'available';
+      filesChanged: number;
+      linesAdded: number;
+      linesDeleted: number;
+    }
+  | {
+      status: 'unavailable';
+      reason:
+        | 'not-a-git-repository'
+        | 'git-unavailable'
+        | 'timeout'
+        | 'head-unavailable'
+        | 'object-unavailable'
+        | 'diff-unavailable'
+        | 'probe-failed'
+        | 'missing';
+    };
+
+type RunCompletionWorkDeltaUnavailableReason = Extract<
+  RunCompletionWorkDelta,
+  { status: 'unavailable' }
+>['reason'];
+
+export type RunCompletionStats = {
+  outcome: RunCompletionOutcome;
+  fsmDisplayName: string;
+  duration: RunCompletionDuration;
+  transitionCount: number;
+  freshClearCount: number;
+  mainTurnCount: number;
+  subthreadTurnCount: number;
+  tokenTotals: RunCompletionTokenSummary;
+  topologyStatus: RunCompletionTopologyStatus;
+  stateBuckets: ReadonlyArray<RunCompletionStateBucket>;
+  workDelta: RunCompletionWorkDelta;
+};
+
+export type RunSummaryResponse = {
+  completionStats: RunCompletionStats | null;
+};
+
 export type RunScopedCompactRow = {
   id: string;
   eventId: string;
@@ -243,6 +322,7 @@ export type RunScopedBootstrap = {
   stateVisits: ReadonlyArray<RunScopedStateVisit>;
   statePathVisits: Readonly<Record<string, ReadonlyArray<string>>>;
   pending: ReadonlyArray<RunScopedPendingRequestSummary>;
+  completionStats?: RunCompletionStats | null;
   aggregateStats: RunScopedAggregateStats;
   recentRows: ReadonlyArray<RunScopedCompactRow>;
   diagnostics: ReadonlyArray<RunScopedReplayDiagnostic>;
@@ -573,6 +653,13 @@ export function isRunScopedBootstrap(value: unknown): value is RunScopedBootstra
   if (!isArrayOf(value['stateVisits'], isRunScopedStateVisit)) return false;
   if (!isStatePathVisits(value['statePathVisits'])) return false;
   if (!isArrayOf(value['pending'], isRunScopedPendingRequestSummary)) return false;
+  if (
+    value['completionStats'] !== undefined &&
+    value['completionStats'] !== null &&
+    !isRunCompletionStats(value['completionStats'])
+  ) {
+    return false;
+  }
   if (!isRunScopedAggregateStats(value['aggregateStats'])) return false;
   if (!isArrayOf(value['recentRows'], isRunScopedCompactRow)) return false;
   if (!isArrayOf(value['diagnostics'], isRunScopedReplayDiagnostic)) return false;
@@ -580,6 +667,31 @@ export function isRunScopedBootstrap(value: unknown): value is RunScopedBootstra
     return false;
   }
   return true;
+}
+
+export function isRunCompletionStats(value: unknown): value is RunCompletionStats {
+  if (!isRecord(value) || hasDisallowedCompletionKey(value)) return false;
+  return (
+    isRunCompletionOutcome(value['outcome']) &&
+    isNonEmptyString(value['fsmDisplayName']) &&
+    isRunCompletionDuration(value['duration']) &&
+    isNonNegativeSafeNumber(value['transitionCount']) &&
+    isNonNegativeSafeNumber(value['freshClearCount']) &&
+    isNonNegativeSafeNumber(value['mainTurnCount']) &&
+    isNonNegativeSafeNumber(value['subthreadTurnCount']) &&
+    isRunCompletionTokenSummary(value['tokenTotals']) &&
+    isRunCompletionTopologyStatus(value['topologyStatus']) &&
+    isArrayOf(value['stateBuckets'], isRunCompletionStateBucket) &&
+    isRunCompletionWorkDelta(value['workDelta'])
+  );
+}
+
+export function isRunSummaryResponse(value: unknown): value is RunSummaryResponse {
+  return (
+    isRecord(value) &&
+    !hasDisallowedCompletionKey(value) &&
+    (value['completionStats'] === null || isRunCompletionStats(value['completionStats']))
+  );
 }
 
 export function isRunScopedRowPage(value: unknown): value is RunScopedRowPage {
@@ -1011,6 +1123,89 @@ function isRunScopedAggregateStats(value: unknown): value is RunScopedAggregateS
   );
 }
 
+function isRunCompletionOutcome(value: unknown): value is RunCompletionOutcome {
+  return value === 'success' || value === 'failure' || value === 'unknown';
+}
+
+function isRunCompletionDuration(value: unknown): value is RunCompletionDuration {
+  return (
+    isRecord(value) &&
+    isOptionalString(value['startedAt']) &&
+    isOptionalString(value['endedAt']) &&
+    isOptionalNonNegativeFiniteNumber(value['elapsedMs'])
+  );
+}
+
+function isRunCompletionTokenTotals(value: unknown): value is RunCompletionTokenTotals {
+  return (
+    isRecord(value) &&
+    isNonNegativeSafeNumber(value['totalTokens']) &&
+    isNonNegativeSafeNumber(value['inputTokens']) &&
+    isNonNegativeSafeNumber(value['cachedInputTokens']) &&
+    isNonNegativeSafeNumber(value['outputTokens']) &&
+    isNonNegativeSafeNumber(value['reasoningOutputTokens'])
+  );
+}
+
+function isRunCompletionTokenSummary(value: unknown): value is RunCompletionTokenSummary {
+  if (!isRecord(value) || !isRunCompletionTokenTotals(value)) return false;
+  const summary = value as Record<string, unknown>;
+  return (
+    isNonNegativeSafeNumber(summary['mainTokens']) &&
+    isNonNegativeSafeNumber(summary['subthreadTokens']) &&
+    isNonNegativeSafeNumber(summary['unattributedTokens'])
+  );
+}
+
+function isRunCompletionTopologyStatus(value: unknown): value is RunCompletionTopologyStatus {
+  return value === 'available' || value === 'fallback';
+}
+
+function isRunCompletionStateBucket(value: unknown): value is RunCompletionStateBucket {
+  return (
+    isRecord(value) &&
+    !hasDisallowedCompletionKey(value, { allowPathKey: true }) &&
+    isNonEmptyString(value['id']) &&
+    isNonEmptyString(value['label']) &&
+    isOptionalString(value['path']) &&
+    isNonNegativeFiniteNumber(value['elapsedMs']) &&
+    isNonNegativeSafeNumber(value['eventCount']) &&
+    isNonNegativeSafeNumber(value['transitionCount']) &&
+    isNonNegativeSafeNumber(value['mainTurnCount']) &&
+    isNonNegativeSafeNumber(value['subthreadTurnCount']) &&
+    isRunCompletionTokenTotals(value['tokenTotals'])
+  );
+}
+
+function isRunCompletionWorkDelta(value: unknown): value is RunCompletionWorkDelta {
+  if (!isRecord(value)) return false;
+  if (value['status'] === 'available') {
+    return (
+      isNonNegativeSafeNumber(value['filesChanged']) &&
+      isNonNegativeSafeNumber(value['linesAdded']) &&
+      isNonNegativeSafeNumber(value['linesDeleted'])
+    );
+  }
+  return (
+    value['status'] === 'unavailable' && isRunCompletionWorkDeltaUnavailableReason(value['reason'])
+  );
+}
+
+function isRunCompletionWorkDeltaUnavailableReason(
+  value: unknown,
+): value is RunCompletionWorkDeltaUnavailableReason {
+  return (
+    value === 'not-a-git-repository' ||
+    value === 'git-unavailable' ||
+    value === 'timeout' ||
+    value === 'head-unavailable' ||
+    value === 'object-unavailable' ||
+    value === 'diff-unavailable' ||
+    value === 'probe-failed' ||
+    value === 'missing'
+  );
+}
+
 function isRunScopedCompactRow(value: unknown): value is RunScopedCompactRow {
   if (!isRecord(value) || 'raw' in value) return false;
   return (
@@ -1126,6 +1321,58 @@ function isSafeNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value);
 }
 
+function isNonNegativeSafeNumber(value: unknown): value is number {
+  return isSafeNumber(value) && value >= 0;
+}
+
+function isNonNegativeFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function isOptionalNonNegativeFiniteNumber(value: unknown): value is number | undefined {
+  return value === undefined || (typeof value === 'number' && Number.isFinite(value) && value >= 0);
+}
+
 function isOptionalNumber(value: unknown): value is number | undefined {
   return value === undefined || (typeof value === 'number' && Number.isFinite(value));
+}
+
+const DISALLOWED_COMPLETION_KEYS = new Set([
+  'runId',
+  'repoRoot',
+  'fsmFile',
+  'codexPin',
+  'codexVersion',
+  'head',
+  'from',
+  'to',
+  'branch',
+  'remote',
+  'path',
+  'command',
+  'output',
+  'transcript',
+  'ownerInput',
+  'raw',
+]);
+
+function hasDisallowedCompletionKey(
+  value: unknown,
+  options: { allowPathKey?: boolean } = {},
+): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => hasDisallowedCompletionKey(item, options));
+  }
+  if (!isRecord(value)) return false;
+
+  for (const [key, nested] of Object.entries(value)) {
+    if (DISALLOWED_COMPLETION_KEYS.has(key) && !(key === 'path' && options.allowPathKey)) {
+      return true;
+    }
+    const childOptions = key === 'stateBuckets' ? { allowPathKey: true } : {};
+    if (hasDisallowedCompletionKey(nested, childOptions)) {
+      return true;
+    }
+  }
+  return false;
 }

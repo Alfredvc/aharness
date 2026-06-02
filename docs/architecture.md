@@ -159,11 +159,26 @@ contain public workflow context snapshots recorded as `context.initialized` and
 sensitive material, even when the browser transcript does not display those
 context values by default.
 
+Canonical git fact events are also recorded in `events.jsonl` for new live
+runs. `git.snapshot.recorded` and `git.diff.recorded` provide durable internal
+evidence for start and terminal work-delta calculations and may include git
+object ids in the stored log. Terminal completion stats are not persisted as a
+derived event or cache. They are computed at query time from ordered canonical
+events, run metadata, and optional topology.
+
 Run-scoped routes under `/api/runs/:runId/` serve compact JSONL-backed
 projections for bootstrap state, visit rows, recent rows, diagnostic event
-pages, canonical run-event SSE, and replies. These HTTP/SSE responses omit raw
-payloads; raw evidence remains in `events.jsonl`. Live transcripts render a
-default summary from API-safe compact rows, while dev mode can inspect additional
+pages, canonical run-event SSE, run summaries, and replies. Bootstrap includes
+`completionStats` and `GET /api/runs/:runId/summary` returns
+`{ completionStats }`; both expose `null` while a run is still active and expose
+the API-safe terminal projection after completion. `completionStats` omits raw
+payloads, raw paths, Codex pins and versions, git object ids, owner input,
+command output, transcript text, and other sensitive runtime evidence. Existing
+bootstrap `run` metadata and normalized event, row, and SSE fields are otherwise
+unchanged by this terminal-summary surface: event pages and SSE continue to omit
+`raw` payloads rather than applying new normalized-field redaction. Raw evidence
+remains in `events.jsonl`. Live transcripts render a default summary from
+API-safe compact rows, while dev mode can inspect additional
 protocol/state/lifecycle rows and successful tool output. Those compact rows can
 include command display fields such as `data.row.data.displayKind`,
 `data.row.data.command`, row `output`, and row `elapsedMs`. The browser does not

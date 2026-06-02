@@ -6,12 +6,15 @@ import { useCallback, useEffect, useReducer, useRef } from 'react';
 import {
   fetchBootstrap,
   fetchRecentRows,
+  fetchSummary as fetchRunSummary,
   fetchVisitRows,
   postReply,
   readBootRunId,
   resyncAndReconnect,
   retainStateAfterReplyFailure,
   subscribeToEvents,
+  type EventSourceConstructorLike,
+  type FetchLike,
 } from '../api/client.js';
 import type {
   FsmState,
@@ -34,6 +37,8 @@ import type {
   RunScopedReplayDiagnostic,
   RunScopedRowPage,
   RunScopedStateVisit,
+  RunCompletionStats,
+  RunSummaryResponse,
 } from '../types/events.js';
 import { runScopedCurrentStateToFsmState } from '../types/events.js';
 import type { Topology } from '../types/topology.js';
@@ -252,6 +257,14 @@ export type UiState = {
     storedRows?: number;
   };
   aggregateStats: RunScopedAggregateStats;
+  completionStats: RunCompletionStats | null;
+  finalOverview: {
+    open: boolean;
+    autoOpened: boolean;
+    dismissed: boolean;
+    loading: boolean;
+    error: string | null;
+  };
   history: Array<{ at: number; from: string | null; to: string; cause: string; visitId: string }>;
   turns: TurnRecord[];
   connection: 'live' | 'connecting' | 'lost';
@@ -301,6 +314,10 @@ function emptyAggregateStats(): RunScopedAggregateStats {
   return { turnCount: 0 };
 }
 
+function initialFinalOverviewState(): UiState['finalOverview'] {
+  return { open: false, autoOpened: false, dismissed: false, loading: false, error: null };
+}
+
 export function createConnectingUiState(): UiState {
   return {
     mode: 'run',
@@ -325,6 +342,8 @@ export function createConnectingUiState(): UiState {
     recentRowsCursor: null,
     recentRowsLoadStatus: { loading: false, loaded: false, error: null },
     aggregateStats: emptyAggregateStats(),
+    completionStats: null,
+    finalOverview: initialFinalOverviewState(),
     history: [],
     turns: [],
     connection: 'connecting',
@@ -334,6 +353,106 @@ export function createConnectingUiState(): UiState {
     scopedPath: null,
     devMode: false,
   };
+}
+
+export function openFinalOverviewState(state: UiState): UiState {
+  return {
+    ...state,
+    finalOverview: {
+      ...state.finalOverview,
+      open: true,
+      dismissed: false,
+      error: null,
+    },
+  };
+}
+
+export function dismissFinalOverviewState(state: UiState): UiState {
+  return {
+    ...state,
+    finalOverview: {
+      ...state.finalOverview,
+      open: false,
+      dismissed: true,
+    },
+  };
+}
+
+export function startFinalOverviewSummaryLoad(state: UiState): UiState {
+  return {
+    ...openFinalOverviewState(state),
+    finalOverview: {
+      ...state.finalOverview,
+      open: true,
+      dismissed: false,
+      loading: true,
+      error: null,
+    },
+  };
+}
+
+export function completeFinalOverviewSummaryLoad(
+  state: UiState,
+  response: RunSummaryResponse,
+): UiState {
+  return {
+    ...state,
+    completionStats: response.completionStats ?? null,
+    finalOverview: {
+      ...state.finalOverview,
+      open: state.finalOverview.dismissed ? false : true,
+      dismissed: state.finalOverview.dismissed,
+      loading: false,
+      error: null,
+    },
+  };
+}
+
+export function failFinalOverviewSummaryLoad(state: UiState, error: string): UiState {
+  return {
+    ...state,
+    finalOverview: {
+      ...state.finalOverview,
+      loading: false,
+      error,
+    },
+  };
+}
+
+function autoOpenTerminalOverview(state: UiState): UiState {
+  if (
+    !state.posture.isTerminal ||
+    state.finalOverview.autoOpened ||
+    state.finalOverview.dismissed
+  ) {
+    return state;
+  }
+  return {
+    ...state,
+    finalOverview: {
+      ...state.finalOverview,
+      open: true,
+      autoOpened: true,
+      error: null,
+    },
+  };
+}
+
+function preserveFinalOverviewForResync(
+  hydrated: UiState,
+  previous: UiState,
+  options: { preserveDismissal: boolean },
+): UiState {
+  if (!options.preserveDismissal) return hydrated;
+  const finalOverview = {
+    ...hydrated.finalOverview,
+    autoOpened: previous.finalOverview.autoOpened || hydrated.finalOverview.autoOpened,
+    dismissed: previous.finalOverview.dismissed,
+    open: previous.finalOverview.dismissed ? false : hydrated.finalOverview.open,
+    loading: previous.finalOverview.loading,
+    error: previous.finalOverview.error,
+  };
+  return { ...hydrated, finalOverview };
 }
 
 function runMetaFromBootstrap(run: RunScopedBootstrap['run']): RunMeta {
@@ -475,23 +594,23 @@ function pendingFromSummaries(
 
 export function hydrateFromBootstrap(bootstrap: RunScopedBootstrap): UiState {
   const mode = bootstrap.mode ?? 'run';
-  const state =
+  const currentState =
     bootstrap.currentState === null
       ? null
       : runScopedCurrentStateToFsmState(bootstrap.currentState);
-  const latestContext = state?.context;
+  const latestContext = currentState?.context;
   const activeVisitId = bootstrap.currentStateVisit?.id ?? null;
   const transcriptResult = transcriptFromCompactRows(bootstrap.recentRows, {
     fallbackVisitId: RUN_LEVEL_VISIT_ID,
     live: false,
   });
-  return {
+  const state: UiState = {
     mode,
     run: runMetaFromBootstrap(bootstrap.run),
     latestEventId: bootstrap.latestEventId,
     posture: bootstrap.posture,
     activeTurnId: bootstrap.aggregateStats.activeTurnId ?? null,
-    state,
+    state: currentState,
     ...(latestContext === undefined ? {} : { latestContext }),
     topology: bootstrap.topology ?? EMPTY_TOPOLOGY,
     transcript: transcriptResult.items,
@@ -512,6 +631,8 @@ export function hydrateFromBootstrap(bootstrap: RunScopedBootstrap): UiState {
       storedRows: bootstrap.recentRows.length,
     },
     aggregateStats: { ...bootstrap.aggregateStats },
+    completionStats: bootstrap.completionStats ?? null,
+    finalOverview: initialFinalOverviewState(),
     history: historyFromStateVisits(bootstrap.stateVisits),
     turns: [],
     connection: 'live',
@@ -521,6 +642,7 @@ export function hydrateFromBootstrap(bootstrap: RunScopedBootstrap): UiState {
     scopedPath: null,
     devMode: mode === 'inspect',
   };
+  return autoOpenTerminalOverview(state);
 }
 
 export function applyRunEvent(state: UiState, event: RunScopedApiEvent): UiState {
@@ -546,8 +668,13 @@ export function markConnectionLost(state: UiState): UiState {
 
 type Action =
   | { type: 'runEvent'; e: RunScopedApiEvent }
-  | { type: 'hydrate'; bootstrap: RunScopedBootstrap }
+  | { type: 'hydrate'; bootstrap: RunScopedBootstrap; preserveFinalOverviewDismissal?: boolean }
   | { type: 'connectionLost' }
+  | { type: 'openFinalOverview' }
+  | { type: 'dismissFinalOverview' }
+  | { type: 'startFinalOverviewSummaryLoad' }
+  | { type: 'completeFinalOverviewSummaryLoad'; response: RunSummaryResponse }
+  | { type: 'failFinalOverviewSummaryLoad'; error: string }
   | { type: 'replyFailed'; error: string }
   | { type: 'resolveApproval'; id: string }
   | { type: 'resolvePermission'; id: string }
@@ -1410,7 +1537,7 @@ function reduceRunEvent(previous: UiState, e: RunScopedApiEvent): UiState {
   switch (e.type) {
     case 'run.completed':
     case 'run.failed':
-      return {
+      return openFinalOverviewState({
         ...appendRunEventRow(state, e),
         posture: {
           ...state.posture,
@@ -1419,7 +1546,7 @@ function reduceRunEvent(previous: UiState, e: RunScopedApiEvent): UiState {
           submittedThisTurn: false,
           open: false,
         },
-      };
+      });
     case 'run.started':
       return appendRunEventRow(state, e);
     case 'state.changed': {
@@ -1624,10 +1751,27 @@ function reduceRunEvent(previous: UiState, e: RunScopedApiEvent): UiState {
 
 function reducer(s: UiState, a: Action): UiState {
   if (a.type === 'hydrate') {
-    return hydrateFromBootstrap(a.bootstrap);
+    return preserveFinalOverviewForResync(hydrateFromBootstrap(a.bootstrap), s, {
+      preserveDismissal: a.preserveFinalOverviewDismissal === true,
+    });
   }
   if (a.type === 'connectionLost') {
     return markConnectionLost(s);
+  }
+  if (a.type === 'openFinalOverview') {
+    return openFinalOverviewState(s);
+  }
+  if (a.type === 'dismissFinalOverview') {
+    return dismissFinalOverviewState(s);
+  }
+  if (a.type === 'startFinalOverviewSummaryLoad') {
+    return startFinalOverviewSummaryLoad(s);
+  }
+  if (a.type === 'completeFinalOverviewSummaryLoad') {
+    return completeFinalOverviewSummaryLoad(s, a.response);
+  }
+  if (a.type === 'failFinalOverviewSummaryLoad') {
+    return failFinalOverviewSummaryLoad(s, a.error);
   }
   if (a.type === 'replyFailed') {
     return { ...retainStateAfterReplyFailure(s), replyError: a.error };
@@ -1767,8 +1911,16 @@ export type UiActions = {
   reply: (p: ReplyPayload) => Promise<void>;
   requestRowsForStatePath?: (path: string) => Promise<void>;
   requestRecentRows?: () => Promise<void>;
+  openFinalOverview: () => void;
+  dismissFinalOverview: () => void;
   toggleDevMode: () => void;
   setScope: (path: string | null) => void;
+};
+
+export type UseAharnessSessionOptions = {
+  fetch?: FetchLike;
+  EventSourceCtor?: EventSourceConstructorLike;
+  fetchSummary?: typeof fetchRunSummary;
 };
 
 export function readBootToken(
@@ -1778,10 +1930,16 @@ export function readBootToken(
   return token && token.length > 0 ? token : null;
 }
 
-export function useAharnessSession(uiToken: string | null): UiState & UiActions {
+export function useAharnessSession(
+  uiToken: string | null,
+  options: UseAharnessSessionOptions = {},
+): UiState & UiActions {
   const [s, dispatch] = useReducer(reducer, undefined, createConnectingUiState);
   const unsubscribeRef = useRef<(() => void) | null>(null);
   const latestEventIdRef = useRef<string | null>(null);
+  const fetchImpl = options.fetch;
+  const EventSourceCtor = options.EventSourceCtor;
+  const fetchSummaryImpl = options.fetchSummary ?? fetchRunSummary;
 
   useEffect(() => {
     if (!uiToken) {
@@ -1803,26 +1961,46 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
       unsubscribeRef.current = null;
     }
 
+    function loadSummary() {
+      dispatch({ type: 'startFinalOverviewSummaryLoad' });
+      void fetchSummaryImpl({ runId, uiToken: token, fetch: fetchImpl })
+        .then((response) => {
+          if (!disposed) dispatch({ type: 'completeFinalOverviewSummaryLoad', response });
+        })
+        .catch((error) => {
+          if (!disposed) {
+            dispatch({
+              type: 'failFinalOverviewSummaryLoad',
+              error: error instanceof Error ? error.message : 'Summary load failed',
+            });
+          }
+        });
+    }
+
     function openStream(afterEventId = latestEventIdRef.current) {
       if (disposed) return;
       closeCurrent();
       unsubscribeRef.current = subscribeToEvents({
         runId,
         uiToken: token,
+        EventSourceCtor,
         afterEventId,
         onRunEvent: (event) => {
           latestEventIdRef.current = event.id;
           dispatch({ type: 'runEvent', e: event });
+          if (event.type === 'run.completed' || event.type === 'run.failed') {
+            loadSummary();
+          }
         },
         onConnectionLost: () => dispatch({ type: 'connectionLost' }),
         onResyncRequired: () =>
           resyncAndReconnect({
             closeCurrent,
-            fetchBootstrap: () => fetchBootstrap({ runId, uiToken: token }),
+            fetchBootstrap: () => fetchBootstrap({ runId, uiToken: token, fetch: fetchImpl }),
             hydrate: (bootstrap) => {
               if (!disposed) {
                 latestEventIdRef.current = bootstrap.latestEventId;
-                dispatch({ type: 'hydrate', bootstrap });
+                dispatch({ type: 'hydrate', bootstrap, preserveFinalOverviewDismissal: true });
               }
             },
             reopen: openStream,
@@ -1832,11 +2010,14 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
       });
     }
 
-    fetchBootstrap({ runId, uiToken: token })
+    fetchBootstrap({ runId, uiToken: token, fetch: fetchImpl })
       .then((bootstrap) => {
         if (disposed) return;
         latestEventIdRef.current = bootstrap.latestEventId;
         dispatch({ type: 'hydrate', bootstrap });
+        if (bootstrap.posture.isTerminal && bootstrap.completionStats == null) {
+          loadSummary();
+        }
         openStream(bootstrap.latestEventId);
       })
       .catch(() => {
@@ -1847,7 +2028,7 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
       disposed = true;
       closeCurrent();
     };
-  }, [uiToken]);
+  }, [EventSourceCtor, fetchImpl, fetchSummaryImpl, uiToken]);
 
   const reply = useCallback(
     async (p: ReplyPayload) => {
@@ -1867,7 +2048,7 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
       }
       const token = uiToken;
       try {
-        await postReply(p, { runId, uiToken: token });
+        await postReply(p, { runId, uiToken: token, fetch: fetchImpl });
         if (p.kind === 'approval') dispatch({ type: 'resolveApproval', id: p.requestId });
         if (p.kind === 'permission') dispatch({ type: 'resolvePermission', id: p.requestId });
         if (p.kind === 'elicitation') dispatch({ type: 'resolveElicitation', id: p.requestId });
@@ -1883,7 +2064,7 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
         throw error;
       }
     },
-    [s.mode, s.run?.runId, uiToken],
+    [fetchImpl, s.mode, s.run?.runId, uiToken],
   );
 
   const requestRowsForStatePath = useCallback(
@@ -1904,6 +2085,7 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
               visitId,
               uiToken,
               cursor: cursor ?? null,
+              fetch: fetchImpl,
             });
             dispatch({ type: 'rowPageLoaded', visitId, page });
           } catch (error) {
@@ -1916,7 +2098,7 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
         }),
       );
     },
-    [s.rowLoadStatus, s.rowPageCursors, s.run?.runId, s.statePathVisits, uiToken],
+    [fetchImpl, s.rowLoadStatus, s.rowPageCursors, s.run?.runId, s.statePathVisits, uiToken],
   );
 
   const requestRecentRows = useCallback(async () => {
@@ -1932,6 +2114,7 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
         runId,
         uiToken,
         cursor: s.recentRowsCursor,
+        fetch: fetchImpl,
       });
       dispatch({ type: 'recentRowsPageLoaded', page });
     } catch (error) {
@@ -1945,6 +2128,7 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
     s.recentRowsLoadStatus.loaded,
     s.recentRowsLoadStatus.loading,
     s.run?.runId,
+    fetchImpl,
     uiToken,
   ]);
 
@@ -1953,6 +2137,8 @@ export function useAharnessSession(uiToken: string | null): UiState & UiActions 
     reply,
     requestRowsForStatePath,
     requestRecentRows,
+    openFinalOverview: () => dispatch({ type: 'openFinalOverview' }),
+    dismissFinalOverview: () => dispatch({ type: 'dismissFinalOverview' }),
     toggleDevMode: () => dispatch({ type: 'toggleDevMode' }),
     setScope: (path: string | null) => dispatch({ type: 'setScope', path }),
   };

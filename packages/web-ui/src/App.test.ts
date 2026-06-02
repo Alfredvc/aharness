@@ -68,6 +68,14 @@ function baseSession(overrides: Partial<TestSession> = {}): TestSession {
     recentRowsCursor: null,
     recentRowsLoadStatus: { loading: false, loaded: false, error: null },
     aggregateStats: { turnCount: 0 },
+    completionStats: null,
+    finalOverview: {
+      open: false,
+      autoOpened: false,
+      dismissed: false,
+      loading: false,
+      error: null,
+    },
     history: [
       {
         at: Date.parse('2026-05-29T00:00:00.000Z'),
@@ -87,6 +95,8 @@ function baseSession(overrides: Partial<TestSession> = {}): TestSession {
     reply: () => Promise.resolve(),
     requestRowsForStatePath: () => Promise.resolve(),
     requestRecentRows: () => Promise.resolve(),
+    openFinalOverview: () => undefined,
+    dismissFinalOverview: () => undefined,
     toggleDevMode: () => undefined,
     setScope: () => undefined,
     ...overrides,
@@ -174,5 +184,56 @@ describe('AharnessShell run stats chrome', () => {
     );
 
     expect(html).toContain('input 5 tokens / output 7 tokens');
+  });
+
+  it('shows Summary only for terminal runs and renders the terminal modal when open', () => {
+    const terminalHtml = renderToStaticMarkup(
+      createElement(AharnessShell, {
+        session: baseSession({
+          posture: {
+            isTerminal: true,
+            isAwaiting: false,
+            submittedThisTurn: false,
+            open: false,
+          },
+          finalOverview: {
+            open: true,
+            autoOpened: true,
+            dismissed: false,
+            loading: true,
+            error: null,
+          },
+        }),
+      }),
+    );
+    const activeHtml = renderToStaticMarkup(
+      createElement(AharnessShell, { session: baseSession() }),
+    );
+    const dismissedHtml = renderToStaticMarkup(
+      createElement(AharnessShell, {
+        session: baseSession({
+          posture: {
+            isTerminal: true,
+            isAwaiting: false,
+            submittedThisTurn: false,
+            open: false,
+          },
+          finalOverview: {
+            open: false,
+            autoOpened: true,
+            dismissed: true,
+            loading: false,
+            error: null,
+          },
+        }),
+      }),
+    );
+
+    expect(terminalHtml).toContain('>summary<');
+    expect(terminalHtml).toContain('role="dialog"');
+    expect(activeHtml).not.toContain('>summary<');
+    expect(activeHtml).not.toContain('role="dialog"');
+    expect(dismissedHtml).toContain('>summary<');
+    expect(dismissedHtml).not.toContain('role="dialog"');
   });
 });

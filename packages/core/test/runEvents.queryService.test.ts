@@ -235,6 +235,7 @@ describe('run event query service', () => {
         modelContextWindow: 128000,
       }),
     );
+    expect(bootstrap.bootstrap.completionStats).toBeNull();
     expect(bootstrap.bootstrap.recentRows.map((row) => row.text ?? row.summary)).toEqual([
       'root.plan',
       'Hello from data',
@@ -673,6 +674,112 @@ describe('run event query service', () => {
 
     expect(result.ok).toBe(true);
     expect(notified).toEqual(['run-query:2']);
+  });
+
+  it('serves completion stats for terminal runs through completion and bootstrap projections', () => {
+    const eventsPath = tempEventsPath();
+    writeJsonl(
+      eventsPath,
+      event(1, 'run.started', { data: { startedAt: '2026-05-29T00:00:01.000Z' } }),
+      event(2, 'state.changed', {
+        stateVisitId: 'visit-plan',
+        data: { path: 'root.plan', stateVisitId: 'visit-plan', kind: 'stateful' },
+        raw: { ownerInput: 'raw owner input must not leak', fsmFile: '/raw/path.fsm.ts' },
+      }),
+      event(3, 'token.updated', {
+        data: { total: { totalTokens: 11, inputTokens: 8, outputTokens: 3 } },
+        raw: { codexPin: 'raw-codex-pin' },
+      }),
+      event(4, 'git.diff.recorded', {
+        data: {
+          status: 'available',
+          from: 'from-object-id',
+          to: 'to-object-id',
+          filesChanged: 2,
+          linesAdded: 9,
+          linesDeleted: 1,
+        },
+      }),
+      event(5, 'run.completed', { data: { endedAt: '2026-05-29T00:00:05.000Z' } }),
+    );
+    const service = createRunEventQueryService({ runId: RUN_ID, eventsPath });
+
+    const completion = service.getCompletionStats({
+      getRunMeta: () => ({ fsmFile: '/secret/demo.fsm.ts', codexPin: 'secret-pin' }),
+      topology: { nodes: [{ id: 'root.plan', label: 'Plan', kind: 'stateful' }] },
+    });
+
+    expect(completion.ok).toBe(true);
+    if (!completion.ok) return;
+    expect(completion.completionStats).toEqual(
+      expect.objectContaining({
+        outcome: 'success',
+        fsmDisplayName: 'demo.fsm',
+        workDelta: { status: 'available', filesChanged: 2, linesAdded: 9, linesDeleted: 1 },
+      }),
+    );
+    expect(JSON.stringify(completion.completionStats)).not.toContain('/secret');
+    expect(JSON.stringify(completion.completionStats)).not.toContain('from-object-id');
+    expect(JSON.stringify(completion.completionStats)).not.toContain('to-object-id');
+    expect(JSON.stringify(completion.completionStats)).not.toContain('secret-pin');
+    expect(JSON.stringify(completion.completionStats)).not.toContain('raw-codex-pin');
+    expect(JSON.stringify(completion.completionStats)).not.toContain(
+      'raw owner input must not leak',
+    );
+    expect(JSON.stringify(completion.completionStats)).not.toContain('"raw"');
+
+    const bootstrap = service.getBootstrap({
+      getRunMeta: () => ({ fsmFile: '/secret/demo.fsm.ts', codexPin: 'secret-pin' }),
+      topology: { nodes: [{ id: 'root.plan', label: 'Plan', kind: 'stateful' }] },
+    });
+    expect(bootstrap.ok).toBe(true);
+    if (!bootstrap.ok) return;
+    expect(bootstrap.bootstrap.completionStats).toEqual(completion.completionStats);
+    expect(JSON.stringify(bootstrap.bootstrap.completionStats)).not.toContain('/secret');
+    expect(JSON.stringify(bootstrap.bootstrap.completionStats)).not.toContain('from-object-id');
+    expect(JSON.stringify(bootstrap.bootstrap.completionStats)).not.toContain('to-object-id');
+    expect(JSON.stringify(bootstrap.bootstrap.completionStats)).not.toContain('secret-pin');
+    expect(JSON.stringify(bootstrap.bootstrap.completionStats)).not.toContain(
+      'raw owner input must not leak',
+    );
+  });
+
+  it('returns active-null and unavailable completion results through the query service', () => {
+    const activePath = tempEventsPath();
+    writeJsonl(activePath, event(1, 'run.started'));
+    const active = createRunEventQueryService({ runId: RUN_ID, eventsPath: activePath });
+
+    expect(active.getCompletionStats({ getRunMeta: () => ({ fsmFile: 'active.ts' }) })).toEqual({
+      ok: true,
+      completionStats: null,
+    });
+
+    const corruptPath = tempEventsPath();
+    writeFileSync(corruptPath, 'not json\n');
+    const corrupt = createRunEventQueryService({ runId: RUN_ID, eventsPath: corruptPath });
+    expect(corrupt.getCompletionStats({ getRunMeta: () => ({ fsmFile: 'corrupt.ts' }) })).toEqual({
+      ok: false,
+      error: 'run-event-log-unavailable',
+      diagnostics: [expect.objectContaining({ code: 'malformed-non-final-line' })],
+    });
+  });
+
+  it('updates completion stats after live terminal append', () => {
+    const eventsPath = tempEventsPath();
+    writeJsonl(eventsPath, event(1, 'run.started'));
+    const service = createRunEventQueryService({ runId: RUN_ID, eventsPath });
+
+    expect(service.getCompletionStats({ getRunMeta: () => ({ fsmFile: 'live.ts' }) })).toEqual({
+      ok: true,
+      completionStats: null,
+    });
+
+    expect(service.acceptAppend(withOffsets([event(2, 'run.failed')])[0]!).ok).toBe(true);
+    const completion = service.getCompletionStats({ getRunMeta: () => ({ fsmFile: 'live.ts' }) });
+
+    expect(completion.ok).toBe(true);
+    if (!completion.ok) return;
+    expect(completion.completionStats?.outcome).toBe('failure');
   });
 
   it('drains all currently indexed events after a cursor across multiple pages', () => {

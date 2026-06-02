@@ -65,13 +65,25 @@ function makeSyntheticConnectStub(): {
     transport = {
       send(msg: unknown) {
         outbound.push(msg as { id?: number; method?: string });
-        const m = msg as { id?: number; method?: string };
+        const m = msg as { id?: number; method?: string; params?: unknown };
         if (m.method === METHOD.initialize) {
           queueMicrotask(() =>
             push({
               jsonrpc: '2.0',
               id: m.id,
               result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+            }),
+          );
+        } else if (m.method === METHOD.skillsExtraRootsSet) {
+          queueMicrotask(() => push({ jsonrpc: '2.0', id: m.id, result: {} }));
+        } else if (m.method === METHOD.skillsList) {
+          const params = m.params as { cwds?: readonly string[] } | undefined;
+          const cwd = params?.cwds?.[0] ?? '/tmp/project';
+          queueMicrotask(() =>
+            push({
+              jsonrpc: '2.0',
+              id: m.id,
+              result: { data: [{ cwd, skills: [], errors: [] }] },
             }),
           );
         }
@@ -321,6 +333,11 @@ describe('runCliForTest — Phase 2d hook walk', () => {
         sidecar,
         modulePath: '/tmp/hookWalk.mjs',
         issues: [],
+        skillOriginManifest: {
+          rootSourceDir: repoRoot,
+          sourceDirPrefixes: [],
+          availableSkills: [],
+        },
         cacheHit: false,
         hash: 'hook-walk',
       })) as unknown as RunCliTestHooks['loadFsmImpl'],

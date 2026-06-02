@@ -137,6 +137,41 @@ function fixtureEvents(): RunEventEnvelope[] {
   ];
 }
 
+function terminalFixtureEvents(): RunEventEnvelope[] {
+  return [
+    event(1, 'run.started', { data: { startedAt: '2026-05-29T00:00:01.000Z' } }),
+    event(2, 'state.changed', {
+      stateVisitId: 'root.plan#1',
+      data: {
+        path: 'root.plan',
+        to: 'root.plan',
+        leaf: 'plan',
+        kind: 'stateful',
+        stateVisitId: 'root.plan#1',
+      },
+      raw: {
+        ownerInput: 'raw owner input must not be served in summary',
+        transcript: 'raw transcript must not be served in summary',
+      },
+    }),
+    event(3, 'token.updated', {
+      data: { total: { totalTokens: 21, inputTokens: 13, outputTokens: 8 } },
+      raw: { codexPin: 'raw-codex-pin' },
+    }),
+    event(4, 'git.diff.recorded', {
+      data: {
+        status: 'available',
+        from: 'from-object-id',
+        to: 'to-object-id',
+        filesChanged: 3,
+        linesAdded: 10,
+        linesDeleted: 2,
+      },
+    }),
+    event(5, 'run.completed', { data: { endedAt: '2026-05-29T00:00:05.000Z' } }),
+  ];
+}
+
 function writeJsonl(eventsPath: string, events: ReadonlyArray<RunEventEnvelope>): void {
   writeFileSync(eventsPath, `${events.map((runEvent) => JSON.stringify(runEvent)).join('\n')}\n`);
 }
@@ -276,6 +311,7 @@ describe('run-scoped UI server routes', () => {
       submittedThisTurn: false,
       open: false,
     });
+    expect(bootstrap.completionStats).toBeNull();
     expect(JSON.stringify(bootstrap)).not.toContain('raw');
     expect(JSON.stringify(bootstrap)).not.toContain('raw prompt must not be served');
     expect(JSON.stringify(bootstrap)).not.toContain('raw answer must not be served');
@@ -322,9 +358,49 @@ describe('run-scoped UI server routes', () => {
     expect(JSON.stringify(events)).not.toContain('raw message must not be served');
   });
 
+  it('serves active and terminal run summaries without raw payloads', async () => {
+    const activeHandle = await startTestServer({ service: createService() });
+    const active = await fetch(
+      `${activeHandle.url}/api/runs/${RUN_ID}/summary?token=${TEST_UI_TOKEN}`,
+    );
+    expect(active.status).toBe(200);
+    expect(await active.json()).toEqual({ completionStats: null });
+
+    const terminalHandle = await startTestServer({
+      service: createService(terminalFixtureEvents()),
+    });
+    const response = await fetch(`${terminalHandle.url}/api/runs/${RUN_ID}/summary`, {
+      headers: { 'X-Aharness-Ui-Token': TEST_UI_TOKEN },
+    });
+    const summary = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(summary).toEqual({
+      completionStats: expect.objectContaining({
+        outcome: 'success',
+        fsmDisplayName: 'demo.fsm',
+        workDelta: {
+          status: 'available',
+          filesChanged: 3,
+          linesAdded: 10,
+          linesDeleted: 2,
+        },
+      }),
+    });
+    expect(summary).not.toHaveProperty('status');
+    expect(JSON.stringify(summary)).not.toContain('raw');
+    expect(JSON.stringify(summary)).not.toContain(runMeta.repoRoot);
+    expect(JSON.stringify(summary)).not.toContain(runMeta.codexPin);
+    expect(JSON.stringify(summary)).not.toContain('from-object-id');
+    expect(JSON.stringify(summary)).not.toContain('to-object-id');
+    expect(JSON.stringify(summary)).not.toContain('raw owner input must not be served');
+    expect(JSON.stringify(summary)).not.toContain('raw transcript must not be served');
+  });
+
   it('pins run-scoped route error precedence before invoking the service', async () => {
     const service = createService();
     const bootstrapSpy = vi.spyOn(service, 'getBootstrap');
+    const summarySpy = vi.spyOn(service, 'getCompletionStats');
     const subscribeSpy = vi.spyOn(service, 'subscribe');
     const handle = await startTestServer({ service });
 
@@ -346,6 +422,12 @@ describe('run-scoped UI server routes', () => {
     expect(unmatched.status).toBe(404);
     expect(await unmatched.json()).toEqual({ error: 'run-scoped-route-not-found' });
 
+    const summaryExtra = await fetch(
+      `${handle.url}/api/runs/${RUN_ID}/summary/extra?token=${TEST_UI_TOKEN}`,
+    );
+    expect(summaryExtra.status).toBe(404);
+    expect(await summaryExtra.json()).toEqual({ error: 'run-scoped-route-not-found' });
+
     const wrongMethod = await fetch(`${handle.url}/api/runs/${RUN_ID}/bootstrap`, {
       method: 'POST',
     });
@@ -356,12 +438,23 @@ describe('run-scoped UI server routes', () => {
     expect(unauthorized.status).toBe(401);
     expect(await unauthorized.json()).toEqual({ error: 'unauthorized' });
 
+    const unauthorizedSummary = await fetch(`${handle.url}/api/runs/${RUN_ID}/summary`);
+    expect(unauthorizedSummary.status).toBe(401);
+    expect(await unauthorizedSummary.json()).toEqual({ error: 'unauthorized' });
+
     const wrongRun = await fetch(
       `${handle.url}/api/runs/${OTHER_RUN_ID}/bootstrap?token=${TEST_UI_TOKEN}`,
     );
     expect(wrongRun.status).toBe(404);
     expect(await wrongRun.json()).toEqual({ error: 'run-not-found' });
     expect(bootstrapSpy).not.toHaveBeenCalled();
+
+    const wrongRunSummary = await fetch(
+      `${handle.url}/api/runs/${OTHER_RUN_ID}/summary?token=${TEST_UI_TOKEN}`,
+    );
+    expect(wrongRunSummary.status).toBe(404);
+    expect(await wrongRunSummary.json()).toEqual({ error: 'run-not-found' });
+    expect(summarySpy).not.toHaveBeenCalled();
 
     const wrongRunStream = await fetch(
       `${handle.url}/api/runs/${OTHER_RUN_ID}/stream?token=${TEST_UI_TOKEN}`,
@@ -384,6 +477,7 @@ describe('run-scoped UI server routes', () => {
 
   it.each([
     ['/api/runs/run-server/bootstrap', 'POST', 'GET'],
+    ['/api/runs/run-server/summary', 'POST', 'GET'],
     ['/api/runs/run-server/visits/root.plan%231/rows', 'POST', 'GET'],
     ['/api/runs/run-server/rows/recent', 'POST', 'GET'],
     ['/api/runs/run-server/events', 'POST', 'GET'],
@@ -422,6 +516,15 @@ describe('run-scoped UI server routes', () => {
     );
     expect(unavailable.status).toBe(503);
     expect(await unavailable.json()).toEqual({
+      error: 'run-event-log-unavailable',
+      diagnostics: [expect.objectContaining({ code: 'malformed-non-final-line' })],
+    });
+
+    const unavailableSummary = await fetch(
+      `${unavailableHandle.url}/api/runs/${RUN_ID}/summary?token=${TEST_UI_TOKEN}`,
+    );
+    expect(unavailableSummary.status).toBe(503);
+    expect(await unavailableSummary.json()).toEqual({
       error: 'run-event-log-unavailable',
       diagnostics: [expect.objectContaining({ code: 'malformed-non-final-line' })],
     });

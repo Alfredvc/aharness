@@ -4,6 +4,7 @@ import {
   ApiClientError,
   fetchBootstrap,
   fetchRecentRows,
+  fetchSummary,
   fetchVisitRows,
   postReply,
   readBootMode,
@@ -18,15 +19,18 @@ import {
 import type {
   RunScopedApiEvent,
   RunScopedBootstrap,
+  RunCompletionStats,
   RunScopedRowPage,
   RunScopedResyncRequired,
 } from '../types/events.js';
 import {
+  isRunCompletionStats,
   isRunScopedApiEvent,
   isRunScopedBootstrap,
   isRunScopedEventPage,
   isRunScopedResyncRequired,
   isRunScopedRowPage,
+  isRunSummaryResponse,
 } from '../types/events.js';
 import type { UiState } from '../state/store.js';
 
@@ -71,6 +75,7 @@ function bootstrap(overrides: Partial<RunScopedBootstrap> = {}): RunScopedBootst
     stateVisits: [],
     statePathVisits: {},
     pending: [],
+    completionStats: null,
     aggregateStats: {
       status: 'running',
       turnCount: 1,
@@ -78,6 +83,59 @@ function bootstrap(overrides: Partial<RunScopedBootstrap> = {}): RunScopedBootst
     },
     recentRows: [],
     diagnostics: [],
+    ...overrides,
+  };
+}
+
+function completionStats(overrides: Partial<RunCompletionStats> = {}): RunCompletionStats {
+  return {
+    outcome: 'success',
+    fsmDisplayName: 'workflow',
+    duration: {
+      startedAt: '2026-05-29T00:00:00.000Z',
+      endedAt: '2026-05-29T00:05:00.000Z',
+      elapsedMs: 300_000,
+    },
+    transitionCount: 4,
+    freshClearCount: 1,
+    mainTurnCount: 2,
+    subthreadTurnCount: 1,
+    tokenTotals: {
+      totalTokens: 120,
+      inputTokens: 80,
+      cachedInputTokens: 10,
+      outputTokens: 40,
+      reasoningOutputTokens: 12,
+      mainTokens: 90,
+      subthreadTokens: 25,
+      unattributedTokens: 5,
+    },
+    topologyStatus: 'available',
+    stateBuckets: [
+      {
+        id: 'state:workflow-collect',
+        label: 'Collect',
+        path: 'workflow.collect',
+        elapsedMs: 120_000,
+        eventCount: 8,
+        transitionCount: 2,
+        mainTurnCount: 1,
+        subthreadTurnCount: 1,
+        tokenTotals: {
+          totalTokens: 75,
+          inputTokens: 50,
+          cachedInputTokens: 5,
+          outputTokens: 25,
+          reasoningOutputTokens: 6,
+        },
+      },
+    ],
+    workDelta: {
+      status: 'available',
+      filesChanged: 3,
+      linesAdded: 20,
+      linesDeleted: 4,
+    },
     ...overrides,
   };
 }
@@ -199,6 +257,101 @@ describe('run-scoped API client', () => {
     ).toBe(false);
   });
 
+  it('validates completion stats and summary responses at the web boundary', () => {
+    expect(isRunCompletionStats(completionStats())).toBe(true);
+    expect(
+      isRunCompletionStats(
+        completionStats({
+          outcome: 'failure',
+          duration: {},
+          topologyStatus: 'fallback',
+          stateBuckets: [
+            {
+              id: 'fallback:workflow',
+              label: 'workflow',
+              elapsedMs: 0,
+              eventCount: 0,
+              transitionCount: 0,
+              mainTurnCount: 0,
+              subthreadTurnCount: 0,
+              tokenTotals: {
+                totalTokens: 0,
+                inputTokens: 0,
+                cachedInputTokens: 0,
+                outputTokens: 0,
+                reasoningOutputTokens: 0,
+              },
+            },
+          ],
+          workDelta: { status: 'unavailable', reason: 'missing' },
+        }),
+      ),
+    ).toBe(true);
+    expect(isRunSummaryResponse({ completionStats: null })).toBe(true);
+    expect(isRunSummaryResponse({ completionStats: completionStats() })).toBe(true);
+  });
+
+  it('rejects malformed or sensitive completion summary payloads', () => {
+    expect(isRunCompletionStats(completionStats({ transitionCount: Number.NaN }))).toBe(false);
+    expect(isRunCompletionStats(completionStats({ outcome: 'done' as 'success' }))).toBe(false);
+    expect(isRunCompletionStats({ ...completionStats(), stateBuckets: {} })).toBe(false);
+    expect(
+      isRunCompletionStats({
+        ...completionStats(),
+        stateBuckets: [
+          {
+            ...completionStats().stateBuckets[0],
+            tokenTotals: { ...completionStats().stateBuckets[0]?.tokenTotals, totalTokens: -1 },
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      isRunCompletionStats({
+        ...completionStats(),
+        stateBuckets: [{ ...completionStats().stateBuckets[0], elapsedMs: undefined }],
+      }),
+    ).toBe(false);
+    expect(
+      isRunCompletionStats({
+        ...completionStats(),
+        stateBuckets: [
+          {
+            ...completionStats().stateBuckets[0],
+            tokenTotals: {
+              ...completionStats().stateBuckets[0]?.tokenTotals,
+              path: '/secret/repo',
+            },
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(isRunCompletionStats({ ...completionStats(), raw: { secret: true } })).toBe(false);
+    expect(
+      isRunSummaryResponse({
+        completionStats: {
+          ...completionStats(),
+          workDelta: { status: 'available', filesChanged: 1, from: 'object-id' },
+        },
+      }),
+    ).toBe(false);
+  });
+
+  it('accepts bootstrap completionStats for active and terminal runs', () => {
+    expect(isRunScopedBootstrap(bootstrap({ completionStats: null }))).toBe(true);
+    expect(isRunScopedBootstrap(bootstrap({ completionStats: completionStats() }))).toBe(true);
+    expect(
+      isRunScopedBootstrap(
+        bootstrap({
+          completionStats: {
+            ...completionStats(),
+            workDelta: { status: 'unavailable', reason: 'branch' },
+          } as unknown as RunCompletionStats,
+        }),
+      ),
+    ).toBe(false);
+  });
+
   it('reads boot run id and inspect mode from URL search params', () => {
     expect(readBootRunId('?token=t&runId=run%2Fencoded&mode=inspect')).toBe('run/encoded');
     expect(readBootMode('?token=t&runId=run-1&mode=inspect')).toBe('inspect');
@@ -226,6 +379,52 @@ describe('run-scoped API client', () => {
     expect(fetch).toHaveBeenCalledWith('/api/runs/run-1/bootstrap', {
       headers: { 'X-Aharness-Ui-Token': UI_TOKEN },
     });
+  });
+
+  it('fetchSummary GETs the encoded summary URL with header token auth', async () => {
+    const fetch = vi.fn<FetchLike>(() => okJson({ completionStats: completionStats() }));
+
+    await expect(
+      fetchSummary({ runId: 'run/one', fetch, uiToken: UI_TOKEN }),
+    ).resolves.toMatchObject({ completionStats: { outcome: 'success' } });
+    expect(fetch).toHaveBeenCalledWith('/api/runs/run%2Fone/summary', {
+      headers: { 'X-Aharness-Ui-Token': UI_TOKEN },
+    });
+  });
+
+  it('fetchSummary accepts active null, rejects malformed bodies, and wraps fetch failures', async () => {
+    const activeFetch = vi.fn<FetchLike>(() => okJson({ completionStats: null }));
+    await expect(
+      fetchSummary({ runId: RUN_ID, fetch: activeFetch, uiToken: UI_TOKEN }),
+    ).resolves.toEqual({ completionStats: null });
+
+    const malformedFetch = vi.fn<FetchLike>(() => okJson({ completionStats: { raw: true } }));
+    await expect(
+      fetchSummary({ runId: RUN_ID, fetch: malformedFetch, uiToken: UI_TOKEN }),
+    ).rejects.toThrow(/RunSummaryResponse/);
+
+    const parseFailureFetch = vi.fn<FetchLike>(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(new Error('not json')),
+      }),
+    );
+    await expect(
+      fetchSummary({ runId: RUN_ID, fetch: parseFailureFetch, uiToken: UI_TOKEN }),
+    ).rejects.toThrow(/Malformed JSON response/);
+
+    const nonOkFetch = vi.fn<FetchLike>(() =>
+      Promise.resolve({
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        json: () => Promise.resolve({ error: 'run-event-log-unavailable' }),
+      }),
+    );
+    await expect(
+      fetchSummary({ runId: RUN_ID, fetch: nonOkFetch, uiToken: UI_TOKEN }),
+    ).rejects.toMatchObject({ status: 503 });
   });
 
   it('validates API-safe aggregate stats while accepting explicit zero values', () => {
@@ -428,6 +627,49 @@ describe('run-scoped API client', () => {
     expect(onRunEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'subthread.item.started', id: 'run-1:7' }),
     );
+  });
+
+  it('dispatches exact git fact event names and rejects listener type mismatches', () => {
+    const onRunEvent = vi.fn();
+    const onConnectionLost = vi.fn();
+
+    subscribeToEvents({
+      runId: RUN_ID,
+      uiToken: UI_TOKEN,
+      EventSourceCtor: FakeEventSource,
+      onRunEvent,
+      onResyncRequired: vi.fn(),
+      onConnectionLost,
+    });
+
+    const source = FakeEventSource.instances.at(-1);
+    source?.emit(
+      'git.snapshot.recorded',
+      apiEvent({
+        type: 'git.snapshot.recorded',
+        id: 'run-1:10',
+        seq: 10,
+        data: { phase: 'terminal', status: 'available' },
+      }),
+    );
+    source?.emit(
+      'git.diff.recorded',
+      apiEvent({
+        type: 'git.diff.recorded',
+        id: 'run-1:11',
+        seq: 11,
+        data: { status: 'available', filesChanged: 1 },
+      }),
+    );
+    source?.emit('git.snapshot.recorded', apiEvent({ type: 'git.diff.recorded' }));
+
+    expect(onRunEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'git.snapshot.recorded', id: 'run-1:10' }),
+    );
+    expect(onRunEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'git.diff.recorded', id: 'run-1:11' }),
+    );
+    expect(onConnectionLost).toHaveBeenCalledOnce();
   });
 
   it('invokes onResyncRequired for run-scoped resync control frames', async () => {

@@ -321,10 +321,12 @@ function createStaticRunScopedService(options: {
         statePathVisits: { [options.state.path]: [stateVisitId] },
         pending: options.pending,
         aggregateStats: { turnCount: 0 },
+        completionStats: null,
         recentRows: rows,
         diagnostics: [],
       },
     }),
+    getCompletionStats: () => ({ ok: true, completionStats: null }),
     getStateVisitRows: (visitId) => ({
       ok: true,
       rows: visitId === stateVisitId ? rows : [],
@@ -484,5 +486,6 @@ describe('Phase 3 browser-rendered golden contract', () => {
     expect(script).toContain("import { createUiEventLog } from '../dist/ui/sse.js'");
     expect(script).toContain('pirate-roast');
     expect(script).toContain('requirement-spec');
+    expect(script).toContain('getCompletionStats');
   });
 });

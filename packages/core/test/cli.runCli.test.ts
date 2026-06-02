@@ -39,6 +39,7 @@ import { METHOD } from '../src/protocol/methodNames.js';
 import { flushHeadlessSnapshotEnvelope } from '../src/runtime/snapshotEnvelope.js';
 import {
   RUN_EVENT_SCHEMA,
+  type GitFactSyncExec,
   type RunEventAppendInput,
   type RunEventEnvelope,
   type RunEventRecorder,
@@ -60,6 +61,7 @@ const YOLO_OVERRIDES = [
   ['approval_policy', '"never"'],
   ['sandbox_mode', '"danger-full-access"'],
 ] as const;
+const TEST_GIT_HEAD = 'cccccccccccccccccccccccccccccccccccccccc';
 
 const EMPTY_SKILL_ORIGIN_MANIFEST = {
   rootSourceDir: '/tmp',
@@ -187,6 +189,15 @@ function replyToSkillPreflightIfNeeded(
   return false;
 }
 
+function sameHeadGitFactExec(): GitFactSyncExec {
+  return (_file, args) => {
+    if (args.join(' ') === 'rev-parse --is-inside-work-tree') return 'true\n';
+    if (args.join(' ') === 'rev-parse HEAD') return `${TEST_GIT_HEAD}\n`;
+    if (args[0] === 'diff') return '';
+    throw new Error(`unexpected git fact command: ${args.join(' ')}`);
+  };
+}
+
 /**
  * Build a minimal stub `LoadFsmResult`. The runCli body only reads
  * `.machine`, `.sidecar`, `.inputSchema?`, `.inputFlags?` — the rest of
@@ -238,6 +249,7 @@ function buildOpts(b: BuildOpts): RunCliForTestOpts {
       throw new Error('test: unexpected spawnAppServer call');
     }) as unknown as RunCliTestHooks['spawnAppServer'],
     launchBrowserImpl: vi.fn(() => ({ ok: true })),
+    _testGitFactSyncExec: sameHeadGitFactExec(),
     ...b.hooks,
   };
 }
@@ -1402,7 +1414,7 @@ describe('runCliForTest — pre-spawn gates', () => {
       submittedThisTurn: false,
       open: false,
     });
-    expect(capturedBootstrap?.latestEventId).toBe(`${capturedBootstrap?.run.runId}:3`);
+    expect(capturedBootstrap?.latestEventId).toBe(`${capturedBootstrap?.run.runId}:4`);
     expect(published[0]).toMatchObject({
       id: '1',
       event: {
@@ -1595,7 +1607,7 @@ describe('runCliForTest — pre-spawn gates', () => {
       };
       expect(events.events).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ id: `${runId}:2`, type: 'state.changed' }),
+          expect.objectContaining({ id: `${runId}:3`, type: 'state.changed' }),
           expect.objectContaining({
             type: 'request.created',
             requestId: 'owner-live-1',
@@ -1603,8 +1615,8 @@ describe('runCliForTest — pre-spawn gates', () => {
         ]),
       );
       expect(events.events.slice(0, 2)).toEqual([
-        expect.objectContaining({ id: `${runId}:2`, type: 'state.changed' }),
-        expect.objectContaining({ id: `${runId}:3` }),
+        expect.objectContaining({ id: `${runId}:2`, type: 'git.snapshot.recorded' }),
+        expect.objectContaining({ id: `${runId}:3`, type: 'state.changed' }),
       ]);
 
       if (uiUrl === undefined || uiToken === undefined || runId === undefined) {
@@ -1761,14 +1773,42 @@ describe('runCliForTest — pre-spawn gates', () => {
     const eventEntries = expectCanonicalRunEventStream(repoRoot);
     expect(eventEntries.map((entry) => entry.type)).toEqual([
       'run.started',
+      'git.snapshot.recorded',
       'state.changed',
       'context.initialized',
+      'git.snapshot.recorded',
+      'git.diff.recorded',
       'run.failed',
     ]);
-    expect(eventEntries[2]).toEqual(
+    expect(eventEntries[1]).toEqual(
+      expect.objectContaining({
+        type: 'git.snapshot.recorded',
+        data: { phase: 'start', status: 'available', head: TEST_GIT_HEAD },
+      }),
+    );
+    expect(eventEntries[3]).toEqual(
       expect.objectContaining({
         type: 'context.initialized',
         data: { context: {} },
+      }),
+    );
+    expect(eventEntries[4]).toEqual(
+      expect.objectContaining({
+        type: 'git.snapshot.recorded',
+        data: { phase: 'terminal', status: 'available', head: TEST_GIT_HEAD },
+      }),
+    );
+    expect(eventEntries[5]).toEqual(
+      expect.objectContaining({
+        type: 'git.diff.recorded',
+        data: {
+          status: 'available',
+          from: TEST_GIT_HEAD,
+          to: TEST_GIT_HEAD,
+          filesChanged: 0,
+          linesAdded: 0,
+          linesDeleted: 0,
+        },
       }),
     );
     expect(eventEntries.at(-1)).toEqual(
@@ -1780,6 +1820,55 @@ describe('runCliForTest — pre-spawn gates', () => {
         }),
       }),
     );
+  });
+
+  it('records normalized unavailable git facts without blocking terminal failure publication', async () => {
+    const fsmPath = makeFsmFile(repoRoot, 'git-unavailable-terminal-fail.fsm.ts');
+    const closeUiServer = vi.fn(async () => undefined);
+    const startUiServerImpl = vi.fn(async () => ({
+      url: 'http://127.0.0.1:45678',
+      close: closeUiServer,
+    }));
+    const spawnAppServer = vi.fn(async () => {
+      throw new Error('spawn exploded');
+    });
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        _testGitFactSyncExec: () => 'false\n',
+        startUiServerImpl,
+        spawnAppServer: spawnAppServer as unknown as RunCliTestHooks['spawnAppServer'],
+      },
+    });
+    opts.stderr = stderrSink;
+
+    const r = await runCliForTest(opts);
+
+    expect(r.exitCode).toBe(1);
+    const eventEntries = expectCanonicalRunEventStream(repoRoot);
+    expect(eventEntries.map((entry) => entry.type)).toEqual([
+      'run.started',
+      'git.snapshot.recorded',
+      'state.changed',
+      'context.initialized',
+      'git.snapshot.recorded',
+      'git.diff.recorded',
+      'run.failed',
+    ]);
+    expect(
+      eventEntries
+        .filter((entry) => entry.type === 'git.snapshot.recorded')
+        .map((entry) => entry.data),
+    ).toEqual([
+      { phase: 'start', status: 'unavailable', reason: 'not-a-git-repository' },
+      { phase: 'terminal', status: 'unavailable', reason: 'not-a-git-repository' },
+    ]);
+    expect(eventEntries.find((entry) => entry.type === 'git.diff.recorded')?.data).toEqual({
+      status: 'unavailable',
+      reason: 'object-unavailable',
+    });
+    expect(eventEntries.at(-1)?.type).toBe('run.failed');
   });
 
   it('records the stripped public boot context after the initial state change', async () => {
@@ -1826,14 +1915,15 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(r.exitCode).toBe(1);
     expect(spawnAppServer).toHaveBeenCalledTimes(1);
     const eventEntries = expectCanonicalRunEventStream(repoRoot);
-    expect(eventEntries.map((entry) => entry.type).slice(0, 3)).toEqual([
+    expect(eventEntries.map((entry) => entry.type).slice(0, 4)).toEqual([
       'run.started',
+      'git.snapshot.recorded',
       'state.changed',
       'context.initialized',
     ]);
-    expect(eventEntries[2]?.data).toEqual({ context: { publicValue: 'boot' } });
-    expect(JSON.stringify(eventEntries[2])).not.toContain('__aharness_hidden');
-    expect(JSON.stringify(eventEntries[2])).not.toContain('"aharness"');
+    expect(eventEntries[3]?.data).toEqual({ context: { publicValue: 'boot' } });
+    expect(JSON.stringify(eventEntries[3])).not.toContain('__aharness_hidden');
+    expect(JSON.stringify(eventEntries[3])).not.toContain('"aharness"');
   });
 
   it('case 13: reports UI server startup failure and does not spawn app-server', async () => {
@@ -2148,11 +2238,13 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(eventEntries.map((entry) => entry.type)).toEqual(
       expect.arrayContaining([
         'run.started',
+        'git.snapshot.recorded',
         'state.changed',
         'request.created',
         'reply.submitted',
         'request.resolved',
         'reply.resolved',
+        'git.diff.recorded',
         'run.completed',
         'posture.changed',
       ]),
@@ -2209,6 +2301,51 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(submittedSeq).toBeGreaterThan(0);
     expect(requestResolvedSeq).toBeGreaterThan(submittedSeq);
     expect(resolvedSeq).toBeGreaterThan(requestResolvedSeq);
+    const runStartedSeq = eventEntries.find((entry) => entry.type === 'run.started')?.seq ?? 0;
+    const startSnapshotSeq =
+      eventEntries.find(
+        (entry) =>
+          entry.type === 'git.snapshot.recorded' &&
+          entry.data?.phase === 'start' &&
+          entry.data.status === 'available',
+      )?.seq ?? 0;
+    const terminalSnapshotSeq =
+      eventEntries.find(
+        (entry) =>
+          entry.type === 'git.snapshot.recorded' &&
+          entry.data?.phase === 'terminal' &&
+          entry.data.status === 'available',
+      )?.seq ?? 0;
+    const diffSeq = eventEntries.find((entry) => entry.type === 'git.diff.recorded')?.seq ?? 0;
+    const completedSeq = eventEntries.find((entry) => entry.type === 'run.completed')?.seq ?? 0;
+    expect(startSnapshotSeq).toBeGreaterThan(runStartedSeq);
+    expect(terminalSnapshotSeq).toBeGreaterThan(startSnapshotSeq);
+    expect(diffSeq).toBeGreaterThan(terminalSnapshotSeq);
+    expect(completedSeq).toBeGreaterThan(diffSeq);
+    expect(eventEntries.find((entry) => entry.type === 'git.diff.recorded')).toEqual(
+      expect.objectContaining({
+        data: {
+          status: 'available',
+          from: TEST_GIT_HEAD,
+          to: TEST_GIT_HEAD,
+          filesChanged: 0,
+          linesAdded: 0,
+          linesDeleted: 0,
+        },
+      }),
+    );
+    const gitFactJson = JSON.stringify(
+      eventEntries.filter(
+        (entry) => entry.type === 'git.snapshot.recorded' || entry.type === 'git.diff.recorded',
+      ),
+    );
+    expect(gitFactJson).not.toContain(repoRoot);
+    expect(gitFactJson).not.toContain(fsmPath);
+    expect(gitFactJson).not.toContain('feature/branch');
+    expect(gitFactJson).not.toContain('git@github.com');
+    expect(gitFactJson).not.toContain('secret-file.ts');
+    expect(gitFactJson).not.toContain('stderr');
+    expect(gitFactJson).not.toContain('git diff');
     expect(eventEntries.find((entry) => entry.type === 'run.completed')).toEqual(
       expect.objectContaining({
         data: expect.objectContaining({

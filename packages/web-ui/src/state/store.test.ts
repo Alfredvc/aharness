@@ -5,11 +5,16 @@ import {
   applyRecentRowPage,
   applyRunEvent,
   applyVisitRowPage,
+  completeFinalOverviewSummaryLoad,
   createConnectingUiState,
+  dismissFinalOverviewState,
   displayItems,
+  failFinalOverviewSummaryLoad,
   hasVisibleContent,
   hydrateFromBootstrap,
   markConnectionLost,
+  openFinalOverviewState,
+  startFinalOverviewSummaryLoad,
   visibleItems,
 } from './store.js';
 import { applyAppEvent, hydrateFromSnapshot } from './legacyFlatEvents.js';
@@ -31,6 +36,8 @@ import {
   type RunScopedBootstrap,
   type RunScopedCompactRow,
   type RunScopedRowPage,
+  type RunCompletionStats,
+  type RunSummaryResponse,
   type UiSnapshot,
 } from '../types/events.js';
 import type { Topology } from '../types/topology.js';
@@ -214,6 +221,59 @@ function runScopedBootstrap(): RunScopedBootstrap {
       },
     ],
     diagnostics: [],
+  };
+}
+
+function completionStats(overrides: Partial<RunCompletionStats> = {}): RunCompletionStats {
+  return {
+    outcome: 'success',
+    fsmDisplayName: 'workflow',
+    duration: {
+      startedAt: '2026-05-29T00:00:00.000Z',
+      endedAt: '2026-05-29T00:01:00.000Z',
+      elapsedMs: 60_000,
+    },
+    transitionCount: 3,
+    freshClearCount: 1,
+    mainTurnCount: 2,
+    subthreadTurnCount: 1,
+    tokenTotals: {
+      totalTokens: 100,
+      inputTokens: 40,
+      cachedInputTokens: 10,
+      outputTokens: 50,
+      reasoningOutputTokens: 20,
+      mainTokens: 70,
+      subthreadTokens: 30,
+      unattributedTokens: 0,
+    },
+    topologyStatus: 'available',
+    stateBuckets: [
+      {
+        id: 'workflow.collect',
+        label: 'collect',
+        path: 'workflow.collect',
+        elapsedMs: 30_000,
+        eventCount: 4,
+        transitionCount: 1,
+        mainTurnCount: 1,
+        subthreadTurnCount: 0,
+        tokenTotals: {
+          totalTokens: 60,
+          inputTokens: 20,
+          cachedInputTokens: 5,
+          outputTokens: 40,
+          reasoningOutputTokens: 12,
+        },
+      },
+    ],
+    workDelta: {
+      status: 'available',
+      filesChanged: 2,
+      linesAdded: 10,
+      linesDeleted: 3,
+    },
+    ...overrides,
   };
 }
 
@@ -3242,6 +3302,95 @@ describe('headless production store helpers', () => {
       .filter((file) => file.startsWith('fixtures/'));
 
     expect(fixtureImports).toEqual([]);
+  });
+});
+
+describe('final overview state', () => {
+  it('initializes closed without completion stats', () => {
+    const state = createConnectingUiState();
+
+    expect(state.completionStats).toBeNull();
+    expect(state.finalOverview).toEqual({
+      open: false,
+      autoOpened: false,
+      dismissed: false,
+      loading: false,
+      error: null,
+    });
+  });
+
+  it('hydrates active bootstrap closed and terminal bootstrap open once with stats', () => {
+    const active = hydrateFromBootstrap(runScopedBootstrap());
+    const terminal = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      posture: { ...posture, isTerminal: true, open: false },
+      completionStats: completionStats(),
+    });
+
+    expect(active.finalOverview.open).toBe(false);
+    expect(active.finalOverview.autoOpened).toBe(false);
+    expect(terminal.completionStats?.fsmDisplayName).toBe('workflow');
+    expect(terminal.finalOverview.open).toBe(true);
+    expect(terminal.finalOverview.autoOpened).toBe(true);
+  });
+
+  it('supports dismissal, explicit reopen, summary loading, success, and failure', () => {
+    const terminal = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      posture: { ...posture, isTerminal: true, open: false },
+    });
+    const dismissed = dismissFinalOverviewState(terminal);
+    const reopened = openFinalOverviewState(dismissed);
+    const loading = startFinalOverviewSummaryLoad(reopened);
+    const response: RunSummaryResponse = {
+      completionStats: completionStats({ transitionCount: 7 }),
+    };
+    const loaded = completeFinalOverviewSummaryLoad(loading, response);
+    const failed = failFinalOverviewSummaryLoad(loaded, 'Summary failed');
+
+    expect(dismissed.finalOverview.open).toBe(false);
+    expect(dismissed.finalOverview.dismissed).toBe(true);
+    expect(reopened.finalOverview.open).toBe(true);
+    expect(reopened.finalOverview.dismissed).toBe(false);
+    expect(loading.finalOverview.loading).toBe(true);
+    expect(loaded.finalOverview.loading).toBe(false);
+    expect(loaded.completionStats?.transitionCount).toBe(7);
+    expect(failed.finalOverview.error).toBe('Summary failed');
+    expect(failed.completionStats?.transitionCount).toBe(7);
+  });
+
+  it('does not reopen after summary success if the loading overview was dismissed', () => {
+    const terminal = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      posture: { ...posture, isTerminal: true, open: false },
+    });
+    const loading = startFinalOverviewSummaryLoad(terminal);
+    const dismissed = dismissFinalOverviewState(loading);
+    const loaded = completeFinalOverviewSummaryLoad(dismissed, {
+      completionStats: completionStats(),
+    });
+
+    expect(loaded.completionStats?.fsmDisplayName).toBe('workflow');
+    expect(loaded.finalOverview.open).toBe(false);
+    expect(loaded.finalOverview.dismissed).toBe(true);
+  });
+
+  it('marks live terminal events without deriving completion stats from event payloads', () => {
+    const initial = hydrateFromBootstrap(runScopedBootstrap());
+    const state = applyRunEvent(
+      initial,
+      apiEvent({
+        type: 'run.completed',
+        data: {
+          status: 'success',
+          completionStats: completionStats({ transitionCount: 99 }),
+        },
+      }),
+    );
+
+    expect(state.posture.isTerminal).toBe(true);
+    expect(state.finalOverview.open).toBe(true);
+    expect(state.completionStats).toBeNull();
   });
 });
 
