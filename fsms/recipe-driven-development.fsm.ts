@@ -26,6 +26,13 @@ type RecoveryPhase =
   | 'fix-slice'
   | 'finish';
 type FixSource = 'plan-review' | 'slice-review' | 'verification' | null;
+type PlanReviewFollowup =
+  | 'none'
+  | 'single-medium'
+  | 'dual-medium'
+  | 'single-xhigh'
+  | 'dual-xhigh'
+  | 'replan';
 
 interface GateRecord {
   readonly sliceNumber: number;
@@ -59,6 +66,7 @@ interface RoutePayload {
   readonly fixSource: FixSource;
   readonly planFindings: string[];
   readonly planFixProofs?: PlanFixProof[];
+  readonly planReviewFollowup?: PlanReviewFollowup | null;
   readonly acceptanceFindings: string[];
   readonly failingCommands: string[];
   readonly planFixCycles: number;
@@ -93,6 +101,7 @@ interface Data {
   fixSource: FixSource;
   planFindings: string[];
   planFixProofs: PlanFixProof[];
+  planReviewFollowup: PlanReviewFollowup | null;
   acceptanceFindings: string[];
   failingCommands: string[];
   changedFiles: string[];
@@ -241,6 +250,67 @@ function formatPriorFindingReviews(reviews: readonly PriorFindingReview[]): stri
     .join('; ');
 }
 
+function planReviewModeLabel(mode: PlanReviewFollowup | null): string {
+  return mode ?? 'initial-dual-xhigh';
+}
+
+function planReviewSubagentInstructions(mode: PlanReviewFollowup | null): string[] {
+  switch (mode) {
+    case null:
+      return [
+        'This is the first review for this plan version. Spawn exactly two review subagents: one structural plan reviewer and one code-feasibility reviewer.',
+        `Use model ${RECIPE_MODEL} and xhigh reasoning effort for both reviewers.`,
+      ];
+    case 'single-medium':
+      return [
+        'Spawn exactly one medium-effort review subagent.',
+        `Use model ${RECIPE_MODEL} and medium reasoning effort.`,
+        'Make this a proof-oriented follow-up review of the latest plan-fix evidence and affected plan areas.',
+      ];
+    case 'dual-medium':
+      return [
+        'Spawn exactly two medium-effort review subagents.',
+        `Use model ${RECIPE_MODEL} and medium reasoning effort for both reviewers.`,
+        'Make this a proof-oriented follow-up review of the latest plan-fix evidence and affected plan areas.',
+      ];
+    case 'single-xhigh':
+      return [
+        'Spawn exactly one xhigh review subagent.',
+        `Use model ${RECIPE_MODEL} and xhigh reasoning effort.`,
+        'Make this a proof-oriented follow-up review unless the fix changed the plan scope materially.',
+      ];
+    case 'dual-xhigh':
+      return [
+        'Spawn exactly two xhigh review subagents.',
+        `Use model ${RECIPE_MODEL} and xhigh reasoning effort for both reviewers.`,
+        'Use a full follow-up review only where the prior reviewers requested that level of scrutiny or the fix changed scope materially.',
+      ];
+    case 'none':
+      return [
+        'The requested follow-up review is none, so reviewPlan should not normally be entered.',
+        'Submit needsRecovery if this state was reached without a new plan requiring review.',
+      ];
+    case 'replan':
+      return [
+        'The requested follow-up mode is replan, so reviewPlan should not normally be entered.',
+        'Submit needsRecovery if this state was reached before the plan was rewritten.',
+      ];
+  }
+}
+
+function planReviewFollowupInstruction(mode: PlanReviewFollowup | null): string {
+  if (mode === 'none') {
+    return 'Requested follow-up review: none. After fixing all blockers, update the recipe phase to execute before submitting.';
+  }
+  if (mode === 'replan') {
+    return 'Requested follow-up review: replan. This fix state should not normally be used; submit needsRecovery if the plan needs rewriting instead of targeted fixes.';
+  }
+  if (mode === null) {
+    return 'Requested follow-up review: not recorded. After fixing all blockers, update the recipe phase back to review-plan so the plan can receive an initial dual-xhigh review.';
+  }
+  return `Requested follow-up review: ${planReviewModeLabel(mode)}. After fixing all blockers, update the recipe phase back to review-plan before submitting.`;
+}
+
 function hasStalledPlanFindings(
   data: Readonly<Data>,
   reviews: readonly PriorFindingReview[],
@@ -292,6 +362,7 @@ function resetSliceRuntime(draft: Data): void {
   draft.fixSource = null;
   draft.planFindings = [];
   draft.planFixProofs = [];
+  draft.planReviewFollowup = null;
   draft.acceptanceFindings = [];
   draft.failingCommands = [];
   draft.changedFiles = [];
@@ -317,6 +388,7 @@ function applyRoute(draft: Data, payload: RoutePayload): void {
   draft.fixSource = payload.fixSource;
   draft.planFindings = [...payload.planFindings];
   draft.planFixProofs = [...(payload.planFixProofs ?? [])];
+  draft.planReviewFollowup = payload.planReviewFollowup ?? null;
   draft.acceptanceFindings = [...payload.acceptanceFindings];
   draft.failingCommands = [...payload.failingCommands];
   draft.planFixCycles = payload.planFixCycles;
@@ -435,6 +507,7 @@ function renderReport(data: Readonly<Data>): string {
     `Plan summary: ${data.planSummary ?? 'not recorded'}`,
     `Plan review: ${data.planReviewSummary ?? 'not recorded'}`,
     `Plan fix: ${data.planFixSummary ?? 'not recorded'}`,
+    `Requested plan-review follow-up: ${planReviewModeLabel(data.planReviewFollowup)}`,
     `Plan stall cycles: ${data.planStallCycles}`,
     'Plan fix proofs:',
     ...formatPlanFixProofs(data.planFixProofs),
@@ -477,7 +550,8 @@ export const machine = fsm.machine({
       default: 10,
     }),
     maxFixCycles: fsm.input.number({
-      description: 'Maximum plan/slice fix cycles before blocking for owner review',
+      description:
+        'Maximum stalled plan-review prior-blocker cycles and slice fix cycles before blocking for owner review',
       default: 3,
     }),
     maxRecoveryAttempts: fsm.input.number({
@@ -516,6 +590,7 @@ export const machine = fsm.machine({
     fixSource: null,
     planFindings: [],
     planFixProofs: [],
+    planReviewFollowup: null,
     acceptanceFindings: [],
     failingCommands: [],
     changedFiles: [],
@@ -551,6 +626,7 @@ export const machine = fsm.machine({
           'When durable evidence records plan-review blockers, fix proofs, or stall cycles, carry them forward; otherwise submit empty blocker/proof arrays and zero stall cycles.',
           'The recipe may list durable grounding documents such as idea files, specs, architecture docs, parent plans, API contracts, and migration notes. Do not store implementation source files, tests, generated files, or broad file lists as durable context.',
           'Choose the next phase from the recipe and repository evidence: plan, review-plan, fix-plan, execute, accept, fix-slice, finish, or complete.',
+          'If the recipe records a requested plan-review follow-up mode, carry it forward as planReviewFollowup; otherwise submit planReviewFollowup=null.',
           'If worktree mode is enabled, submit worktreeCreated=true only after the /tmp worktree exists and routing work was done there.',
           'If the roadmap is already fully implemented, submit phase="complete" after writing or updating the recipe to record completion.',
           'If the workflow cannot be routed safely, submit needsRecovery with concrete evidence.',
@@ -668,6 +744,10 @@ export const machine = fsm.machine({
           worktreeLine(data),
           currentSliceLine(data),
           currentPlanLine(data),
+          `Requested plan-review follow-up: ${planReviewModeLabel(data.planReviewFollowup)}`,
+          '',
+          'Latest plan-review blockers to address while planning:',
+          ...formatList(data.planFindings),
           '',
           'Use agentfiles:writing-plans-v2 when the detailed plan is missing, stale, or needs fixes.',
           'The plan must define scope boundaries, implementation tasks, acceptance checks, verification commands, and required documentation updates.',
@@ -692,6 +772,7 @@ export const machine = fsm.machine({
             draft.verificationCommands = payload.verificationCommands;
             draft.planFindings = [];
             draft.planFixProofs = [];
+            draft.planReviewFollowup = null;
             draft.planStallCycles = 0;
             resetRecovery(draft);
             record(draft, 'plan-slice', 'ok', draft.planSummary);
@@ -728,12 +809,17 @@ export const machine = fsm.machine({
           currentPlanLine(data),
           `Plan fix cycles completed: ${data.planFixCycles}`,
           `Plan stall cycles used: ${data.planStallCycles} of ${data.maxFixCycles}`,
+          `Review round mode: ${planReviewModeLabel(data.planReviewFollowup)}`,
           '',
-          'Use a structural plan reviewer and a code-feasibility reviewer. Review only the current slice plan.',
-          REVIEW_SUBAGENT_LINE,
+          ...planReviewSubagentInstructions(data.planReviewFollowup),
+          'Review only the current slice plan.',
           'If previous plan-review blockers and fix proofs are listed below, reviewers must first verify those proofs and classify each prior blocker as resolved, still-blocking, invalid-proof, disputed, or replaced-by-new-finding before reporting new blockers.',
           'Submit exactly one priorFindingStatuses entry for each previous blocker, in the same order. Submit priorFindingStatuses=[] only when there are no previous plan-review blockers.',
           'A new or deeper blocker under the same invariant is progress, not a stall, when the prior blocker is resolved or replaced.',
+          'Every reviewComplete submission must include followupReview.',
+          'Use followupReview="none" only when either the plan is approved or any remaining blockers are mechanical enough that fixPlan proof is sufficient before execution.',
+          'Use followupReview="replan" when the plan needs structural rewriting instead of another targeted fix/review loop.',
+          'Otherwise choose the smallest follow-up review level that preserves implementation safety: single-medium, dual-medium, single-xhigh, or dual-xhigh.',
           '',
           'Previous plan-review blockers:',
           ...formatList(data.planFindings),
@@ -754,6 +840,7 @@ export const machine = fsm.machine({
           priorFindingStatuses: PriorFindingReview[];
           blockingFindings: string[];
           nonBlockingFindings: string[];
+          followupReview: PlanReviewFollowup;
         }>({
           route: [
             {
@@ -783,6 +870,7 @@ export const machine = fsm.machine({
                 ].join('\n');
                 draft.planFindings = [];
                 draft.planFixProofs = [];
+                draft.planReviewFollowup = null;
                 draft.planStallCycles = 0;
                 resetRecovery(draft);
                 record(draft, 'review-plan', 'ok', payload.summary);
@@ -802,6 +890,31 @@ export const machine = fsm.machine({
               },
             },
             {
+              if: (_data, payload) => payload.followupReview === 'replan',
+              to: 'planSlice',
+              reduce: (draft, payload) => {
+                const nextStallCycles = nextPlanStallCycles(draft, payload.priorFindingStatuses);
+                draft.currentPhase = 'plan';
+                draft.planReviewSummary = [
+                  payload.summary,
+                  `Prior finding statuses: ${formatPriorFindingReviews(payload.priorFindingStatuses)}`,
+                  `Reviewer-requested follow-up: ${payload.followupReview}`,
+                ].join('\n');
+                draft.planFindings = payload.blockingFindings;
+                draft.planFixProofs = [];
+                draft.planReviewFollowup = payload.followupReview;
+                draft.planStallCycles = nextStallCycles;
+                draft.fixSource = 'plan-review';
+                resetRecovery(draft);
+                record(
+                  draft,
+                  'review-plan',
+                  'changes-requested',
+                  `${payload.summary} Reviewer requested replanning. Blocking findings: ${payload.blockingFindings.join('; ')}`,
+                );
+              },
+            },
+            {
               if: (data, payload) =>
                 nextPlanStallCycles(data, payload.priorFindingStatuses) < data.maxFixCycles,
               to: 'fixPlan',
@@ -811,9 +924,11 @@ export const machine = fsm.machine({
                 draft.planReviewSummary = [
                   payload.summary,
                   `Prior finding statuses: ${formatPriorFindingReviews(payload.priorFindingStatuses)}`,
+                  `Reviewer-requested follow-up: ${payload.followupReview}`,
                 ].join('\n');
                 draft.planFindings = payload.blockingFindings;
                 draft.planFixProofs = [];
+                draft.planReviewFollowup = payload.followupReview;
                 draft.planStallCycles = nextStallCycles;
                 draft.fixSource = 'plan-review';
                 resetRecovery(draft);
@@ -834,8 +949,10 @@ export const machine = fsm.machine({
                 draft.planReviewSummary = [
                   payload.summary,
                   `Prior finding statuses: ${formatPriorFindingReviews(payload.priorFindingStatuses)}`,
+                  `Reviewer-requested follow-up: ${payload.followupReview}`,
                 ].join('\n');
                 draft.planFindings = payload.blockingFindings;
+                draft.planReviewFollowup = payload.followupReview;
                 draft.planStallCycles = nextStallCycles;
                 draft.blocker = summary;
                 draft.finalSummary = summary;
@@ -874,6 +991,7 @@ export const machine = fsm.machine({
           currentPlanLine(data),
           `Plan fix cycles completed: ${data.planFixCycles}`,
           `Plan stall cycles used: ${data.planStallCycles} of ${data.maxFixCycles}`,
+          planReviewFollowupInstruction(data.planReviewFollowup),
           '',
           'Blocking plan findings:',
           ...formatList(data.planFindings),
@@ -883,7 +1001,7 @@ export const machine = fsm.machine({
           'For each listed blocker, submit a proof-of-fix entry with the original finding, the resolution, and concrete evidence references such as file:line, section heading, or exact changed plan bullet.',
           'After fixing a blocker, audit the whole affected invariant/source path for adjacent omissions instead of only patching the quoted sentence.',
           'If a finding is invalid, record the dispute with evidence in the plan or handoff notes instead of inventing work.',
-          'Update the recipe current phase back to review-plan before submitting.',
+          'Keep the recipe current phase aligned with the requested follow-up mode before submitting.',
         ].join('\n'),
       on: {
         fixComplete: fsm.submit<{
@@ -893,22 +1011,54 @@ export const machine = fsm.machine({
           fixedFindings: PlanFixProof[];
           disputedFindings: string[];
         }>({
-          to: 'reviewPlan',
-          reduce: (draft, payload) => {
-            draft.currentPhase = 'review-plan';
-            draft.planFixSummary = [
-              payload.summary,
-              'Proofs:',
-              ...formatPlanFixProofs(payload.fixedFindings),
-              `Disputed findings: ${payload.disputedFindings.join('; ') || 'none'}`,
-            ].join('\n');
-            draft.planFixProofs = [...payload.fixedFindings];
-            draft.changedFiles = appendUnique(draft.changedFiles, payload.changedFiles);
-            draft.verificationCommands = payload.verificationCommands;
-            draft.planFixCycles += 1;
-            resetRecovery(draft);
-            record(draft, 'fix-plan', 'ok', payload.summary);
-          },
+          route: [
+            {
+              if: (data) => data.planReviewFollowup === 'none',
+              to: 'executeSlice',
+              reduce: (draft, payload) => {
+                draft.currentPhase = 'execute';
+                draft.planFixSummary = [
+                  payload.summary,
+                  'Proofs:',
+                  ...formatPlanFixProofs(payload.fixedFindings),
+                  `Disputed findings: ${payload.disputedFindings.join('; ') || 'none'}`,
+                  'Reviewer-requested follow-up: none',
+                ].join('\n');
+                draft.planFixProofs = [...payload.fixedFindings];
+                draft.planFindings = [];
+                draft.planReviewFollowup = null;
+                draft.changedFiles = appendUnique(draft.changedFiles, payload.changedFiles);
+                draft.verificationCommands = payload.verificationCommands;
+                draft.planFixCycles += 1;
+                resetRecovery(draft);
+                record(
+                  draft,
+                  'fix-plan',
+                  'ok',
+                  `${payload.summary} Reviewer-requested follow-up review was none; proceeding to execution.`,
+                );
+              },
+            },
+            {
+              to: 'reviewPlan',
+              reduce: (draft, payload) => {
+                draft.currentPhase = 'review-plan';
+                draft.planFixSummary = [
+                  payload.summary,
+                  'Proofs:',
+                  ...formatPlanFixProofs(payload.fixedFindings),
+                  `Disputed findings: ${payload.disputedFindings.join('; ') || 'none'}`,
+                  `Reviewer-requested follow-up: ${planReviewModeLabel(draft.planReviewFollowup)}`,
+                ].join('\n');
+                draft.planFixProofs = [...payload.fixedFindings];
+                draft.changedFiles = appendUnique(draft.changedFiles, payload.changedFiles);
+                draft.verificationCommands = payload.verificationCommands;
+                draft.planFixCycles += 1;
+                resetRecovery(draft);
+                record(draft, 'fix-plan', 'ok', payload.summary);
+              },
+            },
+          ],
         }),
         needsRecovery: fsm.submit<{
           reason: string;
