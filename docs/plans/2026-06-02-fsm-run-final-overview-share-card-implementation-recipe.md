@@ -1,11 +1,11 @@
 # FSM Run Final Overview And Share Card Implementation Recipe
 
 **Parent roadmap:** `docs/plans/2026-06-02-fsm-run-final-overview-share-card-roadmap.md`
-**Current slice:** Slice 3 - web client completion contract
+**Current slice:** Slice 4 - final overview modal and terminal reopen action
 **Current phase:** plan-slice
 **Current detailed plan:** not written yet
 **Current fix source:** none
-**Last completed:** Slice 2 - summary API and bootstrap contract
+**Last completed:** Slice 3 - web client completion contract
 
 ## Grounding Documents
 
@@ -79,8 +79,22 @@ Final Slice 2 verification passed:
 - `pnpm run typecheck`
 - `git diff --check`
 
-Next step: write and review a bounded detailed plan for Slice 3 - web client
-completion contract. Slice 3 should add web-side completion-stat types,
-validators, summary fetching, bootstrap completion validation, and SSE allowlist
-entries for git fact events without implementing the final overview modal or
-share-card behavior.
+Slice 3 was implemented and accepted. It added web-side completion-summary
+types and validators, accepted bootstrap `completionStats`, added authenticated
+`fetchSummary(...)`, registered exact SSE listeners for canonical git fact
+events, and kept UI store, modal, share-card, and core route behavior reserved
+for later slices. A focused code-review pass found two real validation gaps;
+both were fixed before acceptance.
+
+- `docs/plans/2026-06-02-fsm-run-final-overview-share-card-slice-3-web-client-completion-contract.md`
+
+Final Slice 3 verification passed:
+
+- `pnpm exec vitest run packages/web-ui/src/api/client.test.ts`
+- `pnpm --dir packages/web-ui run typecheck`
+- `git diff --check`
+
+Next step: write and review a bounded detailed plan for Slice 4 - final overview
+modal and terminal reopen action. Slice 4 should add terminal-only overview
+state and UI behavior using the Slice 3 typed summary client, without enabling
+share-card preview or PNG export behavior reserved for Slice 5.

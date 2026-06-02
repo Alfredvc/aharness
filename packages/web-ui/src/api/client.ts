@@ -3,6 +3,8 @@ import {
   isRunScopedBootstrap,
   isRunScopedResyncRequired,
   isRunScopedRowPage,
+  isRunSummaryResponse,
+  type RunSummaryResponse,
   type RunScopedApiEvent,
   type RunScopedBootstrap,
   type RunScopedResyncRequired,
@@ -90,6 +92,8 @@ const RUN_EVENT_TYPES = [
   'fresh_clear.boundary',
   'diagnostic.abandoned_thread',
   'token.updated',
+  'git.snapshot.recorded',
+  'git.diff.recorded',
   'subthread.turn.started',
   'subthread.turn.completed',
   'subthread.item.started',
@@ -174,6 +178,31 @@ export async function fetchBootstrap(options: {
   const json = await readJson(response);
   if (!isRunScopedBootstrap(json)) {
     throw new ApiClientError(`GET ${url} returned a malformed RunScopedBootstrap`, response.status);
+  }
+  return json;
+}
+
+export async function fetchSummary(options: {
+  runId: string;
+  uiToken: string;
+  fetch?: FetchLike;
+}): Promise<RunSummaryResponse> {
+  const runId = requireNonEmpty(options.runId, 'runId');
+  const uiToken = requireNonEmpty(options.uiToken, 'UI token');
+  const fetch = options.fetch ?? defaultFetch();
+  const url = runPath(runId, 'summary');
+  const response = await fetch(url, {
+    headers: { 'X-Aharness-Ui-Token': uiToken },
+  });
+  if (!response.ok) {
+    throw new ApiClientError(
+      `GET ${url} failed with ${response.status}${response.statusText ? ` ${response.statusText}` : ''}`,
+      response.status,
+    );
+  }
+  const json = await readJson(response);
+  if (!isRunSummaryResponse(json)) {
+    throw new ApiClientError(`GET ${url} returned a malformed RunSummaryResponse`, response.status);
   }
   return json;
 }
@@ -330,7 +359,7 @@ function parseStreamPayload(
   return parsed;
 }
 
-function runPath(runId: string, leaf: 'bootstrap' | 'reply'): string {
+function runPath(runId: string, leaf: 'bootstrap' | 'reply' | 'summary'): string {
   return `/api/runs/${encodeURIComponent(runId)}/${leaf}`;
 }
 
