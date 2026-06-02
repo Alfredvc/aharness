@@ -307,6 +307,12 @@ flat `/api/state`, `/api/stream`, and `/api/reply` browser routes are no longer
 served for new runs. Production live runs do not write `snapshot.json`; retained
 snapshot helper exports are legacy/internal compatibility only.
 
+`GET /api/runs/:runId/summary` returns `{ completionStats }` for the active
+run. `completionStats` is `null` while the run is active and becomes the
+API-safe terminal projection after success or failure. It follows the same
+run-scoped token authentication and unavailable-log error shape as the other
+run APIs.
+
 When a run reaches a terminal state, the browser shows a final overview with
 completion outcome, duration, transition and turn counts, token totals, top
 state buckets, topology status, and committed work delta. Live terminal

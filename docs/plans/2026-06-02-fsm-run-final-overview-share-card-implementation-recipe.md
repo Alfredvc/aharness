@@ -2,10 +2,10 @@
 
 **Parent roadmap:** `docs/plans/2026-06-02-fsm-run-final-overview-share-card-roadmap.md`
 **Current slice:** Slice 6 - docs audit and full acceptance
-**Current phase:** plan-slice
-**Current detailed plan:** not written yet
+**Current phase:** complete
+**Current detailed plan:** `docs/plans/2026-06-02-fsm-run-final-overview-share-card-slice-6-docs-audit-full-acceptance.md`
 **Current fix source:** none
-**Last completed:** Slice 5 - share-card preview and PNG export
+**Last completed:** Slice 6 - docs audit and full acceptance
 
 ## Grounding Documents
 
@@ -136,5 +136,58 @@ Final Slice 5 verification passed:
   nonblank fixed-size SVG previews, and generated browser PNG blobs that decoded
   to `1320 x 2868`.
 
-Next step: write and review a bounded detailed plan for Slice 6 - docs audit
-and full acceptance.
+Slice 6 detailed plan was reviewed and updated after plan review. The update
+requires manual share-card acceptance to use the Vite dev server command
+`pnpm --dir packages/web-ui run dev --host 127.0.0.1 --port <available-port>`,
+confirms both `/demo.html?fsm=auto&share=success` and
+`/demo.html?fsm=auto&share=failure` return HTTP 200 before browser assertions,
+and removes preview-server ambiguity for the source-root demo fixture.
+
+- `docs/plans/2026-06-02-fsm-run-final-overview-share-card-slice-6-docs-audit-full-acceptance.md`
+
+Slice 6 was executed and is ready for acceptance review. It audited public docs,
+added the missing reference contract for authenticated
+`GET /api/runs/:runId/summary`, fixed repo-level Vitest discovery so the
+Node-only replay spike test is not collected by Vitest, reran focused and broad
+verification, and reconfirmed success/failure share-card browser acceptance.
+
+Final Slice 6 verification passed:
+
+- Documentation/source audit searches for summary, completion stats, final
+  overview, share-card export, clipboard behavior, canonical git fact events,
+  `events.jsonl`, legacy route references, and stale unavailable/raw-field
+  wording. Remaining matches were current feature docs/source or explicit
+  legacy-route statements that are still accurate.
+- `pnpm exec vitest run packages/core/test/runEvents.gitFacts.test.ts packages/core/test/runEvents.completionStats.test.ts packages/core/test/runEvents.queryService.test.ts packages/core/test/ui.runScopedServer.test.ts packages/core/test/ui.sse.test.ts packages/web-ui/src/api/client.test.ts packages/web-ui/src/state/store.test.ts packages/web-ui/src/state/store.hook.test.ts packages/web-ui/src/App.test.ts packages/web-ui/src/App.dom.test.ts packages/web-ui/src/components/FinalOverviewModal.test.ts packages/web-ui/src/components/RunCompletionShareCard.test.ts packages/web-ui/src/components/shareCardExport.test.ts packages/web-ui/src/state/fixtureStore.test.ts`
+  passed: 14 files, 203 tests.
+- `pnpm run typecheck` passed.
+- `pnpm --dir packages/web-ui run typecheck` passed.
+- `node --test scripts/spikes/replay-run-prefix-ui.test.mjs` passed with
+  escalated localhost-bind permissions after sandboxed execution returned
+  `listen EPERM` for `127.0.0.1`.
+- `pnpm run verify` passed after the Vitest discovery fix: 159 files passed,
+  8 skipped; 1765 tests passed, 37 skipped. The build retained the existing
+  Vite chunk-size warning.
+- `git diff --check` passed.
+
+Manual browser acceptance passed against
+`pnpm --dir packages/web-ui run dev --host 127.0.0.1 --port 5173`:
+
+- `curl` confirmed HTTP 200 for
+  `/demo.html?fsm=auto&share=success` and
+  `/demo.html?fsm=auto&share=failure`.
+- Success route: Share exposed the preview, the share SVG was fixed at
+  `1320 x 2868`, generated a nonblank `image/png` blob decoded by the browser
+  to exactly `1320 x 2868`, Copy PNG completed in this browser, and the preview
+  stayed open with Download PNG still available.
+- Failure route: Share exposed the preview, the share SVG was fixed at
+  `1320 x 2868`, generated a nonblank `image/png` blob decoded by the browser
+  to exactly `1320 x 2868`, Copy PNG completed in this browser, and the preview
+  stayed open with Download PNG still available.
+- Modal and share-card text checks did not find the inspected raw paths, run
+  ids, git object ids, Codex strings, owner input, or command output values in
+  the modal/card surfaces. The page header still shows existing run metadata
+  outside the modal/share-card contract.
+
+Next step: roadmap complete. This is the terminal roadmap slice; do not advance
+to another implementation slice.

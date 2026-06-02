@@ -28,6 +28,7 @@ export default defineConfig({
       'packages/*/test/**/*.test.ts',
       'scripts/**/*.test.mjs',
     ],
+    exclude: ['scripts/spikes/replay-run-prefix-ui.test.mjs'],
     passWithNoTests: false,
   },
 });
