@@ -308,6 +308,7 @@ describe('createFsm() canonical authoring surface', () => {
     expect(typeof fsm.input.values).toBe('function');
     expect(typeof fsm.skill).toBe('function');
     expect(typeof fsm.skill.path).toBe('function');
+    expect(typeof fsm.skill.dir).toBe('function');
   });
 
   it('constructs the canonical Chunk 1 shapes without replacing primitive coverage', () => {
@@ -318,7 +319,7 @@ describe('createFsm() canonical authoring surface', () => {
       clearOnEntry: true,
       skills: [
         fsm.skill('reviewer', { optional: true }),
-        fsm.skill.path('./skills/reviewer.md', { optional: true }),
+        fsm.skill.path('./skills/reviewer/SKILL.md', { optional: true }),
       ],
       on: {
         submit: fsm.submit<{ color: 'red' | 'green' }>({

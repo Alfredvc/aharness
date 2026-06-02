@@ -2,7 +2,7 @@
  * Fixture exercising the `skill()` author surface in the verifier path.
  * Declares a name-form skill that the test suite asserts is missing
  * (no `.agents/skills/` tree) and a path-form skill pointing at a
- * sibling file that DOES exist (the test creates it).
+ * sibling SKILL.md file that DOES exist (the test creates it).
  */
 import { aharness, state, terminal, exit, skill } from '@aharness/core';
 
@@ -17,7 +17,7 @@ export const machine = aharness.machine({
   states: {
     collect: state({
       entryPrompt: 'Ask.',
-      skills: [skill('not-installed'), skill({ path: './skills/local.md' })],
+      skills: [skill('not-installed'), skill({ path: './skills/local/SKILL.md' })],
       exits: {
         ok: exit<AskPayload>({ to: 'done' }),
       },

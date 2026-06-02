@@ -31,7 +31,7 @@ export default fsm.machine({
   states: {
     confess: fsm.state({
       mode: 'open',
-      skills: [fsm.skill.path('./skills/pirate-mode.md')],
+      skills: [fsm.skill.path('./skills/pirate-mode/SKILL.md')],
       prompt:
         'Adopt the pirate persona from the loaded skill immediately. ' +
         'Greet the owner in-character (one short sentence) so they can see the persona is live. ' +

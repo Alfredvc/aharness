@@ -20,7 +20,7 @@ import type {
 import type { RunCtx } from '../types.js';
 import type { AharnessOps } from './aharnessOps.js';
 import type { StateHooks } from './hooks.js';
-import { isSkillRef, type SkillRef } from './skills.js';
+import { isAnySkillRef, isSkillRef, type SkillRef } from './skills.js';
 
 /**
  * Submit-event shape seen by inline `actions` / `guard` callbacks declared
@@ -702,6 +702,11 @@ function validateSkills(raw: unknown): void {
   const seen = new Set<string>();
   for (let i = 0; i < raw.length; i++) {
     const ref: unknown = raw[i];
+    if (isAnySkillRef(ref) && ref.source === 'dir') {
+      throw new TypeError(
+        `state(): skills[${i}] cannot use dir-form refs; use dir refs only in top-level availableSkills`,
+      );
+    }
     if (!isSkillRef(ref)) {
       throw new TypeError(
         `state(): skills[${i}] must be a SkillRef returned by skill(...) (got ${typeof ref})`,

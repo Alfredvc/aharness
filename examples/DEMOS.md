@@ -16,7 +16,7 @@ mechanisms, runs in under five minutes, and keeps owner input short.
 | [`trivia-rounds`](#3-trivia-rounds--clearonentry-context-wipe)      | **`clearOnEntry` fresh thread** with FSM state retained        | 12 picks    |
 | [`adventure`](#4-adventure--multi-exit-branching)                   | `fsm.submit({ route })` branching + success/failure finals     | 2 picks     |
 | [`await-checkpoints`](#5-await-checkpoints--owner-choice-gates)     | `fsm.choice` owner checkpoint gates                            | 3 yes/no    |
-| [`pirate-roast`](#6-pirate-roast--skill-loading)                    | `fsm.skill.path` — sibling `.md` file injected as persona      | 1 sentence  |
+| [`pirate-roast`](#6-pirate-roast--skill-loading)                    | `fsm.skill.path` - sibling `SKILL.md` file injected as persona | 1 sentence  |
 | [`composed-pipeline`](#7-composed-pipeline--composition-and-inputs) | `fsm.embed` + typed `fsm.input.*` root CLI flags               | none        |
 | [`approval-policy`](#8-approval-policy--hooks-events-and-passive)   | built-in hook events + `withEvents` + `effect` + `fsm.passive` | none        |
 
@@ -202,9 +202,9 @@ choice records the stage result before moving to the next checkpoint.
 ## 6. `pirate-roast` — skill loading
 
 **File:** `examples/pirate-roast.fsm.ts`
-**Skill:** `examples/skills/pirate-mode.md`
+**Skill:** `examples/skills/pirate-mode/SKILL.md`
 **States:** `confess` → `verdict` → `done`
-**Mechanism:** path-form `fsm.skill.path('./skills/pirate-mode.md')` on
+**Mechanism:** path-form `fsm.skill.path('./skills/pirate-mode/SKILL.md')` on
 the first stateful state. The framework resolves the path against the
 FSM file's directory, reads the body, and prepends a `<skill>` block to
 the per-state orientation nudge on entry. Once-per-run dedupe keeps the
@@ -221,7 +221,7 @@ branch`).
 ### What to look for
 
 - The pirate persona is **not** in the FSM source — it lives in the
-  sibling `.md` file. Edit `examples/skills/pirate-mode.md`, re-run, and
+  sibling `SKILL.md` file. Edit `examples/skills/pirate-mode/SKILL.md`, re-run, and
   the model's voice changes without touching the FSM.
 - The skill body is injected once, on `confess` entry. `verdict`'s
   orientation nudge does NOT re-include the skill block (check the run's

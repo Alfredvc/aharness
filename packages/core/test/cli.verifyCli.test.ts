@@ -303,17 +303,17 @@ describe('runVerifyCli', () => {
     expect(r.exitCode).toBe(1);
     const lines = log.mock.calls.map((c) => String(c[0]));
     // Both refs miss in this fresh repoRoot — the name-form (no
-    // `.agents/skills/` tree) and the path-form (sibling file does
+    // `.agents/skills/` tree) and the path-form (sibling SKILL.md file does
     // not exist).
     const skillLines = lines.filter((l) => l.includes('skill-must-resolve'));
     expect(skillLines.length).toBeGreaterThanOrEqual(2);
     expect(skillLines.some((l) => l.includes('not-installed'))).toBe(true);
-    expect(skillLines.some((l) => l.includes('local.md'))).toBe(true);
+    expect(skillLines.some((l) => l.includes('local/SKILL.md'))).toBe(true);
   });
 
   it('passes skill-must-resolve when the skill file exists alongside the FSM', async () => {
-    // Materialise a sibling `skills/local.md` alongside the fixture by
-    // copying the FSM into a tmp dir whose `skills/local.md` exists.
+    // Materialise a sibling `skills/local/SKILL.md` alongside the fixture by
+    // copying the FSM into a tmp dir whose `skills/local/SKILL.md` exists.
     const tmpFsmDir = await fs.mkdtemp(join(tmpdir(), 'codex-verify-cli-skill-pass-'));
     const tmpFsmPath = join(tmpFsmDir, 'skills.fsm.ts');
     // We need a fixture that only declares a path-form skill (the
@@ -325,15 +325,15 @@ export const machine = aharness.machine({
   initial: 'a',
   context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
   states: {
-    a: state({ entryPrompt: 'x', skills: [skill({ path: './skills/local.md' })], exits: { ok: exit<P>({ to: 'done' }) } }),
+    a: state({ entryPrompt: 'x', skills: [skill({ path: './skills/local/SKILL.md' })], exits: { ok: exit<P>({ to: 'done' }) } }),
     done: terminal('success'),
   },
 });
 export default machine;
 `;
     await fs.writeFile(tmpFsmPath, minimal, 'utf8');
-    await fs.mkdir(join(tmpFsmDir, 'skills'), { recursive: true });
-    await fs.writeFile(join(tmpFsmDir, 'skills', 'local.md'), '# local\nbody.\n');
+    await fs.mkdir(join(tmpFsmDir, 'skills', 'local'), { recursive: true });
+    await fs.writeFile(join(tmpFsmDir, 'skills', 'local', 'SKILL.md'), '# local\nbody.\n');
     const log = vi.fn();
     const r = await runVerifyCli({ fsmPath: tmpFsmPath, repoRoot, log });
     expect(r.exitCode).toBe(0);

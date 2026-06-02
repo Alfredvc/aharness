@@ -32,6 +32,7 @@ import {
   state,
   terminal,
   exit,
+  skill,
   type SchemaSidecar,
 } from '@aharness/core';
 
@@ -417,6 +418,230 @@ describe('@aharness/core verify: clearOnEntry initial-state rule', () => {
     );
 
     expect(result.errors.map((issue) => issue.check)).not.toContain('clearOnEntry-not-initial');
+  });
+});
+
+describe('@aharness/core verify: skill authoring validation', () => {
+  const skillEnv = {
+    fsmFileDir: '/repo/fsm',
+    repoRoot: '/repo',
+    homeDir: '/home',
+    codexHome: '/home/.codex',
+    fileExists: (p: string) => p === '/repo/fsm/skills/local/SKILL.md',
+    dirExists: (p: string) => p === '/repo/fsm/skills',
+  };
+
+  function minimalSidecar(): SchemaSidecar {
+    return sidecarWith([['a', 'ok']]);
+  }
+
+  it('accepts availableSkills path and dir refs when they resolve', () => {
+    const fsm = createFsmVerify();
+    const m = fsm.machine({
+      id: 'available-ok',
+      availableSkills: [fsm.skill.dir('./skills'), fsm.skill.path('./skills/local/SKILL.md')],
+      initial: 'a',
+      states: {
+        a: fsm.state({
+          prompt: 'go',
+          on: { ok: fsm.submit<{ ok: boolean }>({ to: 'done' }) },
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+
+    const result = verify(m, minimalSidecar(), [], { skillEnv });
+
+    expect(result.ok).toBe(true);
+    expect(result.issues).toEqual([]);
+  });
+
+  it('rejects name-form refs in availableSkills at static verify time', () => {
+    const fsm = createFsmVerify();
+    const m = fsm.machine({
+      id: 'available-name',
+      availableSkills: [fsm.skill.dir('./skills')],
+      initial: 'a',
+      states: {
+        a: fsm.state({
+          prompt: 'go',
+          on: { ok: fsm.submit<{ ok: boolean }>({ to: 'done' }) },
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+    const raw = (m as { __aharnessRawConfig: { availableSkills: Array<unknown> } })
+      .__aharnessRawConfig;
+    raw.availableSkills[0] = skill('reviewer');
+
+    const result = verify(m, minimalSidecar(), [], { skillEnv });
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'available-skills-well-formed',
+          message: expect.stringContaining('name-form'),
+        }),
+      ]),
+    );
+  });
+
+  it('rejects malformed availableSkills refs at static verify time', () => {
+    const fsm = createFsmVerify();
+    const m = fsm.machine({
+      id: 'available-malformed',
+      availableSkills: [fsm.skill.dir('./skills')],
+      initial: 'a',
+      states: {
+        a: fsm.state({
+          prompt: 'go',
+          on: { ok: fsm.submit<{ ok: boolean }>({ to: 'done' }) },
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+    const raw = (m as { __aharnessRawConfig: { availableSkills: Array<unknown> } })
+      .__aharnessRawConfig;
+    raw.availableSkills[0] = { __aharnessSkillRef: true, source: 'path' };
+
+    const result = verify(m, minimalSidecar(), [], { skillEnv });
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'available-skills-well-formed',
+          message: expect.stringContaining('path must be a non-empty string'),
+        }),
+      ]),
+    );
+  });
+
+  it('rejects non-SKILL.md path refs in state skills and availableSkills', () => {
+    const fsm = createFsmVerify();
+    const m = fsm.machine({
+      id: 'skill-md-only',
+      availableSkills: [fsm.skill.path('./skills/local.md')],
+      initial: 'a',
+      states: {
+        a: fsm.state({
+          prompt: 'go',
+          skills: [fsm.skill.path('./skills/local.md')],
+          on: { ok: fsm.submit<{ ok: boolean }>({ to: 'done' }) },
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+
+    const result = verify(m, minimalSidecar(), [], { skillEnv });
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'skill-path-must-be-skill-md',
+          stateId: '',
+          message: expect.stringContaining('availableSkills[0]'),
+        }),
+        expect.objectContaining({
+          check: 'skill-path-must-be-skill-md',
+          stateId: 'a',
+          message: expect.stringContaining("skills[0] path './skills/local.md'"),
+        }),
+      ]),
+    );
+  });
+
+  it('treats availableSkills filesystem misses as errors even when path refs are optional', () => {
+    const fsm = createFsmVerify();
+    const m = fsm.machine({
+      id: 'available-missing',
+      availableSkills: [
+        fsm.skill.dir('./missing-skills'),
+        fsm.skill.path('./skills/missing/SKILL.md', { optional: true }),
+      ],
+      initial: 'a',
+      states: {
+        a: fsm.state({
+          prompt: 'go',
+          on: { ok: fsm.submit<{ ok: boolean }>({ to: 'done' }) },
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+
+    const result = verify(m, minimalSidecar(), [], { skillEnv });
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'available-skill-must-resolve',
+          message: expect.stringContaining('missing-skills'),
+        }),
+        expect.objectContaining({
+          check: 'available-skill-must-resolve',
+          message: expect.stringContaining('missing/SKILL.md'),
+        }),
+      ]),
+    );
+  });
+
+  it('reports dir-form refs that reach state-level skills through untyped metadata', () => {
+    const m = aharness.machine({
+      id: 'dir-in-state',
+      initial: 'a',
+      states: {
+        a: {
+          meta: {
+            aharness: {
+              kind: 'stateful',
+              open: false,
+              entryPrompt: 'go',
+              exits: { ok: exit<{ ok: boolean }>({ to: 'done' }) },
+              skills: [createFsmVerify().skill.dir('./skills')],
+            },
+          },
+        },
+        done: terminal('success'),
+      },
+    });
+
+    const result = verify(m, minimalSidecar(), [], { skillEnv });
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'skill-invalid-placement',
+          stateId: 'a',
+        }),
+      ]),
+    );
+  });
+
+  it('keeps optional missing state skills as warnings', () => {
+    const fsm = createFsmVerify();
+    const m = fsm.machine({
+      id: 'optional-state-skill',
+      initial: 'a',
+      states: {
+        a: fsm.state({
+          prompt: 'go',
+          skills: [fsm.skill.path('./skills/missing/SKILL.md', { optional: true })],
+          on: { ok: fsm.submit<{ ok: boolean }>({ to: 'done' }) },
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+
+    const result = verify(m, minimalSidecar(), [], { skillEnv });
+
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'skill-must-resolve',
+          stateId: 'a',
+        }),
+      ]),
+    );
   });
 });
 

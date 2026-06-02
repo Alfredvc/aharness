@@ -55,8 +55,11 @@ import type {
 import { aharness, type ExtractFinals, type AharnessMachine } from './machine.js';
 import {
   skill,
+  skillDir,
+  type AvailableSkillRef,
   type SkillOptions,
   type SkillRef,
+  type SkillRefDir,
   type SkillRefName,
   type SkillRefPath,
 } from './skills.js';
@@ -411,6 +414,7 @@ type CanonicalMachineConfig<Data, TInput extends Record<string, ArgSentinel>, TS
 > & {
   readonly input?: TInput;
   readonly data?: CanonicalData<Data, ResolveInput<TInput>>;
+  readonly availableSkills?: ReadonlyArray<AvailableSkillRef>;
   readonly initial?: string;
   readonly states: TStates;
 };
@@ -434,6 +438,7 @@ interface CanonicalInputHelpers {
 interface CanonicalSkillFacade {
   (name: string, opts?: SkillOptions): SkillRefName;
   path(path: string, opts?: SkillOptions): SkillRefPath;
+  dir(path: string): SkillRefDir;
 }
 
 type ArtifactRenderer<Data> = (data: Readonly<Data>) => string | Uint8Array;
@@ -515,6 +520,7 @@ function makeInputHelpers(): CanonicalInputHelpers {
 function makeSkillFacade(): CanonicalSkillFacade {
   const facade = ((name: string, opts?: SkillOptions) => skill(name, opts)) as CanonicalSkillFacade;
   facade.path = (path: string, opts?: SkillOptions) => skill({ path, ...opts });
+  facade.dir = (path: string) => skillDir(path);
   return facade;
 }
 

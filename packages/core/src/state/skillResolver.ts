@@ -17,10 +17,10 @@
  * inject). `existsSync` is the only filesystem dependency; `homedir`
  * and `process.env.CODEX_HOME` are read at the call site.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, resolve } from 'node:path';
-import type { SkillRef } from './skills.js';
+import type { SkillRef, SkillRefDir } from './skills.js';
 
 export interface SkillResolverEnv {
   /** Directory containing the FSM file. Used as the base for relative path-form refs. */
@@ -33,6 +33,8 @@ export interface SkillResolverEnv {
   readonly codexHome?: string | undefined;
   /** Override `existsSync` (test seam). */
   readonly fileExists?: (absPath: string) => boolean;
+  /** Override directory existence checks (test seam). */
+  readonly dirExists?: (absPath: string) => boolean;
 }
 
 export interface ResolvedSkill {
@@ -53,6 +55,22 @@ export interface UnresolvedSkill {
 }
 
 export type SkillResolution = ResolvedSkill | UnresolvedSkill;
+
+export interface ResolvedSkillDir {
+  readonly kind: 'resolved';
+  readonly absPath: string;
+  readonly key: string;
+  readonly displayName: string;
+}
+
+export interface UnresolvedSkillDir {
+  readonly kind: 'unresolved';
+  readonly key: string;
+  readonly displayName: string;
+  readonly searched: ReadonlyArray<string>;
+}
+
+export type SkillDirResolution = ResolvedSkillDir | UnresolvedSkillDir;
 
 export function resolveSkill(ref: SkillRef, env: SkillResolverEnv): SkillResolution {
   const fileExists = env.fileExists ?? existsSync;
@@ -103,6 +121,30 @@ export function resolveSkill(ref: SkillRef, env: SkillResolverEnv): SkillResolut
     key,
     displayName: ref.path,
     optional: ref.optional,
+    searched: [absPath],
+  };
+}
+
+export function resolveSkillDir(ref: SkillRefDir, env: SkillResolverEnv): SkillDirResolution {
+  const dirExists = env.dirExists ?? ((absPath: string) => statSync(absPath).isDirectory());
+  const absPath = isAbsolute(ref.path) ? ref.path : resolve(env.fsmFileDir, ref.path);
+  const key = `dir:${absPath}`;
+  try {
+    if (dirExists(absPath)) {
+      return {
+        kind: 'resolved',
+        absPath,
+        key,
+        displayName: ref.path,
+      };
+    }
+  } catch {
+    // Fall through to unresolved so diagnostics stay deterministic.
+  }
+  return {
+    kind: 'unresolved',
+    key,
+    displayName: ref.path,
     searched: [absPath],
   };
 }

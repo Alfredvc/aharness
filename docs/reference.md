@@ -33,7 +33,7 @@ the compatibility gate and drift-check details.
   `fsm.input.custom<T>(...)` declare machine inputs.
 - `fsm.input.values([...])` declares a static completion set.
 - `fsm.skill(name, options)` references an installed skill by name.
-- `fsm.skill.path(path, options)` references a skill by path.
+- `fsm.skill.path(path, options)` references a skill by `SKILL.md` path.
 - `fsm.event<T>()` declares a signal event for `withEvents`.
 - `fsm.event<T, R>({ defaultReturn })` declares a request event for
   `withEvents`.
@@ -157,7 +157,8 @@ freshWorktreeReview: fsm.state({
 primary spine. It is visualization-only metadata and never changes transition
 legality, verifier checks, emitted run state, or runtime behavior.
 
-`skills` attaches skill references for the active state.
+`skills` attaches name-form or `SKILL.md` path-form skill references for the
+active state.
 
 ## Submit, Choice, And Events
 

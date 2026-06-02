@@ -47,6 +47,12 @@ import {
 } from 'xstate';
 import type { ArgSentinel, ResolveInput } from './args.js';
 import {
+  availableSkillKey,
+  isAvailableSkillRef,
+  isAnySkillRef,
+  type AvailableSkillRef,
+} from './skills.js';
+import {
   canonicalEmbeddedFinalCommitContext,
   isCanonicalDryRun,
   payloadWithCanonicalEmbeddedFinalCommit,
@@ -490,6 +496,43 @@ function wrapContext(originalContext: unknown): unknown {
   return defaults;
 }
 
+function validateAvailableSkills(raw: unknown): void {
+  if (raw === undefined) return;
+  if (!Array.isArray(raw)) {
+    throw new TypeError('aharness.machine(): availableSkills must be an array');
+  }
+  const refs = raw as ReadonlyArray<unknown>;
+  const seen = new Set<string>();
+  for (let i = 0; i < refs.length; i++) {
+    const ref = refs[i];
+    if (!isAnySkillRef(ref)) {
+      throw new TypeError(
+        `aharness.machine(): availableSkills[${String(i)}] must be a SkillRef returned by skill.path(...) or skill.dir(...) (got ${typeof ref})`,
+      );
+    }
+    if (
+      (ref.source === 'path' || ref.source === 'dir') &&
+      (typeof ref.path !== 'string' || ref.path.length === 0)
+    ) {
+      throw new TypeError(
+        `aharness.machine(): availableSkills[${String(i)}] ${ref.source} path must be a non-empty string`,
+      );
+    }
+    if (!isAvailableSkillRef(ref)) {
+      throw new TypeError(
+        `aharness.machine(): availableSkills[${String(i)}] must use path-form or dir-form refs; name-form refs are only valid in state skills`,
+      );
+    }
+    const key = availableSkillKey(ref);
+    if (seen.has(key)) {
+      throw new TypeError(
+        `aharness.machine(): availableSkills[${String(i)}] duplicate skill '${key}'`,
+      );
+    }
+    seen.add(key);
+  }
+}
+
 /**
  * Context factory shape exposed on the `aharness.machine` wrapper. Mirrors
  * XState's `ContextFactory` but pins the `input` parameter to the resolved
@@ -572,6 +615,7 @@ interface AharnessNamespace {
       // respectively. XState's runtime ignores unrecognised root keys —
       // the field is data, not behavior.
       readonly input?: TInput;
+      readonly availableSkills?: ReadonlyArray<AvailableSkillRef>;
       // Typed root `context:` factory. The `input` parameter is
       // `ResolveInput<TInput>` — the resolved object shape of the FSM's
       // declared `input:` fields — so authors get a typed `input` without
@@ -608,6 +652,7 @@ function aharnessMachineImpl(config: unknown): AnyStateMachine {
   // express against the strict `MachineConfig<…>` shape without per-state
   // generics.
   const looseConfig = config as AnyConfig;
+  validateAvailableSkills((looseConfig as { availableSkills?: unknown }).availableSkills);
   // Snapshot the input config BEFORE the in-place synthesis pass mutates
   // it. The snapshot is a structural deep-clone that preserves function
   // references (callbacks, action factories, function-form

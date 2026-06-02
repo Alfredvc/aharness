@@ -15,7 +15,17 @@ import { describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isSkillRef, skill, skillKey, type SkillRef } from '../src/state/skills.js';
+import { exit, state } from '../src/state/exits.js';
+import { createFsm } from '../src/state/createFsm.js';
+import {
+  availableSkillKey,
+  isAvailableSkillRef,
+  isSkillRef,
+  skill,
+  skillDir,
+  skillKey,
+  type SkillRef,
+} from '../src/state/skills.js';
 import { resolveSkill } from '../src/state/skillResolver.js';
 import { resolveAndReadSkills } from '../src/runtime/skillInjection.js';
 
@@ -35,16 +45,30 @@ describe('skill() factory', () => {
   });
 
   it('builds a path-form ref', () => {
-    const r = skill({ path: './foo.md' });
+    const r = skill({ path: './foo/SKILL.md' });
     expect(r.source).toBe('path');
     if (r.source !== 'path') throw new Error('unreachable');
-    expect(r.path).toBe('./foo.md');
+    expect(r.path).toBe('./foo/SKILL.md');
     expect(r.optional).toBe(false);
   });
 
   it('honours optional flag on path form', () => {
-    const r = skill({ path: './foo.md', optional: true });
+    const r = skill({ path: './foo/SKILL.md', optional: true });
     expect(r.optional).toBe(true);
+  });
+
+  it('builds a dir-form ref for availableSkills', () => {
+    const r = skillDir('./skills');
+    expect(isSkillRef(r)).toBe(false);
+    expect(isAvailableSkillRef(r)).toBe(true);
+    expect(r.source).toBe('dir');
+    expect(r.path).toBe('./skills');
+  });
+
+  it('builds a dir-form ref through createFsm().skill.dir', () => {
+    const fsm = createFsm();
+    const r = fsm.skill.dir('./skills');
+    expect(r).toEqual(skillDir('./skills'));
   });
 
   it('rejects empty name', () => {
@@ -61,15 +85,32 @@ describe('skill() factory', () => {
     expect(() => skill({ path: '' })).toThrow(/non-empty/);
   });
 
+  it('rejects empty dir path', () => {
+    expect(() => skillDir('')).toThrow(/non-empty/);
+  });
+
   it('skillKey derives stable identifier per source', () => {
     expect(skillKey(skill('foo'))).toBe('name:foo');
-    expect(skillKey(skill({ path: '/abs/path.md' }))).toBe('path:/abs/path.md');
+    expect(skillKey(skill({ path: '/abs/SKILL.md' }))).toBe('path:/abs/SKILL.md');
+    expect(availableSkillKey(skillDir('/abs/skills'))).toBe('dir:/abs/skills');
   });
 
   it('isSkillRef rejects plain objects', () => {
     expect(isSkillRef({ source: 'name', name: 'foo' })).toBe(false);
     expect(isSkillRef(null)).toBe(false);
     expect(isSkillRef(undefined)).toBe(false);
+  });
+});
+
+describe('state skill construction validation', () => {
+  it('rejects dir refs in state-level skills', () => {
+    expect(() =>
+      state({
+        entryPrompt: 'go',
+        skills: [skillDir('./skills') as never],
+        exits: { ok: exit<{ ok: boolean }>({ to: 'done' }) },
+      }),
+    ).toThrow(/dir-form refs/);
   });
 });
 
@@ -175,8 +216,8 @@ describe('resolveSkill', () => {
 
   it('resolves path-form relative to fsmFileDir', () => {
     const fx = mk();
-    const localSkill = fx.write('repo/fsm/skills/local.md');
-    const r = resolveSkill(skill({ path: './skills/local.md' }), {
+    const localSkill = fx.write('repo/fsm/skills/local/SKILL.md');
+    const r = resolveSkill(skill({ path: './skills/local/SKILL.md' }), {
       fsmFileDir: fx.fsmFileDir,
       repoRoot: fx.repoRoot,
       homeDir: fx.homeDir,
@@ -275,5 +316,21 @@ describe('resolveAndReadSkills', () => {
     expect(r.blocks).toHaveLength(1);
     expect(r.blocks[0]?.text).toContain('read error: boom');
     expect(r.newKeys).toEqual(['name:alpha']);
+  });
+
+  it('still reads existing non-SKILL.md path refs at runtime in Slice 0', () => {
+    const localPath = '/tmp/x/legacy.md';
+    const r = resolveAndReadSkills({
+      skills: [skill({ path: './legacy.md' })],
+      alreadyInjected: new Set(),
+      env: {
+        ...env,
+        fileExists: (p: string) => p === localPath,
+      },
+      readFile: reader,
+    });
+    expect(r.blocks).toHaveLength(1);
+    expect(r.blocks[0]?.text).toContain(`BODY[${localPath}]`);
+    expect(r.newKeys).toEqual([`path:${localPath}`]);
   });
 });

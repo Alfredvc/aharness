@@ -250,9 +250,10 @@ input: {
 Inputs become kebab-case CLI flags such as `--fixture-root` and
 `--max-repair-attempts`.
 
-Attach skills with `fsm.skill(name)` or `fsm.skill.path(path)`. Packaged FSMs
-should use path-form references for bundled skills so the installed package can
-resolve them reliably.
+Attach state skills with `fsm.skill(name)` or `fsm.skill.path(path)`.
+Path-form references must point at a `SKILL.md` file. Packaged FSMs should use
+path-form references for bundled skills so the installed package can resolve
+them reliably.
 
 ## Where To Start
 

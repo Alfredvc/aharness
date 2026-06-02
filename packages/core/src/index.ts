@@ -36,13 +36,24 @@ export type {
   FinalOutputFn,
 } from './state/exits.js';
 export type { OnEntryFn } from './state/exits.js';
-export { skill, isSkillRef, skillKey } from './state/skills.js';
+export {
+  skill,
+  skillDir,
+  isSkillRef,
+  isAvailableSkillRef,
+  isAnySkillRef,
+  skillKey,
+  availableSkillKey,
+} from './state/skills.js';
 export type {
+  AvailableSkillRef,
   SkillRef,
+  SkillRefDir,
   SkillRefName,
   SkillRefPath,
   SkillOptions,
   SkillByPath,
+  SkillByDir,
   SkillKey,
 } from './state/skills.js';
 export type {

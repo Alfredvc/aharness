@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { aharness } from '../src/state/machine.js';
 import { state, exit, terminal } from '../src/state/exits.js';
 import { createFsm } from '../src/state/createFsm.js';
+import { skill, skillDir } from '../src/state/skills.js';
 
 describe('aharness.machine() — __aharnessRawConfig snapshot', () => {
   it('stashes a non-enumerable, top-level-frozen pre-synthesis snapshot of the input config', () => {
@@ -99,5 +100,77 @@ describe('aharness.machine() — __aharnessRawConfig snapshot', () => {
     expect(
       Object.keys(snap.states.pick.on ?? {}).filter((key) => key.startsWith('OWNER_CHOICE__')),
     ).toEqual([]);
+  });
+
+  it('snapshot preserves top-level availableSkills metadata', () => {
+    const fsm = createFsm();
+    const availableSkills = [fsm.skill.dir('./skills'), fsm.skill.path('./local/SKILL.md')];
+    const compiled = fsm.machine({
+      id: 'available-skills-snapshot',
+      availableSkills,
+      initial: 'go',
+      states: {
+        go: fsm.state({
+          prompt: 'go',
+          on: { ok: fsm.submit<{ ok: boolean }>({ to: 'done' }) },
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+    const snap = (
+      compiled as {
+        __aharnessRawConfig: {
+          availableSkills?: unknown;
+        };
+      }
+    ).__aharnessRawConfig;
+    expect(snap.availableSkills).toEqual(availableSkills);
+  });
+
+  it('rejects invalid top-level availableSkills for direct aharness.machine callers', () => {
+    expect(() =>
+      aharness.machine({
+        id: 'bad-available',
+        availableSkills: [skill('name-only')],
+        initial: 'go',
+        states: {
+          go: state({
+            entryPrompt: 'go',
+            exits: { out: exit<{ ok: boolean }>({ to: 'done' }) },
+          }),
+          done: terminal('success'),
+        },
+      } as never),
+    ).toThrow(/availableSkills.*path-form or dir-form/);
+
+    expect(() =>
+      aharness.machine({
+        id: 'dup-available',
+        availableSkills: [skillDir('./skills'), skillDir('./skills')],
+        initial: 'go',
+        states: {
+          go: state({
+            entryPrompt: 'go',
+            exits: { out: exit<{ ok: boolean }>({ to: 'done' }) },
+          }),
+          done: terminal('success'),
+        },
+      } as never),
+    ).toThrow(/duplicate skill 'dir:\.\/skills'/);
+
+    expect(() =>
+      aharness.machine({
+        id: 'malformed-available',
+        availableSkills: [{ __aharnessSkillRef: true, source: 'path' }],
+        initial: 'go',
+        states: {
+          go: state({
+            entryPrompt: 'go',
+            exits: { out: exit<{ ok: boolean }>({ to: 'done' }) },
+          }),
+          done: terminal('success'),
+        },
+      } as never),
+    ).toThrow(/availableSkills\[0\].*path.*non-empty string/);
   });
 });

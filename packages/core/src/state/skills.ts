@@ -2,14 +2,16 @@
  * Skill primitive — author surface for declaring SKILL.md bodies that the
  * framework injects into the per-state orientation nudge on entry.
  *
- * Two ref shapes:
+ * Three author ref shapes:
  *   - **Name-form** — `skill('spec-review')`. Resolved against codex's
  *     skill roots in this order: `<repoRoot>/.agents/skills/<name>/SKILL.md`,
  *     `~/.agents/skills/<name>/SKILL.md`, `$CODEX_HOME/skills/<name>/SKILL.md`.
  *     If none exists, verifier errors (or skips silently when `optional`).
- *   - **Path-form** — `skill({ path: './foo.md' })`. Relative paths resolve
+ *   - **Path-form** — `skill({ path: './foo/SKILL.md' })`. Relative paths resolve
  *     against the FSM file's directory (loader threads it to the daemon);
  *     absolute paths used as-is. No fallback search.
+ *   - **Dir-form** — `fsm.skill.dir('./skills')`. Valid only in top-level
+ *     machine `availableSkills`, not in state-level `skills`.
  *
  * `optional: true` downgrades a missing-resolution from error to warning at
  * verify time and from inject-failure to silent-skip at runtime.
@@ -25,7 +27,7 @@
  * parent thread.
  */
 
-/** Stable key derived from the resolved source — `name:<n>` or `path:<absPath>`. */
+/** Stable key derived from the resolved source — `name:<n>`, `path:<absPath>`, or `dir:<absPath>`. */
 export type SkillKey = string;
 
 export interface SkillRefName {
@@ -42,7 +44,14 @@ export interface SkillRefPath {
   readonly optional: boolean;
 }
 
+export interface SkillRefDir {
+  readonly __aharnessSkillRef: true;
+  readonly source: 'dir';
+  readonly path: string;
+}
+
 export type SkillRef = SkillRefName | SkillRefPath;
+export type AvailableSkillRef = SkillRefPath | SkillRefDir;
 
 export interface SkillOptions {
   readonly optional?: boolean;
@@ -50,6 +59,10 @@ export interface SkillOptions {
 
 export interface SkillByPath {
   readonly path: string;
+}
+
+export interface SkillByDir {
+  readonly dir: string;
 }
 
 /**
@@ -92,16 +105,56 @@ export function skill(arg: string | (SkillByPath & SkillOptions), opts?: SkillOp
   };
 }
 
-/** Type-guard for runtime checks (verifier, daemon). */
+export function skillDir(path: string): SkillRefDir {
+  if (typeof path !== 'string' || path.length === 0) {
+    throw new TypeError('skill.dir(): path must be a non-empty string');
+  }
+  return {
+    __aharnessSkillRef: true,
+    source: 'dir',
+    path,
+  };
+}
+
+/** Type-guard for state-injectable refs (verifier, daemon). */
 export function isSkillRef(v: unknown): v is SkillRef {
+  if (!isAnySkillRef(v)) return false;
+  if (v.source === 'name') {
+    return typeof v.name === 'string' && v.name.length > 0 && typeof v.optional === 'boolean';
+  }
+  if (v.source === 'path') {
+    return typeof v.path === 'string' && v.path.length > 0 && typeof v.optional === 'boolean';
+  }
+  return false;
+}
+
+export function isAvailableSkillRef(v: unknown): v is AvailableSkillRef {
+  if (!isAnySkillRef(v)) return false;
+  if (v.source === 'path') {
+    return typeof v.path === 'string' && v.path.length > 0 && typeof v.optional === 'boolean';
+  }
+  if (v.source === 'dir') {
+    return typeof v.path === 'string' && v.path.length > 0;
+  }
+  return false;
+}
+
+export function isAnySkillRef(v: unknown): v is SkillRefName | SkillRefPath | SkillRefDir {
   return (
     v !== null &&
     typeof v === 'object' &&
-    (v as { __aharnessSkillRef?: unknown }).__aharnessSkillRef === true
+    (v as { __aharnessSkillRef?: unknown }).__aharnessSkillRef === true &&
+    ((v as { source?: unknown }).source === 'name' ||
+      (v as { source?: unknown }).source === 'path' ||
+      (v as { source?: unknown }).source === 'dir')
   );
 }
 
 /** Stable identifier for once-per-run dedupe tracking. */
 export function skillKey(ref: SkillRef): SkillKey {
   return ref.source === 'name' ? `name:${ref.name}` : `path:${ref.path}`;
+}
+
+export function availableSkillKey(ref: AvailableSkillRef): SkillKey {
+  return `${ref.source}:${ref.path}`;
 }

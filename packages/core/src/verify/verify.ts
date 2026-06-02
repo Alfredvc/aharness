@@ -88,14 +88,20 @@
  *   will see incomplete `on:` maps. The test infrastructure must call
  *   aharness.machine() (or equivalent) before handing a machine to verify().
  */
+import { basename, isAbsolute, resolve } from 'node:path';
 import type { AnyStateMachine, StateNode } from 'xstate';
 
 import { getAharnessMeta as unsafeGetAharnessMeta, iterStates, stateKeyPath } from '../state.js';
 import type { AharnessMeta, AharnessStateMeta, ChoiceMeta, SchemaSidecar } from '../types.js';
 import type { SidecarIssue } from '../loader/index.js';
 import { SUBMIT_TOOL_NAME } from '../protocol/submitTool.js';
-import { isSkillRef } from '../state/skills.js';
-import { resolveSkill, type SkillResolverEnv } from '../state/skillResolver.js';
+import {
+  availableSkillKey,
+  isAnySkillRef,
+  isAvailableSkillRef,
+  isSkillRef,
+} from '../state/skills.js';
+import { resolveSkill, resolveSkillDir, type SkillResolverEnv } from '../state/skillResolver.js';
 
 import {
   asPlainObject,
@@ -149,6 +155,10 @@ export type VerifyIssueCheck =
   | 'hook-matcher-not-supported-on-kind'
   | 'hook-matcher-invalid-regex'
   | 'hooks-only-on-stateful-states'
+  | 'available-skills-well-formed'
+  | 'available-skill-must-resolve'
+  | 'skill-invalid-placement'
+  | 'skill-path-must-be-skill-md'
   | 'skill-must-resolve'
   | 'skill-name-shape'
   | 'skills-only-on-stateful-states'
@@ -260,9 +270,13 @@ export function verify(
     issues.push(...checkHookMatcherNotSupportedOnKind(machine));
     issues.push(...checkHookMatcherInvalidRegex(machine));
     issues.push(...checkHooksOnlyOnStatefulStates(machine));
+    issues.push(...checkAvailableSkillsWellFormed(machine));
     issues.push(...checkSkillsOnlyOnStatefulStates(machine));
+    issues.push(...checkSkillInvalidPlacement(machine));
     issues.push(...checkSkillNameShapeAndDuplicates(machine));
+    issues.push(...checkStateSkillPathsUseSkillMd(machine));
     if (opts?.skillEnv !== undefined) {
+      issues.push(...checkAvailableSkillsResolve(machine, opts.skillEnv));
       issues.push(...checkSkillsResolve(machine, opts.skillEnv));
     }
   } finally {
@@ -2629,6 +2643,96 @@ function checkEmbeddedFinalIdNameShape(machine: AnyStateMachine): VerifyIssue[] 
 
 // ─── Check: skills-only-on-stateful-states ─────────────────────────────────
 
+type RawAvailableSkillsMachine = {
+  readonly __aharnessRawConfig?: {
+    readonly availableSkills?: unknown;
+  };
+};
+
+function rawAvailableSkills(machine: AnyStateMachine): unknown {
+  return (machine as RawAvailableSkillsMachine).__aharnessRawConfig?.availableSkills;
+}
+
+function pathTargetIsSkillMd(path: string): boolean {
+  return basename(path) === 'SKILL.md';
+}
+
+function resolveAvailablePathForKey(path: string, env: SkillResolverEnv): string {
+  return isAbsolute(path) ? path : resolve(env.fsmFileDir, path);
+}
+
+// ─── Check: available-skills-well-formed ───────────────────────────────────
+
+function checkAvailableSkillsWellFormed(machine: AnyStateMachine): VerifyIssue[] {
+  const raw = rawAvailableSkills(machine);
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    return [
+      err('available-skills-well-formed', '', 'availableSkills must be an array of skill refs'),
+    ];
+  }
+  const refs = raw as ReadonlyArray<unknown>;
+  const issues: VerifyIssue[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < refs.length; i++) {
+    const ref = refs[i];
+    if (!isAnySkillRef(ref)) {
+      issues.push(
+        err(
+          'available-skills-well-formed',
+          '',
+          `availableSkills[${String(i)}] must be a SkillRef returned by fsm.skill.path(...) or fsm.skill.dir(...)`,
+        ),
+      );
+      continue;
+    }
+    if (
+      (ref.source === 'path' || ref.source === 'dir') &&
+      (typeof ref.path !== 'string' || ref.path.length === 0)
+    ) {
+      issues.push(
+        err(
+          'available-skills-well-formed',
+          '',
+          `availableSkills[${String(i)}] ${ref.source} path must be a non-empty string`,
+        ),
+      );
+      continue;
+    }
+    if (!isAvailableSkillRef(ref)) {
+      issues.push(
+        err(
+          'available-skills-well-formed',
+          '',
+          `availableSkills[${String(i)}] uses name-form ref '${ref.name}', but availableSkills accepts only path-form and dir-form refs`,
+        ),
+      );
+      continue;
+    }
+    if (ref.source === 'path' && !pathTargetIsSkillMd(ref.path)) {
+      issues.push(
+        err(
+          'skill-path-must-be-skill-md',
+          '',
+          `availableSkills[${String(i)}] path '${ref.path}' must point at a file named SKILL.md`,
+        ),
+      );
+    }
+    const key = availableSkillKey(ref);
+    if (seen.has(key)) {
+      issues.push(
+        err(
+          'available-skills-well-formed',
+          '',
+          `availableSkills[${String(i)}] duplicates '${key}'`,
+        ),
+      );
+    }
+    seen.add(key);
+  }
+  return issues;
+}
+
 /**
  * `skills:` is meaningful only on stateful states — passive and terminal
  * states have no `entryPrompt` lowering path, so a skill body declared on
@@ -2651,6 +2755,31 @@ function checkSkillsOnlyOnStatefulStates(machine: AnyStateMachine): VerifyIssue[
           `state '${sid}' declares 'skills' on a non-stateful (${meta.kind}) state — skills are meaningful only on stateful states (the per-state orientation nudge fires only on stateful entries)`,
         ),
       );
+    }
+  }
+  return issues;
+}
+
+// ─── Check: skill-invalid-placement ────────────────────────────────────────
+
+function checkSkillInvalidPlacement(machine: AnyStateMachine): VerifyIssue[] {
+  const issues: VerifyIssue[] = [];
+  for (const node of iterStates(machine)) {
+    const meta = asStatefulMeta(node);
+    if (!meta || !meta.skills) continue;
+    const sid = stateKeyPath(node);
+    const refs = meta.skills as ReadonlyArray<unknown>;
+    for (let i = 0; i < refs.length; i++) {
+      const ref = refs[i];
+      if (isAnySkillRef(ref) && ref.source === 'dir') {
+        issues.push(
+          err(
+            'skill-invalid-placement',
+            sid,
+            `state '${sid}' skills[${String(i)}] uses dir-form ref '${ref.path}', but dir refs are valid only in top-level availableSkills`,
+          ),
+        );
+      }
     }
   }
   return issues;
@@ -2695,7 +2824,81 @@ function checkSkillNameShapeAndDuplicates(machine: AnyStateMachine): VerifyIssue
   return issues;
 }
 
+function checkStateSkillPathsUseSkillMd(machine: AnyStateMachine): VerifyIssue[] {
+  const issues: VerifyIssue[] = [];
+  for (const node of iterStates(machine)) {
+    const meta = asStatefulMeta(node);
+    if (!meta || !meta.skills) continue;
+    const sid = stateKeyPath(node);
+    for (let i = 0; i < meta.skills.length; i++) {
+      const ref = meta.skills[i];
+      if (!isSkillRef(ref) || ref.source !== 'path') continue;
+      if (pathTargetIsSkillMd(ref.path)) continue;
+      issues.push(
+        err(
+          'skill-path-must-be-skill-md',
+          sid,
+          `state '${sid}' skills[${String(i)}] path '${ref.path}' must point at a file named SKILL.md`,
+        ),
+      );
+    }
+  }
+  return issues;
+}
+
 // ─── Check: skill-must-resolve ─────────────────────────────────────────────
+
+function checkAvailableSkillsResolve(
+  machine: AnyStateMachine,
+  env: SkillResolverEnv,
+): VerifyIssue[] {
+  const raw = rawAvailableSkills(machine);
+  if (!Array.isArray(raw)) return [];
+  const refs = raw as ReadonlyArray<unknown>;
+  const issues: VerifyIssue[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < refs.length; i++) {
+    const ref = refs[i];
+    if (!isAvailableSkillRef(ref)) continue;
+    const resolvedKey =
+      ref.source === 'path'
+        ? `path:${resolveAvailablePathForKey(ref.path, env)}`
+        : `dir:${resolveAvailablePathForKey(ref.path, env)}`;
+    if (seen.has(resolvedKey)) {
+      issues.push(
+        err(
+          'available-skills-well-formed',
+          '',
+          `availableSkills[${String(i)}] duplicates resolved '${resolvedKey}'`,
+        ),
+      );
+    }
+    seen.add(resolvedKey);
+    if (ref.source === 'path') {
+      if (!pathTargetIsSkillMd(ref.path)) continue;
+      const res = resolveSkill(ref, env);
+      if (res.kind === 'resolved') continue;
+      issues.push(
+        err(
+          'available-skill-must-resolve',
+          '',
+          `availableSkills[${String(i)}] (${res.displayName}): not found in any of:\n  - ${res.searched.join('\n  - ')}`,
+        ),
+      );
+      continue;
+    }
+    const res = resolveSkillDir(ref, env);
+    if (res.kind === 'resolved') continue;
+    issues.push(
+      err(
+        'available-skill-must-resolve',
+        '',
+        `availableSkills[${String(i)}] (${res.displayName}): directory not found in any of:\n  - ${res.searched.join('\n  - ')}`,
+      ),
+    );
+  }
+  return issues;
+}
 
 /**
  * Walk every stateful state's `skills:` array and resolve each ref against

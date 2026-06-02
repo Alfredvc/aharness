@@ -22,7 +22,7 @@ export default fsm.machine({
   states: {
     prepare: fsm.state({
       prompt: (data) => `Prepare ${data.topic}.`,
-      skills: [fsm.skill.path('./skills/reviewer.md', { optional: true })],
+      skills: [fsm.skill.path('./skills/reviewer/SKILL.md', { optional: true })],
       on: {
         submit: fsm.submit<{ ready: boolean }>({
           route: [{ if: (_data, payload) => payload.ready, to: 'wait' }, { to: 'prepare' }],
