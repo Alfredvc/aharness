@@ -142,7 +142,7 @@ function fixtureEvents(): RunEventEnvelope[] {
         leaf: 'work',
         kind: 'stateful',
         visitCount: 2,
-        exits: [{ name: 'wait', kind: 'await' }],
+        exits: [{ name: 'done', kind: 'submit' }],
       },
       raw: { path: 'raw.work', entryPrompt: 'raw prompt' },
     }),
@@ -185,7 +185,7 @@ describe('run event query service', () => {
       leaf: 'work',
       kind: 'stateful',
       visitCount: 2,
-      exits: [{ name: 'wait', kind: 'await' }],
+      exits: [{ name: 'done', kind: 'submit' }],
     });
     expect(bootstrap.bootstrap.currentStateVisit).toEqual(
       expect.objectContaining({ id: 'root.work#2', path: 'root.work', to: 'root.work' }),
@@ -248,6 +248,36 @@ describe('run event query service', () => {
     expect(changed.ok).toBe(true);
     if (!changed.ok) return;
     expect(changed.bootstrap.run.threadId).toBe('thread-after-start');
+  });
+
+  it('keeps historical current-state exit kinds from persisted JSONL', () => {
+    const eventsPath = tempEventsPath();
+    writeJsonl(
+      eventsPath,
+      event(1, 'state.changed', {
+        stateVisitId: 'root.legacy#1',
+        data: {
+          path: 'root.legacy',
+          leaf: 'legacy',
+          kind: 'stateful',
+          visitCount: 1,
+          exits: [{ name: 'wait', kind: 'await' }],
+        },
+      }),
+    );
+    const service = createRunEventQueryService({ runId: RUN_ID, eventsPath });
+
+    const bootstrap = service.getBootstrap({ getRunMeta: () => ({ runId: RUN_ID }) });
+
+    expect(bootstrap.ok).toBe(true);
+    if (!bootstrap.ok) return;
+    expect(bootstrap.bootstrap.currentState).toEqual({
+      path: 'root.legacy',
+      leaf: 'legacy',
+      kind: 'stateful',
+      visitCount: 1,
+      exits: [{ name: 'wait', kind: 'await' }],
+    });
   });
 
   it('serves owner-choice pending cards and failed reply rows from bootstrap', () => {

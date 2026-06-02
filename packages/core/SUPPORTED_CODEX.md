@@ -28,8 +28,8 @@ the foreground CLI compare that output against `scripts/codex-version-min.txt`.
 
 The protocol drift checker remains **git commit addressed**. It verifies
 the JSON-RPC method names, request shapes, approval enum spellings, and
-`request_user_input` behavior against the pinned source commit without
-fetching from the network or trusting a mutable local `HEAD`.
+`request_user_input` server-request behavior against the pinned source commit
+without fetching from the network or trusting a mutable local `HEAD`.
 
 Rationale for the current pair: `0.130.0` is the CLI version used for the
 real Codex E2E release checks, and the pinned commit contains the upstream
@@ -40,8 +40,8 @@ selection surfaces, thread-settings updates, and the JSON-RPC methods
 `item/tool/call`, `item/tool/requestUserInput`, `thread/inject_items`,
 `thread/settings/update`, `config/read`, and `model/list`.
 The `0.133.0` validation rechecked those runtime surfaces with the installed
-CLI, including owner-yield `request_user_input` and app-server command
-approval E2E paths.
+CLI, including the `request_user_input` server-request path for
+model-originated owner prompts and app-server command approval E2E paths.
 
 ---
 
@@ -215,7 +215,9 @@ range) shipped:
 - Sole-WS-client topology; the aharness CLI is the only subscriber.
 - Self-loop + terminal submit transitions only. Cross-state submits,
   `awaitsOwnerText`, `await` exits, `ops.clear()`, per-state hook
-  dispatch, and approvals are NOT wired and will throw at runtime.
+  dispatch, and approvals were NOT wired and would throw at runtime in that
+  historical range. Current builds reject the retired await-style
+  owner-decision authoring surfaces before runtime.
 
 Resume cutover-detection: snapshots written by pre-Phase-1 builds
 abort with exit 2 (`snapshot from incompatible build`). Terminate any

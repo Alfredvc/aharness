@@ -100,6 +100,7 @@ describe('extractUiTopology', () => {
     expect(plan).toMatchObject({
       id: 'plan',
       kind: 'stateful',
+      open: true,
       detail: {
         entryPrompt: {
           kind: 'static',
@@ -142,6 +143,8 @@ describe('extractUiTopology', () => {
       },
     });
     expect(review?.detail).not.toHaveProperty('cwd');
+    expect(JSON.stringify(topology)).not.toContain('awaitsOwnerText');
+    expect(JSON.stringify(topology)).not.toContain('"kind":"await"');
     expect(done).toMatchObject({
       detail: {
         outcome: 'success',

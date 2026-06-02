@@ -34,7 +34,7 @@ export interface RunShutdownOpts {
   readonly client: JsonRpcClient;
   readonly runDir: RunDir;
   /**
-   * Optional Phase-2b owner-yield provider. When set, `runShutdown`
+   * Optional owner-input provider. When set, `runShutdown`
    * invokes `provider.close?.()` AFTER `appServer.close()` resolves and
    * BEFORE the socket-reap loop so the stdin reader (production) or
    * close-call accounting (tests) releases on every shutdown route.
@@ -54,9 +54,9 @@ export async function runShutdown(o: RunShutdownOpts): Promise<void> {
   // 2. SIGTERM the app-server child. AppServerHandle.close() handles the
   //    SIGTERM-then-SIGKILL escalation (2 s grace) per appServer/spawn.ts.
   await o.appServer.close();
-  // 3. Release the owner-input provider's resources (if any). Phase-2b
-  //    contract: every shutdown route closes the provider exactly once
-  //    so the stdin readline interface does not block process exit.
+  // 3. Release the owner-input provider's resources (if any). Every shutdown
+  //    route closes the provider exactly once so the stdin readline interface
+  //    does not block process exit.
   try {
     o.ownerInputProvider?.close?.();
   } catch {

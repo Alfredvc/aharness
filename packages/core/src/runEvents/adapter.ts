@@ -137,7 +137,6 @@ function stateRowData(event: Extract<AppEvent, { kind: 'StateChange' }>): RunEve
     visitCount: state.visitCount,
     stateKind: state.kind,
     open: typeof state.open === 'boolean' ? state.open : undefined,
-    awaiting: typeof state.awaiting === 'boolean' ? state.awaiting : undefined,
     model: typeof state.model === 'string' && state.model.length > 0 ? state.model : undefined,
     effort:
       state.effort === 'none' ||

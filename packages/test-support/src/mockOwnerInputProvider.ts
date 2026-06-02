@@ -1,6 +1,7 @@
 /**
  * `MockOwnerInputProvider` — test-support implementation of the
- * `OwnerInputProvider` interface (Phase 2b owner-yield path).
+ * `OwnerInputProvider` interface for Codex `request_user_input`
+ * ServerRequests.
  *
  * The CLI's `item/tool/requestUserInput` ServerRequest handler (in
  * `runCli.ts`) calls `provideAnswers(params)` to satisfy each parked
@@ -13,7 +14,8 @@
  * `@aharness/core` package ships only the bare interface + the stdin
  * implementation; the richer fixture is here.
  *
- * Per `docs/plans/2026-05-13-headless-phase-2b-owner-yield.md` §Task 2.
+ * Used by CLI and integration tests that need deterministic answers for
+ * model-originated owner-input questions.
  */
 import type { OwnerInputProvider } from '@aharness/core';
 import type {

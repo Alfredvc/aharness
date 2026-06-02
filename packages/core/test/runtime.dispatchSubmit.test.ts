@@ -23,15 +23,6 @@
  *   - missing `scheduleCrossStateDance` opt → throws
  *     `'crossStateDance not wired'`.
  *
- * Phase-2b scope (plan `2026-05-13-headless-phase-2b-owner-yield.md`,
- * Task 6):
- *   - cross-state submit into an awaitsOwnerText target commits +
- *     schedules the dance identically to non-yielding targets. The
- *     `composeActiveStateNudge` callback runs once and the returned
- *     nudge (which `composeStateNudge` prepends with the
- *     `request_user_input` preamble carrying the verbatim
- *     `messageToUser`) flows verbatim into the dance opts.
- *
  * The Phase-1 wire shape uses tool name `'aharness_submit'` (renamed
  * from `'submit'` in Task 5).
  */
@@ -47,7 +38,6 @@ import {
   publicSubmitFailureMetadataSymbol,
   type SubmitFailureMetadataCarrier,
 } from '../src/runtime/dispatchSubmit.js';
-import { composeStateNudge } from '../src/runtime/nudge.js';
 import type { DynamicToolCallParams } from '../src/protocol/types.js';
 import type { ClearOnEntryMeta } from '../src/state/exits.js';
 
@@ -252,46 +242,6 @@ function buildCrossStateClearOnEntryMachine(
     },
   });
 }
-
-// Two-state machine `a → b` where `b` declares awaitsOwnerText. Used
-// to exercise the Phase-2b path where the cross-state target state
-// advertises owner-yield: the dispatcher now treats this identically
-// to a non-yielding cross-state target (commit + flush + schedule
-// dance with the composed nudge — which itself carries the
-// request_user_input preamble built by `composeStateNudge`).
-function buildCrossStateAwaitsOwnerTextMachine() {
-  return aharness.machine({
-    id: 'm',
-    initial: 'a',
-    context: (): Ctx => ({ count: 0 }),
-    states: {
-      a: state({
-        exits: { next: exit<GoPayload>({ to: 'b' }) },
-        entryPrompt: 'in a',
-      }),
-      b: state({
-        exits: { done: exit<{}>({ to: 'a' }) },
-        entryPrompt: 'in b',
-        awaitsOwnerText: { messageToUser: 'what is your name?' },
-      }),
-    },
-  });
-}
-
-const sidecarCrossStateAwaits: SchemaSidecar = {
-  a: {
-    next: {
-      jsonSchema: { type: 'object' },
-      validate: (input: unknown) => ({ ok: true, data: input }),
-    },
-  },
-  b: {
-    done: {
-      jsonSchema: { type: 'object' },
-      validate: (input: unknown) => ({ ok: true, data: input }),
-    },
-  },
-};
 
 function buildCanonicalRoutedMachine() {
   const fsm = createFsm<{ branch: string | null }>();
@@ -1473,89 +1423,6 @@ describe('createSubmitDispatcher — Phase 1', () => {
     // signal and the dance dispatch). scheduleCrossStateDance must NOT
     // have been invoked.
     expect(scheduleCrossStateDance).not.toHaveBeenCalled();
-  });
-
-  // ─── Phase 2b cross-state into awaitsOwnerText ──────────────────────
-
-  it.skip('cross-state submit into a retired awaitsOwnerText state commits and schedules the dance', async () => {
-    // Plan `2026-05-13-headless-phase-2b-owner-yield.md` Task 6: the
-    // pre-commit awaitsOwnerText throw is gone — a cross-state target
-    // declaring awaitsOwnerText now follows the same dance path as a
-    // non-yielding target. `composeStateNudge` (run inside the
-    // production `composeActiveStateNudge` closure) prepends the
-    // `request_user_input` preamble carrying the verbatim
-    // `messageToUser`. Here we wire `composeActiveStateNudge` to the
-    // real `composeStateNudge` so the test exercises the same path the
-    // runtime uses; pinning on the verbatim `messageToUser` substring
-    // (rather than on preamble wording) keeps the assertion resilient
-    // to harmless preamble rewordings.
-    const machine = buildCrossStateAwaitsOwnerTextMachine();
-    const host = new ActorHost(machine, undefined);
-    host.start();
-    const flush = vi.fn();
-    const composeActiveStateNudge = vi.fn(() =>
-      composeStateNudge({
-        stateId: 'b',
-        exits: [{ kind: 'submit', name: 'done', schema: { type: 'object' } }],
-        entryPromptText: 'in b',
-        awaitsOwnerText: { messageToUser: 'what is your name?' },
-      }),
-    );
-    const scheduleCrossStateDance = vi.fn();
-    const dispatch = createSubmitDispatcher({
-      host,
-      machine,
-      sidecar: sidecarCrossStateAwaits,
-      flushSnapshot: flush,
-      composeActiveStateNudge,
-      scheduleCrossStateDance,
-    });
-    await dispatch(call(JSON.stringify({ state: 'a', exit: 'next', data: {} })));
-    // commit ran and the actor advanced to the awaitsOwnerText leaf.
-    expect(host.currentStateId()).toBe('b');
-    // Legacy compatibility: the flush hook ran before the dance was scheduled.
-    expect(flush).toHaveBeenCalledTimes(1);
-    // composeActiveStateNudge invoked exactly once (post-commit).
-    expect(composeActiveStateNudge).toHaveBeenCalledTimes(1);
-    // Dance scheduled exactly once; orientationText is the composed
-    // nudge verbatim — proven by the presence of the author-supplied
-    // messageToUser substring.
-    expect(scheduleCrossStateDance).toHaveBeenCalledTimes(1);
-    const arg = scheduleCrossStateDance.mock.calls[0]![0] as {
-      orientationText: string;
-    };
-    expect(arg.orientationText).toContain('what is your name?');
-  });
-
-  it.skip('cross-state submit into retired awaitsOwnerText still replies "ok"', async () => {
-    // The dispatcher's reply text is unaffected by the target's
-    // awaitsOwnerText declaration: cross-state submits always reply
-    // terse `'ok'`. The dance owns the subsequent turn/start that
-    // surfaces the new state's nudge (with the request_user_input
-    // preamble) to the model.
-    const machine = buildCrossStateAwaitsOwnerTextMachine();
-    const host = new ActorHost(machine, undefined);
-    host.start();
-    const composeActiveStateNudge = vi.fn(() =>
-      composeStateNudge({
-        stateId: 'b',
-        exits: [{ kind: 'submit', name: 'done', schema: { type: 'object' } }],
-        entryPromptText: 'in b',
-        awaitsOwnerText: { messageToUser: 'what is your name?' },
-      }),
-    );
-    const scheduleCrossStateDance = vi.fn();
-    const dispatch = createSubmitDispatcher({
-      host,
-      machine,
-      sidecar: sidecarCrossStateAwaits,
-      flushSnapshot: vi.fn(),
-      composeActiveStateNudge,
-      scheduleCrossStateDance,
-    });
-    const r = await dispatch(call(JSON.stringify({ state: 'a', exit: 'next', data: {} })));
-    expect(r.success).toBe(true);
-    expect(r.contentItems).toEqual([{ type: 'inputText', text: 'ok' }]);
   });
 
   // ─── passive submit target ───────────────────────────────────────────

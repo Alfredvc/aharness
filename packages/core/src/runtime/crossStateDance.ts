@@ -46,9 +46,8 @@ export interface ScheduleCrossStateDanceOpts {
   /** The `dynamic_tools` callId echoed by codex on the `item/completed` match. */
   readonly callId: string;
   /**
-   * The full composed nudge for the new state (header + exits + schema +
-   * entryPrompt + optional `awaitsOwnerText` preamble + optional
-   * `stopGuidance`) — NOT the raw `entryPrompt`. Computed by the
+   * The full composed nudge for the new state (header + submit exits +
+   * schemas + entryPrompt) — NOT the raw `entryPrompt`. Computed by the
    * dispatcher AFTER `host.commitSubmit` so the live host reads from the
    * new leaf.
    */

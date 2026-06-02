@@ -91,10 +91,10 @@ export { buildDynamicToolsRegistration } from './transport/dynamicToolsRegistrat
 // Submit dispatcher: validates aharness_submit args against per-(state, exit)
 // sidecar schemas, dry-runs the transition, commits, and dispatches the
 // four-step cross-state dance via scheduleCrossStateDance
-// when the target is a different stateful state. awaitsOwnerText-target
-// transitions follow the same dance path with the preamble injected at
-// composeStateNudge time. Terminal targets fire onTerminal + reply Run
-// complete. Self-loop targets reply 'ok' and let drive-forward kick the
+// when the target is a different stateful state. Retired awaitsOwnerText
+// metadata is rejected before runtime; current owner-paced free text uses
+// open states plus typed submits. Terminal targets fire onTerminal + reply
+// Run complete. Self-loop targets reply 'ok' and let drive-forward kick the
 // next turn.
 export { createSubmitDispatcher } from './runtime/dispatchSubmit.js';
 export type { CreateSubmitDispatcherOpts, SubmitDispatcher } from './runtime/dispatchSubmit.js';

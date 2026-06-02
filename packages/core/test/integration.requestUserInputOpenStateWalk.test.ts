@@ -1,14 +1,13 @@
 /**
- * Phase 2b end-to-end integration test for cross-state-into-`awaitsOwnerText`.
+ * End-to-end integration test for a model-originated `request_user_input`
+ * question while the FSM is in an open state.
  *
- * Spec: `docs/plans/2026-05-13-headless-phase-2b-owner-yield.md` §Task 7.
- *
- * Drives the full Phase 2b stack via `runCliForTest` against a real
- * codex `app-server` + a local mock-model HTTP server. Three-turn
+ * Drives the full request-user-input stack via `runCliForTest` against a
+ * real codex `app-server` + a local mock-model HTTP server. Three-turn
  * model script:
  *
  *   1. Turn 1: `aharness_submit({state: "a", exit: "next", data: {note: "go"}})`
- *      — cross-state dance fires a→b (state b declares `awaitsOwnerText`).
+ *      — cross-state dance fires a→b (state b is open).
  *   2. Turn 2: `request_user_input({questions: [{id:"owner", header:"",
  *      question:"what is your name?", isOther:false, isSecret:false}]})`
  *      — CLI parks the ServerRequest; `MockOwnerInputProvider` resolves
@@ -19,7 +18,7 @@
  *
  * Topology under test:
  *
- *   a (stateful) ──next→ b (stateful, awaitsOwnerText + submit `done`) ──done→ c (terminal:'success')
+ *   a (stateful) ──next→ b (open stateful + submit `done`) ──done→ c (terminal:'success')
  *
  * Assertions:
  *   1. `runCliForTest` exits 0.
@@ -34,17 +33,12 @@
  *   4. `MockOwnerInputProvider.closeCallCount === 1` after the run —
  *      `runShutdown` invoked `provider.close()` exactly once on the
  *      clean-exit path.
- *   5. (Regression gate) `Phase 2 not implemented: target state` no
- *      longer appears in `packages/core/src/` (already true
- *      after T6; verified inline so this test fails loudly if the throw
- *      is ever reintroduced).
- *
  * Skip gate matches `integration.crossStateWalk.test.ts:54` — requires
  * the `codex` binary on PATH plus `AHARNESS_E2E_REAL_CODEX=1` so CI
  * without the binary skips cleanly. A single run is sufficient.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -63,7 +57,7 @@ function hasCodex(): boolean {
 
 const E2E_ENABLED = hasCodex() && process.env['AHARNESS_E2E_REAL_CODEX'] === '1';
 
-describe.skipIf(!E2E_ENABLED)('runCli — Phase 2b owner-yield walk (end-to-end)', () => {
+describe.skipIf(!E2E_ENABLED)('runCli — request-user-input open-state walk (end-to-end)', () => {
   let cleanups: Array<() => Promise<void> | void> = [];
   afterEach(async () => {
     for (const fn of cleanups.reverse()) {
@@ -76,27 +70,27 @@ describe.skipIf(!E2E_ENABLED)('runCli — Phase 2b owner-yield walk (end-to-end)
     cleanups = [];
   });
 
-  it('walks a → b (awaitsOwnerText, owner reply) → c (terminal) and exits 0', async () => {
+  it('walks a → b (open state, owner-input request) → c (terminal) and exits 0', async () => {
     // Deferred imports — same pattern as `integration.crossStateWalk.test.ts`.
     // Keeps `pty.ts` (node-pty native bindings) out of file-load on systems
     // without that binary.
     const {
       startMockModel,
       createMockOwnerInputProvider,
-      OWNER_YIELD_WALK_FSM_SOURCE,
+      REQUEST_USER_INPUT_OPEN_STATE_WALK_FSM_SOURCE,
       buildCrossStateSubmitTurn,
       buildRequestUserInputTurn,
     } = await import('@aharness/test-support');
 
-    const repoRoot = mkdtempSync(join(tmpdir(), 'h-cli-oyw-'));
+    const repoRoot = mkdtempSync(join(tmpdir(), 'h-cli-rui-open-'));
     cleanups.push(() => rmSync(repoRoot, { recursive: true, force: true }));
 
     // Write the FSM source as a real `.fsm.ts` file in the synthetic
     // repoRoot so `loadFsm` can esbuild + dynamic-import it. The fixture
     // uses bare `@aharness/core` imports (externalised by the loader), so
     // the synthetic dir does not need a `node_modules` link.
-    const fsmPath = join(repoRoot, 'ownerYieldWalk.fsm.ts');
-    writeFileSync(fsmPath, OWNER_YIELD_WALK_FSM_SOURCE);
+    const fsmPath = join(repoRoot, 'requestUserInputOpenStateWalk.fsm.ts');
+    writeFileSync(fsmPath, REQUEST_USER_INPUT_OPEN_STATE_WALK_FSM_SOURCE);
 
     const mock = await startMockModel();
     cleanups.push(() => mock.close());
@@ -138,13 +132,13 @@ describe.skipIf(!E2E_ENABLED)('runCli — Phase 2b owner-yield walk (end-to-end)
     } as unknown as NodeJS.WritableStream;
 
     const result = await runCliForTest({
-      fsmPath: 'ownerYieldWalk.fsm.ts',
+      fsmPath: 'requestUserInputOpenStateWalk.fsm.ts',
       cwd: repoRoot,
       stderr,
       stdout,
       // Stub the verifier — verification semantics are exercised in
       // `verify.test.ts`. This test focuses on the boot + cross-state
-      // dance + owner-yield ServerRequest reply path.
+      // dance + owner-input ServerRequest reply path.
       verify: async () => ({ exitCode: 0 }),
       // Real codex on PATH; version-gate semantics covered in
       // `appServer.version.test.ts`.
@@ -217,30 +211,5 @@ describe.skipIf(!E2E_ENABLED)('runCli — Phase 2b owner-yield walk (end-to-end)
     // Assertion 4 — provider's `close()` ran exactly once on the
     // clean-exit path (`runShutdown` close-lifecycle gate).
     expect(mockOwnerInput.closeCallCount).toBe(1);
-
-    // Assertion 5 (regression gate) — the awaitsOwnerText-target throw
-    // removed in T6 is still absent. The grep walks the production
-    // sources synchronously so the test fails loudly if anyone
-    // re-introduces the stub.
-    const srcDir = join(__dirname, '..', 'src');
-    const hits: string[] = [];
-    const walk = (dir: string): void => {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const full = join(dir, entry.name);
-        if (entry.isDirectory()) {
-          walk(full);
-        } else if (entry.isFile() && full.endsWith('.ts')) {
-          const text = readFileSync(full, 'utf8');
-          if (text.includes('Phase 2 not implemented: target state')) {
-            hits.push(full);
-          }
-        }
-      }
-    };
-    walk(srcDir);
-    expect(
-      hits,
-      `unexpected hits for 'Phase 2 not implemented: target state' (T6 stub regression): ${hits.join(', ')}`,
-    ).toEqual([]);
   }, 30_000);
 });

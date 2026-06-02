@@ -114,7 +114,6 @@ import {
   type SubThreadNotification,
 } from '../transport/notificationRouter.js';
 import { connectHeadlessWs } from '../transport/wsClient.js';
-import { createAwaitResolver, type AwaitResolver } from '../runtime/awaitResolver.js';
 import { CacheMetrics, type CacheMetricsSummary } from '../runtime/cacheMetrics.js';
 import {
   createActiveThreadBinding,
@@ -147,10 +146,6 @@ import {
 } from '../runtime/clearOnEntryCwd.js';
 import { preflightStateModel } from '../runtime/clearOnEntryModelPreflight.js';
 import { discoverDeclaredHookKinds } from '../state/discoverHooks.js';
-import {
-  payloadWithCanonicalCommit,
-  prepareCanonicalAwaitCommit,
-} from '../state/canonicalTransition.js';
 import { createAharnessOps, type AharnessOps } from '../state/aharnessOps.js';
 import type { ClearOnEntryMeta } from '../state/exits.js';
 import { getAharnessMeta, iterStates, stateKeyPath } from '../state.js';
@@ -284,7 +279,7 @@ export interface RunCliTestHooks {
    */
   readonly _testMockModelBaseUrl?: string;
   /**
-   * Owner-yield provider test seam. Production callers leave this unset
+   * Owner-input provider test seam. Production callers leave this unset
    * and use the run-scoped browser reply path via `createBrowserOwnerInputProvider()`;
    * tests pass a `MockOwnerInputProvider` (or a stub) so the
    * `item/tool/requestUserInput` ServerRequest handler is observable
@@ -292,24 +287,23 @@ export interface RunCliTestHooks {
    */
   readonly ownerInputProvider?: OwnerInputProvider;
   /**
-   * Test seam: when set, the wrapper around `pendingOwnerYieldCount > 0`
+   * Test seam: when set, the wrapper around
+   * `pendingOwnerInputRequestCount > 0`
    * (the `isAwaiting` predicate fed to `createDriveForward`) invokes
    * this callback with the predicate's return value on every read. The
-   * "count-ordering" Task 3 test pins the contract this seam carries:
-   * a Phase-2c+ caller (drive-forward post-Task-5) that reads
-   * `isAwaiting()` sees `count > 0` while a request is parked.
+   * count-ordering test pins the contract this seam carries: a caller
+   * that reads `isAwaiting()` sees `count > 0` while an owner-input
+   * request is parked.
    */
   readonly _testObserveIsAwaiting?: (value: boolean) => void;
   /**
    * Test seam: when set, `runCliForTest` invokes this once during boot
    * and passes a getter that returns the current
-   * `pendingOwnerYieldCount` value. The test stores the getter and
+   * `pendingOwnerInputRequestCount` value. The test stores the getter and
    * polls it across the run to observe in-flight count transitions.
-   * Required pre-Task-5 because drive-forward's `isAwaiting` throw
-   * blocks the `_testObserveIsAwaiting` seam from firing while a
-   * request is actually parked. Production callers leave this unset.
+   * Production callers leave this unset.
    */
-  readonly _testReadPendingOwnerYieldCount?: (read: () => number) => void;
+  readonly _testReadPendingOwnerInputRequestCount?: (read: () => number) => void;
 }
 
 export type RunCliForTestOpts = RunCliOpts & RunCliTestHooks;
@@ -1146,9 +1140,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     });
   }
 
-  // Phase 2b owner-yield wiring.
+  // Owner-input ServerRequest wiring.
   //
-  // `pendingOwnerYieldCount` is the number of parked
+  // `pendingOwnerInputRequestCount` is the number of parked
   // `item/tool/requestUserInput` ServerRequests waiting for the
   // `OwnerInputProvider` to supply a reply. It increments synchronously
   // before `provider.provideAnswers(...)` is awaited and decrements in
@@ -1162,7 +1156,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   // future protocol change ever delivers `turn/completed` with a
   // request still parked, drive-forward MUST NOT issue a fresh
   // `turn/start` that races the in-flight tool reply.
-  let pendingOwnerYieldCount = 0;
+  let pendingOwnerInputRequestCount = 0;
   const browserOwnerInputProvider = createBrowserOwnerInputProvider({
     controller: browserReplyController,
     publishUiEvent: publishUiEventNonRecording,
@@ -1173,15 +1167,13 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   // AFTER reading the count so the test sees the same boolean the
   // production code consumes.
   const isAwaiting = (): boolean => {
-    const v = pendingOwnerYieldCount > 0;
+    const v = pendingOwnerInputRequestCount > 0;
     o._testObserveIsAwaiting?.(v);
     return v;
   };
-  // Pre-Task-5 the count cannot be observed via `_testObserveIsAwaiting`
-  // (drive-forward's `isAwaiting` branch still throws on `true`). The
-  // count-read seam below lets the Task-3 count-ordering test poll the
-  // value directly across the run.
-  o._testReadPendingOwnerYieldCount?.(() => pendingOwnerYieldCount);
+  // The count-read seam below lets tests poll the number of parked
+  // owner-input requests directly across the run.
+  o._testReadPendingOwnerInputRequestCount?.(() => pendingOwnerInputRequestCount);
   async function runActiveOnEntry(): Promise<void> {
     const meta = host.currentMeta();
     if (!meta || meta.kind !== 'stateful' || meta.onEntry === undefined) return;
@@ -1295,92 +1287,6 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     return { exitCode: 1 };
   }
 
-  // Phase 2b: await-exit resolver. Subscribes to
-  // `rawResponseItem/completed` (no longer in the opt-out list); routes
-  // `request_user_input` `function_call` / `function_call_output` items
-  // through the resolver. The resolver's `commitAwait` is bound to a
-  // pure `host.commitAwait(...)` call — post-commit side-effects ride
-  // `onAfterTransition` so future callers of `commitAwait` inherit the
-  // bare-commit semantics for free. JSONL state-change events are the
-  // persisted replay evidence for the await transition.
-  const awaitResolver = createAwaitResolver({
-    currentStateId: () => host.currentStateId(),
-    currentAwaitExitName: () => currentAwaitExitName(host),
-    commitAwait: async (stateId, exitName, msg) => {
-      const from = host.currentStateId();
-      const currentMeta = host.currentMeta();
-      const awaitMeta =
-        currentMeta?.kind === 'stateful'
-          ? currentMeta.exits[exitName]?.__aharnessCanonical
-          : undefined;
-      if (awaitMeta?.kind === 'await') {
-        const targetStateId =
-          currentMeta?.kind === 'stateful' && currentMeta.exits[exitName]?.kind === 'await'
-            ? currentMeta.exits[exitName].to
-            : null;
-        const prepared = await prepareCanonicalAwaitCommit({
-          meta: awaitMeta,
-          context: host.currentContext(),
-          ownerReply: msg,
-          ops: opsHandle.ops,
-        });
-        if (!prepared.ok) {
-          throw new Error(
-            `Canonical await transition failed before commit for (${stateId}, ${exitName}): ${prepared.error}`,
-          );
-        }
-        const commitPayload = payloadWithCanonicalCommit({ ownerReply: msg }, prepared.nextContext);
-        const embeddedPrepared = await host.prepareEmbeddedFinalCommit({
-          sourceStateId: stateId,
-          target: targetStateId ?? undefined,
-          context: prepared.nextContext,
-          event: {
-            type: `AWAIT__${stateId}__${exitName}`,
-            payload: commitPayload,
-          },
-          ops: opsHandle.ops,
-        });
-        if (!embeddedPrepared.ok) {
-          throw new Error(
-            `Canonical embedded final failed before commit for (${stateId}, ${exitName}): ${embeddedPrepared.error}`,
-          );
-        }
-        if (
-          targetStateId !== null &&
-          terminalMetaById(machine, targetStateId)?.kind === 'terminal'
-        ) {
-          await writeActiveFinalArtifacts(targetStateId, prepared.nextContext);
-        }
-        host.commitAwait(
-          stateId,
-          exitName,
-          msg,
-          prepared.nextContext,
-          embeddedPrepared.matched ? embeddedPrepared.nextContext : undefined,
-        );
-      } else {
-        host.commitAwait(stateId, exitName, msg);
-      }
-      const to = host.currentStateId();
-      if (awaitMeta?.kind !== 'await' && host.currentMeta()?.kind === 'terminal') {
-        await writeActiveFinalArtifacts(to);
-      }
-      publishUiEvent({
-        kind: 'StateChange',
-        from,
-        to,
-        cause: 'await',
-        newState: deriveUiFsmState(host),
-      });
-      publishOpenPosture();
-    },
-    onAfterTransition: async (info) => {
-      await runActiveOnEntry();
-      scheduleFreshClearAfterTransition(info);
-      publishActiveOwnerChoicePending();
-    },
-  });
-
   // 10. Connect WS — register the dispatcher inside `registerHandlers`
   //     before the initialize handshake (M18 invariant, spec §3 step 7).
   let wsHandle: Awaited<ReturnType<typeof connectHeadlessWs>>;
@@ -1430,9 +1336,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
             return response;
           });
         });
-        // Phase 2b: park the codex-built-in `request_user_input`
+        // Park the codex-built-in `request_user_input`
         // ServerRequest. The handler narrows malformed params, increments
-        // `pendingOwnerYieldCount` BEFORE awaiting the provider (so the
+        // `pendingOwnerInputRequestCount` BEFORE awaiting the provider (so the
         // drive-forward `isAwaiting` predicate observes the park), then
         // forwards the questions array to the `OwnerInputProvider`. The
         // double-nested `{answers: {<qid>: {answers: [<text>]}}}` reply
@@ -1463,14 +1369,14 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
             });
             if (input !== null) recordRunEvent(input);
           }
-          const handled = handleOwnerYieldRequest(params, ownerInputProvider, {
+          const handled = handleRequestUserInputRequest(params, ownerInputProvider, {
             onParked: () => {
-              pendingOwnerYieldCount += 1;
+              pendingOwnerInputRequestCount += 1;
               publishPostureChange({ isAwaiting: true });
             },
             onReleased: () => {
-              pendingOwnerYieldCount -= 1;
-              publishPostureChange({ isAwaiting: pendingOwnerYieldCount > 0 });
+              pendingOwnerInputRequestCount -= 1;
+              publishPostureChange({ isAwaiting: pendingOwnerInputRequestCount > 0 });
             },
             stderr: o.stderr,
           });
@@ -1504,21 +1410,10 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
           approvalDispatcher.handleServerRequestResolved(params);
         });
         c.onNotification(METHOD.agentMessageDelta, publishAgentMessageDelta);
-        // Phase 2b: subscribe to `rawResponseItem/completed`. Each
-        // notification carries one `ResponseItem` (function_call /
-        // function_call_output for built-in tools, plus other variants
-        // we ignore). `dispatchRawResponseItem` filters to the two
-        // variants the resolver cares about; `noteFunctionCall` further
-        // filters by `name === 'request_user_input'` so non-yielding
-        // calls (e.g. every `aharness_submit`) are dropped at near-zero
-        // cost.
-        //
-        // `JsonRpcClient.onNotification` does NOT await the handler
-        // (jsonrpc/client.ts:188 calls the handler synchronously and
-        // ignores its return value). The `void ... .catch(...)` wrapper
-        // routes any rejection from inside the resolver's awaited path
-        // (commitAwait throw, post-transition hook failure, ...) to stderr
-        // instead of leaking as an unhandled rejection.
+        // Subscribe to `rawResponseItem/completed` so built-in function
+        // tool calls, including Codex `request_user_input`, are available
+        // for transcript and UI publication. These items are not surfaced
+        // through `item/completed`'s `ThreadItem` union.
         c.onNotification(METHOD.rawResponseItemCompleted, (params: unknown) => {
           if (!isLiveThreadParams(params)) {
             publishAbandonedThreadParamsDiagnostic(
@@ -1529,14 +1424,6 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
             return;
           }
           publishRawResponseItemForUi(params);
-          void dispatchRawResponseItem(params, awaitResolver).catch((err: unknown) => {
-            const callId = extractCallIdForLog(params);
-            o.stderr.write(
-              `aharness: awaitResolver dispatch error (call_id=${callId ?? '<unknown>'}): ${
-                (err as Error).message
-              }\n`,
-            );
-          });
         });
         c.onNotification(METHOD.threadTokenUsageUpdated, (params: unknown) => {
           const typedParams = threadTokenUsageParams(params);
@@ -2982,7 +2869,7 @@ async function dispatchIfSubmit(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2b: owner-yield ServerRequest helper.
+// Owner-input ServerRequest helper.
 // ---------------------------------------------------------------------------
 
 /**
@@ -2991,7 +2878,7 @@ async function dispatchIfSubmit(
  * is awaited; `onReleased` fires in the handler's `finally` arm so every
  * exit path (resolve / reject / handler throw) restores the count.
  */
-interface OwnerYieldHandlerHooks {
+interface RequestUserInputHandlerHooks {
   readonly onParked: () => void;
   readonly onReleased: () => void;
   readonly stderr: NodeJS.WritableStream;
@@ -3082,10 +2969,10 @@ function ownerInputChoices(question: RequestUserInputQuestion): { choices?: stri
  * at `ownerInputProvider.ts` so the handler and test assertions stay in
  * lockstep.
  */
-async function handleOwnerYieldRequest(
+async function handleRequestUserInputRequest(
   params: unknown,
   provider: OwnerInputProvider,
-  hooks: OwnerYieldHandlerHooks,
+  hooks: RequestUserInputHandlerHooks,
 ): Promise<ToolRequestUserInputResponse> {
   // Step 1: defensive narrow. If `questions` is missing or empty there
   // is no work for the provider — emit an empty-answers reply (the
@@ -3165,95 +3052,6 @@ function readThreadIdParam(params: unknown): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2b: `rawResponseItem/completed` dispatch helpers.
-// ---------------------------------------------------------------------------
-
-/**
- * Route a `rawResponseItem/completed` notification payload through the
- * await resolver. Each notification carries one `ResponseItem`
- * (`protocol/src/models.rs:743`); for the resolver's purposes only
- * `function_call` and `function_call_output` variants are interesting.
- * All others are dropped silently — `request_user_input`'s lifecycle is
- * surfaced as exactly those two variants per the citation chain in
- * `awaitResolver.ts`'s file header.
- *
- * Defensive narrowing: codex's `RawResponseItemCompletedNotification`
- * (`protocol/notifications.ts`) guarantees the shape at the pinned
- * commit, but a malformed body should never propagate as a thrown error
- * past the `.catch` site in the notification handler.
- */
-export async function dispatchRawResponseItem(
-  params: unknown,
-  resolver: AwaitResolver,
-): Promise<void> {
-  if (params === null || typeof params !== 'object') return;
-  const item = (params as { item?: unknown }).item;
-  if (item === null || typeof item !== 'object') return;
-  const type = (item as { type?: unknown }).type;
-  if (type === 'function_call') {
-    const callId = (item as { call_id?: unknown }).call_id;
-    const name = (item as { name?: unknown }).name;
-    const args = (item as { arguments?: unknown }).arguments;
-    if (typeof callId !== 'string' || typeof name !== 'string' || typeof args !== 'string') {
-      return;
-    }
-    resolver.noteFunctionCall({ call_id: callId, name, arguments: args });
-    return;
-  }
-  if (type === 'function_call_output') {
-    const callId = (item as { call_id?: unknown }).call_id;
-    const output = (item as { output?: unknown }).output;
-    if (typeof callId !== 'string') return;
-    const threadId = (params as { threadId?: unknown }).threadId;
-    const turnId = (params as { turnId?: unknown }).turnId;
-    await resolver.handleFunctionCallOutput(
-      { call_id: callId, output },
-      {
-        ...(typeof threadId === 'string' ? { threadId } : {}),
-        ...(typeof turnId === 'string' ? { turnId } : {}),
-      },
-    );
-    return;
-  }
-  // Other ResponseItem variants (assistant messages, reasoning, dynamic
-  // tool calls, ...): not relevant to the await resolver.
-}
-
-/**
- * Best-effort `call_id` extraction from a `rawResponseItem/completed`
- * payload, used only for the stderr diagnostic on a resolver error.
- * Returns `undefined` when the shape is malformed — the diagnostic
- * stringifies `<unknown>` in that case.
- */
-export function extractCallIdForLog(params: unknown): string | undefined {
-  if (params === null || typeof params !== 'object') return undefined;
-  const item = (params as { item?: unknown }).item;
-  if (item === null || typeof item !== 'object') return undefined;
-  const callId = (item as { call_id?: unknown }).call_id;
-  return typeof callId === 'string' ? callId : undefined;
-}
-
-/**
- * Return the name of the currently active leaf state's `await`-kind
- * exit, or `null` when none is declared. The verifier check
- * `await-no-multi-branch` guarantees a state has at most one await
- * exit, so first-match is correct.
- *
- * Narrows `AharnessMeta` to its `stateful` variant before reading
- * `exits` — terminal / passive variants have no `exits` field, and
- * unguarded access would TS-error under strict mode (and runtime-error
- * if a future variant ships with a stricter shape).
- */
-export function currentAwaitExitName(host: ActorHost): string | null {
-  const meta = host.currentMeta();
-  if (!meta || meta.kind !== 'stateful') return null;
-  for (const [name, def] of Object.entries(meta.exits)) {
-    if (def.kind === 'await') return name;
-  }
-  return null;
-}
-
-// ---------------------------------------------------------------------------
 // Active-state orientation composer.
 // ---------------------------------------------------------------------------
 
@@ -3263,9 +3061,8 @@ export function currentAwaitExitName(host: ActorHost): string | null {
  * never advances those, but if we somehow ended up calling this on one
  * the loud failure is preferable to a silent empty turn.
  *
- * Shape mirrors `daemon/onStateEntry.ts` so the on-disk nudge text is
- * byte-identical to what the legacy daemon emitted; this matters for
- * the prompt-cache key codex derives from the conversation history.
+ * Shape mirrors `runtime/onStateEntry.ts` so orientation stays consistent
+ * across first-turn, drive-forward, cross-state, and resumed-entry paths.
  */
 function composeActiveStateNudge(host: ActorHost, sidecar: SchemaSidecar): string {
   const stateId = host.currentStateId();
@@ -3284,9 +3081,6 @@ function composeActiveStateNudge(host: ActorHost, sidecar: SchemaSidecar): strin
       // composer.
       const schema = sidecar[stateId]?.[name]?.jsonSchema ?? { type: 'object' };
       exits.push({ kind: 'submit', name, schema });
-    } else if (def.kind === 'await') {
-      const ask = resolveAwaitAsk(def.__aharnessCanonical, host.currentContext() as RunCtx);
-      exits.push({ kind: 'await', name, ...(ask !== undefined ? { ask } : {}) });
     }
   }
 
@@ -3297,41 +3091,11 @@ function composeActiveStateNudge(host: ActorHost, sidecar: SchemaSidecar): strin
     entryPromptText = `(aharness: error computing entryPrompt: ${(e as Error).message})`;
   }
 
-  let awaitsOwnerText: { messageToUser: string } | undefined;
-  if (stateMeta.awaitsOwnerText !== undefined) {
-    const m = stateMeta.awaitsOwnerText.messageToUser;
-    let resolved: string;
-    if (typeof m === 'string') {
-      resolved = m;
-    } else {
-      try {
-        resolved = m(host.currentContext() as RunCtx);
-      } catch (e) {
-        resolved = `(aharness: error computing awaitsOwnerText.messageToUser: ${(e as Error).message})`;
-      }
-    }
-    awaitsOwnerText = { messageToUser: resolved };
-  }
-
   return composeStateNudge({
     stateId,
     exits,
     entryPromptText,
-    ...(awaitsOwnerText !== undefined ? { awaitsOwnerText } : {}),
   });
-}
-
-function resolveAwaitAsk(
-  meta: import('../state/exits.js').AwaitExitDef['__aharnessCanonical'],
-  ctx: RunCtx,
-): string | undefined {
-  if (meta?.kind !== 'await') return undefined;
-  if (typeof meta.ask === 'string') return meta.ask;
-  try {
-    return meta.ask(ctx);
-  } catch (e) {
-    return `(aharness: error computing await ask: ${(e as Error).message})`;
-  }
 }
 
 function terminalMetaById(machine: import('xstate').AnyStateMachine, stateId: string) {
@@ -3361,29 +3125,17 @@ function deriveUiFsmState(host: ActorHost): FsmState {
     };
   }
 
-  const exits: FsmState['exits'] = Object.entries(meta.exits).map(([name, def]) => ({
-    name,
-    kind: def.kind === 'await' ? 'await' : 'submit',
-    ...('when' in def && Array.isArray(def.when) ? { branchCount: def.when.length } : {}),
-  }));
-
-  let awaitsOwnerText: { messageToUser: string } | undefined;
-  if (meta.awaitsOwnerText !== undefined) {
-    const message = meta.awaitsOwnerText.messageToUser;
-    if (typeof message === 'string') {
-      awaitsOwnerText = { messageToUser: message };
-    } else {
-      try {
-        awaitsOwnerText = { messageToUser: message(context) };
-      } catch (e) {
-        awaitsOwnerText = {
-          messageToUser: `(aharness: error computing awaitsOwnerText.messageToUser: ${
-            (e as Error).message
-          })`,
-        };
-      }
-    }
-  }
+  const exits: FsmState['exits'] = Object.entries(meta.exits).flatMap(([name, def]) =>
+    '__aharnessPayloadMarker' in def && def.__aharnessPayloadMarker === true
+      ? [
+          {
+            name,
+            kind: 'submit' as const,
+            ...('when' in def && Array.isArray(def.when) ? { branchCount: def.when.length } : {}),
+          },
+        ]
+      : [],
+  );
 
   let entryPrompt: string;
   try {
@@ -3398,10 +3150,8 @@ function deriveUiFsmState(host: ActorHost): FsmState {
     leaf: leafFromStatePath(path),
     kind: 'stateful',
     ...(typeof meta.open === 'boolean' ? { open: meta.open } : {}),
-    awaiting: awaitsOwnerText !== undefined,
     ...(stateModel.model !== undefined ? { model: stateModel.model } : {}),
     ...(stateModel.effort !== undefined ? { effort: stateModel.effort } : {}),
-    ...(awaitsOwnerText !== undefined ? { awaitsOwnerText } : {}),
     exits,
     visitCount,
     entryPrompt,

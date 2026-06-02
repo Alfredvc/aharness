@@ -2,23 +2,16 @@
  * State-entry observer — composes the per-state orientation nudge from the
  * active leaf's `AharnessStateMeta` and routes it through `injectNudge`.
  *
- * The submit dispatcher (see `daemon/dispatchSubmit.ts` §5.5 step 5) injects
- * the post-transition orientation **inline** with its success reply, which
- * covers the common case. Two transition flavours fall outside that path:
- *
- *   1. **Await resolution** — the user's reply lands via the wakeup
- *      pipeline rather than the dispatcher's reply, so there is no
- *      submit-side `injectNudge` call site to piggy-back on (§5.7).
- *   2. **Resume from snapshot** — the daemon rehydrates an actor whose
- *      current leaf needs to be re-announced to the model on the very
- *      next turn, but no transition just happened (§5.10).
+ * The submit dispatcher schedules post-transition orientation for submit
+ * transitions, which covers the common case. Resume from snapshot falls
+ * outside that path: the daemon rehydrates an actor whose current leaf
+ * needs to be re-announced to the model on the very next turn, but no
+ * transition just happened (§5.10).
  *
  * Centralising the entry-side composition here lets both call sites share
  * one definition of "what the model should see when state X becomes
- * active". The submit-inline path (which already has the projected
- * `entryPrompt` text in hand) keeps its own composition; this entry
- * observer is the *post-commit* / *post-resume* equivalent for
- * non-dispatcher transitions.
+ * active". The submit path keeps its own scheduling; this entry observer
+ * is the post-resume equivalent for non-dispatcher transitions.
  *
  * Expected wiring (Task 35): the daemon will subscribe to its actor's
  * snapshot stream and call `onStateEntry` on every state-change boundary
@@ -103,9 +96,6 @@ export async function onStateEntry(o: OnStateEntryOpts): Promise<void> {
       // schema stub so the orientation still surfaces the exit name.
       const schema = o.sidecar[stateId]?.[name]?.jsonSchema ?? { type: 'object' };
       exits.push({ kind: 'submit', name, schema });
-    } else if (def.kind === 'await') {
-      const ask = resolveAwaitAsk(def.__aharnessCanonical, o.host.currentContext() as RunCtx);
-      exits.push({ kind: 'await', name, ...(ask !== undefined ? { ask } : {}) });
     }
   }
 
@@ -118,25 +108,6 @@ export async function onStateEntry(o: OnStateEntryOpts): Promise<void> {
     promptText = resolveEntryPrompt(meta.entryPrompt, o.host.currentContext() as RunCtx);
   } catch (e) {
     promptText = `(aharness: error computing entryPrompt: ${(e as Error).message})`;
-  }
-
-  // Resolve `awaitsOwnerText.messageToUser` (string or function form).
-  // Function-form errors fall back to a sentinel so the orientation
-  // surfaces the failure rather than silently dropping the preamble.
-  let awaitsOwnerText: { messageToUser: string } | undefined;
-  if (meta.awaitsOwnerText !== undefined) {
-    const m = meta.awaitsOwnerText.messageToUser;
-    let resolved: string;
-    if (typeof m === 'string') {
-      resolved = m;
-    } else {
-      try {
-        resolved = m(o.host.currentContext() as RunCtx);
-      } catch (e) {
-        resolved = `(aharness: error computing awaitsOwnerText.messageToUser: ${(e as Error).message})`;
-      }
-    }
-    awaitsOwnerText = { messageToUser: resolved };
   }
 
   // Resolve skill blocks against the run-level injected set BEFORE the
@@ -158,7 +129,6 @@ export async function onStateEntry(o: OnStateEntryOpts): Promise<void> {
       stateId,
       exits,
       entryPromptText: promptText,
-      ...(awaitsOwnerText !== undefined ? { awaitsOwnerText } : {}),
       ...(skillTextBlocks.length > 0 ? { skillBlocks: skillTextBlocks } : {}),
     }),
   );
@@ -178,18 +148,5 @@ export async function onStateEntry(o: OnStateEntryOpts): Promise<void> {
         // entry-side nudge above
       }
     }
-  }
-}
-
-function resolveAwaitAsk(
-  meta: import('../state/exits.js').AwaitExitDef['__aharnessCanonical'],
-  ctx: RunCtx,
-): string | undefined {
-  if (meta?.kind !== 'await') return undefined;
-  if (typeof meta.ask === 'string') return meta.ask;
-  try {
-    return meta.ask(ctx);
-  } catch (e) {
-    return `(aharness: error computing await ask: ${(e as Error).message})`;
   }
 }

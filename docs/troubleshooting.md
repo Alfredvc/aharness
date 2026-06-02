@@ -98,17 +98,20 @@ aharness runs foreground-only and opens a loopback browser UI for owner input
 and, in manual review mode, approval cards. Keep the CLI process running and
 use the URL printed by the command.
 
-Free-text owner input comes from Codex `request_user_input`; approval requests
-come through aharness approval dispatch only when Codex is using manual user
-review. Default live runs use Codex auto-review, so eligible sandbox-boundary
-prompts may be resolved without a browser approval card. If you expected to
-review eligible approval prompts in the browser, rerun with `--ask`.
+Owner-paced free text belongs in an open state, where Codex can converse with
+the owner until it submits typed data. Model-originated Codex
+`request_user_input` prompts also surface through the browser when the model
+needs an ad hoc clarification inside a state. Approval requests come through
+aharness approval dispatch only when Codex is using manual user review. Default
+live runs use Codex auto-review, so eligible sandbox-boundary prompts may be
+resolved without a browser approval card. If you expected to review eligible
+approval prompts in the browser, rerun with `--ask`.
 
 If a state should wait for the owner, check whether the FSM uses
 `fsm.choice(...)`, an open state, or a built-in `permissionRequest` handler as
 intended. Use Codex `request_user_input` from inside state work only when the
-owner reply should inform the model's later typed submit rather than advance the
-FSM directly.
+owner reply should inform the model's later typed submit rather than act as an
+aharness FSM transition.
 
 ## A Run Ended But Artifacts Are Needed
 

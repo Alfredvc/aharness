@@ -118,9 +118,9 @@ export const METHOD = {
   // app-server-protocol/src/protocol/common.rs:1398
   // (`RawResponseItemCompleted => "rawResponseItem/completed"`).
   // Carries `function_call` / `function_call_output` `ResponseItem`s
-  // for built-in function tools (e.g. `request_user_input`) that are
-  // not surfaced through `item/completed`'s `ThreadItem` union; see
-  // `daemon/awaitResolver.ts` for the citation chain.
+  // for built-in function tools that are not surfaced through
+  // `item/completed`'s `ThreadItem` union. The runtime publishes these
+  // raw items for transcript/UI visibility.
   rawResponseItemCompleted: 'rawResponseItem/completed',
   // app-server-protocol/src/protocol/v2.rs `ServerNotification`
   // discriminant `ThreadTokenUsageUpdated => "thread/tokenUsage/updated"`.

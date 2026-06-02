@@ -34,11 +34,11 @@ const pirateRoastState: FsmState = {
 };
 
 const requirementSpecState: FsmState = {
-  path: 'requirement-spec.awaiting-owner-input',
-  leaf: 'awaiting-owner-input',
+  path: 'requirement-spec.open-owner-input',
+  leaf: 'open-owner-input',
   kind: 'stateful',
-  awaitsOwnerText: { messageToUser: 'Choose the next requirement detail.' },
-  exits: [{ name: 'answered', kind: 'await', branchCount: 1 }],
+  open: true,
+  exits: [{ name: 'submit-requirements', kind: 'submit', branchCount: 1 }],
   visitCount: 2,
 };
 
@@ -312,9 +312,9 @@ function createStaticRunScopedService(options: {
         },
         posture: {
           isTerminal: false,
-          isAwaiting: Boolean(options.state.awaitsOwnerText),
+          isAwaiting: options.pending.length > 0,
           submittedThisTurn: false,
-          open: !options.state.awaitsOwnerText,
+          open: options.pending.length === 0 && options.state.open === true,
         },
         currentStateVisit: stateVisit,
         stateVisits: [stateVisit],

@@ -41,8 +41,8 @@ aharness --ask examples/approval-policy.fsm.ts --mode strict --plan-path ./PLAN.
 The CLI verifies the FSM, starts the app-server and browser UI, and
 drops you into the run. From there:
 
-- **Free-text prompts** (`request_user_input`) appear inline; reply in
-  the TUI.
+- **Model-originated prompts** (`request_user_input`) appear inline when Codex
+  asks for clarification; reply in the browser.
 - **Model output** (narration, questions, summaries) appears in the
   TUI as normal codex turns.
 - **Artifacts** (`*.md`) land in `<repoRoot>/.aharness/runs/<runId>/artifacts/`.
@@ -193,8 +193,9 @@ choice records the stage result before moving to the next checkpoint.
   labels, not model submits.
 - The owner reply is deterministic because the available labels are authored in
   the FSM and shown in topology.
-- Use an open state or model-originated `request_user_input` when the workflow
-  needs free-form owner text before a later typed submit.
+- Use an open state when the workflow needs owner-paced free text before a
+  later typed submit. Model-originated `request_user_input` remains available
+  for ad hoc clarification inside state work.
 
 ---
 

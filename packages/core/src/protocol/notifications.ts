@@ -184,7 +184,8 @@ export interface AgentMessageDeltaNotification {
  * `ResponseItem` (`protocol/src/models.rs:741-743`); for the aharness
  * the relevant variants are `function_call` and `function_call_output`
  * for built-in function tools that do not surface through
- * `item/completed` (see `daemon/awaitResolver.ts` doc-comment).
+ * `item/completed`. The runtime publishes these raw items for
+ * transcript/UI visibility.
  *
  * `ResponseItem` is declared in `./types.ts` as the same shape used by
  * `thread/inject_items` — upstream both surfaces share the same Rust

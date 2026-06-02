@@ -1,21 +1,23 @@
 /**
- * Open-state walk fixture retained after owner-yield retirement.
+ * Request-user-input open-state walk fixture.
  *
  * Topology:
  *
  *   a (stateful) ──next→ b (open stateful) ──done→ c (terminal:'success')
  *
- * Exercises cross-state into an open state after the retired
- * `awaitsOwnerText` owner-yield surface was removed.
+ * Exercises cross-state into an open state while Codex asks a
+ * model-originated `request_user_input` question.
  *
  * Companion integration test
- * `packages/core/test/integration.ownerYieldWalk.test.ts` queues
+ * `packages/core/test/integration.requestUserInputOpenStateWalk.test.ts` queues
  * three mock-model turns:
  *
  *   1. `aharness_submit({state: "a", exit: "next", data: {note: "go"}})`
  *      — cross-state dance fires; codex re-POSTs after the dance's
  *      `turn/start({input: <state b nudge>})` lands.
- *   2. `aharness_submit({state: "b", exit: "done", data: {greeting:
+ *   2. `request_user_input({questions: [{id:"owner", question:"what is your name?"}]})`
+ *      — Codex parks the ServerRequest and the test owner-input provider replies.
+ *   3. `aharness_submit({state: "b", exit: "done", data: {greeting:
  *      "hello alice"}})` — terminal transition; run exits 0.
  */
 import { aharness, state, exit, terminal, type AharnessMachine } from '@aharness/core';
@@ -30,17 +32,17 @@ interface DonePayload {
 }
 
 /**
- * In-process machine matching `OWNER_YIELD_WALK_FSM_SOURCE` for callers
+ * In-process machine matching `REQUEST_USER_INPUT_OPEN_STATE_WALK_FSM_SOURCE` for callers
  * that want to introspect the topology without going through `loadFsm`.
  * The integration test still writes the source string to disk and lets
  * `loadFsm` esbuild + dynamic-import it.
  */
-export const ownerYieldWalkMachine: AharnessMachine<
+export const requestUserInputOpenStateWalkMachine: AharnessMachine<
   unknown,
   unknown,
   Record<string, unknown>
 > = aharness.machine({
-  id: 'owner-yield-walk',
+  id: 'request-user-input-open-state-walk',
   initial: 'a',
   states: {
     a: state({
@@ -68,9 +70,9 @@ export const ownerYieldWalkMachine: AharnessMachine<
  * `loadFsm` can esbuild + dynamic-import it (the loader's compile step
  * externalises bare `@aharness/core` / `xstate` imports to absolute
  * install paths — see `packages/core/src/loader/compile.ts`).
- * Kept in sync with `ownerYieldWalkMachine` above.
+ * Kept in sync with `requestUserInputOpenStateWalkMachine` above.
  */
-export const OWNER_YIELD_WALK_FSM_SOURCE = `import { aharness, state, exit, terminal } from '@aharness/core';
+export const REQUEST_USER_INPUT_OPEN_STATE_WALK_FSM_SOURCE = `import { aharness, state, exit, terminal } from '@aharness/core';
 
 interface NextPayload {
   note: string;
@@ -81,7 +83,7 @@ interface DonePayload {
 }
 
 export default aharness.machine({
-  id: 'owner-yield-walk',
+  id: 'request-user-input-open-state-walk',
   initial: 'a',
   states: {
     a: state({

@@ -20,11 +20,9 @@ export type FsmState = {
   leaf: string;
   kind: 'stateful' | 'terminal' | 'passive' | 'choice' | 'final';
   open?: boolean;
-  awaiting?: boolean;
   model?: string;
   effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-  awaitsOwnerText?: { messageToUser: string };
-  exits: Array<{ name: string; kind: 'submit' | 'await'; branchCount?: number }>;
+  exits: Array<{ name: string; kind: 'submit'; branchCount?: number }>;
   visitCount: number;
   // Resolved `entryPrompt` (the per-state prompt the framework injects on
   // entry); omitted for non-stateful states.
@@ -66,7 +64,6 @@ export type ExitDetail = {
 
 export type VizNodeDetail = {
   entryPrompt?: TextDetail;
-  awaitsOwnerText?: TextDetail;
   question?: TextDetail;
   options?: string[];
   open?: boolean;
@@ -86,7 +83,6 @@ export type VizNode = {
   kind: NodeKind;
   open?: boolean;
   main?: true;
-  awaitsOwnerText?: boolean;
   outcome?: 'success' | 'failure';
   entryPrompt?: string;
   parent?: string;
@@ -94,7 +90,7 @@ export type VizNode = {
   detail?: VizNodeDetail;
 };
 
-export type EdgeKind = 'submit' | 'await' | 'always' | 'choice';
+export type EdgeKind = 'submit' | 'always' | 'choice';
 
 export type VizEdge = {
   id: string;
@@ -165,7 +161,7 @@ export type StateChange = {
   kind: 'StateChange';
   from: string | null;
   to: string;
-  cause: 'submit' | 'await' | 'always' | 'embed-final' | 'boot' | 'choice';
+  cause: 'submit' | 'always' | 'embed-final' | 'boot' | 'choice';
   newState: FsmState;
 };
 
