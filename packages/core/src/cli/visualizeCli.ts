@@ -168,10 +168,10 @@ function initialInspectState(
   const meta = stateNode ? getAharnessMeta(stateNode) : undefined;
   const detail = node?.detail;
   const exits = (detail?.exits ?? [])
-    .filter((exit) => exit.kind === 'submit' || exit.kind === 'await')
+    .filter((exit) => exit.kind === 'submit')
     .map((exit) => ({
       name: exit.name,
-      kind: exit.kind as 'submit' | 'await',
+      kind: 'submit' as const,
       ...(exit.branchCount !== undefined ? { branchCount: exit.branchCount } : {}),
     }));
   const entryPrompt =
@@ -182,9 +182,7 @@ function initialInspectState(
     path,
     leaf: leafFromStatePath(path),
     kind: nodeKindToFsmKind(node?.kind),
-    ...(detail?.awaitsOwnerText !== undefined
-      ? { awaitsOwnerText: { messageToUser: detail.awaitsOwnerText.text } }
-      : {}),
+    ...(typeof detail?.open === 'boolean' ? { open: detail.open } : {}),
     exits,
     visitCount: 1,
     ...(entryPrompt !== undefined ? { entryPrompt } : {}),
@@ -272,9 +270,9 @@ function createInspectRunScopedRouteService(options: {
         },
         posture: {
           isTerminal: options.initialState.kind === 'terminal',
-          isAwaiting: Boolean(options.initialState.awaitsOwnerText),
+          isAwaiting: false,
           submittedThisTurn: false,
-          open: false,
+          open: options.initialState.open === true,
         },
         currentStateVisit: stateVisit,
         stateVisits: [stateVisit],

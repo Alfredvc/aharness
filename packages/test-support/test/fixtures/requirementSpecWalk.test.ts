@@ -35,7 +35,7 @@ describe('REQUIREMENT_SPEC_SHORTEST_WALK', () => {
     expect(submitStates).toEqual([...EXPECTED_SUBMIT_STATES]);
   });
 
-  it('schedules an owner-yield before each await state', () => {
+  it('schedules model-originated owner input before each owner-paced submit state', () => {
     const flat = REQUIREMENT_SPEC_SHORTEST_WALK.map((s) =>
       s.kind === 'requestUserInput'
         ? { kind: 'r', message: s.messageToUser, reply: s.ownerReply }

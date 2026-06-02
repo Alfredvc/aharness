@@ -5,9 +5,9 @@
  *
  * Phase 1 surface: posture is just `isTerminal`. Default branch fires
  * `turn/start` with the active state's nudge as TUI-visible input.
- * Phase 2b wires `isAwaiting` as a real short-circuit (returns without
- * issuing turn/start when a `request_user_input` ServerRequest is
- * parked). `isOpen` is the Phase 3c browser-owned prompt posture.
+ * `isAwaiting` is a real short-circuit (returns without issuing turn/start
+ * when a `request_user_input` ServerRequest is parked). `isOpen` is the
+ * browser-owned prompt posture.
  *
  * Imports from the direct module path (not the `runtime.js` barrel)
  * because the Group D barrel re-export is added in a separate
@@ -101,11 +101,10 @@ describe('drive-forward (Phase 1)', () => {
   });
 
   it('onTurnCompleted: isAwaiting=true short-circuits before isTerminal check', async () => {
-    // Phase 2b: a request_user_input ServerRequest is parked. Codex
-    // normally holds the turn open via the tool call, but if a
-    // turn/completed ever fires in this posture, drive-forward must
-    // return without issuing a fresh turn/start (which would race the
-    // parked tool reply) and without invoking onShutdown.
+    // A request_user_input ServerRequest is parked. Codex normally holds the
+    // turn open via the tool call, but if a turn/completed ever fires in this
+    // posture, drive-forward must return without issuing a fresh turn/start
+    // (which would race the parked tool reply) and without invoking onShutdown.
     const requests: Array<{ method: string; params: unknown }> = [];
     const isTerminal = vi.fn(() => {
       throw new Error('isTerminal must not be called when isAwaiting returns true');
@@ -354,10 +353,10 @@ describe('drive-forward salvageAfterDanceFailure (F1)', () => {
   });
 
   it('salvageAfterDanceFailure: isAwaiting=true short-circuits before isTerminal check', async () => {
-    // Phase 2b: parity with `onTurnCompleted`. If the dance fails
-    // while a request_user_input ServerRequest is parked, salvage
-    // returns without issuing a recovery turn/start (which would race
-    // the parked tool reply) and without invoking onShutdown.
+    // Parity with `onTurnCompleted`. If the dance fails while a
+    // request_user_input ServerRequest is parked, salvage returns without
+    // issuing a recovery turn/start (which would race the parked tool reply)
+    // and without invoking onShutdown.
     const requests: Array<{ method: string; params: unknown }> = [];
     const isTerminal = vi.fn(() => {
       throw new Error('isTerminal must not be called when isAwaiting returns true');

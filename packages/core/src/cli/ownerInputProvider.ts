@@ -2,7 +2,7 @@
  * `OwnerInputProvider` — pluggable producer of answers for parked
  * `item/tool/requestUserInput` ServerRequests.
  *
- * The CLI's ServerRequest handler (see `runCli.ts`, Task 3) parks each
+ * The CLI's ServerRequest handler (see `runCli.ts`) parks each
  * `item/tool/requestUserInput` request, calls the provider with the
  * params verbatim, and replies with the provider's response. The
  * provider knows nothing about the rest of the run — it is the only
@@ -21,7 +21,7 @@
  *     convenience. Returns a provider with a `queue(...)` setter that
  *     accepts either a pre-built response or an arrow function that
  *     produces one. (The richer cross-package `MockOwnerInputProvider`
- *     lives in `@aharness/test-support`, Task 2.)
+ *     lives in `@aharness/test-support`.)
  *
  * `DECLINED_ANSWER_TEXT` is re-exported from the runtime abandoned-thread
  * response helpers. It is the verbatim placeholder ("(declined)") that

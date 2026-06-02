@@ -684,7 +684,7 @@ describe('@aharness/core verify: final-classification', () => {
   });
 });
 
-// ─── Carried over: single-await-per-state ──────────────────────────────────
+// ─── Retired await-exit rejection: single-await-per-state ──────────────────
 
 describe('@aharness/core verify: single-await-per-state', () => {
   it('rejects await exits before the legacy multiple-await verifier path is reachable', () => {
@@ -768,7 +768,7 @@ describe('@aharness/core verify: open-states-have-at-least-one-exit', () => {
   });
 });
 
-// ─── Carried over: await-only-strict-state (warning) ───────────────────────
+// ─── Retired await-exit rejection: await-only-strict-state ─────────────────
 
 describe('@aharness/core verify: await-only-strict-state', () => {
   it('rejects await-only states instead of warning on the retired surface', () => {

@@ -142,7 +142,7 @@ describe('state() new shape', () => {
     expect(exits['submit']?.kind).toBe('submit');
   });
 
-  it('preserves explicit kind:"await"', () => {
+  it('rejects explicit kind:"await" exit declarations', () => {
     expect(() =>
       state({
         entryPrompt: 'wait',

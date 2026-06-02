@@ -528,7 +528,7 @@ When verification fails, fix the reported issue directly instead of trying to wo
 - Do not replace a working skill's in-phase judgment with a longer parent prompt unless the workflow contract requires runtime supervision.
 - Do not rely on model memory for state. Store durable decisions in FSM data.
 - Do not put verification only in prose. Encode required gates as typed states, transitions, and artifacts.
-- Do not use owner-yield, `ask`, or direct owner decisions as normal paths where unattended execution is required.
+- Do not use retired owner-text/`ask` paths or direct owner decisions as normal paths where unattended execution is required.
 - Do not send ordinary uncertainty to terminal failure when the workflow promised autonomous recovery.
 - Do not set `clearOnEntry` on the first state or any state active during initial startup through an always transition.
 - Do not hard-code subagent use, command ordering, or retry shape unless the workflow contract requires that strategy.

@@ -1,7 +1,6 @@
 /**
  * Tests for `daemon/onStateEntry.ts` — the entry-side nudge composer used
- * by non-dispatcher transition paths (await resolution and resume; see
- * design doc §5.7 / §5.10).
+ * by non-dispatcher transition paths such as resume.
  *
  * The fixture is a three-state machine `a → b → fin` so we can exercise:
  *
@@ -9,8 +8,7 @@
  *     `jsonSchema` should appear in the composed nudge text.
  *   - state `b`: a submit exit `stop` with a function-form entry prompt.
  *   - state `fin`: a terminal — `onStateEntry` must no-op (no exits, no
- *     entryPrompt) so the dispatcher's terminal-orientation path is
- *     not duplicated.
+ *     entryPrompt) so terminal completion messaging is not duplicated.
  *
  * The XState wrapper (`aharness.machine`) is the same one the rest of the
  * @aharness/core daemon tests use; it auto-stamps `meta.kind = 'stateful'` for

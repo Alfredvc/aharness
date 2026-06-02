@@ -268,10 +268,10 @@ export interface ExitCatalogItem {
 export type ExitCatalog = ReadonlyArray<ExitCatalogItem>;
 
 /**
- * Retired free-text owner-yield declaration. This interface remains only
- * for compatibility diagnostics around historical/invalid metadata. New
- * FSMs should use `createFsm().choice(...)` for deterministic owner
- * routing or open states for owner-paced discussion.
+ * Retired free-text owner-input declaration. This interface remains only for
+ * compatibility diagnostics around historical/invalid metadata. New FSMs
+ * should use `createFsm().choice(...)` for deterministic owner routing or
+ * open states for owner-paced discussion.
  */
 export interface AwaitsOwnerTextDecl<TContext extends MachineContext = MachineContext> {
   /** The prompt the user sees, verbatim. */

@@ -14,6 +14,8 @@ import type {
   VizNode,
 } from './events.js';
 
+type LiveDefaultedExitDef = Extract<DefaultedExitDef, { readonly __aharnessPayloadMarker: true }>;
+
 interface MachineRootShape {
   readonly id: string;
   readonly initial?: { target?: ReadonlyArray<{ key?: string }> };
@@ -192,34 +194,28 @@ export function extractUiTopology(
         kind: 'stateful',
         open: meta.open,
         ...(meta.main === true ? { main: true } : {}),
-        awaitsOwnerText: meta.awaitsOwnerText !== undefined,
         entryPrompt: promptStr.length > 240 ? `${promptStr.slice(0, 240)}...` : promptStr,
         detail: describeStatefulNode(meta, path, resolveTarget, options.sidecar),
         ...parentField,
       });
       for (const [exitName, exitDef] of Object.entries(meta.exits)) {
         if (!exitDef) continue;
-        if (exitDef.kind === 'await') {
+        const liveExitDef = exitDef as DefaultedExitDef;
+        if (!isLiveDefaultedExit(liveExitDef)) continue;
+        if ('to' in liveExitDef) {
           edges.push({
             id: `${path}::${exitName}`,
             from: path,
-            to: resolveTarget(exitDef.to, path),
-            exit: exitName,
-            kind: 'await',
-            ...(exitDef.description !== undefined ? { description: exitDef.description } : {}),
-          });
-        } else if ('to' in exitDef) {
-          edges.push({
-            id: `${path}::${exitName}`,
-            from: path,
-            to: resolveTarget(exitDef.to, path),
+            to: resolveTarget(liveExitDef.to, path),
             exit: exitName,
             kind: 'submit',
-            ...(exitDef.description !== undefined ? { description: exitDef.description } : {}),
+            ...(liveExitDef.description !== undefined
+              ? { description: liveExitDef.description }
+              : {}),
           });
         } else {
-          const total = exitDef.when.length;
-          exitDef.when.forEach((branch, i) => {
+          const total = liveExitDef.when.length;
+          liveExitDef.when.forEach((branch, i) => {
             edges.push({
               id: `${path}::${exitName}#${String(i)}`,
               from: path,
@@ -228,7 +224,9 @@ export function extractUiTopology(
               kind: 'submit',
               branchIndex: i,
               branchTotal: total,
-              ...(exitDef.description !== undefined ? { description: exitDef.description } : {}),
+              ...(liveExitDef.description !== undefined
+                ? { description: liveExitDef.description }
+                : {}),
             });
           });
         }
@@ -328,19 +326,16 @@ function describeStatefulNode(
   resolveTarget: (rawTo: string, sourcePath: string) => string,
   sidecar: SchemaSidecar | undefined,
 ): NonNullable<VizNode['detail']> {
-  const awaitsOwnerText =
-    meta.awaitsOwnerText !== undefined
-      ? describeText(meta.awaitsOwnerText.messageToUser, '<dynamic owner prompt>')
-      : undefined;
   const hooks = describeHooks(meta);
   const skills = describeSkills(meta.skills);
-  const exits = Object.entries(meta.exits).map(([name, def]) =>
-    describeExit(path, name, def as DefaultedExitDef, resolveTarget, sidecar),
-  );
+  const exits = Object.entries(meta.exits).flatMap(([name, def]) => {
+    const exitDef = def as DefaultedExitDef;
+    if (!isLiveDefaultedExit(exitDef)) return [];
+    return [describeExit(path, name, exitDef, resolveTarget, sidecar)];
+  });
 
   return {
     entryPrompt: describeText(meta.entryPrompt, '<dynamic prompt>'),
-    ...(awaitsOwnerText !== undefined ? { awaitsOwnerText } : {}),
     open: meta.open,
     ...(meta.clearOnEntry !== undefined ? { clearOnEntry: true } : {}),
     ...(meta.stopGuidance !== undefined ? { hasStopGuidance: true } : {}),
@@ -358,10 +353,14 @@ function describeChoiceNode(meta: ChoiceMeta): NonNullable<VizNode['detail']> {
   };
 }
 
+function isLiveDefaultedExit(def: DefaultedExitDef): def is LiveDefaultedExitDef {
+  return '__aharnessPayloadMarker' in def && def.__aharnessPayloadMarker === true;
+}
+
 function describeExit(
   statePath: string,
   name: string,
-  def: DefaultedExitDef,
+  def: LiveDefaultedExitDef,
   resolveTarget: (rawTo: string, sourcePath: string) => string,
   sidecar: SchemaSidecar | undefined,
 ): ExitDetail {
@@ -381,10 +380,10 @@ function describeExit(
   }
   return {
     name,
-    kind: def.kind === 'await' ? 'await' : 'submit',
+    kind: 'submit',
     targets: [resolveTarget((def as { to: string }).to, statePath)],
     ...(description !== undefined ? { description } : {}),
-    ...(def.kind === 'submit' && sidecar?.[statePath]?.[name]?.jsonSchema !== undefined
+    ...(sidecar?.[statePath]?.[name]?.jsonSchema !== undefined
       ? { payloadSchema: sidecar[statePath]?.[name]?.jsonSchema }
       : {}),
   };

@@ -69,11 +69,11 @@ function seedPirateRoast() {
 function seedRequirementSpec() {
   const eventLog = createUiEventLog({ capacity: 32, run: runMeta });
   const state = {
-    path: 'requirement-spec.awaiting-owner-input',
-    leaf: 'awaiting-owner-input',
+    path: 'requirement-spec.open-owner-input',
+    leaf: 'open-owner-input',
     kind: 'stateful',
-    awaitsOwnerText: { messageToUser: 'Choose the next requirement detail.' },
-    exits: [{ name: 'answered', kind: 'await', branchCount: 1 }],
+    open: true,
+    exits: [{ name: 'submit-requirements', kind: 'submit', branchCount: 1 }],
     visitCount: 2,
   };
   const nextState = {
@@ -146,7 +146,7 @@ function seedRequirementSpec() {
       kind: 'StateChange',
       from: state.path,
       to: nextState.path,
-      cause: 'await',
+      cause: 'submit',
       newState: nextState,
     });
     eventLog.publish({
@@ -206,7 +206,7 @@ function createRunScopedService(options) {
         baseSeq + 2,
         delayed.nextState,
         options.state.path,
-        'await',
+        'submit',
         `${delayed.nextState.path}#${delayed.nextState.visitCount}`,
       ),
       runScopedRowEvent(baseSeq + 3, `${delayed.nextState.path}#${delayed.nextState.visitCount}`, {
@@ -257,7 +257,7 @@ function createRunScopedService(options) {
       time,
       from: null,
       to: state.path,
-      cause: delayedPublished ? 'await' : 'boot',
+      cause: delayedPublished ? 'submit' : 'boot',
     };
   };
 
@@ -287,9 +287,9 @@ function createRunScopedService(options) {
           currentState: runScopedCurrentState(state),
           posture: {
             isTerminal: false,
-            isAwaiting: Boolean(state.awaitsOwnerText),
+            isAwaiting: !delayedPublished && options.pending.length > 0,
             submittedThisTurn: false,
-            open: !state.awaitsOwnerText,
+            open: !delayedPublished && options.pending.length === 0 && state.open === true,
           },
           currentStateVisit: visit,
           stateVisits: [visit],

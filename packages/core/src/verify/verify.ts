@@ -41,10 +41,10 @@
  *   5.  entryPrompt-paired                 — every stateful state has a non-empty entryPrompt
  *   6.  no-unresolved-references                — every guard/action/actor referenced is declared
  *   7.  final-classification                    — every final state declares terminal('...')
- *   8.  single-await-per-state                  — at most one await exit per stateful state
- *   9.  exit-kind-well-formedness               — submit exits have payload, await exits do not
+ *   8.  single-await-per-state                  — retired await-exit compatibility diagnostic
+ *   9.  exit-kind-well-formedness               — submit exits have payload; retired await exits do not
  *   10. open-states-have-at-least-one-exit      — open: true requires ≥1 exit
- *   11. await-only-strict-state (warning)       — strict state with one await + no submit
+ *   11. await-only-strict-state (warning)       — retired await-exit compatibility diagnostic
  *   12. author-functions-sync                   — re-emit loader `author-fn-async` issues
  *   13. machine-uses-aharness-wrapper            — re-emit loader `direct-create-machine` issues
  *   14. state-exit-tuple-unique                 — distinct stateKeyPaths must not collide on (id, exitName)
@@ -55,10 +55,10 @@
  *   19. exit-target-in-state-set                — every exit `to:` names a valid sibling state
  *   20. when-last-unguarded                     — when[] last entry must be unguarded (catch-all)
  *   21. when-array-min-length-2                 — when[] requires length >= 2
- *   22. await-no-multi-branch                   — await exits cannot use when[]
+ *   22. await-no-multi-branch                   — retired await-exit compatibility diagnostic
  *   23. exit-shape-exclusive                    — exit cannot have both `to` and `when`
  *   24. state-config-missing-aharness-meta       — state with behavior+meta but no meta.aharness
- *   25. awaits-owner-text-no-await-exit         — awaitsOwnerText + await exit on same state
+ *   25. awaits-owner-text-no-await-exit         — retired owner-decision compatibility diagnostic
  *   26. state-onEntry-must-be-function          — meta.aharness.onEntry must be a function
  *   27. onEntry-only-on-stateful-states         — terminal/passive metas may not declare onEntry
  *   28. bare-branch-warning (warning)           — non-last bare when[] branch (no guard, no actions)
@@ -919,7 +919,7 @@ function checkFinalClassification(machine: AnyStateMachine): VerifyIssue[] {
 
 // ─── Check: single-await-per-state ─────────────────────────────────────────
 
-/** A stateful state may declare at most one await exit. Per spec §4.2. */
+/** Retired-await compatibility check for hand-built metadata that bypassed `state()`. */
 function checkSingleAwaitPerState(machine: AnyStateMachine): VerifyIssue[] {
   const issues: VerifyIssue[] = [];
   for (const node of iterStates(machine)) {
@@ -946,9 +946,9 @@ function checkSingleAwaitPerState(machine: AnyStateMachine): VerifyIssue[] {
 // ─── Check: exit-kind-well-formedness ──────────────────────────────────────
 
 /**
- * Submit exits must declare a `payload`; await exits must not. The `state()`
- * helper enforces this at construction; the verifier defends against
- * hand-built `meta.aharness` objects that bypass the helper.
+ * Submit exits must declare a `payload`. Retired await exits must not. The
+ * `state()` helper rejects await exits at construction; the verifier defends
+ * against hand-built `meta.aharness` objects that bypass the helper.
  */
 function checkExitKindWellFormed(machine: AnyStateMachine): VerifyIssue[] {
   const issues: VerifyIssue[] = [];
@@ -960,10 +960,10 @@ function checkExitKindWellFormed(machine: AnyStateMachine): VerifyIssue[] {
       const exit = meta.exits[exitName];
       if (!exit) continue;
       // Submit exits are stamped with `__aharnessPayloadMarker: true` by the
-      // `exit<T>({...})` factory; await exits are plain object literals
-      // (no factory wrap). The marker is the runtime tell that the exit
-      // came from the typed-payload factory; the loader's AST walker reads
-      // the type argument from the wrapping `exit<T>(...)` call.
+      // `exit<T>({...})` factory. Retired await exits were plain object
+      // literals (no factory wrap). The marker is the runtime tell that the
+      // exit came from the typed-payload factory; the loader's AST walker
+      // reads the type argument from the wrapping `exit<T>(...)` call.
       const hasMarker =
         (exit as { __aharnessPayloadMarker?: unknown }).__aharnessPayloadMarker === true;
       if (exit.kind === 'await') {
@@ -1020,8 +1020,8 @@ function checkOpenStatesHaveExits(machine: AnyStateMachine): VerifyIssue[] {
 // ─── Check: await-only-strict-state (warning) ──────────────────────────────
 
 /**
- * Strict (`open: false`) state with exactly one await exit and no submit
- * exit: legal but easy to author by mistake. Spec §10 entry 6.
+ * Retired-await compatibility warning for strict (`open: false`) states
+ * with exactly one await exit and no submit exit.
  */
 function checkAwaitOnlyStrictState(machine: AnyStateMachine): VerifyIssue[] {
   const issues: VerifyIssue[] = [];
@@ -1184,9 +1184,10 @@ function checkNoSubmitInSpawnAgentReachableStates(machine: AnyStateMachine): Ver
 // ─── Check: request-user-input-name-collision ──────────────────────────────
 
 /**
- * The aharness runtime receives `tool/requestUserInput` ServerRequests from codex when
- * the model asks to yield to the user. If an FSM-declared author tool is named
- * `request_user_input`, the names would collide on the model's tool catalog.
+ * The aharness runtime receives `tool/requestUserInput` ServerRequests from
+ * codex when the model asks the owner for input. If an FSM-declared author
+ * tool is named `request_user_input`, the names would collide on the model's
+ * tool catalog.
  *
  * scaffold; activated by a future author tool-declaration surface.
  */
@@ -1202,7 +1203,7 @@ function checkRequestUserInputNameCollision(): VerifyIssue[] {
         err(
           'request-user-input-name-collision',
           '',
-          `MCP server '${t.serverName}' declares a tool named 'request_user_input'; that name is reserved for codex's owner-yield surface`,
+          `MCP server '${t.serverName}' declares a tool named 'request_user_input'; that name is reserved for codex's owner-input ServerRequest surface`,
         ),
       );
     }
@@ -1856,9 +1857,8 @@ function checkStateConfigMissingAharnessMeta(machine: AnyStateMachine): VerifyIs
 // ─── Check: awaits-owner-text-no-await-exit ───────────────────────────────
 
 /**
- * A state declaring `awaitsOwnerText` must not also declare an `await`-kind
- * exit. The two mechanisms are alternatives; combining them is ambiguous and
- * rejected by the verifier for a simpler mental model.
+ * Retired-owner-decision compatibility check for metadata that combines the
+ * old `awaitsOwnerText` state flag with an old `await` exit.
  */
 function checkAwaitsOwnerTextNoAwaitExit(machine: AnyStateMachine): VerifyIssue[] {
   const out: VerifyIssue[] = [];
@@ -1873,7 +1873,7 @@ function checkAwaitsOwnerTextNoAwaitExit(machine: AnyStateMachine): VerifyIssue[
           err(
             'awaits-owner-text-no-await-exit',
             sid,
-            `state declares awaitsOwnerText together with await exit '${exitName}'; use one or the other`,
+            `state declares retired awaitsOwnerText together with retired await exit '${exitName}'; use fsm.choice for framework-owned owner decisions or an open state for owner-paced discussion`,
           ),
         );
       }

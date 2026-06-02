@@ -8,9 +8,9 @@ Codex performs the language and coding work.
 ## Runtime Shape
 
 An FSM author writes a `.fsm.ts` file with `createFsm` from `@aharness/core`.
-The file declares states, prompts, typed submit exits, owner-input awaits,
-built-in hook events, embedded child machines, inputs, skills, and final
-artifacts.
+The file declares states, prompts, typed submit exits, owner-choice gates,
+open-state collaboration, built-in hook events, embedded child machines,
+inputs, skills, and final artifacts.
 
 At runtime, `aharness <file.fsm.ts>` runs foreground-only:
 
@@ -112,12 +112,12 @@ validates the payload against the active state's generated sidecar schema,
 executes the configured reducer or effect, and emits the transition into the
 FSM. If the active state does not expose an exit, the model cannot take it.
 
-Owner input has three paths:
+Owner-facing interaction and framework event routing use these paths:
 
 - Framework-owned `fsm.choice(...)` states park the run on authored option
   labels and resume through aharness owner-choice replies.
-- Open stateful states let Codex and the owner converse until the model submits
-  a typed exit.
+- Open stateful states are where owner-paced free text belongs; Codex and the
+  owner can converse there until the model submits a typed exit.
 - Model-originated Codex `request_user_input` calls can collect ad hoc owner
   text inside a state without making that reply an FSM transition.
 - Built-in approval and hook events route Codex permission, pre-tool,

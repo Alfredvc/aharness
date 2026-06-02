@@ -40,6 +40,10 @@ export interface ApiSafeRunEvent {
 
 export interface ApiRunCurrentStateExit {
   readonly name: string;
+  /**
+   * Broad for persisted JSONL replay compatibility. Live state snapshots only
+   * write submit exits, but historical rows can still contain retired kinds.
+   */
   readonly kind: string;
   readonly branchCount?: number;
 }

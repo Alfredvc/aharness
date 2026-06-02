@@ -82,9 +82,9 @@ export const REQUIREMENT_SPEC_SHORTEST_WALK: ReadonlyArray<WalkStep> = [
 ];
 
 /**
- * Build an assistant turn that primes an owner-yield via codex's
- * built-in `request_user_input` tool. The plain assistant text mirrors
- * `messageToUser` so the test's PTY scraper has a stable substring to
+ * Build an assistant turn that primes a model-originated owner prompt via
+ * codex's built-in `request_user_input` tool. The plain assistant text
+ * mirrors the prompt so the test's PTY scraper has a stable substring to
  * wait on before typing the owner reply.
  *
  * The function_call carries no namespace because `request_user_input`
@@ -96,12 +96,12 @@ export const REQUIREMENT_SPEC_SHORTEST_WALK: ReadonlyArray<WalkStep> = [
  * Codex requires each question to include non-empty options and then
  * marks it as accepting "other" text before emitting the server request.
  *
- * Why built-in instead of an MCP tool: the prior design routed the
- * owner-yield through an aharness-owned `request_owner_text` MCP tool, but
- * that deadlocked codex's turn loop — the daemon had to observe the
- * user's reply mid-tool-call, but `userMessage` thread items are only
- * emitted after the turn loop drains pending input, which doesn't
- * happen until the in-flight tool call returns. Built-in
+ * Why built-in instead of an MCP tool: an earlier design routed owner text
+ * through an aharness-owned `request_owner_text` MCP tool, but that
+ * deadlocked codex's turn loop — the daemon had to observe the user's
+ * reply mid-tool-call, but `userMessage` thread items are only emitted
+ * after the turn loop drains pending input, which doesn't happen until
+ * the in-flight tool call returns. Built-in
  * `request_user_input` returns the user's text directly as the tool
  * result, bypassing the userMessage path.
  */

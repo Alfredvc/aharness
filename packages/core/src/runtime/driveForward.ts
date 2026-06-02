@@ -1,5 +1,5 @@
 /**
- * Phase 1 + 2a + 2b drive-forward listener. Spec §3 run loop, §4.3.2.
+ * Drive-forward listener. Spec §3 run loop, §4.3.2.
  *
  * Drive-forward fires on every `turn/completed` notification observed
  * by the transport-layer notification router. Posture branches (in order):
@@ -47,11 +47,10 @@ export interface CreateDriveForwardOpts {
   readonly composeActiveStateNudge: () => string;
   readonly onShutdown: () => void | Promise<void>;
   /**
-   * Phase 2b: returns true when a `request_user_input` ServerRequest is
-   * parked awaiting the owner's reply. When true, drive-forward returns
-   * without issuing a fresh `turn/start` — codex holds the turn open
-   * via the in-flight tool call, so a recovery `turn/start` would race
-   * the parked tool reply.
+   * Returns true when a `request_user_input` ServerRequest is parked awaiting
+   * the owner's reply. When true, drive-forward returns without issuing a
+   * fresh `turn/start` — codex holds the turn open via the in-flight tool
+   * call, so a recovery `turn/start` would race the parked tool reply.
    */
   readonly isAwaiting?: () => boolean;
   /** Optional turn-completed hook; runs before posture predicates. */
@@ -111,10 +110,10 @@ export function createDriveForward(o: CreateDriveForwardOpts): DriveForwardHandl
     async onTurnCompleted() {
       o.onTurnCompletedBeforeDecision?.();
       if (o.isAwaiting?.() === true) {
-        // Phase 2b: a request_user_input ServerRequest is parked. Codex
-        // normally cannot fire turn/completed in this state (the tool call
-        // holds the turn open), but if it ever does, do NOT issue a fresh
-        // turn/start that would race the in-flight tool reply.
+        // A request_user_input ServerRequest is parked. Codex normally cannot
+        // fire turn/completed in this state (the tool call holds the turn
+        // open), but if it ever does, do NOT issue a fresh turn/start that
+        // would race the in-flight tool reply.
         return;
       }
       if (o.isOpen?.() === true) {
@@ -143,10 +142,9 @@ export function createDriveForward(o: CreateDriveForwardOpts): DriveForwardHandl
       // cleared it before invoking salvage — but the predicate stays in
       // the chain as defense-in-depth.
       if (o.isAwaiting?.() === true) {
-        // Phase 2b: parity with `onTurnCompleted`. If the dance fails
-        // while a request_user_input ServerRequest is parked, we still
-        // do NOT issue a recovery turn/start that would race the
-        // parked tool reply.
+        // Parity with `onTurnCompleted`. If the dance fails while a
+        // request_user_input ServerRequest is parked, we still do NOT issue a
+        // recovery turn/start that would race the parked tool reply.
         return;
       }
       if (o.isOpen?.() === true) {

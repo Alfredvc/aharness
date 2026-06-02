@@ -107,10 +107,10 @@ export type {
 } from './types.js';
 export type { SidecarIssue } from './loader/index.js';
 
-// Owner-yield ServerRequest provider (Phase 2b). The interface is
-// shared with `@aharness/test-support`'s `MockOwnerInputProvider`
-// via this barrel; the stdin-backed factory and the in-tree mock-queue
-// factory are the two implementations that ship in this package.
+// Owner-input ServerRequest provider. The interface is shared with
+// `@aharness/test-support`'s `MockOwnerInputProvider` via this barrel;
+// the stdin-backed factory and the in-tree mock-queue factory are the two
+// implementations that ship in this package.
 export {
   DECLINED_ANSWER_TEXT,
   createStdinOwnerInputProvider,

@@ -21,17 +21,6 @@
  *     `'ok'`. The dance: register `item/completed` watcher → reply
  *     → await match → `turn/interrupt` → `turn/start({input: <nudge>})`.
  *
- * Phase-2b scope (owner-yield + await exits, plan
- * `2026-05-13-headless-phase-2b-owner-yield.md`):
- *   - `await` exits — `composeActiveStateNudge` emits the
- *     `request_user_input` preamble for any state whose meta declares
- *     `awaitsOwnerText`, and `awaitResolver` (wired in `runCli.ts`)
- *     fires the synthesized `AWAIT__<state>__<exit>` transition when
- *     codex returns the matching `function_call_output`.
- *   - The Phase-2a awaitsOwnerText-target guard is lifted —
- *     cross-state targets that declare `awaitsOwnerText` follow the
- *     same dance path as non-yielding states.
- *
  * State-entry scope:
  *   - submit-driven state entry awaits `onEntry` after the transition
  *     commits before any success reply can leave the handler.
@@ -158,10 +147,10 @@ export interface CreateSubmitDispatcherOpts {
   /**
    * Phase 2a: compose the FULL nudge for the active (post-commit) state
    * — header (`[aharness] Now in state "<id>"`), schema-rendered valid
-   * exits, resolved `entryPrompt`, optional `awaitsOwnerText` preamble,
-   * optional `stopGuidance`. Same shape `driveForward`'s default branch
-   * sends. Invoked AFTER `host.commitSubmit` so the closure reads the
-   * live host (which has advanced to the new leaf).
+   * submit exits, resolved `entryPrompt`, and any skill blocks. Same
+   * shape `driveForward`'s default branch sends. Invoked AFTER
+   * `host.commitSubmit` so the closure reads the live host (which has
+   * advanced to the new leaf).
    *
    * NOT invoked for self-loop or terminal targets. When omitted and a
    * cross-state branch fires, the dispatcher throws
@@ -598,7 +587,6 @@ interface OrientationOk {
   readonly ok: true;
   readonly orientationText: string;
   readonly isTerminal: boolean;
-  readonly isAwaitsOwnerText: boolean;
   readonly isPassive: boolean;
   readonly isChoice: boolean;
   readonly terminalOutcome?: string;
@@ -618,8 +606,7 @@ type OrientationResult = OrientationOk | OrientationErr;
  * resolver's job is to flag passive targets so the dispatcher can reject
  * the submit before commit.
  *
- *   - `'stateful'` → resolve `entryPrompt` (string-or-function); detect
- *     `awaitsOwnerText` (Phase 2 boundary).
+ *   - `'stateful'` → resolve `entryPrompt` (string-or-function).
  *   - `'terminal'` → orientation text and `terminalOutcome` carried
  *     through for the reply.
  *   - `'passive'`  → empty orientation with `isPassive: true`; the
@@ -640,7 +627,6 @@ function resolveOrientationForNextState(args: {
       ok: true,
       orientationText: '',
       isTerminal: false,
-      isAwaitsOwnerText: false,
       isPassive: false,
       isChoice: false,
     };
@@ -651,7 +637,6 @@ function resolveOrientationForNextState(args: {
       ok: true,
       orientationText: '',
       isTerminal: false,
-      isAwaitsOwnerText: false,
       isPassive: false,
       isChoice: false,
     };
@@ -661,7 +646,6 @@ function resolveOrientationForNextState(args: {
       ok: true,
       orientationText: `Run complete. Terminal: ${meta.outcome}.`,
       isTerminal: true,
-      isAwaitsOwnerText: false,
       isPassive: false,
       isChoice: false,
       terminalOutcome: meta.outcome,
@@ -672,7 +656,6 @@ function resolveOrientationForNextState(args: {
       ok: true,
       orientationText: '',
       isTerminal: false,
-      isAwaitsOwnerText: false,
       isPassive: true,
       isChoice: false,
     };
@@ -682,7 +665,6 @@ function resolveOrientationForNextState(args: {
       ok: true,
       orientationText: '',
       isTerminal: false,
-      isAwaitsOwnerText: false,
       isPassive: false,
       isChoice: true,
     };
@@ -694,7 +676,6 @@ function resolveOrientationForNextState(args: {
       ok: true,
       orientationText: text,
       isTerminal: false,
-      isAwaitsOwnerText: meta.awaitsOwnerText !== undefined,
       isPassive: false,
       isChoice: false,
     };
@@ -863,11 +844,9 @@ function selectCanonicalSubmitBranch(
   }
 }
 
-function targetForSubmitExit(
-  exitDef: AharnessStateMeta['exits'][string],
-  branchIndex = 0,
-): string | undefined {
-  if (exitDef.kind === 'await') return exitDef.to;
+type RuntimeSubmitExitDef = Exclude<AharnessStateMeta['exits'][string], { readonly kind: 'await' }>;
+
+function targetForSubmitExit(exitDef: RuntimeSubmitExitDef, branchIndex = 0): string | undefined {
   if ('to' in exitDef && typeof exitDef.to === 'string') return exitDef.to;
   if (hasSubmitBranches(exitDef)) {
     const target = exitDef.when[branchIndex]?.to;
@@ -876,9 +855,7 @@ function targetForSubmitExit(
   return undefined;
 }
 
-function hasSubmitBranches(
-  exitDef: AharnessStateMeta['exits'][string],
-): exitDef is AharnessStateMeta['exits'][string] & {
+function hasSubmitBranches(exitDef: RuntimeSubmitExitDef): exitDef is RuntimeSubmitExitDef & {
   readonly when: ReadonlyArray<{ readonly to?: unknown }>;
 } {
   return 'when' in exitDef && Array.isArray(exitDef.when);

@@ -35,8 +35,8 @@ export interface MockModelHandle {
    * the run terminates (rather than gating mid-run on a specific POST
    * via `awaitNextRequest()`).
    *
-   * Per `docs/plans/2026-05-13-headless-phase-2b-owner-yield.md` §Task 7
-   * Mock-model extension.
+   * Used by request-user-input and multi-turn CLI tests that inspect the
+   * full model request history.
    */
   readonly recordedRequests: ReadonlyArray<{ body: unknown }>;
   close(): Promise<void>;

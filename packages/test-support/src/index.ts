@@ -42,14 +42,13 @@ export {
   buildCrossStateSubmitTurn,
   crossStateWalkMachine,
 } from './fixtures/crossStateWalk.js';
-export { AWAIT_EXIT_WALK_FSM_SOURCE, awaitExitWalkMachine } from './fixtures/awaitExitWalk.js';
 export { HOOK_WALK_FSM_SOURCE, hookWalkMachine } from './fixtures/hookWalk.js';
 export { EMBED_REGRESSION_FSM_SOURCE, embedRegressionMachine } from './fixtures/embedRegression.js';
 export {
-  OWNER_YIELD_WALK_FSM_SOURCE,
+  REQUEST_USER_INPUT_OPEN_STATE_WALK_FSM_SOURCE,
   buildRequestUserInputTurn,
-  ownerYieldWalkMachine,
-} from './fixtures/ownerYieldWalk.js';
+  requestUserInputOpenStateWalkMachine,
+} from './fixtures/requestUserInputOpenStateWalk.js';
 export {
   CLEAR_WALK_FSM_SOURCE,
   buildClearWalkSubmitTurn,

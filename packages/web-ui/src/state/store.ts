@@ -47,7 +47,7 @@ const SUBMIT_TOOLS = new Set<string>([
 ]);
 
 // Tools the UI hides from the default transcript view: request_user_input is
-// codex's built-in owner-yield tool whose ServerRequest is rendered separately.
+// codex's built-in owner-input tool whose ServerRequest is rendered separately.
 export const RESERVED_TOOLS = new Set<string>([...SUBMIT_TOOLS, 'request_user_input']);
 const DIAGNOSTIC_LIMIT = 100;
 const UNKNOWN_ROW_DIAGNOSTIC_LIMIT = 25;

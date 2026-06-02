@@ -8,9 +8,10 @@
  *     dispatcher to predict whether a candidate `SUBMIT__*` event would
  *     advance state, which turns the otherwise-side-effecting commit
  *     decision into a pre-validated one.
- *   - `commitSubmit(...)` / `commitAwait(...)` — actually send the event;
- *     the actor advances and the inspector pipeline (snapshot persist,
- *     trace) fires through the daemon's own subscriptions.
+ *   - `commitSubmit(...)` / `commitEvent(...)` / `commitChoice(...)` —
+ *     actually send the event; the actor advances and the inspector
+ *     pipeline (snapshot persist, trace) fires through the daemon's own
+ *     subscriptions.
  *   - `currentMeta()` — `AharnessMeta` for the active leaf, used by the
  *     dispatcher to read posture (`open` / `entryPrompt` /
  *     `stopGuidance`) without having to walk `iterStates` again.
@@ -44,7 +45,6 @@ import {
 import { getAharnessMeta, iterStates, stateKeyPath } from '../state.js';
 import {
   prepareCanonicalEmbeddedFinalCommit,
-  payloadWithCanonicalCommit,
   payloadWithCanonicalEmbeddedFinalCommit,
   withCanonicalDryRun,
 } from '../state/canonicalTransition.js';
@@ -188,33 +188,6 @@ export class ActorHost {
     this.actor.send({ type: `SUBMIT__${stateId}__${exitName}`, payload } as unknown as Parameters<
       AnyActor['send']
     >[0]);
-  }
-
-  /**
-   * Send `AWAIT__<stateId>__<exitName>` with the user's reply text.
-   * The aharness wrapper attaches `__aharnessAssignOwnerReply` to every
-   * `AWAIT__*` transition, which copies `event.payload.ownerReply`
-   * into context. The dispatcher passes the reply through under the
-   * agreed payload shape.
-   */
-  commitAwait(
-    stateId: string,
-    exitName: string,
-    messageFromUser: string,
-    nextContext?: Record<string, unknown>,
-    embeddedFinalContext?: Record<string, unknown>,
-  ): void {
-    let payload: unknown = { ownerReply: messageFromUser };
-    if (nextContext !== undefined) {
-      payload = payloadWithCanonicalCommit(payload, nextContext);
-    }
-    if (embeddedFinalContext !== undefined) {
-      payload = payloadWithCanonicalEmbeddedFinalCommit(payload, embeddedFinalContext);
-    }
-    this.actor.send({
-      type: `AWAIT__${stateId}__${exitName}`,
-      payload,
-    } as unknown as Parameters<AnyActor['send']>[0]);
   }
 
   /**
