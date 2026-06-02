@@ -73,6 +73,7 @@ const KNOWN_COMPACT_ROW_KINDS = new Set<string>([
   'state_change',
   'transition_failure',
   'fresh_clear',
+  'fileChange',
   // Legacy/protocol bookkeeping row shape. Visible dynamic tools are emitted
   // through canonical `tool` rows; raw dynamicToolCall rows should stay quiet.
   'dynamicToolCall',
@@ -173,6 +174,22 @@ export type TranscriptItem =
       toolName?: string;
       state?: string;
       exit?: string;
+    })
+  | (TranscriptBase & {
+      id: string;
+      type: 'file_change';
+      status: 'pending' | 'completed' | 'failed' | 'declined';
+      summary: string;
+      changeCount: number;
+      added: number;
+      removed: number;
+      files: Array<{
+        path: string;
+        kind: 'add' | 'delete' | 'update';
+        added: number;
+        removed: number;
+        movePath?: string;
+      }>;
     })
   | (TranscriptBase & {
       id: string;
@@ -590,6 +607,58 @@ function readNumber(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+function readFileChangeStatus(
+  value: unknown,
+): Extract<TranscriptItem, { type: 'file_change' }>['status'] {
+  if (value === 'completed' || value === 'failed' || value === 'declined') return value;
+  return 'pending';
+}
+
+function readFileChangeKind(value: unknown): 'add' | 'delete' | 'update' | undefined {
+  switch (value) {
+    case 'add':
+    case 'delete':
+    case 'update':
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function readFileChangeFiles(
+  value: unknown,
+): Extract<TranscriptItem, { type: 'file_change' }>['files'] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (!isRecord(entry)) return null;
+      const path = readString(entry['path']);
+      const kind = readFileChangeKind(entry['kind']);
+      const added = readNumber(entry['added']);
+      const removed = readNumber(entry['removed']);
+      if (
+        path === undefined ||
+        kind === undefined ||
+        added === undefined ||
+        removed === undefined
+      ) {
+        return null;
+      }
+      const movePath = readString(entry['movePath']);
+      return {
+        path,
+        kind,
+        added,
+        removed,
+        ...(movePath === undefined ? {} : { movePath }),
+      };
+    })
+    .filter(
+      (entry): entry is Extract<TranscriptItem, { type: 'file_change' }>['files'][number] =>
+        entry !== null,
+    );
+}
+
 function readDisplayKind(value: unknown): ToolDisplayKind | undefined {
   switch (value) {
     case 'command':
@@ -879,6 +948,26 @@ function transcriptItemFromCompactRow(
         ...(toolName === undefined ? {} : { toolName }),
         ...(state === undefined ? {} : { state }),
         ...(exit === undefined ? {} : { exit }),
+      };
+    }
+    case 'fileChange': {
+      const files = readFileChangeFiles(row.data?.['files']);
+      const summary =
+        row.summary ?? row.text ?? (files.length > 0 ? `${files.length} file changes` : '');
+      const changeCount =
+        files.length === 0 ? 0 : (readNumber(row.data?.['changeCount']) ?? files.length);
+      const added = files.length === 0 ? 0 : (readNumber(row.data?.['added']) ?? 0);
+      const removed = files.length === 0 ? 0 : (readNumber(row.data?.['removed']) ?? 0);
+      return {
+        ...common,
+        id: row.itemId ?? row.id,
+        type: 'file_change',
+        status: readFileChangeStatus(row.status),
+        summary,
+        changeCount,
+        added,
+        removed,
+        files,
       };
     }
     case 'fresh_clear': {

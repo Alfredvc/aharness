@@ -2148,6 +2148,18 @@
   border-left-color: var(--rose);
   background: var(--rose-soft);
 }
+.compact-row[data-kind='file_change'][data-status='pending'] {
+  border-left-color: var(--amber);
+  background: var(--amber-soft);
+}
+.compact-row[data-kind='file_change'][data-status='completed'] {
+  border-left-color: var(--mint);
+}
+.compact-row[data-kind='file_change'][data-status='failed'],
+.compact-row[data-kind='file_change'][data-status='declined'] {
+  border-left-color: var(--rose);
+  background: var(--rose-soft);
+}
 .compact-kicker,
 .compact-status,
 .compact-elapsed {
@@ -2178,6 +2190,28 @@
 .transition-failure-row .compact-kicker,
 .transition-failure-row .compact-label {
   color: var(--rose);
+}
+.file-change-row .compact-kicker {
+  color: var(--ink-soft);
+}
+.file-change-row[data-status='pending'] .compact-status {
+  color: var(--amber);
+}
+.file-change-row[data-status='completed'] .compact-status {
+  color: var(--mint);
+}
+.file-change-row[data-status='failed'] .compact-kicker,
+.file-change-row[data-status='failed'] .compact-status,
+.file-change-row[data-status='declined'] .compact-kicker,
+.file-change-row[data-status='declined'] .compact-status {
+  color: var(--rose);
+}
+.file-change-counts {
+  flex: 0 0 auto;
+  color: var(--ink-quiet);
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  white-space: nowrap;
 }
 
 /* tool result */

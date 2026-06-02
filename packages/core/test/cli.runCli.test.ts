@@ -2099,7 +2099,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(r.exitCode).toBe(0);
   });
 
-  it('records raw dynamic tool, token, parent item, and sub-thread payloads in canonical JSONL', async () => {
+  it('records compact rows plus raw dynamic tool, token, parent item, and sub-thread payloads in canonical JSONL', async () => {
     interface FinishPayload {
       ok: boolean;
     }
@@ -2281,6 +2281,123 @@ describe('runCliForTest — pre-spawn gates', () => {
             aggregatedOutput: 'test output\nall green',
             durationMs: 1234,
             request: { payload: 'hidden-request-payload-must-stay-out' },
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.itemStarted,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          item: {
+            type: 'fileChange',
+            id: 'file-change-pending',
+            status: 'inProgress',
+            changes: [
+              {
+                path: 'src/old.ts',
+                kind: { type: 'update', move_path: 'src/new.ts' },
+                diff: '@@\n-old line\n+new line\n+++ b/src/new.ts\n--- a/src/old.ts\n+second line\n',
+              },
+            ],
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          item: {
+            type: 'fileChange',
+            id: 'file-change-failed',
+            status: 'failed',
+            changes: [{ path: 'src/failed.ts', kind: { type: 'update' }, diff: '-failed\n' }],
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          item: {
+            type: 'fileChange',
+            id: 'file-change-completed',
+            status: 'completed',
+            changes: [
+              {
+                path: 'src/add.ts',
+                kind: { type: 'add' },
+                diff: 'added first\n\n',
+              },
+              {
+                path: 'src/delete.ts',
+                kind: { type: 'delete' },
+                diff: 'removed first\r\nremoved second',
+              },
+              { path: 123, kind: { type: 'add' }, diff: 'malformed-change-must-stay-out' },
+            ],
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          item: {
+            type: 'fileChange',
+            id: 'file-change-in-progress',
+            status: 'inProgress',
+            changes: [{ path: 'src/pending.ts', kind: { type: 'update' }, diff: '+pending\n' }],
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          item: {
+            type: 'fileChange',
+            id: 'file-change-declined',
+            status: 'declined',
+            changes: [{ path: 'src/declined.ts', kind: { type: 'delete' }, diff: 'removed\n' }],
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          item: {
+            type: 'fileChange',
+            id: 'file-change-unknown-ok',
+            status: 'mystery',
+            changes: 'malformed-changes-must-stay-out',
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: {
+          threadId,
+          turnId: 'turn-raw',
+          item: {
+            type: 'fileChange',
+            id: 'file-change-unknown-failed',
+            status: 'mystery',
+            error: 'file change error',
+            changes: [{ path: 'src/error.ts', kind: { type: 'add' }, diff: 'error diff\n' }],
           },
         },
       });
@@ -2495,6 +2612,95 @@ describe('runCliForTest — pre-spawn gates', () => {
           }),
         }),
         expect.objectContaining({
+          type: 'item.started',
+          itemId: 'file-change-pending',
+          data: expect.objectContaining({
+            itemType: 'fileChange',
+            row: {
+              kind: 'fileChange',
+              label: 'file change',
+              status: 'pending',
+              summary: 'Edited src/old.ts (+2 -1)',
+              data: {
+                changeCount: 1,
+                added: 2,
+                removed: 1,
+                files: [
+                  {
+                    path: 'src/old.ts',
+                    kind: 'update',
+                    movePath: 'src/new.ts',
+                    added: 2,
+                    removed: 1,
+                  },
+                ],
+              },
+            },
+          }),
+        }),
+        expect.objectContaining({
+          type: 'item.completed',
+          itemId: 'file-change-completed',
+          data: expect.objectContaining({
+            itemType: 'fileChange',
+            row: {
+              kind: 'fileChange',
+              label: 'file change',
+              status: 'completed',
+              summary: 'Edited 2 files (+2 -2)',
+              data: {
+                changeCount: 2,
+                added: 2,
+                removed: 2,
+                files: [
+                  { path: 'src/add.ts', kind: 'add', added: 2, removed: 0 },
+                  { path: 'src/delete.ts', kind: 'delete', added: 0, removed: 2 },
+                ],
+              },
+            },
+          }),
+        }),
+        expect.objectContaining({
+          type: 'item.completed',
+          itemId: 'file-change-in-progress',
+          data: expect.objectContaining({
+            row: expect.objectContaining({ kind: 'fileChange', status: 'pending' }),
+          }),
+        }),
+        expect.objectContaining({
+          type: 'item.completed',
+          itemId: 'file-change-declined',
+          data: expect.objectContaining({
+            row: expect.objectContaining({ kind: 'fileChange', status: 'declined' }),
+          }),
+        }),
+        expect.objectContaining({
+          type: 'item.completed',
+          itemId: 'file-change-failed',
+          data: expect.objectContaining({
+            row: expect.objectContaining({ kind: 'fileChange', status: 'failed' }),
+          }),
+        }),
+        expect.objectContaining({
+          type: 'item.completed',
+          itemId: 'file-change-unknown-ok',
+          data: expect.objectContaining({
+            row: expect.objectContaining({
+              kind: 'fileChange',
+              status: 'completed',
+              summary: 'File change',
+              data: { changeCount: 0, added: 0, removed: 0, files: [] },
+            }),
+          }),
+        }),
+        expect.objectContaining({
+          type: 'item.completed',
+          itemId: 'file-change-unknown-failed',
+          data: expect.objectContaining({
+            row: expect.objectContaining({ kind: 'fileChange', status: 'failed' }),
+          }),
+        }),
+        expect.objectContaining({
           type: 'subthread.item.started',
           threadId: 'child-thread',
           itemId: 'child-message',
@@ -2595,6 +2801,17 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(JSON.stringify(compactRows)).not.toContain('command-action-must-stay-out');
     expect(JSON.stringify(compactRows)).not.toContain('hidden-request-payload-must-stay-out');
     expect(JSON.stringify(compactRows)).not.toContain('raw shell arguments must stay out');
+    expect(JSON.stringify(compactRows)).not.toContain('old line');
+    expect(JSON.stringify(compactRows)).not.toContain('new line');
+    expect(JSON.stringify(compactRows)).not.toContain('added first');
+    expect(JSON.stringify(compactRows)).not.toContain('removed first');
+    expect(JSON.stringify(compactRows)).not.toContain('malformed-change-must-stay-out');
+    expect(JSON.stringify(compactRows)).not.toContain('malformed-changes-must-stay-out');
+    expect(JSON.stringify(compactRows)).not.toContain('error diff');
+    expect(JSON.stringify(compactRows)).not.toContain('diff');
+    expect(JSON.stringify(compactRows)).not.toContain('changes');
+    expect(JSON.stringify(compactRows)).not.toContain('patch');
+    expect(JSON.stringify(compactRows)).not.toContain('unified_diff');
     expect(compactRows.map((row) => row.kind)).not.toContain('dynamicToolCall');
   });
 

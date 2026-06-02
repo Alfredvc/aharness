@@ -32,12 +32,15 @@ the state's rules.
 
 The browser run UI defaults to a chronological compact transcript for the whole
 run, focused on model/owner messages, tool summaries, failed tool output,
-diagnostics, transition failures, and live interaction cards. State markers,
+diagnostics, transition failures, summary-only file-change activity, and live
+interaction cards. File-change transcript rows show compact status/path/count
+summaries and never expose diff bodies. State markers,
 request/reply protocol rows, lifecycle rows, and successful tool output stay out
 of the default transcript and are available through dev mode when needed.
 Selecting a graph state switches the right panel to that state's historical
-visits, grouped chronologically by visit id. Pending approvals, owner choices,
-model-originated owner prompts, and open-state prompts remain live-run
+visits, grouped chronologically by visit id. Pending approvals, including
+pending file approval cards that can show diffs for approval decisions, owner
+choices, model-originated owner prompts, and open-state prompts remain live-run
 interaction surfaces rather than raw JSONL payload views. Owner input is
 independent of Codex approval review mode: authored `fsm.choice(...)` states and
 Codex `request_user_input` prompts still surface through the browser, while
@@ -156,11 +159,15 @@ payloads; raw evidence remains in `events.jsonl`. Live transcripts render a
 default summary from API-safe compact rows, while dev mode can inspect additional
 protocol/state/lifecycle rows and successful tool output. Those compact rows can
 include command display fields such as `data.row.data.displayKind`,
-`data.row.data.command`, row `output`, and row `elapsedMs`. The browser does not
-provide raw JSONL inspection or compatibility backfill for old compact-row
-shapes. Compact rows include durable run lifecycle status and normalized
-transition-failure summaries for failed internal submit attempts without
-exposing submitted payloads. Successful
+`data.row.data.command`, row `output`, row `elapsedMs`, and summary-only
+file-change transcript rows. File-change rows expose safe display summaries
+rather than diff bodies; full file diffs remain only in sensitive
+`events.jsonl` raw payloads. Pending file approval cards are separate
+interaction cards and may show approval diffs while the permission decision is
+outstanding. The browser does not provide raw JSONL inspection or compatibility
+backfill for old compact-row shapes. Compact rows include durable run lifecycle
+status and normalized transition-failure summaries for failed internal submit
+attempts without exposing submitted payloads. Successful
 internal submit tool calls are not rendered, including in dev transcript mode.
 Run-scoped bootstrap and SSE projections reconstruct `currentState.context` from ordered
 `context.initialized` / `context.changed` events when those events exist.

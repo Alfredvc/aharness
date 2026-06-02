@@ -212,6 +212,105 @@ describe('ActivePanel inspect node details', () => {
 });
 
 describe('ActivePanel tool rows', () => {
+  it('renders pending file change rows without diff text', () => {
+    const html = renderToStaticMarkup(
+      createElement(() =>
+        activePanelRowForTest({
+          id: 'file-change-1',
+          type: 'file_change',
+          status: 'pending',
+          summary: 'applying patch',
+          changeCount: 1,
+          added: 4,
+          removed: 2,
+          files: [{ path: 'src/app.ts', kind: 'update', added: 4, removed: 2 }],
+          stateVisitId: 'workflow.collect#2',
+        }),
+      ),
+    );
+
+    expect(html).toContain('file-change-row');
+    expect(html).toContain('data-status="pending"');
+    expect(html).toContain('Edited');
+    expect(html).toContain('pending');
+    expect(html).toContain('(+4 -2)');
+    expect(html).toContain('src/app.ts');
+    expect(html).not.toContain('+const next = true');
+    expect(html).not.toContain('-const previous = false');
+    expect(html).not.toContain('diff');
+  });
+
+  it('renders completed multi-file change rows as a compact summary', () => {
+    const html = renderToStaticMarkup(
+      createElement(() =>
+        activePanelRowForTest({
+          id: 'file-change-2',
+          type: 'file_change',
+          status: 'completed',
+          summary: 'changed 3 files',
+          changeCount: 3,
+          added: 12,
+          removed: 5,
+          files: [
+            { path: 'src/app.ts', kind: 'update', added: 4, removed: 2 },
+            { path: 'src/new.ts', kind: 'add', added: 8, removed: 0 },
+            { path: 'src/old.ts', kind: 'delete', added: 0, removed: 3 },
+          ],
+          stateVisitId: 'workflow.collect#2',
+        }),
+      ),
+    );
+
+    expect(html).toContain('Edited 3 files');
+    expect(html).toContain('completed');
+    expect(html).toContain('(+12 -5)');
+    expect(html).toContain('src/app.ts, src/new.ts +1');
+    expect(html).not.toContain('changed 3 files');
+    expect(html).not.toContain('@@');
+  });
+
+  it('renders empty file change rows with the safe summary fallback', () => {
+    const htmlWithSummary = renderToStaticMarkup(
+      createElement(() =>
+        activePanelRowForTest({
+          id: 'file-change-empty',
+          type: 'file_change',
+          status: 'completed',
+          summary: 'File change metadata unavailable',
+          changeCount: 0,
+          added: 0,
+          removed: 0,
+          files: [],
+          stateVisitId: 'workflow.collect#2',
+        }),
+      ),
+    );
+    const htmlWithoutSummary = renderToStaticMarkup(
+      createElement(() =>
+        activePanelRowForTest({
+          id: 'file-change-empty-default',
+          type: 'file_change',
+          status: 'completed',
+          summary: '',
+          changeCount: 0,
+          added: 0,
+          removed: 0,
+          files: [],
+          stateVisitId: 'workflow.collect#2',
+        }),
+      ),
+    );
+
+    expect(htmlWithSummary).toContain('File change metadata unavailable');
+    expect(htmlWithSummary).toContain('completed');
+    expect(htmlWithSummary).toContain('(+0 -0)');
+    expect(htmlWithSummary).not.toContain('Edited 0 files');
+    expect(htmlWithSummary).not.toContain('>0 files<');
+    expect(htmlWithoutSummary).toContain('File change');
+    expect(htmlWithoutSummary).not.toContain('Edited 0 files');
+    expect(htmlWithoutSummary).not.toContain('>0 files<');
+  });
+
   it('renders assistant markdown without activating raw HTML', () => {
     const html = renderToStaticMarkup(
       createElement(() =>
