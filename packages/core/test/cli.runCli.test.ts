@@ -3865,6 +3865,54 @@ describe('runCliForTest — pre-spawn gates', () => {
       });
 
       const interrupt = await waitForOutbound((msg) => msg.method === METHOD.turnInterrupt);
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.itemCompleted,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old',
+          item: { type: 'dynamicToolCall', id: 'call-go' },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.threadTokenUsageUpdated,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old-drain',
+          tokenUsage: {
+            total: { totalTokens: 42, inputTokens: 40, outputTokens: 2 },
+            last: { inputTokens: 40, outputTokens: 2 },
+            modelContextWindow: 128000,
+          },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.turnCompleted,
+        params: {
+          threadId: startupThreadId,
+          turn: { id: 'turn-old-drain', status: 'completed' },
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.fileChangePatchUpdated,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old-drain',
+          itemId: 'patch-old-drain',
+          changes: [],
+        },
+      });
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.serverRequestResolved,
+        params: {
+          threadId: startupThreadId,
+          requestId: 'request-old-drain',
+        },
+      });
       transport.onMessage?.({ jsonrpc: '2.0', id: interrupt.id, result: {} });
 
       const unsubscribe = await waitForOutbound((msg) => msg.method === METHOD.threadUnsubscribe);
@@ -3919,6 +3967,19 @@ describe('runCliForTest — pre-spawn gates', () => {
           }),
         ),
       );
+      transport.onMessage?.({
+        jsonrpc: '2.0',
+        method: METHOD.threadTokenUsageUpdated,
+        params: {
+          threadId: startupThreadId,
+          turnId: 'turn-old-late',
+          tokenUsage: {
+            total: { totalTokens: 99, inputTokens: 90, outputTokens: 9 },
+            last: { inputTokens: 90, outputTokens: 9 },
+            modelContextWindow: 128000,
+          },
+        },
+      });
 
       transport.onMessage?.({
         jsonrpc: '2.0',
@@ -3965,6 +4026,49 @@ describe('runCliForTest — pre-spawn gates', () => {
     await driverPromise;
 
     expect(r.exitCode).toBe(0);
+    const eventEntries = expectCanonicalRunEventStream(repoRoot);
+    const freshClearBoundary = eventEntries.find(
+      (entry) =>
+        entry.type === 'fresh_clear.boundary' && entry.data?.previousThreadId === startupThreadId,
+    );
+    expect(freshClearBoundary).toEqual(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          previousThreadId: startupThreadId,
+          nextThreadId: replacementThreadId,
+          reason: 'clearOnEntry',
+          statePath: 'b',
+        }),
+      }),
+    );
+    expect(
+      eventEntries.some(
+        (entry) =>
+          entry.type === 'turn.completed' &&
+          entry.threadId === startupThreadId &&
+          (entry.turnId === 'turn-old' || entry.turnId === 'turn-old-drain'),
+      ),
+    ).toBe(false);
+    const drainDiagnosticSources = eventEntries
+      .filter(
+        (entry) =>
+          entry.type === 'diagnostic.abandoned_thread' &&
+          entry.threadId === startupThreadId &&
+          (entry.data?.source === 'fileChangeThreadItem' ||
+            entry.data?.source === 'turnCompleted' ||
+            entry.data?.source === 'fileChangePatchUpdated' ||
+            entry.data?.source === 'serverRequestResolved'),
+      )
+      .map((entry) => entry.data?.source);
+    expect(drainDiagnosticSources).toEqual([]);
+    const tokenDiagnostics = eventEntries.filter(
+      (entry) =>
+        entry.type === 'diagnostic.abandoned_thread' &&
+        entry.threadId === startupThreadId &&
+        entry.data?.source === 'tokenUsageUpdated',
+    );
+    expect(tokenDiagnostics).toHaveLength(1);
+    expect(tokenDiagnostics[0]?.seq).toBeGreaterThan(freshClearBoundary?.seq ?? 0);
   });
 
   it('applies initial-state model via thread/settings/update before first turn/start', async () => {

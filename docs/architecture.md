@@ -166,6 +166,12 @@ object ids in the stored log. Terminal completion stats are not persisted as a
 derived event or cache. They are computed at query time from ordered canonical
 events, run metadata, and optional topology.
 
+When an authored state uses `clearOnEntry`, expected closeout notifications from
+the outgoing parent thread are drained without transcript diagnostics or stale
+live-run events after the clear is scheduled. Once the replacement thread has
+published its fresh-clear boundary, late notifications from the previous parent
+thread remain canonical `diagnostic.abandoned_thread` evidence.
+
 Run-scoped routes under `/api/runs/:runId/` serve compact JSONL-backed
 projections for bootstrap state, visit rows, recent rows, diagnostic event
 pages, canonical run-event SSE, run summaries, and replies. Bootstrap includes

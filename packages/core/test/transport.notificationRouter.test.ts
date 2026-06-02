@@ -255,4 +255,93 @@ describe('notification router (Phase 1)', () => {
       expect.objectContaining({ threadId: 'parent-1', source: 'turnCompleted' }),
     ]);
   });
+
+  it('swallows current-parent notifications while fresh-clear drain is pending before binding swap', () => {
+    const c = makeStubClient();
+    const activeThreadBinding = createActiveThreadBinding('parent-1');
+    const drainingThreadIds = new Set(['parent-1']);
+    const onTurnStarted = vi.fn();
+    const onTurnCompleted = vi.fn();
+    const onItemStarted = vi.fn();
+    const onItemCompleted = vi.fn();
+    const onSubThreadNotification = vi.fn();
+    const onAbandonedThreadDiagnostic = vi.fn();
+    const router = startNotificationRouter({
+      client: c as unknown as JsonRpcClient,
+      activeThreadBinding,
+      isParentThreadDrainingFreshClear: (threadId) => drainingThreadIds.has(threadId),
+      onTurnStarted,
+      onTurnCompleted,
+      onItemStarted,
+      onItemCompleted,
+      onSubThreadNotification,
+      onAbandonedThreadDiagnostic,
+    });
+
+    c.fire('turn/started', { threadId: 'parent-1', turn: { id: 'turn-old' } });
+    c.fire('item/started', {
+      threadId: 'parent-1',
+      turnId: 'turn-old',
+      item: { type: 'message', id: 'item-old' },
+    });
+    c.fire('item/completed', {
+      threadId: 'parent-1',
+      turnId: 'turn-old',
+      item: { type: 'message', id: 'item-old' },
+    });
+    c.fire('turn/completed', { threadId: 'parent-1', turn: { id: 'turn-old' } });
+
+    expect(onTurnStarted).not.toHaveBeenCalled();
+    expect(onTurnCompleted).not.toHaveBeenCalled();
+    expect(onItemStarted).not.toHaveBeenCalled();
+    expect(onItemCompleted).not.toHaveBeenCalled();
+    expect(onSubThreadNotification).not.toHaveBeenCalled();
+    expect(onAbandonedThreadDiagnostic).not.toHaveBeenCalled();
+    expect(router.isSubThread('parent-1')).toBe(false);
+  });
+
+  it('swallows previous-parent notifications while fresh-clear drain is pending after binding swap', () => {
+    const c = makeStubClient();
+    const activeThreadBinding = createActiveThreadBinding('parent-1');
+    const drainingThreadIds = new Set(['parent-1']);
+    const onItemCompleted = vi.fn();
+    const onSubThreadNotification = vi.fn();
+    const diagnostics: Array<{ threadId: string; source: string; message: string }> = [];
+    const router = startNotificationRouter({
+      client: c as unknown as JsonRpcClient,
+      activeThreadBinding,
+      isParentThreadDrainingFreshClear: (threadId) => drainingThreadIds.has(threadId),
+      onTurnCompleted: () => {},
+      onItemStarted: () => {},
+      onItemCompleted,
+      onSubThreadNotification,
+      onAbandonedThreadDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    });
+
+    activeThreadBinding.set('parent-2');
+    c.fire('item/completed', {
+      threadId: 'parent-1',
+      turnId: 'turn-old',
+      item: { type: 'fileChange', id: 'patch-old', changes: [] },
+    });
+
+    expect(onItemCompleted).not.toHaveBeenCalled();
+    expect(onSubThreadNotification).not.toHaveBeenCalled();
+    expect(diagnostics).toEqual([]);
+    expect(router.isSubThread('parent-1')).toBe(false);
+
+    drainingThreadIds.delete('parent-1');
+    c.fire('item/completed', {
+      threadId: 'parent-1',
+      turnId: 'turn-old',
+      item: { type: 'fileChange', id: 'patch-old-2', changes: [] },
+    });
+
+    expect(onItemCompleted).not.toHaveBeenCalled();
+    expect(onSubThreadNotification).not.toHaveBeenCalled();
+    expect(diagnostics).toEqual([
+      expect.objectContaining({ threadId: 'parent-1', source: 'itemCompleted' }),
+    ]);
+    expect(router.isSubThread('parent-1')).toBe(true);
+  });
 });

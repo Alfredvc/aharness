@@ -30,6 +30,7 @@ export interface NotificationRouterOpts {
     readonly source: string;
     readonly message: string;
   }) => void;
+  readonly isParentThreadDrainingFreshClear?: (threadId: string) => boolean;
 }
 
 export interface SubThreadCorrelation {
@@ -72,13 +73,21 @@ export function startNotificationRouter(o: NotificationRouterOpts): Notification
   >();
   let currentTurnId: string | null = null;
 
-  const isFromParent = (params: unknown): boolean => {
-    const threadId = readThreadId(params);
+  const isParentThreadDrainingFreshClear = (threadId: string | undefined): boolean => {
+    return threadId !== undefined && (o.isParentThreadDrainingFreshClear?.(threadId) ?? false);
+  };
+
+  const isFromParentThreadId = (threadId: string | undefined): boolean => {
     return (
       threadId !== undefined &&
+      !isParentThreadDrainingFreshClear(threadId) &&
       threadId === o.activeThreadBinding.require() &&
       !o.activeThreadBinding.isAbandoned(threadId)
     );
+  };
+
+  const isFromParent = (params: unknown): boolean => {
+    return isFromParentThreadId(readThreadId(params));
   };
 
   const reportAbandonedParent = (source: string, params: unknown): void => {
@@ -169,6 +178,7 @@ export function startNotificationRouter(o: NotificationRouterOpts): Notification
   });
 
   const off1 = o.client.onNotification(METHOD.turnStarted, (params) => {
+    if (isParentThreadDrainingFreshClear(readThreadId(params))) return;
     if (!isFromParent(params)) {
       reportAbandonedParent('turnStarted', params);
       if (!isAbandonedParentParams(o.activeThreadBinding, params)) {
@@ -180,6 +190,7 @@ export function startNotificationRouter(o: NotificationRouterOpts): Notification
     o.onTurnStarted?.(currentTurnId, params);
   });
   const off2 = o.client.onNotification(METHOD.turnCompleted, (params) => {
+    if (isParentThreadDrainingFreshClear(readThreadId(params))) return;
     if (!isFromParent(params)) {
       reportAbandonedParent('turnCompleted', params);
       if (!isAbandonedParentParams(o.activeThreadBinding, params)) {
@@ -198,6 +209,7 @@ export function startNotificationRouter(o: NotificationRouterOpts): Notification
     });
   });
   const off3 = o.client.onNotification(METHOD.itemStarted, (params) => {
+    if (isParentThreadDrainingFreshClear(readThreadId(params))) return;
     if (!isFromParent(params)) {
       reportAbandonedParent('itemStarted', params);
       if (!isAbandonedParentParams(o.activeThreadBinding, params)) {
@@ -210,6 +222,7 @@ export function startNotificationRouter(o: NotificationRouterOpts): Notification
     o.onItemStarted(item, readItemTurnId(params), params);
   });
   const off4 = o.client.onNotification(METHOD.itemCompleted, (params) => {
+    if (isParentThreadDrainingFreshClear(readThreadId(params))) return;
     if (!isFromParent(params)) {
       reportAbandonedParent('itemCompleted', params);
       if (!isAbandonedParentParams(o.activeThreadBinding, params)) {
@@ -232,9 +245,8 @@ export function startNotificationRouter(o: NotificationRouterOpts): Notification
     },
     isSubThread(threadId) {
       if (threadId === undefined) return false;
-      return (
-        threadId !== o.activeThreadBinding.require() || o.activeThreadBinding.isAbandoned(threadId)
-      );
+      if (isParentThreadDrainingFreshClear(threadId)) return false;
+      return !isFromParentThreadId(threadId);
     },
     getKnownSubThreadIds() {
       return [...subThreadIds];

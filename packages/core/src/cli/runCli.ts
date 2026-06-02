@@ -587,8 +587,12 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       message: diagnostic.message,
     });
   };
+  const isPendingFreshClearDrainThread = (threadId: string): boolean =>
+    pendingFreshClearThreadIds.has(threadId);
+  const isTrueAbandonedParentThread = (threadId: string): boolean =>
+    activeThreadBinding.isAbandoned(threadId) && !isPendingFreshClearDrainThread(threadId);
   const isThreadUnavailableForRequests = (threadId: string): boolean =>
-    activeThreadBinding.isAbandoned(threadId) || pendingFreshClearThreadIds.has(threadId);
+    isPendingFreshClearDrainThread(threadId) || isTrueAbandonedParentThread(threadId);
   const isLiveThreadId = (threadId: string): boolean => {
     const activeThreadId = activeThreadBinding.current();
     return (
@@ -601,6 +605,15 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     return threadId === null ? true : isLiveThreadId(threadId);
   };
   const publishAbandonedThreadParamsDiagnostic = (
+    params: unknown,
+    source: string,
+    message: string,
+  ): void => {
+    const threadId = readThreadIdParam(params);
+    if (threadId === null || !isTrueAbandonedParentThread(threadId)) return;
+    publishAbandonedThreadDiagnostic({ threadId, source, message });
+  };
+  const publishUnavailableRequestThreadParamsDiagnostic = (
     params: unknown,
     source: string,
     message: string,
@@ -906,7 +919,10 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       turnId?: unknown;
     };
     const activeThreadId = activeThreadBinding.current();
-    if (typeof params.threadId === 'string' && isThreadUnavailableForRequests(params.threadId)) {
+    if (typeof params.threadId === 'string' && isPendingFreshClearDrainThread(params.threadId)) {
+      return;
+    }
+    if (typeof params.threadId === 'string' && isTrueAbandonedParentThread(params.threadId)) {
       publishAbandonedThreadDiagnostic({
         threadId: params.threadId,
         source: 'agentMessageDelta',
@@ -1198,6 +1214,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
           nextThreadId: boundary.nextThreadId,
           statePath: host.currentStateId(),
         });
+        pendingFreshClearThreadIds.delete(boundary.previousThreadId);
       }).catch((error: unknown) => {
         const message = `fresh clear failed: ${(error as Error).message}`;
         o.stderr.write(`aharness: ${message}\n`);
@@ -1400,7 +1417,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         );
         c.onServerRequest(METHOD.toolDynamicCall, (params: unknown, meta) => {
           const abandonedResponse = () => {
-            publishAbandonedThreadParamsDiagnostic(
+            publishUnavailableRequestThreadParamsDiagnostic(
               params,
               'dynamicToolCall',
               'dynamic tool call ignored for abandoned thread',
@@ -1439,7 +1456,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         c.onServerRequest(METHOD.toolRequestUserInput, (params: unknown) => {
           const ownerInputParams = isWellFormedRequestUserInputParams(params) ? params : null;
           if (!isLiveThreadParams(params)) {
-            publishAbandonedThreadParamsDiagnostic(
+            publishUnavailableRequestThreadParamsDiagnostic(
               params,
               'ownerInput',
               'owner input request ignored for abandoned thread',
@@ -1495,9 +1512,13 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
           approvalDispatcher.handlePermissionApproval(params, meta),
         );
         c.onNotification(METHOD.fileChangePatchUpdated, (params: unknown) => {
+          const threadId = readThreadIdParam(params);
+          if (threadId !== null && isPendingFreshClearDrainThread(threadId)) return;
           approvalDispatcher.fileChangeTracker.notePatchUpdated(params);
         });
         c.onNotification(METHOD.serverRequestResolved, (params: unknown) => {
+          const threadId = readThreadIdParam(params);
+          if (threadId !== null && isPendingFreshClearDrainThread(threadId)) return;
           approvalDispatcher.handleServerRequestResolved(params);
         });
         c.onNotification(METHOD.agentMessageDelta, publishAgentMessageDelta);
@@ -1520,7 +1541,10 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
           const typedParams = threadTokenUsageParams(params);
           if (typedParams === null) return;
           if (!isLiveThreadId(typedParams.threadId)) {
-            if (isThreadUnavailableForRequests(typedParams.threadId)) {
+            if (isPendingFreshClearDrainThread(typedParams.threadId)) {
+              return;
+            }
+            if (isTrueAbandonedParentThread(typedParams.threadId)) {
               publishAbandonedThreadDiagnostic({
                 threadId: typedParams.threadId,
                 source: 'tokenUsageUpdated',
@@ -1749,12 +1773,19 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       recordRunEvent(subThreadNotificationRunEvent(notification));
     },
     onAbandonedThreadDiagnostic: publishAbandonedThreadDiagnostic,
+    isParentThreadDrainingFreshClear: isPendingFreshClearDrainThread,
   });
   notificationRouter.current = router;
   ws.onNotification(METHOD.turnCompleted, (p) => {
     const params = p as { threadId?: unknown; turn?: unknown };
     const activeThreadId = activeThreadBinding.current();
-    if (activeThreadId === undefined || params.threadId !== activeThreadId) return;
+    if (
+      activeThreadId === undefined ||
+      typeof params.threadId !== 'string' ||
+      !isLiveThreadId(params.threadId)
+    ) {
+      return;
+    }
     const turnId = readUiTurnId(params.turn) ?? '<unknown>';
     const event: AppEvent = {
       kind: 'TurnCompleted',

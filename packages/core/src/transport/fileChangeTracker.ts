@@ -148,6 +148,7 @@ export function createFileChangeTracker(options: FileChangeTrackerOptions = {}):
       pendingByRequestId.delete(requestId);
     },
     noteThreadItem(params) {
+      if (!isFileChangeThreadItem(params.item)) return;
       if (!isActiveThread(params.threadId)) {
         reportAbandonedThread(
           params.threadId,
@@ -156,7 +157,6 @@ export function createFileChangeTracker(options: FileChangeTrackerOptions = {}):
         );
         return;
       }
-      if (!isFileChangeThreadItem(params.item)) return;
       const changes = normalizeChanges(params.item.changes);
       if (changes === null) return;
       updateChanges(params.threadId, params.turnId, params.item.id, changes, { item: params.item });
