@@ -22,9 +22,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as tabtab from '@pnpm/tabtab';
+import type { JSONSchema7 } from 'json-schema';
 import { parse as shellParse } from 'shell-quote';
 import { extractSchemaSidecar } from '../loader/sidecar.js';
-import { camelToKebab, kebabToCamel } from '../loader/inputFlags.js';
+import { camelToKebab } from '../loader/inputFlags.js';
 import type { ArgFlagMeta, StaticCompletionKind } from '../loader/inputSchema.js';
 import { loadFsm, loadInstalledFsm } from '../loader/index.js';
 import type { ArgSentinel } from '../state/args.js';
@@ -92,7 +93,12 @@ const ROOT_SUBCOMMANDS = [
   'visualize',
 ] as const;
 
-type FlagsMap = Record<string, ArgFlagMeta | undefined>;
+interface InputCompletionMetadata {
+  readonly schema: JSONSchema7;
+  readonly flags: Record<string, ArgFlagMeta>;
+  readonly fieldTypes: ReadonlyMap<string, string | undefined>;
+  readonly fieldsByKebab: ReadonlyMap<string, string>;
+}
 
 type CompletionInputTarget =
   | { readonly kind: 'local'; readonly filePath: string }
@@ -112,8 +118,21 @@ type CompletionContext =
   | { readonly kind: 'root'; readonly partial: string }
   | { readonly kind: 'run-target'; readonly partial: string }
   | { readonly kind: 'direct-file-target' }
-  | { readonly kind: 'post-target-input'; readonly target: CompletionInputTarget }
+  | {
+      readonly kind: 'post-target-input';
+      readonly target: CompletionInputTarget;
+      readonly inputArgs: ReadonlyArray<string>;
+    }
   | { readonly kind: 'other-subcommand' };
+
+type InputTailCompletion =
+  | {
+      readonly kind: 'flags';
+      readonly partial: string;
+      readonly consumedFields: ReadonlySet<string>;
+    }
+  | { readonly kind: 'value'; readonly flag: string; readonly partial: string }
+  | { readonly kind: 'none' };
 
 export async function runCompletionBridge(
   opts: CompletionBridgeOpts,
@@ -160,33 +179,29 @@ export async function runCompletionBridge(
       return { exitCode: 0 };
     }
 
-    const flags = await extractInputFlagsForTarget(context.target);
-    const flagNames = Object.keys(flags);
+    const metadata = await extractInputCompletionMetadataForTarget(context.target);
+    const tail = classifyInputTail(metadata, context.inputArgs, parsed.last);
 
-    const last = parsed.last;
-    const prev = parsed.prev;
-    const prevIsFlag = typeof prev === 'string' && prev.startsWith('--');
-    const lastIsFlagPartial = last.startsWith('--') || last === '';
-
-    // Cursor on a flag value (cursor token non-empty, prev was a flag).
-    if (prevIsFlag && last !== '' && !last.startsWith('--')) {
-      await emitValueCompletion(flags, prev, last, context.target, opts.cwd, opts.stdout);
-      return { exitCode: 0 };
-    }
-    // Cursor on the empty value slot immediately after a flag name.
-    if (prevIsFlag && last === '' && lookupFlagByKebab(flags, prev)) {
-      await emitValueCompletion(flags, prev, '', context.target, opts.cwd, opts.stdout);
+    if (tail.kind === 'value') {
+      await emitValueCompletion(
+        metadata,
+        tail.flag,
+        tail.partial,
+        context.target,
+        opts.cwd,
+        opts.stdout,
+      );
       return { exitCode: 0 };
     }
     // Flag-name completion. Renders `--<kebab-name>` per matching field;
     // if the field declares `meta.description`, append `:description` so
     // tabtab-aware shells (zsh, fish) render a per-suggestion hint.
-    if (lastIsFlagPartial) {
-      const partial = last;
-      for (const fld of flagNames) {
+    if (tail.kind === 'flags') {
+      for (const fld of Object.keys(metadata.flags)) {
+        if (tail.consumedFields.has(fld)) continue;
         const kebab = `--${camelToKebab(fld)}`;
-        if (kebab.startsWith(partial)) {
-          const meta = flags[fld];
+        if (kebab.startsWith(tail.partial)) {
+          const meta = metadata.flags[fld];
           if (meta?.description) {
             opts.stdout.write(`${kebab}:${meta.description}\n`);
           } else {
@@ -249,7 +264,9 @@ async function deriveCompletionContext(
   if (tokens.length === 2 && last !== '') {
     if (isPathLikeToken(firstToken)) {
       const target = resolveLocalInputTarget(firstToken, cwd);
-      return target ? { kind: 'post-target-input', target } : { kind: 'direct-file-target' };
+      return target
+        ? { kind: 'post-target-input', target, inputArgs: [] }
+        : { kind: 'direct-file-target' };
     }
     return { kind: 'root', partial: firstToken };
   }
@@ -257,7 +274,9 @@ async function deriveCompletionContext(
   if (isPathLikeToken(firstToken)) {
     if (tokens.length > 2) return { kind: 'other-subcommand' };
     const target = resolveLocalInputTarget(firstToken, cwd);
-    return target ? { kind: 'post-target-input', target } : { kind: 'direct-file-target' };
+    return target
+      ? { kind: 'post-target-input', target, inputArgs: [] }
+      : { kind: 'direct-file-target' };
   }
 
   return { kind: 'other-subcommand' };
@@ -286,7 +305,7 @@ function deriveDirectRunCompletionContext(
   const cursorIsOnTarget = targetIndex === args.length - 1 && last === targetToken && last !== '';
   if (cursorIsOnTarget) {
     const target = resolveLocalInputTarget(targetToken, cwd);
-    if (target) return { kind: 'post-target-input', target };
+    if (target) return { kind: 'post-target-input', target, inputArgs: [] };
     return consumedPermissionFlag || isPathLikeToken(targetToken)
       ? { kind: 'direct-file-target' }
       : null;
@@ -296,7 +315,7 @@ function deriveDirectRunCompletionContext(
   if (!inputArgs || !isValidInputCompletionTail(inputArgs)) return null;
 
   const target = resolveLocalInputTarget(targetToken, cwd);
-  return target ? { kind: 'post-target-input', target } : null;
+  return target ? { kind: 'post-target-input', target, inputArgs } : null;
 }
 
 function deriveFilePathSubcommandCompletionContext(
@@ -321,7 +340,7 @@ function deriveFilePathSubcommandCompletionContext(
     const inputArgs = tokens.slice(3);
     if (!isValidInputCompletionTail(inputArgs)) return null;
     const target = resolveLocalInputTarget(targetToken, cwd);
-    if (target) return { kind: 'post-target-input', target };
+    if (target) return { kind: 'post-target-input', target, inputArgs };
   }
 
   return { kind: 'other-subcommand' };
@@ -353,7 +372,7 @@ async function deriveRunTargetCompletionContext(
   if (!isValidInputCompletionTail(inputArgs)) return null;
 
   const target = await resolveCompletionInputTarget({ targetToken, cwd, env });
-  if (target) return { kind: 'post-target-input', target };
+  if (target) return { kind: 'post-target-input', target, inputArgs };
   if (targetIndex === afterRun.length - 1) return { kind: 'run-target', partial: targetToken };
   return null;
 }
@@ -545,10 +564,12 @@ function isExistingRegularFileSync(cwd: string, target: string): boolean {
   }
 }
 
-async function extractInputFlagsForTarget(target: CompletionInputTarget): Promise<FlagsMap> {
+async function extractInputCompletionMetadataForTarget(
+  target: CompletionInputTarget,
+): Promise<InputCompletionMetadata> {
   if (target.kind === 'local') {
     const extraction = await extractSchemaSidecar({ filePath: target.filePath });
-    return extraction.inputFlags ?? {};
+    return buildInputCompletionMetadata(extraction.inputSchema, extraction.inputFlags);
   }
 
   const extraction = await extractSchemaSidecar({
@@ -558,7 +579,84 @@ async function extractInputFlagsForTarget(target: CompletionInputTarget): Promis
       managedProjectRoot: target.managedProjectRoot,
     },
   });
-  return extraction.inputFlags ?? {};
+  return buildInputCompletionMetadata(extraction.inputSchema, extraction.inputFlags);
+}
+
+function buildInputCompletionMetadata(
+  schema: JSONSchema7 | undefined,
+  flags: Record<string, ArgFlagMeta> | undefined,
+): InputCompletionMetadata {
+  if (!schema || !flags) {
+    throw new Error('input completion metadata unavailable');
+  }
+  const fieldTypes = new Map<string, string | undefined>();
+  const fieldsByKebab = new Map<string, string>();
+  const propEntries = Object.entries(schema.properties ?? {}) as Array<[string, JSONSchema7]>;
+  for (const [field, fieldSchema] of propEntries) {
+    fieldTypes.set(field, typeof fieldSchema.type === 'string' ? fieldSchema.type : undefined);
+    fieldsByKebab.set(camelToKebab(field), field);
+  }
+  return { schema, flags, fieldTypes, fieldsByKebab };
+}
+
+function classifyInputTail(
+  metadata: InputCompletionMetadata,
+  inputArgs: ReadonlyArray<string>,
+  last: string,
+): InputTailCompletion {
+  const consumedFields = new Set<string>();
+
+  for (let i = 0; i < inputArgs.length; i++) {
+    const token = inputArgs[i]!;
+    if (!token.startsWith('--')) return { kind: 'none' };
+
+    if (i === inputArgs.length - 1 && last.startsWith('--')) {
+      return { kind: 'flags', partial: token, consumedFields };
+    }
+
+    const field = metadata.fieldsByKebab.get(token.slice(2));
+    if (!field || !(field in metadata.flags)) return { kind: 'none' };
+
+    const next = inputArgs[i + 1];
+    if (metadata.fieldTypes.get(field) === 'boolean') {
+      if (next === undefined) {
+        if (last === '') {
+          consumedFields.add(field);
+          return { kind: 'flags', partial: '', consumedFields };
+        }
+        return { kind: 'flags', partial: token, consumedFields };
+      }
+      if (next === 'true' || next === 'false') {
+        consumedFields.add(field);
+        i++;
+        continue;
+      }
+      if (next.startsWith('--')) {
+        consumedFields.add(field);
+        continue;
+      }
+      if (i + 1 === inputArgs.length - 1) {
+        const matchesBoolean = 'true'.startsWith(next) || 'false'.startsWith(next);
+        return matchesBoolean ? { kind: 'value', flag: token, partial: next } : { kind: 'none' };
+      }
+      return { kind: 'none' };
+    }
+
+    if (next === undefined) {
+      return last === ''
+        ? { kind: 'value', flag: token, partial: '' }
+        : { kind: 'flags', partial: token, consumedFields };
+    }
+    if (next.startsWith('--')) return { kind: 'none' };
+    if (i + 1 === inputArgs.length - 1 && last === next) {
+      return { kind: 'value', flag: token, partial: next };
+    }
+
+    consumedFields.add(field);
+    i++;
+  }
+
+  return { kind: 'flags', partial: last.startsWith('--') ? last : '', consumedFields };
 }
 
 /**
@@ -566,9 +664,12 @@ async function extractInputFlagsForTarget(target: CompletionInputTarget): Promis
  * up its meta. Returns undefined when the flag name does not resolve to
  * a declared input field.
  */
-function lookupFlagByKebab(flags: FlagsMap, kebabFlag: string): ArgFlagMeta | undefined {
-  const camel = kebabToCamel(kebabFlag.replace(/^--/, ''));
-  return flags[camel];
+function lookupFlagByKebab(
+  metadata: InputCompletionMetadata,
+  kebabFlag: string,
+): ArgFlagMeta | undefined {
+  const field = metadata.fieldsByKebab.get(kebabFlag.replace(/^--/, ''));
+  return field ? metadata.flags[field] : undefined;
 }
 
 /**
@@ -584,14 +685,22 @@ function lookupFlagByKebab(flags: FlagsMap, kebabFlag: string): ArgFlagMeta | un
  * Tab time. Phase 5 docs surface this; no inline mitigation here.
  */
 async function emitValueCompletion(
-  flags: FlagsMap,
+  metadata: InputCompletionMetadata,
   kebabFlag: string,
   partial: string,
   target: CompletionInputTarget,
   cwd: string,
   stdout: NodeJS.WritableStream,
 ): Promise<void> {
-  const meta = lookupFlagByKebab(flags, kebabFlag);
+  const field = metadata.fieldsByKebab.get(kebabFlag.replace(/^--/, ''));
+  if (field && metadata.fieldTypes.get(field) === 'boolean') {
+    for (const value of ['true', 'false']) {
+      if (value.startsWith(partial)) stdout.write(`${value}\n`);
+    }
+    return;
+  }
+
+  const meta = lookupFlagByKebab(metadata, kebabFlag);
   const c: StaticCompletionKind | undefined = meta?.completion;
   if (c === undefined) return;
   if (c === 'file') {
@@ -631,7 +740,8 @@ async function emitValueCompletion(
       return;
     }
     const machine = loaded.machine as unknown as LoadedConfig;
-    const field = kebabToCamel(kebabFlag.replace(/^--/, ''));
+    const field = metadata.fieldsByKebab.get(kebabFlag.replace(/^--/, ''));
+    if (!field) return;
     const sentinel = machine.config.input?.[field];
     const dyn = sentinel?.meta?.completion;
     if (

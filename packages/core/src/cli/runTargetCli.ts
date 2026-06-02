@@ -1,8 +1,9 @@
 import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 
-import { runCli, type RunCliOpts, type RunCliResult, type RunPermissionMode } from './runCli.js';
-import { runInstalledCli, type RunInstalledCliOptions } from './runInstalledCli.js';
+import type { RunCliOpts, RunCliResult, RunPermissionMode } from './runCli.js';
+import { runLocalFsmInputHelp } from './inputHelpCli.js';
+import type { RunInstalledCliOptions } from './runInstalledCli.js';
 
 export interface RunTargetCliOptions {
   readonly target: string;
@@ -18,12 +19,20 @@ export interface RunTargetCliOptions {
   readonly statImpl?: typeof fs.stat;
 }
 
+export interface RunTargetHelpCliOptions {
+  readonly target: string;
+  readonly cwd: string;
+  readonly stdout: NodeJS.WritableStream;
+  readonly stderr: NodeJS.WritableStream;
+  readonly runLocalFsmInputHelpImpl?: typeof runLocalFsmInputHelp;
+}
+
 export async function runTargetCli(
   opts: RunTargetCliOptions,
 ): Promise<{ readonly exitCode: number }> {
   const inputArgs = opts.inputArgs ?? [];
   if (await isExistingRegularFile(opts.cwd, opts.target, opts.statImpl ?? fs.stat)) {
-    const runCliImpl = opts.runCliImpl ?? runCli;
+    const runCliImpl = opts.runCliImpl ?? (await import('./runCli.js')).runCli;
     return runCliImpl({
       fsmPath: opts.target,
       cwd: opts.cwd,
@@ -34,7 +43,8 @@ export async function runTargetCli(
     });
   }
 
-  const runInstalledCliImpl = opts.runInstalledCliImpl ?? runInstalledCli;
+  const runInstalledCliImpl =
+    opts.runInstalledCliImpl ?? (await import('./runInstalledCli.js')).runInstalledCli;
   return runInstalledCliImpl({
     command: opts.target,
     cwd: opts.cwd,
@@ -42,6 +52,23 @@ export async function runTargetCli(
     stderr: opts.stderr,
     inputArgs,
     ...(opts.permissionMode !== undefined ? { permissionMode: opts.permissionMode } : {}),
+  });
+}
+
+export async function runTargetHelpCli(
+  opts: RunTargetHelpCliOptions,
+): Promise<{ readonly exitCode: number }> {
+  if (!isLocalFsmHelpTarget(opts.target)) {
+    return { exitCode: runTargetHelpUsage(opts.stderr) };
+  }
+
+  const runLocalFsmInputHelpImpl = opts.runLocalFsmInputHelpImpl ?? runLocalFsmInputHelp;
+  return runLocalFsmInputHelpImpl({
+    cwd: opts.cwd,
+    target: opts.target,
+    usage: `aharness run ${opts.target} --help`,
+    stdout: opts.stdout,
+    stderr: opts.stderr,
   });
 }
 
@@ -56,4 +83,15 @@ async function isExistingRegularFile(
   } catch {
     return false;
   }
+}
+
+function isLocalFsmHelpTarget(target: string): boolean {
+  return target.endsWith('.fsm.ts') && !target.startsWith('-');
+}
+
+function runTargetHelpUsage(stderr: NodeJS.WritableStream): number {
+  stderr.write(
+    'usage:\n' + '  aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...\n',
+  );
+  return 2;
 }

@@ -35,13 +35,13 @@ import { isAbsolute } from 'node:path';
 
 import { runVerifyCli } from './verifyCli.js';
 import { runDoctorCli } from './doctorCli.js';
-import { runCli, type RunPermissionMode } from './runCli.js';
-import { runVisualizeCli } from './visualizeCli.js';
+import type { RunPermissionMode } from './runCli.js';
 import { runCompletionInstall, runCompletionUninstall } from './completion.js';
 import { runCompletionBridge } from './completionBridge.js';
+import { runLocalFsmInputHelp } from './inputHelpCli.js';
 import { runInitCli } from './initCli.js';
 import { runInstallCli } from './installCli.js';
-import { runTargetCli } from './runTargetCli.js';
+import { runTargetCli, runTargetHelpCli } from './runTargetCli.js';
 import { runListInstalledCli } from './listInstalledCli.js';
 import { runVerifyInstalledCli } from './verifyInstalledCli.js';
 import { runUninstallCli } from './uninstallCli.js';
@@ -57,6 +57,10 @@ export interface Dispatcher {
     fsmPath: string;
     inputArgs: ReadonlyArray<string>;
     permissionMode?: RunPermissionMode;
+  }) => Promise<{ exitCode: number }>;
+  readonly runLocalInputHelp: (o: {
+    fsmPath: string;
+    invocation: 'direct';
   }) => Promise<{ exitCode: number }>;
   readonly runVisualize: (o: {
     fsmPath: string;
@@ -86,6 +90,7 @@ export interface Dispatcher {
     inputArgs: ReadonlyArray<string>;
     permissionMode?: RunPermissionMode;
   }) => Promise<{ exitCode: number }>;
+  readonly runTargetInputHelp: (o: { target: string }) => Promise<{ exitCode: number }>;
   readonly runListInstalled: (o: Record<string, never>) => Promise<{ exitCode: number }>;
   readonly runVerifyInstalled: (o: { target: string }) => Promise<{ exitCode: number }>;
   readonly runUninstall: (o: { packageName: string }) => Promise<{ exitCode: number }>;
@@ -99,6 +104,12 @@ export async function dispatch(
 ): Promise<DispatchResult> {
   const stderr = d.stderr ?? process.stderr;
   const [cmd, ...rest] = argv;
+  if (cmd === 'help') {
+    return { exitCode: usage(stderr) };
+  }
+  if (cmd !== 'run' && isKnownSubcommand(cmd) && rest.includes('--help')) {
+    return { exitCode: usage(stderr) };
+  }
   if (cmd === 'verify') {
     if (rest.length !== 1 || !rest[0]) return { exitCode: usage(stderr) };
     const target = rest[0];
@@ -137,6 +148,10 @@ export async function dispatch(
     return d.runInstall({ source });
   }
   if (cmd === 'run') {
+    if (rest.length === 2 && rest[1] === '--help') {
+      return d.runTargetInputHelp({ target: rest[0]! });
+    }
+    if (rest.includes('--help')) return { exitCode: usage(stderr) };
     const parsed = parseRunTargetAndInputArgs(rest);
     if (!parsed) return { exitCode: usage(stderr) };
     return d.runTarget({
@@ -155,10 +170,19 @@ export async function dispatch(
     return d.runUninstall({ packageName });
   }
   if (cmd === 'visualize') {
+    if (rest.includes('--help')) return { exitCode: usage(stderr) };
     const parsed = parseFsmPathAndInputArgs(rest);
     if (!parsed) return { exitCode: usage(stderr) };
     return d.runVisualize(parsed);
   }
+  if (argv.length === 2 && argv[1] === '--help') {
+    const fsmPath = argv[0]!;
+    if (isLocalFsmHelpTarget(fsmPath)) {
+      return d.runLocalInputHelp({ fsmPath, invocation: 'direct' });
+    }
+    return { exitCode: usage(stderr) };
+  }
+  if (argv.includes('--help')) return { exitCode: usage(stderr) };
   // Default form: `aharness <file.fsm.ts> [--<flag> <value>]…`.
   // Every `--<flag>` token and its non-flag value, if any, is collected
   // verbatim into `inputArgs` and forwarded to `runCli`, which calls
@@ -195,6 +219,24 @@ function isDirectVerifyTarget(target: string): boolean {
     target.startsWith('./') ||
     target.startsWith('../') ||
     isAbsolute(target)
+  );
+}
+
+function isLocalFsmHelpTarget(target: string): boolean {
+  return target.endsWith('.fsm.ts') && !target.startsWith('-');
+}
+
+function isKnownSubcommand(cmd: string | undefined): boolean {
+  return (
+    cmd === 'verify' ||
+    cmd === 'doctor' ||
+    cmd === 'completion-server' ||
+    cmd === 'completion' ||
+    cmd === 'init' ||
+    cmd === 'install' ||
+    cmd === 'list' ||
+    cmd === 'uninstall' ||
+    cmd === 'visualize'
   );
 }
 
@@ -363,7 +405,7 @@ if (process.argv[1]?.endsWith('main.js')) {
         log: (s) => process.stdout.write(s + '\n'),
         now: () => new Date(),
       }),
-    runDefault: ({ fsmPath, inputArgs, permissionMode }) => {
+    runDefault: async ({ fsmPath, inputArgs, permissionMode }) => {
       const opts = {
         fsmPath,
         cwd: process.cwd(),
@@ -372,16 +414,27 @@ if (process.argv[1]?.endsWith('main.js')) {
         inputArgs,
         ...(permissionMode !== undefined ? { permissionMode } : {}),
       };
+      const { runCli } = await import('./runCli.js');
       return runCli(opts);
     },
-    runVisualize: ({ fsmPath, inputArgs }) =>
-      runVisualizeCli({
+    runLocalInputHelp: ({ fsmPath }) =>
+      runLocalFsmInputHelp({
+        cwd: process.cwd(),
+        target: fsmPath,
+        usage: `aharness ${fsmPath} --help`,
+        stdout: process.stdout,
+        stderr: process.stderr,
+      }),
+    runVisualize: async ({ fsmPath, inputArgs }) => {
+      const { runVisualizeCli } = await import('./visualizeCli.js');
+      return runVisualizeCli({
         fsmPath,
         cwd: process.cwd(),
         stderr: process.stderr,
         stdout: process.stdout,
         inputArgs,
-      }),
+      });
+    },
     runCompletionInstall: (o) => runCompletionInstall(o),
     runCompletionUninstall: (o) => runCompletionUninstall(o),
     runCompletionBridge: (o) => runCompletionBridge(o),
@@ -414,6 +467,13 @@ if (process.argv[1]?.endsWith('main.js')) {
       };
       return runTargetCli(opts);
     },
+    runTargetInputHelp: ({ target }) =>
+      runTargetHelpCli({
+        target,
+        cwd: process.cwd(),
+        stdout: process.stdout,
+        stderr: process.stderr,
+      }),
     runListInstalled: () =>
       runListInstalledCli({
         cwd: process.cwd(),

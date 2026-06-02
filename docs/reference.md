@@ -191,7 +191,9 @@ Built-in event keys are reserved:
 
 ```bash
 aharness [--ask|--yolo] <file.fsm.ts> [--<flag> <value>]...
+aharness <file.fsm.ts> --help
 aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...
+aharness run <file.fsm.ts> --help
 aharness visualize <file.fsm.ts> [--<flag> <value>]...
 aharness verify <file.fsm.ts>
 aharness doctor
@@ -221,6 +223,19 @@ before the run target, while FSM input flags must appear after the target:
 aharness run --ask ./workflow.fsm.ts --fixture-root ./fixture
 ```
 
+Local FSM input help is available for exactly these forms:
+
+```bash
+aharness ./workflow.fsm.ts --help
+aharness run ./workflow.fsm.ts --help
+```
+
+These commands read declared machine inputs statically and print the invoked
+usage form, target path information, and input flags with their type,
+required/default marker, and author-provided descriptions. Help for installed
+commands, `visualize`, top-level `aharness --help`, `aharness help`, and
+arbitrary-position `--help` are not part of this slice and return generic usage.
+
 `aharness visualize` does not require runtime input flags; any provided flags
 are checked for name/type validity but are not used to start an actor.
 
@@ -232,7 +247,9 @@ the root, completion lists top-level subcommands. Path-like direct-run prefixes
 delegate to the shell's native file completion. `aharness run` completes local
 directories, local `.fsm.ts` files, and installed command identities. After a
 target resolves, completion suggests that FSM's input flags and supported flag
-values.
+values. Machine input completion is schema-aware for boolean flags, static value
+sets, file and directory values, and dynamic completion callbacks declared by the
+FSM. Already-used input flags are hidden after their values are consumed.
 
 `aharness verify` checks an FSM without starting a run. `aharness doctor` checks
 the Codex CLI version gate and reports active run health from `.aharness/runs`.

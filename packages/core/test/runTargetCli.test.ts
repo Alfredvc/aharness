@@ -5,7 +5,7 @@ import { Writable } from 'node:stream';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { runTargetCli } from '../src/cli/runTargetCli.js';
+import { runTargetCli, runTargetHelpCli } from '../src/cli/runTargetCli.js';
 import type { RunCliOpts } from '../src/cli/runCli.js';
 import type { RunInstalledCliOptions } from '../src/cli/runInstalledCli.js';
 
@@ -133,6 +133,60 @@ describe('aharness run target dispatch', () => {
       expect(runCliImpl).not.toHaveBeenCalled();
     } finally {
       await rm(cwd, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('aharness run target help dispatch', () => {
+  it('routes .fsm.ts targets through local input help without checking file existence', async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'aharness-run-target-help-local-'));
+    try {
+      const stdout = captureStream();
+      const stderr = captureStream();
+      const runLocalFsmInputHelpImpl = vi.fn(async () => ({ exitCode: 0 }));
+
+      const result = await runTargetHelpCli({
+        target: './missing.fsm.ts',
+        cwd,
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        runLocalFsmInputHelpImpl,
+      });
+
+      expect(result).toEqual({ exitCode: 0 });
+      expect(runLocalFsmInputHelpImpl).toHaveBeenCalledWith({
+        cwd,
+        target: './missing.fsm.ts',
+        usage: 'aharness run ./missing.fsm.ts --help',
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+      });
+      expect(stderr.text()).toBe('');
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('returns generic usage for installed-command-shaped help targets', async () => {
+    const cases = ['build', '@scope/tools/build'];
+
+    for (const target of cases) {
+      const stdout = captureStream();
+      const stderr = captureStream();
+      const runLocalFsmInputHelpImpl = vi.fn(async () => ({ exitCode: 0 }));
+
+      const result = await runTargetHelpCli({
+        target,
+        cwd: process.cwd(),
+        stdout: stdout.stream,
+        stderr: stderr.stream,
+        runLocalFsmInputHelpImpl,
+      });
+
+      expect(result).toEqual({ exitCode: 2 });
+      expect(runLocalFsmInputHelpImpl).not.toHaveBeenCalled();
+      expect(stdout.text()).toBe('');
+      expect(stderr.text()).toContain('usage:');
     }
   });
 });

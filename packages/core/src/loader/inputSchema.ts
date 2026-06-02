@@ -155,6 +155,9 @@ function readArgMetaFromCall(call: ts.CallExpression): ArgFlagMeta {
 function readCompletion(node: ts.Expression): StaticCompletionKind | null {
   const lit = literalString(node);
   if (lit === 'file' || lit === 'directory') return lit;
+  if (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isIdentifier(node)) {
+    return { dynamic: true };
+  }
   if (ts.isObjectLiteralExpression(node)) {
     for (const p of node.properties) {
       if (!ts.isPropertyAssignment(p)) continue;

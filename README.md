@@ -91,11 +91,14 @@ Run an existing FSM directly:
 ```bash
 npx aharness verify ./workflow.fsm.ts
 npx aharness visualize ./workflow.fsm.ts
+npx aharness run ./workflow.fsm.ts --help
 npx aharness run ./workflow.fsm.ts
 ```
 
 - `verify` checks the machine before Codex starts.
 - `visualize` opens the graph/details UI without starting Codex.
+- `aharness run ./workflow.fsm.ts --help` shows declared local FSM inputs before
+  you start the run.
 - `aharness run ./workflow.fsm.ts` starts a foreground Codex run and opens the
   browser UI for owner input and any approval prompts routed to the user.
 
@@ -229,6 +232,7 @@ belong in your FSMs, examples, or installable FSM packages.
 aharness init --dir <path>
 aharness verify <file.fsm.ts>
 aharness visualize <file.fsm.ts>
+aharness run <file.fsm.ts> --help
 aharness [--ask|--yolo] <file.fsm.ts> [--<input-flag> <value>]...
 aharness doctor
 aharness install <source>

@@ -34,6 +34,10 @@ function buildStubs() {
         return { exitCode: 0 };
       },
     ),
+    runLocalInputHelp: vi.fn(async (o: { fsmPath: string; invocation: 'direct' }) => {
+      void o;
+      return { exitCode: 0 };
+    }),
     runVisualize: vi.fn(async (o: { fsmPath: string; inputArgs: ReadonlyArray<string> }) => {
       void o;
       return { exitCode: 0 };
@@ -80,6 +84,10 @@ function buildStubs() {
         return { exitCode: 0 };
       },
     ),
+    runTargetInputHelp: vi.fn(async (o: { target: string }) => {
+      void o;
+      return { exitCode: 0 };
+    }),
     runListInstalled: vi.fn(async () => ({ exitCode: 0 })),
     runVerifyInstalled: vi.fn(async (o: { target: string }) => {
       void o;
@@ -128,6 +136,18 @@ describe('dispatch', () => {
     expect(s.runVisualize).toHaveBeenCalledWith({
       fsmPath: 'workflow.fsm.ts',
       inputArgs: ['--topic', 'auth', '--dry-run'],
+    });
+    expect(s.runDefault).not.toHaveBeenCalled();
+  });
+
+  it('routes exact direct local FSM help before default run routing', async () => {
+    const s = buildStubs();
+    const r = await dispatch(['workflow.fsm.ts', '--help'], s);
+
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runLocalInputHelp).toHaveBeenCalledWith({
+      fsmPath: 'workflow.fsm.ts',
+      invocation: 'direct',
     });
     expect(s.runDefault).not.toHaveBeenCalled();
   });
@@ -284,6 +304,15 @@ describe('dispatch', () => {
     expect(s.runDefault).not.toHaveBeenCalled();
   });
 
+  it('routes exact run-target help before normal run routing', async () => {
+    const s = buildStubs();
+    const r = await dispatch(['run', './workflow.fsm.ts', '--help'], s);
+
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runTargetInputHelp).toHaveBeenCalledWith({ target: './workflow.fsm.ts' });
+    expect(s.runTarget).not.toHaveBeenCalled();
+  });
+
   it('routes "run --ask <target>" with ask mode and clean input args', async () => {
     const s = buildStubs();
     const r = await dispatch(['run', '--ask', './workflow.fsm.ts', '--topic', 'auth'], s);
@@ -321,6 +350,25 @@ describe('dispatch', () => {
     expect(cap.text()).toContain(
       'aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
     );
+  });
+
+  it('returns usage for unsupported run help-like forms without normal run routing', async () => {
+    const cases: ReadonlyArray<ReadonlyArray<string>> = [
+      ['run', '--ask', './workflow.fsm.ts', '--help'],
+      ['run', './workflow.fsm.ts', '--topic', 'auth', '--help'],
+      ['run', './workflow.fsm.ts', '--help', '--topic', 'auth'],
+    ];
+
+    for (const argv of cases) {
+      const s = buildStubs();
+      const cap = captureStderr();
+      const r = await dispatch(argv, { ...s, stderr: cap.stream });
+
+      expect(r).toEqual({ exitCode: 2 });
+      expect(s.runTarget).not.toHaveBeenCalled();
+      expect(s.runTargetInputHelp).not.toHaveBeenCalled();
+      expect(cap.text()).toContain('usage:');
+    }
   });
 
   it('returns usage when run --ask appears after the target', async () => {
@@ -513,6 +561,36 @@ describe('dispatch', () => {
       fsmPath: 'my.fsm.ts',
       inputArgs: [],
     });
+  });
+
+  it('returns usage for unsupported direct help-like forms without default run routing', async () => {
+    const cases: ReadonlyArray<ReadonlyArray<string>> = [
+      ['--help'],
+      ['help'],
+      ['workflow.fsm.ts', '--topic', 'auth', '--help'],
+      ['workflow.fsm.ts', '--help', '--topic', 'auth'],
+      ['--ask', 'workflow.fsm.ts', '--help'],
+      ['workflow', '--help'],
+      ['visualize', 'workflow.fsm.ts', '--help'],
+      ['verify', 'workflow.fsm.ts', '--help'],
+      ['doctor', '--help'],
+      ['completion', 'install', '--help'],
+    ];
+
+    for (const argv of cases) {
+      const s = buildStubs();
+      const cap = captureStderr();
+      const r = await dispatch(argv, { ...s, stderr: cap.stream });
+
+      expect(r).toEqual({ exitCode: 2 });
+      expect(s.runDefault).not.toHaveBeenCalled();
+      expect(s.runVisualize).not.toHaveBeenCalled();
+      expect(s.runLocalInputHelp).not.toHaveBeenCalled();
+      expect(s.runVerify).not.toHaveBeenCalled();
+      expect(s.runDoctor).not.toHaveBeenCalled();
+      expect(s.runCompletionInstall).not.toHaveBeenCalled();
+      expect(cap.text()).toContain('usage:');
+    }
   });
 
   it('routes "--ask <file>" to runDefault with ask mode and clean input args', async () => {

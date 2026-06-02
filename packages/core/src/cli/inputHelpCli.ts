@@ -1,0 +1,145 @@
+import { resolve } from 'node:path';
+import type { JSONSchema7, JSONSchema7Definition } from 'json-schema';
+
+import { camelToKebab } from '../loader/inputFlags.js';
+import type { ArgFlagMeta } from '../loader/inputSchema.js';
+import { extractSchemaSidecar } from '../loader/sidecar.js';
+
+type ExtractSchemaSidecar = typeof extractSchemaSidecar;
+
+interface LocalFsmInputHelpOptions {
+  readonly cwd: string;
+  readonly target: string;
+  readonly usage: string;
+  readonly stdout: NodeJS.WritableStream;
+  readonly stderr: NodeJS.WritableStream;
+}
+
+interface LocalFsmInputHelpTestOptions extends LocalFsmInputHelpOptions {
+  readonly extractSchemaSidecarImpl?: ExtractSchemaSidecar;
+}
+
+interface FormatLocalFsmInputHelpOptions {
+  readonly usage: string;
+  readonly target: string;
+  readonly filePath: string;
+  readonly inputSchema: JSONSchema7 | undefined;
+  readonly inputFlags: Record<string, ArgFlagMeta> | undefined;
+}
+
+interface InputFieldHelp {
+  readonly flagName: string;
+  readonly typeLabel: string;
+  readonly marker: string;
+  readonly required: boolean;
+  readonly defaultValue: unknown;
+  readonly hasDefault: boolean;
+  readonly description: string | undefined;
+}
+
+export function formatLocalFsmInputHelp(opts: FormatLocalFsmInputHelpOptions): string {
+  const lines = [`Usage: ${opts.usage}`, `Target: ${opts.target}`, `FSM: ${opts.filePath}`, ''];
+  const fields = describeInputFields(opts.inputSchema, opts.inputFlags);
+
+  if (fields.length === 0) {
+    lines.push('Inputs: none', '');
+    return lines.join('\n');
+  }
+
+  lines.push('Inputs:');
+  for (const field of fields) {
+    const details = [field.typeLabel];
+    if (field.required) details.push('required');
+    if (field.hasDefault) details.push(`default: ${formatDefault(field.defaultValue)}`);
+    const marker = field.marker ? ` ${field.marker}` : '';
+    const description = field.description ? ` - ${field.description}` : '';
+    lines.push(`  --${field.flagName}${marker} (${details.join(', ')})${description}`);
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
+export async function runLocalFsmInputHelp(opts: LocalFsmInputHelpOptions): Promise<{
+  readonly exitCode: number;
+}> {
+  return runLocalFsmInputHelpForTest(opts);
+}
+
+export async function runLocalFsmInputHelpForTest(
+  opts: LocalFsmInputHelpTestOptions,
+): Promise<{ readonly exitCode: number }> {
+  const filePath = resolve(opts.cwd, opts.target);
+  const extractSchemaSidecarImpl = opts.extractSchemaSidecarImpl ?? extractSchemaSidecar;
+  try {
+    const extraction = await extractSchemaSidecarImpl({ filePath });
+    const text = formatLocalFsmInputHelp({
+      usage: opts.usage,
+      target: opts.target,
+      filePath,
+      inputSchema: extraction.inputSchema,
+      inputFlags: extraction.inputFlags,
+    });
+    opts.stdout.write(text);
+    return { exitCode: 0 };
+  } catch (err) {
+    opts.stderr.write(`aharness: failed to read FSM input metadata: ${errorMessage(err)}\n`);
+    return { exitCode: 1 };
+  }
+}
+
+function describeInputFields(
+  inputSchema: JSONSchema7 | undefined,
+  inputFlags: Record<string, ArgFlagMeta> | undefined,
+): InputFieldHelp[] {
+  if (inputSchema === undefined) return [];
+  const properties = inputSchema.properties ?? {};
+  const fields = Object.keys(properties);
+  if (fields.length === 0) return [];
+  if (inputFlags === undefined) {
+    throw new Error('missing inputFlags metadata');
+  }
+
+  const required = new Set(inputSchema.required ?? []);
+  return fields
+    .map((field) => {
+      const meta = inputFlags[field];
+      if (meta === undefined) {
+        throw new Error(`missing inputFlags metadata for field ${field}`);
+      }
+      const typeLabel = schemaTypeLabel(properties[field]);
+      return {
+        flagName: camelToKebab(field),
+        typeLabel,
+        marker: flagMarker(typeLabel),
+        required: required.has(field),
+        defaultValue: meta.default,
+        hasDefault: Object.hasOwn(meta, 'default'),
+        description: meta.description,
+      };
+    })
+    .sort((a, b) => a.flagName.localeCompare(b.flagName));
+}
+
+function schemaTypeLabel(schema: JSONSchema7Definition | undefined): string {
+  if (schema && typeof schema === 'object' && typeof schema.type === 'string') {
+    return schema.type;
+  }
+  return 'value';
+}
+
+function flagMarker(typeLabel: string): string {
+  if (typeLabel === 'boolean') return '';
+  if (typeLabel === 'string' || typeLabel === 'number' || typeLabel === 'integer') {
+    return `<${typeLabel}>`;
+  }
+  return '<value>';
+}
+
+function formatDefault(value: unknown): string {
+  const serialized = JSON.stringify(value);
+  return serialized === undefined ? String(value) : serialized;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}

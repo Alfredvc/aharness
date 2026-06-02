@@ -3,6 +3,10 @@ import * as path from 'node:path';
 import { extractSchemaSidecar } from '../src/loader/sidecar.js';
 
 const fixture = path.resolve(__dirname, 'fixtures/args/typed-input.fsm.ts');
+const canonicalDynamicFixture = path.resolve(
+  __dirname,
+  'fixtures/args/canonical-dynamic-completion.fsm.ts',
+);
 const createFsmFixtures = path.resolve(__dirname, 'fixtures/create-fsm');
 
 describe('loader — input schema extraction', () => {
@@ -77,6 +81,25 @@ describe('loader — input schema extraction', () => {
       type: 'object',
       properties: { color: { enum: ['red', 'green'] } },
     });
+  });
+
+  it('extracts canonical complete functions as dynamic completion metadata', async () => {
+    const { inputFlags } = await extractSchemaSidecar({ filePath: canonicalDynamicFixture });
+
+    expect(inputFlags!.arrow.completion).toEqual({ dynamic: true });
+    expect(inputFlags!.named.completion).toEqual({ dynamic: true });
+    expect(inputFlags!.identifier.completion).toEqual({ dynamic: true });
+    expect(inputFlags!.broken.completion).toEqual({ dynamic: true });
+  });
+
+  it('preserves existing canonical static completion forms', async () => {
+    const { inputFlags } = await extractSchemaSidecar({ filePath: canonicalDynamicFixture });
+
+    expect(inputFlags!.filePath.completion).toBe('file');
+    expect(inputFlags!.directoryPath.completion).toBe('directory');
+    expect(inputFlags!.valuesHelper.completion).toEqual({ values: ['one', 'two'] });
+    expect(inputFlags!.valuesObject.completion).toEqual({ values: ['red', 'blue'] });
+    expect(inputFlags!.objectDynamic.completion).toEqual({ dynamic: true });
   });
 
   it('does not treat canonical hook event object handlers as submit exits', async () => {

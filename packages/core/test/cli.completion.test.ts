@@ -82,6 +82,7 @@ describe('runCompletionUninstall', () => {
 });
 
 const fixture = path.resolve(__dirname, 'fixtures/args/typed-input.fsm.ts');
+const booleanFixture = path.resolve(__dirname, 'fixtures/args/boolean-input.fsm.ts');
 
 function makeEnv(line: string, point?: number): NodeJS.ProcessEnv {
   const p = point ?? line.length;
@@ -570,6 +571,44 @@ describe('runCompletionBridge — flag-name completion', () => {
     const names = lines.map((l) => l.split(':')[0]).sort();
     expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
   });
+
+  it('hides used flags after their value token', async () => {
+    const lines = await captureBridge(`aharness ${fixture} --topic auth --`);
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--choice', '--ideafile-path', '--runs']);
+  });
+});
+
+describe('runCompletionBridge — boolean input completion', () => {
+  it('treats bare booleans as consumed and suggests remaining flags', async () => {
+    const lines = await captureBridge(`aharness ${booleanFixture} --worktree `);
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--ideafile-path', '--topic']);
+  });
+
+  it('suggests true for boolean value prefix t', async () => {
+    const lines = await captureBridge(`aharness ${booleanFixture} --worktree t`);
+    expect(lines).toEqual(['true']);
+  });
+
+  it('suggests false for boolean value prefix f', async () => {
+    const lines = await captureBridge(`aharness ${booleanFixture} --worktree f`);
+    expect(lines).toEqual(['false']);
+  });
+
+  it.each(['true', 'false'])(
+    'treats explicit boolean value %s as consumed and suggests remaining flags',
+    async (value) => {
+      const lines = await captureBridge(`aharness ${booleanFixture} --worktree ${value} --`);
+      const names = lines.map((l) => l.split(':')[0]).sort();
+      expect(names).toEqual(['--ideafile-path', '--topic']);
+    },
+  );
+
+  it('emits no suggestions for invalid explicit boolean values', async () => {
+    const lines = await captureBridge(`aharness ${booleanFixture} --worktree maybe`);
+    expect(lines).toEqual([]);
+  });
 });
 
 describe('runCompletionBridge — installed input completion', () => {
@@ -765,6 +804,10 @@ describe('runCompletionBridge — silent on bad input', () => {
 });
 
 const dynamicFixture = path.resolve(__dirname, 'fixtures/args/dynamic-completion.fsm.ts');
+const canonicalDynamicFixture = path.resolve(
+  __dirname,
+  'fixtures/args/canonical-dynamic-completion.fsm.ts',
+);
 
 describe('runCompletionBridge — dynamic value completion', () => {
   it('invokes the dynamic callback and emits matching values', async () => {
@@ -779,6 +822,65 @@ describe('runCompletionBridge — dynamic value completion', () => {
     // the error and emit nothing.
     const lines = await captureBridge(`aharness ${dynamicFixture} --broken anything`);
     expect(lines).toEqual([]);
+  });
+});
+
+describe('runCompletionBridge — canonical dynamic value completion', () => {
+  it('invokes arrow complete callbacks and emits matching values', async () => {
+    const lines = await captureBridge(`aharness ${canonicalDynamicFixture} --arrow a`);
+    expect(lines).toEqual(['alpha']);
+  });
+
+  it('invokes function-expression complete callbacks and emits matching values', async () => {
+    const lines = await captureBridge(`aharness ${canonicalDynamicFixture} --named b`);
+    expect(lines).toEqual(['bravo', 'beta']);
+  });
+
+  it('invokes identifier complete callbacks and emits matching values', async () => {
+    const lines = await captureBridge(`aharness ${canonicalDynamicFixture} --identifier c`);
+    expect(lines).toEqual(['charlie']);
+  });
+
+  it('emits empty output when a canonical complete callback throws', async () => {
+    const lines = await captureBridge(`aharness ${canonicalDynamicFixture} --broken anything`);
+    expect(lines).toEqual([]);
+  });
+
+  it('emits empty output when canonical dynamic completion loading fails', async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-canonical-load-fail-'));
+    try {
+      const entry = path.join(cwd, 'load-fail.fsm.ts');
+      fs.writeFileSync(
+        entry,
+        `
+import { createFsm } from '@aharness/core';
+
+const fsm = createFsm<{ project: string }>();
+
+export default fsm.machine({
+  input: {
+    project: fsm.input.string({ complete: (partial) => ['alpha'].filter((value) => value.startsWith(partial)) }),
+  },
+  data: ({ input }) => input,
+  initial: 'go',
+  states: {
+    go: fsm.state({
+      prompt: () => 'go',
+      on: { submit: fsm.submit<{ ok: boolean }>({ to: 'done' }) },
+    }),
+    done: fsm.final({ outcome: 'success' }),
+  },
+});
+
+throw new Error('intentional load failure');
+`,
+      );
+
+      const lines = await captureBridge(`aharness ${entry} --project a`);
+      expect(lines).toEqual([]);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
   });
 });
 
