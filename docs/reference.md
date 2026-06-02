@@ -309,8 +309,11 @@ aharness submit plumbing remains hidden from all transcript views; owner-input
 plumbing remains hidden from the default view.
 Current live and dev replay transcript rows are driven by API-safe compact rows,
 including command display fields such as `data.row.data.displayKind`,
-`data.row.data.command`, row `output`, and row `elapsedMs`; raw runtime payloads
-remain confined to sensitive run artifacts.
+`data.row.data.command`, row `output`, row `elapsedMs`, and summary-only
+file-change activity. These compact file-change rows expose safe
+status/path/count summaries, not diff bodies; full raw file diffs remain
+confined to sensitive run artifacts. Pending browser file approval cards are a
+separate approval workflow and can show diffs needed for the approval decision.
 
 Run artifacts are written under `.aharness/runs/<runId>/`. For new runs,
 `events.jsonl` is a canonical event transcript and includes full raw runtime
@@ -339,8 +342,13 @@ only when raw runtime evidence is needed. The browser does not provide raw JSONL
 inspection or compatibility backfill for old compact-row shapes. The React
 browser now uses the
 run-scoped bootstrap, row, stream, and reply surface. Compact rows include
-durable run lifecycle status and safe transition-failure summaries for failed
-internal submit attempts. Run-scoped bootstrap and SSE projections reconstruct
+durable run lifecycle status, safe transition-failure summaries for failed
+internal submit attempts, and summary-only file-change transcript rows.
+File-change rows do not expose full diffs; API/SSE projections omit those raw
+payloads, and full file diffs remain only in sensitive
+`events.jsonl` raw evidence. Pending file approval cards are separate
+interaction cards and may show approval diffs while a permission decision is
+outstanding. Run-scoped bootstrap and SSE projections reconstruct
 `currentState.context` from ordered `context.initialized` / `context.changed`
 events when those events exist. Context snapshot events are visible through
 `/api/runs/:runId/events` and `/api/runs/:runId/stream`, but they do not create

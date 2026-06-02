@@ -1147,6 +1147,8 @@ function ActivePanelRow({ item }: { item: TranscriptDisplayItem }) {
       return <FrameworkNoteRow item={item} />;
     case 'compact_status':
       return <CompactStatusRow item={item} />;
+    case 'file_change':
+      return <FileChangeRow item={item} />;
     case 'state_change':
       return <StateChangeRow item={item} />;
     case 'transition_failure':
@@ -1205,6 +1207,49 @@ function StateChangeRow({ item }: { item: Extract<TranscriptItem, { type: 'state
       ) : null}
     </div>
   );
+}
+
+function FileChangeRow({ item }: { item: Extract<TranscriptItem, { type: 'file_change' }> }) {
+  const hasFiles = item.files.length > 0;
+  const operation = hasFiles ? fileChangeOperation(item) : item.summary || 'File change';
+  const pathPreview = hasFiles ? fileChangePathPreview(item) : null;
+  return (
+    <div className="compact-row file-change-row" data-kind="file_change" data-status={item.status}>
+      <span className="compact-kicker">{operation}</span>
+      <span className="compact-status">{item.status}</span>
+      <span className="file-change-counts">
+        (+{item.added} -{item.removed})
+      </span>
+      {pathPreview ? <span className="compact-summary">{pathPreview}</span> : null}
+    </div>
+  );
+}
+
+function fileChangeOperation(item: Extract<TranscriptItem, { type: 'file_change' }>): string {
+  if (item.changeCount !== 1 || item.files.length !== 1) {
+    return `Edited ${item.changeCount} files`;
+  }
+  switch (item.files[0].kind) {
+    case 'add':
+      return 'Added';
+    case 'delete':
+      return 'Deleted';
+    case 'update':
+      return 'Edited';
+  }
+}
+
+function fileChangePathPreview(item: Extract<TranscriptItem, { type: 'file_change' }>): string {
+  if (item.files.length === 0) {
+    return `${item.changeCount} ${item.changeCount === 1 ? 'file' : 'files'}`;
+  }
+  if (item.files.length === 1) {
+    const file = item.files[0];
+    return file.movePath ? `${file.path} -> ${file.movePath}` : file.path;
+  }
+  const preview = item.files.slice(0, 2).map((file) => file.path);
+  const remaining = item.files.length - preview.length;
+  return remaining > 0 ? `${preview.join(', ')} +${remaining}` : preview.join(', ');
 }
 
 function ExplorationGroupRow({

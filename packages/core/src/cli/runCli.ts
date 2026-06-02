@@ -2242,6 +2242,9 @@ function threadItemRowData(
     // otherwise leak internal aharness_submit calls into dev transcripts.
     return undefined;
   }
+  if (itemType === 'fileChange') {
+    return fileChangeRowData(phase, item, status);
+  }
   if (isUiToolThreadItemType(itemType)) {
     return compactRunEventPayload({
       kind: 'tool',
@@ -2279,6 +2282,124 @@ function threadItemRowData(
     label: itemType,
     status,
   });
+}
+
+interface FileChangeFileSummary {
+  readonly path: string;
+  readonly kind: 'add' | 'delete' | 'update';
+  readonly movePath?: string;
+  readonly added: number;
+  readonly removed: number;
+}
+
+function fileChangeRowData(
+  phase: 'started' | 'completed',
+  item: Record<string, unknown>,
+  status: string,
+): RunEventPayload {
+  const files = summarizeFileChanges(item['changes']);
+  const added = files.reduce((total, file) => total + file.added, 0);
+  const removed = files.reduce((total, file) => total + file.removed, 0);
+  return compactRunEventPayload({
+    kind: 'fileChange',
+    label: 'file change',
+    status: normalizeFileChangeStatus(phase, item, status),
+    summary: fileChangeSummary(files, added, removed),
+    data: {
+      changeCount: files.length,
+      added,
+      removed,
+      files,
+    },
+  });
+}
+
+function normalizeFileChangeStatus(
+  phase: 'started' | 'completed',
+  item: Record<string, unknown>,
+  status: string,
+): 'pending' | 'completed' | 'failed' | 'declined' {
+  if (phase === 'started') return 'pending';
+  switch (status) {
+    case 'completed':
+      return 'completed';
+    case 'failed':
+      return 'failed';
+    case 'declined':
+      return 'declined';
+    case 'inProgress':
+      return 'pending';
+    default:
+      return readUiToolOk(item) ? 'completed' : 'failed';
+  }
+}
+
+function summarizeFileChanges(changes: unknown): FileChangeFileSummary[] {
+  if (!Array.isArray(changes)) return [];
+  return changes.flatMap((change) => {
+    const record = asUiRecord(change);
+    if (record === null) return [];
+    const path = readStringField(record, 'path');
+    const kind = asUiRecord(record['kind']);
+    const kindType = kind ? readStringField(kind, 'type') : undefined;
+    if (
+      path === undefined ||
+      (kindType !== 'add' && kindType !== 'delete' && kindType !== 'update')
+    ) {
+      return [];
+    }
+
+    const diff = readStringField(record, 'diff') ?? '';
+    const counts = countFileChangeLines(kindType, diff);
+    const movePath =
+      kind !== null
+        ? (readStringField(kind, 'move_path') ?? readStringField(kind, 'movePath'))
+        : undefined;
+    return [
+      {
+        path,
+        kind: kindType,
+        added: counts.added,
+        removed: counts.removed,
+        ...(movePath !== undefined ? { movePath } : {}),
+      },
+    ];
+  });
+}
+
+function countFileChangeLines(
+  kind: FileChangeFileSummary['kind'],
+  diff: string,
+): { readonly added: number; readonly removed: number } {
+  if (kind === 'add') return { added: countTextLines(diff), removed: 0 };
+  if (kind === 'delete') return { added: 0, removed: countTextLines(diff) };
+  let added = 0;
+  let removed = 0;
+  for (const line of diff.split(/\r?\n/)) {
+    if (line.startsWith('+') && !line.startsWith('+++')) added += 1;
+    if (line.startsWith('-') && !line.startsWith('---')) removed += 1;
+  }
+  return { added, removed };
+}
+
+function countTextLines(text: string): number {
+  if (text.length === 0) return 0;
+  const lineCount = text.split(/\r?\n/).length;
+  return text.endsWith('\n') ? lineCount - 1 : lineCount;
+}
+
+function fileChangeSummary(
+  files: ReadonlyArray<FileChangeFileSummary>,
+  added: number,
+  removed: number,
+): string {
+  if (files.length === 0) return 'File change';
+  const counts = `(+${added} -${removed})`;
+  if (files.length > 1) return `Edited ${files.length} files ${counts}`;
+  const file = files[0];
+  if (file === undefined) return 'File change';
+  const verb = file.kind === 'add' ? 'Added' : file.kind === 'delete' ? 'Deleted' : 'Edited';
+  return `${verb} ${file.path} ${counts}`;
 }
 
 function rawResponseItemRunEvent(

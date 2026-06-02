@@ -1920,6 +1920,173 @@ describe('headless production store helpers', () => {
     );
   });
 
+  it('merges live fileChange started and completed rows into one default display item without diagnostics', () => {
+    const initial = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      mode: 'run',
+      recentRows: [],
+    });
+    const started = applyRunEvent(
+      initial,
+      apiEvent({
+        type: 'item.started',
+        id: 'run-1:20',
+        seq: 20,
+        stateVisitId: 'workflow.collect#2',
+        turnId: 'turn-1',
+        itemId: 'file-change-1',
+        data: {
+          row: {
+            id: 'file-change-started-row',
+            kind: 'fileChange',
+            label: 'file change',
+            status: 'pending',
+            itemId: 'file-change-1',
+            summary: 'Updating files',
+            data: {
+              changeCount: 1,
+              added: 0,
+              removed: 0,
+              files: [{ path: 'src/app.ts', kind: 'update', added: 0, removed: 0 }],
+            },
+          },
+        },
+      }),
+    );
+    const completed = applyRunEvent(
+      started,
+      apiEvent({
+        type: 'item.completed',
+        id: 'run-1:21',
+        seq: 21,
+        stateVisitId: 'workflow.collect#2',
+        turnId: 'turn-1',
+        itemId: 'file-change-1',
+        data: {
+          row: {
+            id: 'file-change-completed-row',
+            kind: 'fileChange',
+            label: 'file change',
+            status: 'completed',
+            itemId: 'file-change-1',
+            summary: 'Changed 2 files (+7 -3)',
+            data: {
+              changeCount: 2,
+              added: 7,
+              removed: 3,
+              files: [
+                { path: 'src/app.ts', kind: 'update', added: 5, removed: 3 },
+                {
+                  path: 'src/new.ts',
+                  kind: 'add',
+                  added: 2,
+                  removed: 0,
+                  movePath: 'src/old.ts',
+                },
+              ],
+            },
+          },
+        },
+      }),
+    );
+
+    expect(completed.transcript.filter((item) => item.id === 'file-change-1')).toHaveLength(1);
+    expect(completed.transcript).toContainEqual(
+      expect.objectContaining({
+        id: 'file-change-1',
+        type: 'file_change',
+        status: 'completed',
+        summary: 'Changed 2 files (+7 -3)',
+        changeCount: 2,
+        added: 7,
+        removed: 3,
+        eventIds: ['run-1:20', 'run-1:21'],
+        files: [
+          { path: 'src/app.ts', kind: 'update', added: 5, removed: 3 },
+          { path: 'src/new.ts', kind: 'add', added: 2, removed: 0, movePath: 'src/old.ts' },
+        ],
+      }),
+    );
+    expect(displayItems(completed.transcript, false)).toContainEqual(
+      expect.objectContaining({ id: 'file-change-1', type: 'file_change' }),
+    );
+    expect(completed.diagnostics).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'compactRow' })]),
+    );
+  });
+
+  it('keeps malformed fileChange rows safe by skipping invalid files and falling back to summary', () => {
+    const state = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      recentRows: [
+        row({
+          id: 'file-change-malformed',
+          eventId: 'run-1:22',
+          seq: 22,
+          stateVisitId: 'workflow.collect#2',
+          itemId: 'file-change-malformed',
+          kind: 'fileChange',
+          label: 'file change',
+          status: 'declined',
+          summary: 'File changes unavailable',
+          data: {
+            changeCount: 99,
+            added: 99,
+            removed: 99,
+            files: [
+              { path: 'src/app.ts', kind: 'rename', added: 1, removed: 0 },
+              { path: '', kind: 'add', added: 1, removed: 0 },
+              { path: 'src/valid.ts', kind: 'update', added: '1', removed: 0 },
+            ],
+          },
+        }),
+        row({
+          id: 'file-change-non-array-files',
+          eventId: 'run-1:23',
+          seq: 23,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'fileChange',
+          label: 'file change',
+          status: 'failed',
+          summary: 'Could not read file changes',
+          data: { files: { path: 'src/app.ts' } },
+        }),
+      ],
+    });
+
+    expect(state.transcript).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'file-change-malformed',
+          type: 'file_change',
+          status: 'declined',
+          summary: 'File changes unavailable',
+          changeCount: 0,
+          added: 0,
+          removed: 0,
+          files: [],
+        }),
+        expect.objectContaining({
+          id: 'file-change-non-array-files',
+          type: 'file_change',
+          status: 'failed',
+          summary: 'Could not read file changes',
+          changeCount: 0,
+          added: 0,
+          removed: 0,
+          files: [],
+        }),
+      ]),
+    );
+    expect(displayItems(state.transcript, false).map((item) => item.id)).toEqual([
+      'file-change-malformed',
+      'file-change-non-array-files',
+    ]);
+    expect(state.diagnostics).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'compactRow' })]),
+    );
+  });
+
   it('projects current-contract replay events into clean default transcript rows', () => {
     const initial = hydrateFromBootstrap({
       ...runScopedBootstrap(),
