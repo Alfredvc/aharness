@@ -96,9 +96,13 @@ import { writeArtifact } from '../artifact.js';
 import {
   appEventToEnrichedRunEventAppendInput,
   compactRunEventPayload,
+  createGitDiffRecordedEventSync,
+  createGitSnapshotRecordedEventSync,
   createLiveRunEventPublisher,
   createRunEventQueryService,
   ownerChoicePendingRunEvent,
+  type GitFactSyncExec,
+  type GitSnapshotRecordedRunEventAppendInput,
   type RunEventAppendInput,
   type RunEventPayload,
   type RunEventRecorder,
@@ -271,6 +275,11 @@ export interface RunCliTestHooks {
    * this unset and use the shared per-run recorder.
    */
   readonly _testRunEventRecorder?: RunEventRecorder;
+  /**
+   * Slice 0 test seam: inject deterministic no-shell synchronous git probing
+   * for canonical git fact ordering tests. Production uses execFileSync.
+   */
+  readonly _testGitFactSyncExec?: GitFactSyncExec;
   /**
    * Test seam for Slice 2 active-thread binding. Lets tests simulate a
    * future replacement-thread swap without enabling fresh-clear behavior.
@@ -468,13 +477,6 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   const closeContextRecorder = (): void => {
     contextRecorder.close();
   };
-  livePublisher.publishRunStarted();
-  let finalRunEventPublished = false;
-  const publishRunFailedOnce = (message: string): void => {
-    if (finalRunEventPublished) return;
-    finalRunEventPublished = true;
-    livePublisher.publishRunFailed(message);
-  };
   const publishUiEvent = (event: Parameters<typeof uiEventLog.publish>[0]): ReplayableAppEvent => {
     return livePublisher.publish(event);
   };
@@ -492,6 +494,59 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   ): ReplayableAppEvent => {
     if (input !== null) recordRunEvent(input);
     return publishUiEventNonRecording(event);
+  };
+  const recordGitSnapshot = (
+    phase: 'start' | 'terminal',
+  ): GitSnapshotRecordedRunEventAppendInput => {
+    try {
+      const event = createGitSnapshotRecordedEventSync({
+        cwd: repoRoot,
+        phase,
+        ...(o._testGitFactSyncExec !== undefined ? { exec: o._testGitFactSyncExec } : {}),
+      });
+      recordRunEvent(event);
+      return event;
+    } catch {
+      const event: GitSnapshotRecordedRunEventAppendInput = {
+        type: 'git.snapshot.recorded',
+        data: { phase, status: 'unavailable', reason: 'probe-failed' },
+      };
+      recordRunEvent(event);
+      return event;
+    }
+  };
+  const recordGitDiff = (
+    from: GitSnapshotRecordedRunEventAppendInput,
+    to: GitSnapshotRecordedRunEventAppendInput,
+  ): void => {
+    try {
+      recordRunEvent(
+        createGitDiffRecordedEventSync({
+          cwd: repoRoot,
+          from,
+          to,
+          ...(o._testGitFactSyncExec !== undefined ? { exec: o._testGitFactSyncExec } : {}),
+        }),
+      );
+    } catch {
+      recordRunEvent({
+        type: 'git.diff.recorded',
+        data: { status: 'unavailable', reason: 'probe-failed' },
+      });
+    }
+  };
+  livePublisher.publishRunStarted();
+  const startGitSnapshot = recordGitSnapshot('start');
+  let finalRunEventPublished = false;
+  const recordTerminalGitFactsOnce = (): void => {
+    const terminalGitSnapshot = recordGitSnapshot('terminal');
+    recordGitDiff(startGitSnapshot, terminalGitSnapshot);
+  };
+  const publishRunFailedOnce = (message: string): void => {
+    if (finalRunEventPublished) return;
+    finalRunEventPublished = true;
+    recordTerminalGitFactsOnce();
+    livePublisher.publishRunFailed(message);
   };
   const publishPostureChange = (posture: Partial<Posture>): void => {
     publishUiEvent({
@@ -638,6 +693,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   const signalTerminalCompletion = (meta?: ServerRequestMeta): void => {
     if (!finalRunEventPublished) {
       finalRunEventPublished = true;
+      recordTerminalGitFactsOnce();
       const terminalMeta = host.currentMeta();
       livePublisher.publishRunTerminal({
         state: host.currentStateId(),

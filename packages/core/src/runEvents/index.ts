@@ -7,6 +7,12 @@
  */
 export {
   RUN_EVENT_SCHEMA,
+  type GitDiffRecordedPayload,
+  type GitDiffRecordedRunEventAppendInput,
+  type GitFactUnavailableReason,
+  type GitSnapshotPhase,
+  type GitSnapshotRecordedPayload,
+  type GitSnapshotRecordedRunEventAppendInput,
   type RunEventAggregateStats,
   type RunEventAppendInput,
   type RunEventCompactRow,
@@ -27,6 +33,16 @@ export {
   type RunEventStateVisit,
   type RunEventWithOffset,
 } from './types.js';
+export {
+  createGitDiffRecordedEvent,
+  createGitDiffRecordedEventSync,
+  createGitSnapshotRecordedEvent,
+  createGitSnapshotRecordedEventSync,
+  type GitFactExec,
+  type GitFactExecOptions,
+  type GitFactExecResult,
+  type GitFactSyncExec,
+} from './gitFacts.js';
 export {
   createRunEventWriter,
   type RunEventAppendOptions,
