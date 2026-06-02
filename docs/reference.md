@@ -232,10 +232,11 @@ aharness run ./workflow.fsm.ts --help
 ```
 
 These commands read declared machine inputs statically and print the invoked
-usage form, target path information, and input flags with their type,
-required/default marker, and author-provided descriptions. Help for installed
-commands, `visualize`, top-level `aharness --help`, `aharness help`, and
-arbitrary-position `--help` are not part of this slice and return generic usage.
+usage form, target path information, and declared input flags grouped into
+required and optional sections with each flag's type, default marker, and
+author-provided descriptions. Help for installed commands, `visualize`,
+top-level `aharness --help`, `aharness help`, and arbitrary-position `--help`
+are not part of this slice and return generic usage.
 
 `aharness visualize` does not require runtime input flags; any provided flags
 are checked for name/type validity but are not used to start an actor.

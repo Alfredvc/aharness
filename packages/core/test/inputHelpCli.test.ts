@@ -22,7 +22,7 @@ const emptyFixture = 'packages/core/test/fixtures/args/empty-input.fsm.ts';
 const throwsOnImportFixture = 'packages/core/test/fixtures/args/input-help-throws-on-import.fsm.ts';
 
 describe('formatLocalFsmInputHelp', () => {
-  it('renders usage, target paths, sorted input flags, markers, requirements, defaults, and descriptions', () => {
+  it('renders usage, target paths, grouped input flags, markers, defaults, and descriptions', () => {
     const text = formatLocalFsmInputHelp({
       usage: 'aharness run ./workflow.fsm.ts --help',
       target: './workflow.fsm.ts',
@@ -54,12 +54,84 @@ describe('formatLocalFsmInputHelp', () => {
         'Target: ./workflow.fsm.ts',
         'FSM: /repo/workflow.fsm.ts',
         '',
-        'Inputs:',
+        'Required input flags:',
+        '  --payload <value> (object) - JSON payload',
+        '  --topic <string> (string) - Project topic',
+        'Optional input flags:',
         '  --count <integer> (integer, default: 2)',
         '  --dry-run (boolean, default: false) - Skip writes',
-        '  --payload <value> (object, required) - JSON payload',
         '  --ratio <number> (number, default: 0.5)',
-        '  --topic <string> (string, required) - Project topic',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('renders none for required input flags when all declared inputs are optional', () => {
+    const text = formatLocalFsmInputHelp({
+      usage: 'aharness run ./workflow.fsm.ts --help',
+      target: './workflow.fsm.ts',
+      filePath: '/repo/workflow.fsm.ts',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          dryRun: { type: 'boolean' },
+          count: { type: 'integer' },
+        },
+        additionalProperties: false,
+      },
+      inputFlags: {
+        dryRun: { description: 'Skip writes', default: false },
+        count: { default: 2 },
+      },
+    });
+
+    expect(text).toBe(
+      [
+        'Usage: aharness run ./workflow.fsm.ts --help',
+        'Target: ./workflow.fsm.ts',
+        'FSM: /repo/workflow.fsm.ts',
+        '',
+        'Required input flags:',
+        '  none',
+        'Optional input flags:',
+        '  --count <integer> (integer, default: 2)',
+        '  --dry-run (boolean, default: false) - Skip writes',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('renders none for optional input flags when all declared inputs are required', () => {
+    const text = formatLocalFsmInputHelp({
+      usage: 'aharness run ./workflow.fsm.ts --help',
+      target: './workflow.fsm.ts',
+      filePath: '/repo/workflow.fsm.ts',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string' },
+          payload: { type: 'object', properties: { id: { type: 'string' } } },
+        },
+        required: ['topic', 'payload'],
+        additionalProperties: false,
+      },
+      inputFlags: {
+        topic: { description: 'Project topic' },
+        payload: { description: 'JSON payload' },
+      },
+    });
+
+    expect(text).toBe(
+      [
+        'Usage: aharness run ./workflow.fsm.ts --help',
+        'Target: ./workflow.fsm.ts',
+        'FSM: /repo/workflow.fsm.ts',
+        '',
+        'Required input flags:',
+        '  --payload <value> (object) - JSON payload',
+        '  --topic <string> (string) - Project topic',
+        'Optional input flags:',
+        '  none',
         '',
       ].join('\n'),
     );
@@ -118,7 +190,10 @@ describe('runLocalFsmInputHelpForTest', () => {
     expect(stdout.text()).toContain('Usage: aharness run ./workflow.fsm.ts --help\n');
     expect(stdout.text()).toContain('Target: ./workflow.fsm.ts\n');
     expect(stdout.text()).toContain('FSM: /repo/workflow.fsm.ts\n');
-    expect(stdout.text()).toContain('  --name <string> (string, required) - Run name\n');
+    expect(stdout.text()).toContain('Required input flags:\n');
+    expect(stdout.text()).toContain('  --name <string> (string) - Run name\n');
+    expect(stdout.text()).toContain('Optional input flags:\n');
+    expect(stdout.text()).toContain('  none\n');
   });
 
   it('renders fixture-backed input metadata without importing the module', async () => {
@@ -137,9 +212,11 @@ describe('runLocalFsmInputHelpForTest', () => {
     expect(stderr.text()).toBe('');
     expect(stdout.text()).toContain(`Target: ${typedFixture}\n`);
     expect(stdout.text()).toContain(`FSM: ${resolve(process.cwd(), typedFixture)}\n`);
+    expect(stdout.text()).toContain('Required input flags:\n');
+    expect(stdout.text()).toContain('Optional input flags:\n');
     expect(stdout.text()).toContain('  --dry-run (boolean, default: false) - Skip execution\n');
-    expect(stdout.text()).toContain('  --payload <value> (object, required) - JSON payload\n');
-    expect(stdout.text()).toContain('  --topic <string> (string, required) - Project topic\n');
+    expect(stdout.text()).toContain('  --payload <value> (object) - JSON payload\n');
+    expect(stdout.text()).toContain('  --topic <string> (string) - Project topic\n');
   });
 
   it('renders no declared inputs from the existing empty-input fixture', async () => {
@@ -173,7 +250,8 @@ describe('runLocalFsmInputHelpForTest', () => {
 
     expect(result.exitCode).toBe(0);
     expect(stderr.text()).toBe('');
-    expect(stdout.text()).toContain('  --safe <string> (string, required) - Static field\n');
+    expect(stdout.text()).toContain('Required input flags:\n');
+    expect(stdout.text()).toContain('  --safe <string> (string) - Static field\n');
   });
 
   it('returns non-zero and reports extraction failures', async () => {

@@ -46,15 +46,16 @@ export function formatLocalFsmInputHelp(opts: FormatLocalFsmInputHelpOptions): s
     return lines.join('\n');
   }
 
-  lines.push('Inputs:');
-  for (const field of fields) {
-    const details = [field.typeLabel];
-    if (field.required) details.push('required');
-    if (field.hasDefault) details.push(`default: ${formatDefault(field.defaultValue)}`);
-    const marker = field.marker ? ` ${field.marker}` : '';
-    const description = field.description ? ` - ${field.description}` : '';
-    lines.push(`  --${field.flagName}${marker} (${details.join(', ')})${description}`);
-  }
+  renderInputFieldSection(
+    lines,
+    'Required input flags:',
+    fields.filter((field) => field.required),
+  );
+  renderInputFieldSection(
+    lines,
+    'Optional input flags:',
+    fields.filter((field) => !field.required),
+  );
   lines.push('');
   return lines.join('\n');
 }
@@ -118,6 +119,22 @@ function describeInputFields(
       };
     })
     .sort((a, b) => a.flagName.localeCompare(b.flagName));
+}
+
+function renderInputFieldSection(lines: string[], title: string, fields: InputFieldHelp[]): void {
+  lines.push(title);
+  if (fields.length === 0) {
+    lines.push('  none');
+    return;
+  }
+
+  for (const field of fields) {
+    const details = [field.typeLabel];
+    if (field.hasDefault) details.push(`default: ${formatDefault(field.defaultValue)}`);
+    const marker = field.marker ? ` ${field.marker}` : '';
+    const description = field.description ? ` - ${field.description}` : '';
+    lines.push(`  --${field.flagName}${marker} (${details.join(', ')})${description}`);
+  }
 }
 
 function schemaTypeLabel(schema: JSONSchema7Definition | undefined): string {
