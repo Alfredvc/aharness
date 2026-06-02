@@ -26,13 +26,6 @@ export interface NudgeInput {
    * string means "no prompt section"; the composer emits exits only.
    */
   readonly entryPromptText: string;
-  /**
-   * Pre-resolved skill blocks (each already wrapped in `<skill …>…</skill>`)
-   * to append after `entryPromptText`. Empty array = no skill section.
-   * The composer is pure; resolution + file reads happen in the caller
-   * (`daemon/skillInjection.ts`) so the composer stays deterministic.
-   */
-  readonly skillBlocks?: ReadonlyArray<string>;
 }
 
 /**
@@ -74,12 +67,6 @@ export function composeStateNudge(i: NudgeInput): string {
   if (i.entryPromptText.trim().length > 0) {
     lines.push('');
     lines.push(i.entryPromptText);
-  }
-  if (i.skillBlocks && i.skillBlocks.length > 0) {
-    for (const block of i.skillBlocks) {
-      lines.push('');
-      lines.push(block);
-    }
   }
   return lines.join('\n');
 }

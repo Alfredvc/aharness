@@ -1,94 +1,116 @@
-/**
- * Skill-injection helper used by both `onStateEntry` (entry-side composition)
- * and `dispatchSubmit` (submit-inline composition) to resolve a state's
- * `SkillRef[]`, dedupe against the run's already-injected set, read each
- * `SKILL.md` body, and produce the wrapped blocks the nudge composer
- * appends to the orientation message.
- *
- * Once-per-run dedupe — `alreadyInjected` is the `Set<string>` of stable
- * keys (`name:<n>` or `path:<absPath>`) that have already been injected
- * earlier in this run. Caller adds the returned `newKeys` to the set after
- * the nudge has actually been sent so a transient inject failure leaves
- * the keys flagged-not-yet-injected and the next entry can retry.
- *
- * `optional` refs that fail to resolve are silently skipped at runtime
- * (the verifier surfaces a warning at static-check time). Non-optional
- * refs that fail to resolve produce a warning block in the nudge so the
- * model sees a visible diagnostic rather than silently missing context.
- */
-import { readFileSync } from 'node:fs';
+import type { UserInput, UserInputSkill } from '../protocol/types.js';
 import type { SkillRef } from '../state/skills.js';
-import { resolveSkill, type SkillResolverEnv } from '../state/skillResolver.js';
 
-export interface SkillBlock {
-  /** `<skill name="…" path="…">…</skill>` ready-to-append text. */
-  readonly text: string;
-  /** Stable dedupe key. Caller adds these to the run's injected set on success. */
-  readonly key: string;
-}
+import type { ResolvedRuntimeSkill } from './skillCatalog.js';
 
-export interface ResolveAndReadOpts {
+export interface SelectStateSkillInputOpts {
+  readonly stateId: string;
   readonly skills: ReadonlyArray<SkillRef>;
+  readonly resolvedSkills: ReadonlyArray<ResolvedRuntimeSkill>;
   readonly alreadyInjected: ReadonlySet<string>;
-  readonly env: SkillResolverEnv;
-  /** Test seam — defaults to `fs.readFileSync(absPath, 'utf8')`. */
-  readonly readFile?: (absPath: string) => string;
 }
 
-export interface ResolveAndReadResult {
-  readonly blocks: ReadonlyArray<SkillBlock>;
-  readonly newKeys: ReadonlyArray<string>;
+export interface SelectedStateSkillInput {
+  readonly skillItems: ReadonlyArray<UserInputSkill>;
+  readonly pendingKeys: ReadonlyArray<string>;
+  readonly commit: () => void;
 }
 
-export function resolveAndReadSkills(o: ResolveAndReadOpts): ResolveAndReadResult {
-  const blocks: SkillBlock[] = [];
-  const newKeys: string[] = [];
-  const reader = o.readFile ?? ((p: string) => readFileSync(p, 'utf8'));
-  for (const ref of o.skills) {
-    const res = resolveSkill(ref, o.env);
-    if (o.alreadyInjected.has(res.key)) continue;
-    if (res.kind === 'unresolved') {
-      if (res.optional) continue;
-      blocks.push({
-        text: warningBlock(res.displayName, res.searched),
-        key: res.key,
-      });
-      newKeys.push(res.key);
-      continue;
-    }
-    let body: string;
-    try {
-      body = reader(res.absPath);
-    } catch (e) {
-      blocks.push({
-        text: warningBlock(res.displayName, [res.absPath], `read error: ${(e as Error).message}`),
-        key: res.key,
-      });
-      newKeys.push(res.key);
-      continue;
-    }
-    blocks.push({
-      text: skillBlock(res.displayName, res.absPath, body),
-      key: res.key,
-    });
-    newKeys.push(res.key);
+export interface BuildStateOrientationInputOpts {
+  readonly stateId: string;
+  readonly skills?: ReadonlyArray<SkillRef>;
+  readonly orientationText: string;
+}
+
+export interface BuiltStateOrientationInput {
+  readonly text: string;
+  readonly input: ReadonlyArray<UserInput>;
+  readonly commit: () => void;
+}
+
+export interface StateSkillInjectionService {
+  readonly buildTurnInputForActive: (
+    opts: BuildStateOrientationInputOpts,
+  ) => BuiltStateOrientationInput;
+  readonly resetForFreshThread: () => void;
+}
+
+export function selectStateSkillInput(opts: SelectStateSkillInputOpts): SelectedStateSkillInput {
+  const byStateAndIndex = new Map<string, ResolvedRuntimeSkill>();
+  for (const resolved of opts.resolvedSkills) {
+    byStateAndIndex.set(selectionKey(resolved.stateId, resolved.index), resolved);
   }
-  return { blocks, newKeys };
+
+  const localPending = new Set<string>();
+  const skillItems: UserInputSkill[] = [];
+  const pendingKeys: string[] = [];
+  opts.skills.forEach((ref, index) => {
+    const resolved = byStateAndIndex.get(selectionKey(opts.stateId, index));
+    if (resolved === undefined) {
+      if (ref.optional) return;
+      throw new Error(
+        `internal: required skill for state '${opts.stateId}' skills[${String(index)}] was not resolved by startup preflight`,
+      );
+    }
+
+    const key = injectedKey(resolved);
+    if (opts.alreadyInjected.has(key) || localPending.has(key)) return;
+    localPending.add(key);
+    pendingKeys.push(key);
+    skillItems.push({
+      type: 'skill',
+      name: resolved.name,
+      path: resolved.path,
+    });
+  });
+
+  return {
+    skillItems,
+    pendingKeys,
+    commit: () => {
+      if (!isMutableSet(opts.alreadyInjected)) {
+        throw new Error('internal: alreadyInjected must be a Set to commit selected skills');
+      }
+      for (const key of pendingKeys) opts.alreadyInjected.add(key);
+    },
+  };
 }
 
-function skillBlock(name: string, absPath: string, body: string): string {
-  return `<skill name=${JSON.stringify(name)} path=${JSON.stringify(absPath)}>
-${body.replace(/\n+$/, '')}
-</skill>`;
+export function createStateSkillInjectionService(input: {
+  readonly resolvedSkills: ReadonlyArray<ResolvedRuntimeSkill>;
+}): StateSkillInjectionService {
+  const injected = new Set<string>();
+  return {
+    buildTurnInputForActive(opts) {
+      const selected =
+        opts.skills === undefined || opts.skills.length === 0
+          ? { skillItems: [], commit: () => undefined }
+          : selectStateSkillInput({
+              stateId: opts.stateId,
+              skills: opts.skills,
+              resolvedSkills: input.resolvedSkills,
+              alreadyInjected: injected,
+            });
+      return {
+        text: opts.orientationText,
+        input: [{ type: 'text', text: opts.orientationText }, ...selected.skillItems],
+        commit: selected.commit,
+      };
+    },
+    resetForFreshThread() {
+      injected.clear();
+    },
+  };
 }
 
-function warningBlock(
-  displayName: string,
-  searched: ReadonlyArray<string>,
-  detail?: string,
-): string {
-  const reason = detail ?? `not found in any of:\n  - ${searched.join('\n  - ')}`;
-  return `<skill name=${JSON.stringify(displayName)} status="missing">
-(aharness: skill ${JSON.stringify(displayName)} ${reason})
-</skill>`;
+function selectionKey(stateId: string, index: number): string {
+  return `${stateId}\0${String(index)}`;
+}
+
+function injectedKey(skill: ResolvedRuntimeSkill): string {
+  return `path:${skill.path}`;
+}
+
+function isMutableSet(value: ReadonlySet<string>): value is Set<string> {
+  return typeof (value as Set<string>).add === 'function';
 }

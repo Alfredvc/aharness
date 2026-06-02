@@ -13,8 +13,7 @@
  *        → resolves only after `EventMsg::TurnAborted` fires. Non-fatal
  *          errors ("no active turn to interrupt", "expected active turn
  *          id ...") are logged and swallowed; the dance proceeds.
- *   3. await client.request('turn/start', {threadId, input:[{type:'text',
- *      text: orientationText}]})
+ *   3. await client.request('turn/start', {threadId, input: orientationInput})
  *        → opens a fresh turn whose `input` lands as a TUI-visible
  *          `ResponseItem::UserMessage` in the rollout (CF-23, M14).
  *
@@ -33,6 +32,7 @@ import type {
   TurnInterruptResponse,
   TurnStartParams,
   TurnStartResponse,
+  UserInput,
 } from '../protocol/types.js';
 import type { ItemCompletedWatcherRegistry } from '../transport/itemCompletedWatcher.js';
 import type { ActiveThreadBinding } from './activeThreadBinding.js';
@@ -52,6 +52,8 @@ export interface ScheduleCrossStateDanceOpts {
    * new leaf.
    */
   readonly orientationText: string;
+  readonly orientationInput?: ReadonlyArray<UserInput>;
+  readonly commitOrientationInput?: () => void;
   /**
    * Invoked synchronously before scheduling so drive-forward's
    * `submittedThisTurn` predicate flips before any `turn/completed`
@@ -161,8 +163,9 @@ export function scheduleCrossStateDance(o: ScheduleCrossStateDanceOpts): void {
       }
       await o.client.request<TurnStartResponse>(METHOD.turnStart, {
         threadId: o.activeThreadBinding.require(),
-        input: [{ type: 'text', text: o.orientationText }],
+        input: o.orientationInput ?? [{ type: 'text', text: o.orientationText }],
       } satisfies TurnStartParams);
+      o.commitOrientationInput?.();
     } catch (e) {
       // F1 salvage ordering — see `requestDriveForwardSalvage` doc:
       //   1) clear the per-turn flag so drive-forward's default branch

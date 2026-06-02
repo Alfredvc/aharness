@@ -335,6 +335,64 @@ describe('scheduleCrossStateDance (Phase 2a)', () => {
     );
   });
 
+  it('turn/start carries provided structured orientation input and commits after success', async () => {
+    const { registry, resolveMatch } = makeControlledRegistry();
+    const { client, requests } = makeFakeClient();
+    const commit = vi.fn();
+
+    scheduleCrossStateDance({
+      client,
+      watcherRegistry: registry,
+      activeThreadBinding: activeThread('thread-x'),
+      turnId: 'turn-1',
+      callId: 'call-1',
+      orientationText: 'nudge',
+      orientationInput: [
+        { type: 'text', text: 'nudge' },
+        { type: 'skill', name: 'alpha', path: '/skills/alpha/SKILL.md' },
+      ],
+      commitOrientationInput: commit,
+      markSubmittedThisTurn: () => {},
+    });
+
+    resolveMatch('call-1');
+    await flushMicrotasks();
+
+    expect(requests.find((r) => r.method === 'turn/start')?.params).toEqual({
+      threadId: 'thread-x',
+      input: [
+        { type: 'text', text: 'nudge' },
+        { type: 'skill', name: 'alpha', path: '/skills/alpha/SKILL.md' },
+      ],
+    });
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not commit structured orientation input when turn/start fails', async () => {
+    const { registry, resolveMatch } = makeControlledRegistry();
+    const { client, queueResponse } = makeFakeClient();
+    const commit = vi.fn();
+
+    queueResponse('turn/start', new Error('start failed'));
+    scheduleCrossStateDance({
+      client,
+      watcherRegistry: registry,
+      activeThreadBinding: activeThread('thread-x'),
+      turnId: 'turn-1',
+      callId: 'call-1',
+      orientationText: 'nudge',
+      orientationInput: [{ type: 'text', text: 'nudge' }],
+      commitOrientationInput: commit,
+      markSubmittedThisTurn: () => {},
+      onError: () => {},
+    });
+
+    resolveMatch('call-1');
+    await flushMicrotasks();
+
+    expect(commit).not.toHaveBeenCalled();
+  });
+
   it('non-fatal interrupt error: "no active turn to interrupt" is swallowed; turn/start still issues', async () => {
     const { registry, resolveMatch } = makeControlledRegistry();
     const { client, requests, queueResponse } = makeFakeClient();

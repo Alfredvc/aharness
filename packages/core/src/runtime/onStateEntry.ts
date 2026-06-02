@@ -53,21 +53,6 @@ export interface OnStateEntryOpts {
    * needs orientation), but the author hook is skipped.
    */
   readonly firedFromResume?: boolean;
-  /**
-   * Optional skill-injection service. When provided and the active
-   * state declares `meta.aharness.skills`, each undeduped skill body is
-   * resolved + read, the wrapped `<skill>…</skill>` text is appended to
-   * the composed nudge, and the corresponding keys are committed to
-   * the run-level injected set after the inject succeeds. When
-   * omitted, skill blocks are skipped silently — used by tests that do
-   * not exercise the injection path.
-   */
-  readonly skillService?: {
-    readonly composeBlocksForActive: (meta: import('../state/exits.js').AharnessStateMeta) => {
-      readonly textBlocks: ReadonlyArray<string>;
-      readonly commit: () => void;
-    };
-  };
 }
 
 /**
@@ -110,29 +95,13 @@ export async function onStateEntry(o: OnStateEntryOpts): Promise<void> {
     promptText = `(aharness: error computing entryPrompt: ${(e as Error).message})`;
   }
 
-  // Resolve skill blocks against the run-level injected set BEFORE the
-  // inject; commit AFTER the inject succeeds so a transient injection
-  // failure leaves the keys flagged not-yet-injected and the next entry
-  // retries. Resume-side entries also fire skills — the rehydrated set
-  // already excludes them so the resolver returns empty blocks for
-  // already-injected keys.
-  let skillTextBlocks: ReadonlyArray<string> = [];
-  let commitSkills: (() => void) | undefined;
-  if (o.skillService !== undefined && meta.skills !== undefined && meta.skills.length > 0) {
-    const composed = o.skillService.composeBlocksForActive(meta);
-    skillTextBlocks = composed.textBlocks;
-    commitSkills = composed.commit;
-  }
-
   await o.injectNudge(
     composeStateNudge({
       stateId,
       exits,
       entryPromptText: promptText,
-      ...(skillTextBlocks.length > 0 ? { skillBlocks: skillTextBlocks } : {}),
     }),
   );
-  if (commitSkills !== undefined) commitSkills();
 
   // Author meta-ops hook. Skipped on resume — only fresh state entries
   // fire `onEntry`.

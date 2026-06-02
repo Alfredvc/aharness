@@ -1,15 +1,15 @@
 /**
  * Tests for the `skill()` author surface, the static `resolveSkill`
- * resolver, and the daemon-side `resolveAndReadSkills` helper.
+ * resolver, and the runtime structured skill selection helper.
  *
  * Together these cover:
  *   - shape validation of the two ref forms (name / path)
  *   - dedupe key derivation
  *   - codex-roots resolution order for name-form
  *   - relative + absolute path-form resolution
- *   - once-per-run dedupe behavior
+ *   - once-per-live-thread structured skill dedupe behavior
  *   - optional misses (skipped silently)
- *   - non-optional misses (warning block in the wire output)
+ *   - required misses (internal preflight invariant error)
  */
 import { describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -29,7 +29,10 @@ import {
 import { resolveSkill } from '../src/state/skillResolver.js';
 import type { SkillOriginManifest } from '../src/loader/cache.js';
 import { buildSkillCatalogPreflight, validateSkillCatalog } from '../src/runtime/skillCatalog.js';
-import { resolveAndReadSkills } from '../src/runtime/skillInjection.js';
+import {
+  createStateSkillInjectionService,
+  selectStateSkillInput,
+} from '../src/runtime/skillInjection.js';
 import { aharness, terminal } from '../src/index.js';
 
 describe('skill() factory', () => {
@@ -244,97 +247,119 @@ describe('resolveSkill', () => {
   });
 });
 
-describe('resolveAndReadSkills', () => {
-  const env = {
-    fsmFileDir: '/tmp/x',
-    repoRoot: '/tmp/repo',
-    homeDir: '/tmp/home',
-    codexHome: '/tmp/home/.codex',
-    fileExists: (p: string) => p.endsWith('alpha/SKILL.md'),
-  };
-  const reader = (p: string) => `BODY[${p}]`;
+describe('structured state skill selection', () => {
+  const resolved = [
+    { stateId: 'a', index: 0, name: 'alpha', path: '/skills/alpha/SKILL.md' },
+    { stateId: 'a', index: 1, name: 'local', path: '/repo/local/SKILL.md' },
+    { stateId: 'a', index: 3, name: 'alpha-alias', path: '/skills/alpha/SKILL.md' },
+    { stateId: 'b', index: 0, name: 'beta', path: '/skills/beta/SKILL.md' },
+  ];
 
-  it('produces a wrapped block for resolved refs and tracks the new key', () => {
-    const refs: SkillRef[] = [skill('alpha')];
-    const r = resolveAndReadSkills({
-      skills: refs,
+  it('emits structured skill items for resolved name and path refs in declaration order', () => {
+    const selected = selectStateSkillInput({
+      stateId: 'a',
+      skills: [skill('alpha'), skill({ path: './local/SKILL.md' })],
+      resolvedSkills: resolved,
       alreadyInjected: new Set(),
-      env,
-      readFile: reader,
     });
-    expect(r.blocks).toHaveLength(1);
-    expect(r.blocks[0]?.text).toContain('<skill name="alpha"');
-    expect(r.blocks[0]?.text).toContain('BODY[');
-    expect(r.newKeys).toEqual(['name:alpha']);
+
+    expect(selected.skillItems).toEqual([
+      { type: 'skill', name: 'alpha', path: '/skills/alpha/SKILL.md' },
+      { type: 'skill', name: 'local', path: '/repo/local/SKILL.md' },
+    ]);
+    expect(selected.pendingKeys).toEqual([
+      'path:/skills/alpha/SKILL.md',
+      'path:/repo/local/SKILL.md',
+    ]);
   });
 
-  it('skips refs whose key is already in alreadyInjected', () => {
-    const refs: SkillRef[] = [skill('alpha')];
-    const r = resolveAndReadSkills({
-      skills: refs,
-      alreadyInjected: new Set(['name:alpha']),
-      env,
-      readFile: reader,
+  it('skips optional refs absent from startup resolved skills', () => {
+    const selected = selectStateSkillInput({
+      stateId: 'a',
+      skills: [skill('alpha'), skill('optional-miss', { optional: true })],
+      resolvedSkills: [resolved[0]!],
+      alreadyInjected: new Set(),
     });
-    expect(r.blocks).toHaveLength(0);
-    expect(r.newKeys).toHaveLength(0);
+    expect(selected.skillItems).toEqual([
+      { type: 'skill', name: 'alpha', path: '/skills/alpha/SKILL.md' },
+    ]);
+    expect(selected.pendingKeys).toEqual(['path:/skills/alpha/SKILL.md']);
   });
 
-  it('skips optional misses silently', () => {
-    const refs: SkillRef[] = [skill('beta', { optional: true })];
-    const r = resolveAndReadSkills({
-      skills: refs,
-      alreadyInjected: new Set(),
-      env,
-      readFile: reader,
-    });
-    expect(r.blocks).toHaveLength(0);
-    expect(r.newKeys).toHaveLength(0);
+  it('throws for required refs absent from startup resolved skills', () => {
+    expect(() =>
+      selectStateSkillInput({
+        stateId: 'a',
+        skills: [skill('missing-required')],
+        resolvedSkills: [],
+        alreadyInjected: new Set(),
+      }),
+    ).toThrow(/required skill.*startup preflight/);
   });
 
-  it('emits a warning block for non-optional misses', () => {
-    const refs: SkillRef[] = [skill('beta')];
-    const r = resolveAndReadSkills({
-      skills: refs,
-      alreadyInjected: new Set(),
-      env,
-      readFile: reader,
+  it('dedupes already injected catalog paths and duplicate pending paths in one build', () => {
+    const selected = selectStateSkillInput({
+      stateId: 'a',
+      skills: [
+        skill('alpha'),
+        skill({ path: './local/SKILL.md' }),
+        skill('unresolved-optional', { optional: true }),
+        skill({ path: './alpha-alias/SKILL.md' }),
+      ],
+      resolvedSkills: resolved,
+      alreadyInjected: new Set(['path:/repo/local/SKILL.md']),
     });
-    expect(r.blocks).toHaveLength(1);
-    expect(r.blocks[0]?.text).toContain('status="missing"');
-    expect(r.blocks[0]?.text).toContain('beta');
-    expect(r.newKeys).toEqual(['name:beta']);
+
+    expect(selected.skillItems).toEqual([
+      { type: 'skill', name: 'alpha', path: '/skills/alpha/SKILL.md' },
+    ]);
+    expect(selected.pendingKeys).toEqual(['path:/skills/alpha/SKILL.md']);
   });
 
-  it('emits a warning block when readFile throws and still tracks the key', () => {
-    const throwReader = () => {
-      throw new Error('boom');
-    };
-    const r = resolveAndReadSkills({
-      skills: [skill('alpha')],
-      alreadyInjected: new Set(),
-      env,
-      readFile: throwReader,
+  it('commits pending keys only when commit is invoked', () => {
+    const alreadyInjected = new Set<string>();
+    const selected = selectStateSkillInput({
+      stateId: 'b',
+      skills: [skill('beta')],
+      resolvedSkills: resolved,
+      alreadyInjected,
     });
-    expect(r.blocks).toHaveLength(1);
-    expect(r.blocks[0]?.text).toContain('read error: boom');
-    expect(r.newKeys).toEqual(['name:alpha']);
+
+    expect(alreadyInjected).toEqual(new Set());
+    selected.commit();
+    expect(alreadyInjected).toEqual(new Set(['path:/skills/beta/SKILL.md']));
   });
 
-  it('still reads existing non-SKILL.md path refs at runtime in Slice 0', () => {
-    const localPath = '/tmp/x/legacy.md';
-    const r = resolveAndReadSkills({
-      skills: [skill({ path: './legacy.md' })],
-      alreadyInjected: new Set(),
-      env: {
-        ...env,
-        fileExists: (p: string) => p === localPath,
-      },
-      readFile: reader,
+  it('service builds text-first turn input and resets dedupe for a fresh thread', () => {
+    const service = createStateSkillInjectionService({ resolvedSkills: resolved });
+    const first = service.buildTurnInputForActive({
+      stateId: 'b',
+      skills: [skill('beta')],
+      orientationText: 'orientation',
     });
-    expect(r.blocks).toHaveLength(1);
-    expect(r.blocks[0]?.text).toContain(`BODY[${localPath}]`);
-    expect(r.newKeys).toEqual([`path:${localPath}`]);
+    expect(first.input).toEqual([
+      { type: 'text', text: 'orientation' },
+      { type: 'skill', name: 'beta', path: '/skills/beta/SKILL.md' },
+    ]);
+
+    first.commit();
+    const deduped = service.buildTurnInputForActive({
+      stateId: 'b',
+      skills: [skill('beta')],
+      orientationText: 'again',
+    });
+    expect(deduped.input).toEqual([{ type: 'text', text: 'again' }]);
+
+    service.resetForFreshThread();
+    const afterReset = service.buildTurnInputForActive({
+      stateId: 'b',
+      skills: [skill('beta')],
+      orientationText: 'fresh',
+    });
+    expect(afterReset.input).toEqual([
+      { type: 'text', text: 'fresh' },
+      { type: 'skill', name: 'beta', path: '/skills/beta/SKILL.md' },
+    ]);
   });
 });
 

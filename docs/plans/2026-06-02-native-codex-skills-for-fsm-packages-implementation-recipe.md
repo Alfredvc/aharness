@@ -1,11 +1,11 @@
 # Native Codex Skills for Self-Contained FSM Packages Implementation Recipe
 
 **Parent roadmap:** `docs/plans/2026-06-02-native-codex-skills-for-fsm-packages-roadmap.md`
-**Current slice:** Slice 3 - native structured state skill injection
-**Current phase:** plan
+**Current slice:** Slice 4 - docs and codeflow package preparation
+**Current phase:** plan-writing
 **Current detailed plan:** none yet
 **Current fix source:** none
-**Last completed:** Slice 2 - Codex protocol and startup skill catalog
+**Last completed:** Slice 3 - native structured state skill injection
 
 ## Durable Grounding
 
@@ -89,5 +89,27 @@ Final verification for Slice 2:
 - `pnpm run typecheck`
 - `pnpm --dir packages/core run verify:codex-bump`
 
-Next action: write the detailed Slice 3 plan for native structured state skill
-injection before changing runtime turn payload code.
+Slice 3 was accepted after no fix cycles. It replaced runtime `SKILL.md` body
+reading and nudge `<skill>` block composition with Codex-native structured
+`UserInputSkill` items selected from the Slice 2 startup catalog. All
+framework-owned orientation `turn/start` paths now build text-first input
+arrays, commit skill dedupe only after successful `turn/start`, and reset
+dedupe before fresh-clear replacement thread orientation. Browser free-text
+owner replies remain text-only.
+
+Final verification for Slice 3:
+
+- `pnpm exec vitest run packages/core/test/state.skills.test.ts packages/core/test/runtime.nudge.test.ts`
+- `pnpm run typecheck`
+- `pnpm exec vitest run packages/core/test/state.skills.test.ts packages/core/test/runtime.nudge.test.ts packages/core/test/runtime.onStateEntry.test.ts packages/core/test/runtime.driveForward.test.ts packages/core/test/runtime.crossStateDance.test.ts packages/core/test/runtime.dispatchSubmit.test.ts packages/core/test/runtime.freshClear.test.ts`
+- `pnpm exec vitest run packages/core/test/cli.runCli.test.ts packages/core/test/cli.runCli.phase1.test.ts`
+- `pnpm exec vitest run packages/core/test/integration.m14TurnStartInput.test.ts packages/core/test/integration.clearWalk.test.ts packages/core/test/integration.crossStateWalk.test.ts` (skipped by current test gating)
+
+Acceptance verification re-run during finish:
+
+- `pnpm exec vitest run packages/core/test/state.skills.test.ts packages/core/test/runtime.nudge.test.ts packages/core/test/runtime.driveForward.test.ts packages/core/test/runtime.crossStateDance.test.ts packages/core/test/runtime.freshClear.test.ts` passed with 5 files / 79 tests.
+- `pnpm exec vitest run packages/core/test/cli.runCli.test.ts packages/core/test/cli.runCli.phase1.test.ts` passed with 2 files / 55 passed / 1 skipped.
+- `pnpm run typecheck` passed.
+
+Slice 4 is next. It should produce the detailed plan for public documentation
+and codeflow package preparation before changing docs or FSM/package files.

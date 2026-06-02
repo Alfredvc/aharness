@@ -17,8 +17,8 @@
  *  - `isTerminal()` → call `onShutdown()` (the dispatcher's terminal
  *    reply has already landed; the model's last turn is over and the
  *    run is complete).
- *  - default → issue `turn/start({threadId, input: [{type:'text',
- *    text: composeActiveStateNudge()}]})` so the model's next turn
+ *  - default → issue `turn/start({threadId, input: composeActiveStateTurnInput().input})`
+ *    so the model's next turn
  *    opens with the (re-rendered) active state's nudge as a
  *    TUI-visible user message.
  *
@@ -37,14 +37,20 @@
  */
 import type { JsonRpcClient } from '../jsonrpc/client.js';
 import { METHOD } from '../protocol/methodNames.js';
-import type { TurnStartParams, TurnStartResponse } from '../protocol/types.js';
+import type { TurnStartParams, TurnStartResponse, UserInput } from '../protocol/types.js';
 import type { ActiveThreadBinding } from './activeThreadBinding.js';
+
+export interface BuiltOrientationTurnInput {
+  readonly input: ReadonlyArray<UserInput>;
+  readonly commit: () => void;
+}
 
 export interface CreateDriveForwardOpts {
   readonly client: JsonRpcClient;
   readonly activeThreadBinding: ActiveThreadBinding;
   readonly isTerminal: () => boolean;
   readonly composeActiveStateNudge: () => string;
+  readonly composeActiveStateTurnInput?: () => BuiltOrientationTurnInput;
   readonly onShutdown: () => void | Promise<void>;
   /**
    * Returns true when a `request_user_input` ServerRequest is parked awaiting
@@ -98,12 +104,18 @@ export function createDriveForward(o: CreateDriveForwardOpts): DriveForwardHandl
    * `salvageAfterDanceFailure`) cannot drift.
    */
   async function issueDefaultTurnStart(): Promise<void> {
-    const nudge = o.composeActiveStateNudge();
+    const built =
+      o.composeActiveStateTurnInput?.() ??
+      ({
+        input: [{ type: 'text', text: o.composeActiveStateNudge() }],
+        commit: () => undefined,
+      } satisfies BuiltOrientationTurnInput);
     await o.waitForSettled?.();
     await o.client.request<TurnStartResponse>(METHOD.turnStart, {
       threadId: o.activeThreadBinding.require(),
-      input: [{ type: 'text', text: nudge }],
+      input: built.input,
     } satisfies TurnStartParams);
+    built.commit();
   }
 
   return {

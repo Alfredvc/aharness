@@ -562,6 +562,147 @@ describe('runCliForTest — pre-spawn gates', () => {
     ]);
   });
 
+  it('injects catalog name and path state skills as structured kickoff turn input', async () => {
+    const fsmName = 'skill-structured-kickoff.fsm.ts';
+    const fsmPath = makeFsmFile(repoRoot, fsmName);
+    const pathSkill = join(repoRoot, 'skills', 'path-skill', 'SKILL.md');
+    const machine = aharness.machine({
+      id: 'skill-structured-kickoff',
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'needs skills',
+          skills: [skill('catalog-skill'), skill({ path: './skills/path-skill/SKILL.md' })],
+          exits: { done: exit({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const outboundMethods: string[] = [];
+    let turnStartInput: unknown;
+    let transport!: Transport;
+    const connectStub = async (opts: ConnectHeadlessWsOptions) => {
+      transport = {
+        send(msg: unknown) {
+          const envelope = msg as { id?: number; method?: string; params?: unknown };
+          if (envelope.method) outboundMethods.push(envelope.method);
+          if (envelope.method === METHOD.initialize) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+              }),
+            );
+          } else if (envelope.method === METHOD.skillsExtraRootsSet) {
+            queueMicrotask(() =>
+              transport.onMessage?.({ jsonrpc: '2.0', id: envelope.id, result: {} }),
+            );
+          } else if (envelope.method === METHOD.skillsList) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: {
+                  data: [
+                    {
+                      cwd: repoRoot,
+                      errors: [],
+                      skills: [
+                        {
+                          name: 'catalog-skill',
+                          path: '/codex/skills/catalog-skill/SKILL.md',
+                          enabled: true,
+                        },
+                        { name: 'path-skill', path: pathSkill, enabled: true },
+                      ],
+                    },
+                  ],
+                },
+              }),
+            );
+          } else if (envelope.method === METHOD.threadStart) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { thread: { id: 'thread-1', ephemeral: false } },
+              }),
+            );
+          } else if (envelope.method === METHOD.turnStart) {
+            turnStartInput = (envelope.params as { input?: unknown }).input;
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                error: { code: -32000, message: 'stop after kickoff turn input captured' },
+              }),
+            );
+          }
+        },
+        async close() {
+          /* no-op */
+        },
+      };
+      const client = new JsonRpcClient(transport);
+      opts.registerHandlers?.(client);
+      await client.request(METHOD.initialize, {
+        clientInfo: opts.clientInfo,
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      });
+      return {
+        client,
+        close: async () => {
+          await client.close();
+        },
+      };
+    };
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        loadFsmImpl: (async () => ({
+          machine,
+          sidecar: {},
+          modulePath: '/tmp/skill-structured-kickoff.mjs',
+          issues: [],
+          skillOriginManifest: {
+            rootSourceDir: repoRoot,
+            sourceDirPrefixes: [],
+            availableSkills: [],
+          },
+          cacheHit: false,
+          hash: 'skill-structured-kickoff',
+        })) as unknown as RunCliTestHooks['loadFsmImpl'],
+        spawnAppServer: (async () =>
+          makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+        connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      },
+    });
+
+    const r = await runCliForTest(opts);
+
+    expect(r.exitCode).toBe(1);
+    expect(outboundMethods.slice(0, 5)).toEqual([
+      METHOD.initialize,
+      METHOD.skillsExtraRootsSet,
+      METHOD.skillsList,
+      METHOD.threadStart,
+      METHOD.turnStart,
+    ]);
+    expect(turnStartInput).toEqual([
+      expect.objectContaining({
+        type: 'text',
+        text: expect.stringContaining('[aharness] Now in state "a".'),
+      }),
+      { type: 'skill', name: 'catalog-skill', path: '/codex/skills/catalog-skill/SKILL.md' },
+      { type: 'skill', name: 'path-skill', path: pathSkill },
+    ]);
+    const text = (turnStartInput as Array<{ text?: string }>)[0]?.text ?? '';
+    expect(text).not.toContain('<skill');
+    expect(text).not.toContain('"type":"skill"');
+  });
+
   it('case 3c: bare invocation mints a fresh run dir even when a prior one exists', async () => {
     const fsmPath = makeFsmFile(repoRoot, 'fresh.fsm.ts');
     const fsmBase = basename(fsmPath, '.fsm.ts');

@@ -63,8 +63,13 @@ import { composeStateNudge, type ExitSpec } from '../runtime/nudge.js';
 import {
   buildSkillCatalogPreflight,
   isSkillsListResponse,
+  type ResolvedRuntimeSkill,
   validateSkillCatalog,
 } from '../runtime/skillCatalog.js';
+import {
+  createStateSkillInjectionService,
+  type BuiltStateOrientationInput,
+} from '../runtime/skillInjection.js';
 import { resolveEntryPrompt } from '../runtime/resolvePrompt.js';
 import {
   createPerStateHookDispatcher,
@@ -1020,6 +1025,27 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   const applyStateModelForActiveState = async (): Promise<void> => {
     await prepareStateModelApplyForActiveState()?.apply();
   };
+  const skillInjectionRef: {
+    current?: ReturnType<typeof createStateSkillInjectionService>;
+  } = {};
+  const composeActiveStateTurnInput = (): BuiltStateOrientationInput => {
+    const skillInjection = skillInjectionRef.current;
+    if (skillInjection === undefined) {
+      throw new Error('internal: skill injection service unbound');
+    }
+    const stateId = host.currentStateId();
+    const meta = host.currentMeta();
+    if (!meta || meta.kind !== 'stateful') {
+      throw new Error(`composeActiveStateTurnInput called on non-stateful leaf '${stateId}'`);
+    }
+    const orientation = composeActiveStateNudge(host, sidecar);
+    publishOrientationNote(orientation);
+    return skillInjection.buildTurnInputForActive({
+      stateId,
+      ...(meta.skills !== undefined ? { skills: meta.skills } : {}),
+      orientationText: orientation,
+    });
+  };
   function scheduleFreshClearAfterTransition(info: {
     readonly from: string;
     readonly to: string;
@@ -1100,11 +1126,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
           ...(stateModel.effort !== undefined ? { reasoningEffort: stateModel.effort } : {}),
           waitForSettled: () => stateModelSettings.waitForSettled(),
           dynamicTools: buildDynamicToolsRegistration(),
-          composeActiveStateNudge: () => {
-            const orientation = composeActiveStateNudge(host, sidecar);
-            publishOrientationNote(orientation);
-            return orientation;
-          },
+          composeActiveStateNudge: () => composeActiveStateTurnInput().text,
+          composeActiveStateTurnInput,
+          resetSkillInjectionForFreshThread: () => skillInjectionRef.current?.resetForFreshThread(),
           onCleanupError: (error) => {
             o.stderr.write(`aharness: fresh clear cleanup warning: ${error.message}\n`);
           },
@@ -1134,12 +1158,12 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       void (async () => {
         if (!client) throw new Error('internal: client unbound for owner-choice orientation');
         await stateModelSettings.waitForSettled();
-        const orientation = composeActiveStateNudge(host, sidecar);
-        publishOrientationNote(orientation);
+        const built = composeActiveStateTurnInput();
         await client.request(METHOD.turnStart, {
           threadId: activeThreadBinding.require(),
-          input: [{ type: 'text', text: orientation }],
+          input: built.input,
         } satisfies TurnStartParams);
+        built.commit();
       })().catch((error: unknown) => {
         const message = `owner-choice orientation failed: ${(error as Error).message}`;
         o.stderr.write(`aharness: ${message}\n`);
@@ -1212,6 +1236,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       publishActiveOwnerChoicePending();
     },
     composeActiveStateNudge: () => composeActiveStateNudge(host, sidecar),
+    composeActiveStateTurnInput,
     runOnEntry: runActiveOnEntry,
     ops: opsHandle.ops,
     writeFinalArtifacts: writeActiveFinalArtifacts,
@@ -1226,7 +1251,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     },
     scheduleCrossStateDance: (a) => {
       if (!client) throw new Error('internal: client unbound at dispatch time');
-      publishOrientationNote(a.orientationText);
+      if (a.orientationInput === undefined) {
+        publishOrientationNote(a.orientationText);
+      }
       scheduleCrossStateDance({
         ...a,
         applyStateModel: applyStateModelForActiveState,
@@ -1495,12 +1522,13 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   shutdownAfterTerminal.current = shutdown;
 
   // 11. Register Codex skill roots and validate the startup catalog before
-  //     creating the thread. Slice 2 keeps turn payloads text-only; this
-  //     preflight only proves required skills are discoverable.
+  //     creating the thread. The resolved catalog feeds native structured
+  //     skill items for later framework-owned orientation turns.
   const skillPreflight = buildSkillCatalogPreflight({
     machine,
     skillOriginManifest: loaded.skillOriginManifest,
   });
+  let resolvedRuntimeSkills: ReadonlyArray<ResolvedRuntimeSkill> = [];
   try {
     await ws.request<SkillsExtraRootsSetResponse>(METHOD.skillsExtraRootsSet, {
       extraRoots: skillPreflight.extraRoots,
@@ -1523,6 +1551,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     if (!validation.ok) {
       throw new Error(validation.errors.join('; '));
     }
+    resolvedRuntimeSkills = validation.resolvedSkills;
   } catch (e) {
     const message = `skill preflight failed: ${(e as Error).message}`;
     o.stderr.write(`aharness: ${message}\n`);
@@ -1530,6 +1559,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     await shutdown();
     return { exitCode: 1 };
   }
+  skillInjectionRef.current = createStateSkillInjectionService({
+    resolvedSkills: resolvedRuntimeSkills,
+  });
 
   // 12. thread/start.
   try {
@@ -1597,6 +1629,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     isAwaiting,
     isOpen: () => isOpenState(host),
     isChoice: () => isChoiceState(host),
+    composeActiveStateTurnInput,
     waitForSettled: () => stateModelSettings.waitForSettled(),
   });
   const driveForwardHandle = driveForward;
@@ -1692,12 +1725,12 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     if (isChoiceState(host)) {
       publishActiveOwnerChoicePending();
     } else {
-      const orientation = composeActiveStateNudge(host, sidecar);
-      publishOrientationNote(orientation);
+      const built = composeActiveStateTurnInput();
       await ws.request(METHOD.turnStart, {
         threadId: activeThreadBinding.require(),
-        input: [{ type: 'text', text: orientation }],
+        input: built.input,
       } satisfies TurnStartParams);
+      built.commit();
     }
   } catch (e) {
     const message = `kickoff turn/start failed: ${(e as Error).message}`;

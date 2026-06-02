@@ -187,6 +187,54 @@ describe('performFreshClear', () => {
     });
   });
 
+  it('resets skill dedupe before composing replacement structured orientation input', async () => {
+    const binding = createActiveThreadBinding('thread-old');
+    const sequence: string[] = [];
+    const commit = vi.fn(() => sequence.push('commit'));
+    const client = createClient((method) => {
+      if (method === METHOD.threadStart) {
+        return { thread: { id: 'thread-new', ephemeral: false } };
+      }
+      if (method === METHOD.turnStart) {
+        sequence.push('turn/start');
+        return { turn: { id: 'turn-new' } };
+      }
+      return {};
+    });
+
+    await performFreshClear({
+      client,
+      activeThreadBinding: binding,
+      cwd: '/repo',
+      dynamicTools,
+      composeActiveStateNudge: () => 'unused',
+      resetSkillInjectionForFreshThread: () => sequence.push('reset'),
+      composeActiveStateTurnInput: () => {
+        sequence.push('compose');
+        return {
+          input: [
+            { type: 'text', text: 'state orientation' },
+            { type: 'skill', name: 'alpha', path: '/skills/alpha/SKILL.md' },
+          ],
+          commit,
+        };
+      },
+      onCleanupError: vi.fn(),
+    });
+
+    expect(sequence).toEqual(['reset', 'compose', 'turn/start', 'commit']);
+    expect(client.calls).toContainEqual({
+      method: METHOD.turnStart,
+      params: {
+        threadId: 'thread-new',
+        input: [
+          { type: 'text', text: 'state orientation' },
+          { type: 'skill', name: 'alpha', path: '/skills/alpha/SKILL.md' },
+        ],
+      },
+    });
+  });
+
   it('skips old-turn interrupt when no old turn id is known', async () => {
     const binding = createActiveThreadBinding('thread-old');
     const client = createClient();

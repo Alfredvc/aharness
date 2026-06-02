@@ -120,38 +120,13 @@ describe('composeStateNudge', () => {
     expect(n).toContain('"Item"');
   });
 
-  it('appends skillBlocks after the entryPromptText', () => {
+  it('does not append manual skill blocks to orientation text', () => {
     const n = composeStateNudge({
       stateId: 's',
       exits: [{ kind: 'submit', name: 'go', schema: { type: 'object' } }],
-      entryPromptText: 'Do the thing.',
-      skillBlocks: [
-        '<skill name="alpha" path="/a/SKILL.md">\nbody-a\n</skill>',
-        '<skill name="beta" path="/b/SKILL.md">\nbody-b\n</skill>',
-      ],
-    });
-    expect(n).toContain('Do the thing.');
-    expect(n).toContain('<skill name="alpha"');
-    expect(n).toContain('body-a');
-    expect(n).toContain('<skill name="beta"');
-    expect(n).toContain('body-b');
-    // skill blocks land AFTER the entry prompt text
-    expect(n.indexOf('Do the thing.')).toBeLessThan(n.indexOf('<skill name="alpha"'));
-  });
-
-  it('omits skill section when skillBlocks is empty or absent', () => {
-    const n1 = composeStateNudge({
-      stateId: 's',
-      exits: [{ kind: 'submit', name: 'go', schema: { type: 'object' } }],
-      entryPromptText: 'x',
-      skillBlocks: [],
-    });
-    const n2 = composeStateNudge({
-      stateId: 's',
-      exits: [{ kind: 'submit', name: 'go', schema: { type: 'object' } }],
       entryPromptText: 'x',
     });
-    expect(n1).not.toContain('<skill');
-    expect(n2).not.toContain('<skill');
+    expect(n).not.toContain('<skill');
+    expect(n).not.toContain('"type":"skill"');
   });
 });

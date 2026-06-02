@@ -59,6 +59,70 @@ describe('drive-forward (Phase 1)', () => {
     ]);
   });
 
+  it('issues structured orientation input and commits after turn/start succeeds', async () => {
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const commit = vi.fn();
+    const client = makeStubClient({
+      request: (async (method: string, params: unknown) => {
+        requests.push({ method, params });
+        return { turn: { id: 't1' } };
+      }) as JsonRpcClient['request'],
+    });
+    const driveForward = createDriveForward({
+      client,
+      activeThreadBinding: activeThread('p'),
+      isTerminal: () => false,
+      composeActiveStateNudge: () => 'unused',
+      composeActiveStateTurnInput: () => ({
+        input: [
+          { type: 'text', text: 'nudge text' },
+          { type: 'skill', name: 'alpha', path: '/skills/alpha/SKILL.md' },
+        ],
+        commit,
+      }),
+      onShutdown: () => {},
+    });
+
+    await driveForward.onTurnCompleted();
+
+    expect(requests).toEqual([
+      {
+        method: 'turn/start',
+        params: {
+          threadId: 'p',
+          input: [
+            { type: 'text', text: 'nudge text' },
+            { type: 'skill', name: 'alpha', path: '/skills/alpha/SKILL.md' },
+          ],
+        },
+      },
+    ]);
+    expect(commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not commit structured orientation input when turn/start fails', async () => {
+    const commit = vi.fn();
+    const client = makeStubClient({
+      request: (async () => {
+        throw new Error('turn failed');
+      }) as JsonRpcClient['request'],
+    });
+    const driveForward = createDriveForward({
+      client,
+      activeThreadBinding: activeThread('p'),
+      isTerminal: () => false,
+      composeActiveStateNudge: () => 'unused',
+      composeActiveStateTurnInput: () => ({
+        input: [{ type: 'text', text: 'nudge text' }],
+        commit,
+      }),
+      onShutdown: () => {},
+    });
+
+    await expect(driveForward.onTurnCompleted()).rejects.toThrow(/turn failed/);
+    expect(commit).not.toHaveBeenCalled();
+  });
+
   it('reads the active thread binding when issuing default turn/start', async () => {
     const requests: Array<{ method: string; params: unknown }> = [];
     const binding = activeThread('parent-1');

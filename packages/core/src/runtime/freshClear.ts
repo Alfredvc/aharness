@@ -11,6 +11,7 @@ import type {
   TurnInterruptResponse,
   TurnStartParams,
   TurnStartResponse,
+  UserInput,
 } from '../protocol/types.js';
 
 import type { ActiveThreadBinding } from './activeThreadBinding.js';
@@ -25,6 +26,11 @@ export interface PerformFreshClearOpts {
   readonly dynamicTools: ReadonlyArray<DynamicToolDef>;
   readonly waitForSettled?: () => Promise<void>;
   readonly composeActiveStateNudge: () => string;
+  readonly composeActiveStateTurnInput?: () => {
+    readonly input: ReadonlyArray<UserInput>;
+    readonly commit: () => void;
+  };
+  readonly resetSkillInjectionForFreshThread?: () => void;
   readonly onCleanupError?: (error: Error) => void;
 }
 
@@ -71,12 +77,22 @@ export async function performFreshClear(
   } satisfies ThreadStartParams);
 
   opts.activeThreadBinding.set(replacement.thread.id);
-  const orientationText = opts.composeActiveStateNudge();
+  opts.resetSkillInjectionForFreshThread?.();
+  const built =
+    opts.composeActiveStateTurnInput?.() ??
+    ({
+      input: [{ type: 'text', text: opts.composeActiveStateNudge() }],
+      commit: () => undefined,
+    } satisfies {
+      readonly input: ReadonlyArray<UserInput>;
+      readonly commit: () => void;
+    });
   await opts.waitForSettled?.();
   await opts.client.request<TurnStartResponse>(METHOD.turnStart, {
     threadId: replacement.thread.id,
-    input: [{ type: 'text', text: orientationText }],
+    input: built.input,
   } satisfies TurnStartParams);
+  built.commit();
 
   return {
     previousThreadId: oldThreadId,

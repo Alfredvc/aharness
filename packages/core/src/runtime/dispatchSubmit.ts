@@ -61,6 +61,7 @@ import type {
   DynamicToolCallParams,
   DynamicToolCallResponse,
   JsonValue,
+  UserInput,
 } from '../protocol/types.js';
 import type { ServerRequestMeta } from '../jsonrpc/client.js';
 import type { AharnessMeta, AharnessStateMeta, RunCtx, SchemaSidecar } from '../types.js';
@@ -128,6 +129,8 @@ export interface CreateSubmitDispatcherOpts {
     readonly turnId: string;
     readonly callId: string;
     readonly orientationText: string;
+    readonly orientationInput?: ReadonlyArray<UserInput>;
+    readonly commitOrientationInput?: () => void;
     readonly applyStateModel?: () => Promise<void>;
   }) => void;
   /**
@@ -147,7 +150,7 @@ export interface CreateSubmitDispatcherOpts {
   /**
    * Phase 2a: compose the FULL nudge for the active (post-commit) state
    * — header (`[aharness] Now in state "<id>"`), schema-rendered valid
-   * submit exits, resolved `entryPrompt`, and any skill blocks. Same
+   * submit exits, and resolved `entryPrompt`. Same
    * shape `driveForward`'s default branch sends. Invoked AFTER
    * `host.commitSubmit` so the closure reads the live host (which has
    * advanced to the new leaf).
@@ -157,6 +160,11 @@ export interface CreateSubmitDispatcherOpts {
    * `Error('composeActiveStateNudge not wired')`.
    */
   readonly composeActiveStateNudge?: () => string;
+  readonly composeActiveStateTurnInput?: () => {
+    readonly text: string;
+    readonly input: ReadonlyArray<UserInput>;
+    readonly commit: () => void;
+  };
   /**
    * Run the active state's author `onEntry` hook after the transition
    * commit but before terminal/cross-state success side-effects and
@@ -427,8 +435,17 @@ async function dispatch(
             throw new Error('composeActiveStateNudge not wired');
           }
           let nudge: string;
+          let orientationInput: ReadonlyArray<UserInput> | undefined;
+          let commitOrientationInput: (() => void) | undefined;
           try {
-            nudge = o.composeActiveStateNudge();
+            const built = o.composeActiveStateTurnInput?.();
+            if (built !== undefined) {
+              nudge = built.text;
+              orientationInput = built.input;
+              commitOrientationInput = built.commit;
+            } else {
+              nudge = o.composeActiveStateNudge();
+            }
           } catch (e) {
             nudge = `(aharness: error composing nudge for state '${settledStateId}': ${(e as Error).message})`;
           }
@@ -440,6 +457,8 @@ async function dispatch(
             turnId: string;
             callId: string;
             orientationText: string;
+            orientationInput?: ReadonlyArray<UserInput>;
+            commitOrientationInput?: () => void;
             applyStateModel?: () => Promise<void>;
           } = {
             threadId: params.threadId,
@@ -447,6 +466,10 @@ async function dispatch(
             callId: params.callId,
             orientationText: nudge,
           };
+          if (orientationInput !== undefined) crossStateArgs.orientationInput = orientationInput;
+          if (commitOrientationInput !== undefined) {
+            crossStateArgs.commitOrientationInput = commitOrientationInput;
+          }
           if (o.applyStateModel !== undefined) {
             crossStateArgs.applyStateModel = o.applyStateModel;
           }
@@ -546,8 +569,17 @@ async function dispatch(
     // shape used by `composeActiveStateNudge`'s own in-house catches at
     // `runCli.ts:584,596` so log scrubbers treat both cases the same.
     let nudge: string;
+    let orientationInput: ReadonlyArray<UserInput> | undefined;
+    let commitOrientationInput: (() => void) | undefined;
     try {
-      nudge = o.composeActiveStateNudge();
+      const built = o.composeActiveStateTurnInput?.();
+      if (built !== undefined) {
+        nudge = built.text;
+        orientationInput = built.input;
+        commitOrientationInput = built.commit;
+      } else {
+        nudge = o.composeActiveStateNudge();
+      }
     } catch (e) {
       nudge = `(aharness: error composing nudge for state '${dry.nextStateId}': ${(e as Error).message})`;
     }
@@ -559,6 +591,8 @@ async function dispatch(
       turnId: string;
       callId: string;
       orientationText: string;
+      orientationInput?: ReadonlyArray<UserInput>;
+      commitOrientationInput?: () => void;
       applyStateModel?: () => Promise<void>;
     } = {
       threadId: params.threadId,
@@ -566,6 +600,10 @@ async function dispatch(
       callId: params.callId,
       orientationText: nudge,
     };
+    if (orientationInput !== undefined) crossStateArgs.orientationInput = orientationInput;
+    if (commitOrientationInput !== undefined) {
+      crossStateArgs.commitOrientationInput = commitOrientationInput;
+    }
     if (o.applyStateModel !== undefined) {
       crossStateArgs.applyStateModel = o.applyStateModel;
     }
