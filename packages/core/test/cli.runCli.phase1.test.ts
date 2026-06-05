@@ -41,7 +41,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // not skipped.
 import type { MockModelHandle } from '@aharness/test-support';
 
-import { aharness, state, exit, terminal, DECLINED_ANSWER_TEXT } from '../src/index.js';
+import { aharness, createFsm, state, exit, terminal, DECLINED_ANSWER_TEXT } from '../src/index.js';
 import { runCliForTest, type RunCliTestHooks } from '../src/cli/runCli.js';
 import type { OwnerInputProvider } from '../src/cli/ownerInputProvider.js';
 import type { AppServerHandle } from '../src/appServer/index.js';
@@ -1627,9 +1627,10 @@ describe('runCliForTest — request-user-input ServerRequest handler', () => {
 // Phase 3a Task 4 — browser UI stream publication from existing runtime hooks.
 //
 // Agent A owns the skeleton + failing behavioral tests only. These tests pin
-// the Task 4 publication contract while asserting the existing stdout fallback
-// remains intact. Agent B should make these pass by publishing UI events at the
-// same runtime call sites that already write stdout or send orientation turns.
+// the Task 4 publication contract while asserting UI publication survives
+// without mirroring model deltas to stdout. Agent B should make these pass by
+// publishing UI events at the same runtime call sites that send orientation
+// turns or produce operator-visible status.
 // ---------------------------------------------------------------------------
 
 describe('runCliForTest — Phase 3a runtime event publication', () => {
@@ -1701,6 +1702,10 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
     };
   }
 
+  function stdoutLines(chunks: readonly string[]): string[] {
+    return chunks.join('').split('\n').filter(Boolean);
+  }
+
   async function runWithTask4Aharness(o: {
     readonly fsmName: string;
     readonly machine: ReturnType<typeof aharness.machine>;
@@ -1709,6 +1714,9 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
     readonly stdout: NodeJS.WritableStream;
     readonly events: ReplayableAppEvent[];
     readonly onActiveThreadBinding?: (binding: ActiveThreadBinding) => void;
+    readonly onReplyHandler?: (
+      handler: (payload: Record<string, unknown>) => Promise<unknown>,
+    ) => void;
   }) {
     writeFileSync(join(repoRoot, o.fsmName), '// stub fsm\n');
     return runCliForTest({
@@ -1731,12 +1739,17 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
       spawnAppServer: (async () =>
         makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
       connectHeadlessWsImpl: o.connect,
-      startUiServerImpl: async () => ({
-        url: 'http://127.0.0.1:0',
-        close: async () => {
-          /* no-op */
-        },
-      }),
+      startUiServerImpl: async (options) => {
+        o.onReplyHandler?.(
+          options.replyHandler as (payload: Record<string, unknown>) => Promise<unknown>,
+        );
+        return {
+          url: 'http://127.0.0.1:0',
+          close: async () => {
+            /* no-op */
+          },
+        };
+      },
       _testOnUiEvent: (event) => o.events.push(event),
       ...(o.onActiveThreadBinding ? { _testOnActiveThreadBinding: o.onActiveThreadBinding } : {}),
     });
@@ -1915,7 +1928,7 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
     );
   }, 10_000);
 
-  it('publishes StateChange, AgentMessageDelta, and visible tool-call events while preserving stdout fallback', async () => {
+  it('keeps live stdout minimal while transition lines replace model deltas and UI events retain visible tool-call events', async () => {
     const { machine, sidecar } = buildTwoStateMachineAndSidecar();
     const { handle, connect } = makeSyntheticConnectStub();
     const { stdout, chunks: stdoutChunks } = makeStdoutCapture();
@@ -2003,8 +2016,10 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
     if (driverErr.value) throw driverErr.value;
 
     expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
-    expect(stdoutChunks.join('')).toContain('hello browser');
-    expect(stdoutChunks.join('')).toContain('[transition] a --done--> b');
+    const stdoutText = stdoutChunks.join('');
+    expect(stdoutText).not.toContain('hello browser');
+    expect(stdoutText).toContain('aharness: transition a --done--> b\n');
+    expect(stdoutText.split('\n').some((line) => line.startsWith('[transition]'))).toBe(false);
 
     expect(events.map((e) => e.event)).toContainEqual({
       kind: 'TurnStarted',
@@ -2036,6 +2051,455 @@ describe('runCliForTest — Phase 3a runtime event publication', () => {
         from: 'a',
         to: 'b',
         cause: 'submit',
+      }),
+    );
+  }, 10_000);
+
+  it('reports browser UI available, lifecycle, and transition stdout status lines with the direct run target label', async () => {
+    const { machine, sidecar } = buildTwoStateMachineAndSidecar();
+    const { handle, connect } = makeSyntheticConnectStub();
+    const { stdout, chunks: stdoutChunks } = makeStdoutCapture();
+    const events: ReplayableAppEvent[] = [];
+    const threadId = 'thread-stdout-status';
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: threadId, ephemeral: false } });
+
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9101,
+        method: METHOD.toolDynamicCall,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          callId: 'call-1',
+          tool: 'aharness_submit',
+          arguments: JSON.stringify({ state: 'a', exit: 'done', data: { ok: true } }),
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runWithTask4Aharness({
+      fsmName: 'task1-status.fsm.ts',
+      machine,
+      sidecar,
+      connect: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      stdout,
+      events,
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+    const text = stdoutChunks.join('');
+    expect(text.startsWith('\n')).toBe(false);
+    expect(text.endsWith('\n')).toBe(true);
+    expect(text).toContain('aharness: run ');
+    expect(text).toContain(' starting task1-status.fsm.ts ');
+    expect(text).toContain('aharness: browser UI available at http://127.0.0.1:0');
+    expect(text).toContain('aharness: codex launching');
+    expect(text).toContain('aharness: codex ready thread=thread-stdout-status state=a');
+    expect(text).toContain('aharness: transition a --done--> b\n');
+    expect(text.split('\n').some((line) => line.startsWith('[transition]'))).toBe(false);
+    const runRoot = onlyRunRootForCliRegression(repoRoot);
+    expect(stdoutLines(stdoutChunks).filter((line) => line.includes('run completed'))).toEqual([
+      `aharness: run completed state=b terminal=success dir=${runRoot}`,
+    ]);
+    expect(text).not.toContain('aharness: run failed');
+  }, 10_000);
+
+  it('reports one failed stdout summary for framework-detected app-server failures', async () => {
+    const { machine, sidecar } = buildTwoStateMachineAndSidecar();
+    const { stdout, chunks: stdoutChunks } = makeStdoutCapture();
+    const events: ReplayableAppEvent[] = [];
+    writeFileSync(join(repoRoot, 'task4-failed-summary.fsm.ts'), '// stub fsm\n');
+
+    const result = await runCliForTest({
+      fsmPath: 'task4-failed-summary.fsm.ts',
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      authJsonExists: () => true,
+      loadFsmImpl: (async () => ({
+        machine,
+        sidecar,
+        modulePath: '/tmp/task4-failed-summary.fsm.ts.mjs',
+        issues: [],
+        skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
+        cacheHit: false,
+        hash: 'task4-failed-summary.fsm.ts',
+      })) as unknown as RunCliTestHooks['loadFsmImpl'],
+      spawnAppServer: (async () => {
+        throw new Error('forced spawn failure');
+      }) as unknown as RunCliTestHooks['spawnAppServer'],
+      startUiServerImpl: async () => ({
+        url: 'http://127.0.0.1:0',
+        close: async () => {
+          /* no-op */
+        },
+      }),
+      _testOnUiEvent: (event) => events.push(event),
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(stderrBuf.join('')).toContain('aharness: app-server failed: forced spawn failure');
+    const runRoot = onlyRunRootForCliRegression(repoRoot);
+    expect(stdoutLines(stdoutChunks).filter((line) => line.includes('run failed'))).toEqual([
+      `aharness: run failed state=a reason=app-server failed: forced spawn failure dir=${runRoot}`,
+    ]);
+    expect(stdoutChunks.join('')).not.toContain('aharness: run completed');
+  });
+
+  it('keeps stdout failure reasons single-line and sanitized while preserving detailed stderr', async () => {
+    const { machine, sidecar } = buildTwoStateMachineAndSidecar();
+    const { stdout, chunks: stdoutChunks } = makeStdoutCapture();
+    writeFileSync(join(repoRoot, 'task4-sanitized-failure.fsm.ts'), '// stub fsm\n');
+    const detailedMessage =
+      `forced spawn failure ${'more context '.repeat(40)}\n` +
+      '    at stackFrame (/tmp/example.js:1:2)\n' +
+      'stderr:\n' +
+      'child process emitted private diagnostics that should stay off stdout\n' +
+      'private second diagnostic line';
+
+    const result = await runCliForTest({
+      fsmPath: 'task4-sanitized-failure.fsm.ts',
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      authJsonExists: () => true,
+      loadFsmImpl: (async () => ({
+        machine,
+        sidecar,
+        modulePath: '/tmp/task4-sanitized-failure.fsm.ts.mjs',
+        issues: [],
+        skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
+        cacheHit: false,
+        hash: 'task4-sanitized-failure.fsm.ts',
+      })) as unknown as RunCliTestHooks['loadFsmImpl'],
+      spawnAppServer: (async () => {
+        throw new Error(detailedMessage);
+      }) as unknown as RunCliTestHooks['spawnAppServer'],
+      startUiServerImpl: async () => ({
+        url: 'http://127.0.0.1:0',
+        close: async () => {
+          /* no-op */
+        },
+      }),
+    });
+
+    expect(result.exitCode).toBe(1);
+    const stderrText = stderrBuf.join('');
+    expect(stderrText).toContain('at stackFrame');
+    expect(stderrText).toContain('stderr:\nchild process emitted private diagnostics');
+
+    const failedLines = stdoutLines(stdoutChunks).filter((line) => line.includes('run failed'));
+    expect(failedLines).toHaveLength(1);
+    const failedLine = failedLines[0]!;
+    expect(failedLine).toContain('reason=app-server failed: forced spawn failure more context');
+    expect(failedLine).toContain('...');
+    expect(failedLine).not.toContain('at stackFrame');
+    expect(failedLine).not.toContain('stderr:');
+    expect(failedLine).not.toContain('child process emitted private diagnostics');
+    expect(failedLine).not.toContain('private second diagnostic line');
+  });
+
+  it('reports a failed stdout summary when FSM loading fails after run start', async () => {
+    const { stdout, chunks: stdoutChunks } = makeStdoutCapture();
+    writeFileSync(join(repoRoot, 'task4-load-failure.fsm.ts'), '// stub fsm\n');
+
+    const result = await runCliForTest({
+      fsmPath: 'task4-load-failure.fsm.ts',
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      loadFsmImpl: (async () => {
+        throw new Error('load failure');
+      }) as unknown as RunCliTestHooks['loadFsmImpl'],
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(stderrBuf.join('')).toContain('aharness: failed to load FSM: load failure');
+    const runRoot = onlyRunRootForCliRegression(repoRoot);
+    expect(stdoutLines(stdoutChunks).filter((line) => line.includes('run failed'))).toEqual([
+      `aharness: run failed reason=failed to load FSM: load failure dir=${runRoot}`,
+    ]);
+  });
+
+  it('reports a failed stdout summary when auth precheck fails after run start', async () => {
+    const { machine, sidecar } = buildTwoStateMachineAndSidecar();
+    const { stdout, chunks: stdoutChunks } = makeStdoutCapture();
+    writeFileSync(join(repoRoot, 'task4-auth-failure.fsm.ts'), '// stub fsm\n');
+
+    const result = await runCliForTest({
+      fsmPath: 'task4-auth-failure.fsm.ts',
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      authJsonExists: () => false,
+      loadFsmImpl: (async () => ({
+        machine,
+        sidecar,
+        modulePath: '/tmp/task4-auth-failure.fsm.ts.mjs',
+        issues: [],
+        skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
+        cacheHit: false,
+        hash: 'task4-auth-failure.fsm.ts',
+      })) as unknown as RunCliTestHooks['loadFsmImpl'],
+    });
+
+    expect(result.exitCode).toBe(1);
+    expect(stderrBuf.join('')).toContain('aharness: ~/.codex/auth.json not found');
+    const runRoot = onlyRunRootForCliRegression(repoRoot);
+    expect(stdoutLines(stdoutChunks).filter((line) => line.includes('run failed'))).toEqual([
+      `aharness: run failed reason=~/.codex/auth.json not found. Run \`codex login\` first. dir=${runRoot}`,
+    ]);
+  });
+
+  it('reports a failed stdout summary for invalid input flags', async () => {
+    const { machine, sidecar } = buildTwoStateMachineAndSidecar();
+    const { stdout: invalidStdout, chunks: invalidStdoutChunks } = makeStdoutCapture();
+    writeFileSync(join(repoRoot, 'task4-input-failure.fsm.ts'), '// stub fsm\n');
+
+    const invalidResult = await runCliForTest({
+      fsmPath: 'task4-input-failure.fsm.ts',
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout: invalidStdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      authJsonExists: () => true,
+      inputArgs: ['--target-name'],
+      loadFsmImpl: (async () => ({
+        machine,
+        sidecar,
+        modulePath: '/tmp/task4-input-failure.fsm.ts.mjs',
+        issues: [],
+        skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
+        cacheHit: false,
+        hash: 'task4-input-failure.fsm.ts',
+        inputSchema: {
+          type: 'object',
+          required: ['targetName'],
+          properties: { targetName: { type: 'string' } },
+          additionalProperties: false,
+        },
+        inputFlags: { targetName: { description: 'Target name' } },
+      })) as unknown as RunCliTestHooks['loadFsmImpl'],
+    });
+
+    expect(invalidResult.exitCode).toBe(2);
+    expect(stderrBuf.join('')).toContain('aharness: invalid input flags:\n');
+    const invalidRunRoot = onlyRunRootForCliRegression(repoRoot);
+    const invalidFailedLines = stdoutLines(invalidStdoutChunks).filter((line) =>
+      line.includes('run failed'),
+    );
+    expect(invalidFailedLines).toHaveLength(1);
+    expect(invalidFailedLines[0]).toContain(
+      `aharness: run failed reason=aharness: invalid input flags: flag --target-name requires a value`,
+    );
+    expect(invalidFailedLines[0]).toContain(` dir=${invalidRunRoot}`);
+  });
+
+  it('reports a failed stdout summary for no-input-fields failures', async () => {
+    const { machine, sidecar } = buildTwoStateMachineAndSidecar();
+    const { stdout: noInputStdout, chunks: noInputStdoutChunks } = makeStdoutCapture();
+    writeFileSync(join(repoRoot, 'task4-no-input-failure.fsm.ts'), '// stub fsm\n');
+
+    const noInputResult = await runCliForTest({
+      fsmPath: 'task4-no-input-failure.fsm.ts',
+      cwd: repoRoot,
+      stderr: stderrSink,
+      stdout: noInputStdout,
+      verify: async () => ({ exitCode: 0 }),
+      versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+      authJsonExists: () => true,
+      inputArgs: ['--unknown'],
+      loadFsmImpl: (async () => ({
+        machine,
+        sidecar,
+        modulePath: '/tmp/task4-no-input-failure.fsm.ts.mjs',
+        issues: [],
+        skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
+        cacheHit: false,
+        hash: 'task4-no-input-failure.fsm.ts',
+      })) as unknown as RunCliTestHooks['loadFsmImpl'],
+    });
+
+    expect(noInputResult.exitCode).toBe(2);
+    expect(stderrBuf.join('')).toContain(
+      'aharness: FSM declares no input fields; unknown flags: --unknown',
+    );
+    const noInputRunRoot = onlyRunRootForCliRegression(repoRoot);
+    expect(stdoutLines(noInputStdoutChunks).filter((line) => line.includes('run failed'))).toEqual([
+      `aharness: run failed reason=FSM declares no input fields; unknown flags: --unknown dir=${noInputRunRoot}`,
+    ]);
+  });
+
+  it('reports canonical built-in transition stdout lines using the state-change cause', async () => {
+    const fsm = createFsm<Record<string, never>>();
+    const machine = fsm.machine({
+      initial: 'a',
+      states: {
+        a: fsm.state({
+          prompt: 'state a active',
+          on: {
+            permissionRequest: {
+              match: '^Bash$',
+              to: 'b',
+              return: () => 'accept',
+            },
+          },
+        }),
+        b: fsm.final({ outcome: 'success' }),
+      },
+    });
+    const sidecar = {};
+    const { handle, connect } = makeSyntheticConnectStub();
+    const { stdout, chunks: stdoutChunks } = makeStdoutCapture();
+    const events: ReplayableAppEvent[] = [];
+    const threadId = 'thread-canonical-transition';
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: threadId, ephemeral: false } });
+
+      await waitForOutbound(handle, (m) => m.method === METHOD.turnStart);
+      handle.replyTo(METHOD.turnStart, {});
+
+      handle.push({
+        jsonrpc: '2.0',
+        id: 9201,
+        method: METHOD.commandExecutionRequestApproval,
+        params: {
+          threadId,
+          turnId: 't-kick',
+          itemId: 'cmd-1',
+          command: 'echo hi',
+          cwd: repoRoot,
+        },
+      });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runWithTask4Aharness({
+      fsmName: 'task3-canonical-transition.fsm.ts',
+      machine,
+      sidecar,
+      connect: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      stdout,
+      events,
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+    const text = stdoutChunks.join('');
+    expect(text).toContain('aharness: transition a --always--> b\n');
+    expect(text.split('\n').some((line) => line.startsWith('[transition]'))).toBe(false);
+    expect(events.map((e) => e.event)).toContainEqual(
+      expect.objectContaining({
+        kind: 'StateChange',
+        from: 'a',
+        to: 'b',
+        cause: 'always',
+      }),
+    );
+  }, 10_000);
+
+  it('reports owner-choice transition stdout lines using the state-change cause', async () => {
+    const fsm = createFsm<Record<string, never>>();
+    const machine = fsm.machine({
+      initial: 'pick',
+      states: {
+        pick: fsm.choice({
+          question: 'Pick a route',
+          options: [{ label: 'Done', to: 'done' }],
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+    const sidecar = {};
+    const { handle, connect } = makeSyntheticConnectStub();
+    const { stdout, chunks: stdoutChunks } = makeStdoutCapture();
+    const events: ReplayableAppEvent[] = [];
+    const threadId = 'thread-choice-transition';
+    let replyHandler: ((payload: Record<string, unknown>) => Promise<unknown>) | undefined;
+
+    const driver = async (): Promise<void> => {
+      await waitForOutbound(handle, (m) => m.method === METHOD.threadStart);
+      handle.replyTo(METHOD.threadStart, { thread: { id: threadId, ephemeral: false } });
+
+      const start = Date.now();
+      while (
+        Date.now() - start < 2_000 &&
+        !events.some((entry) => entry.event.kind === 'OwnerChoice')
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      if (!replyHandler) throw new Error('reply handler was not captured');
+      await expect(
+        replyHandler({
+          kind: 'owner-choice',
+          state: 'pick',
+          visitCount: 1,
+          label: 'Done',
+        }),
+      ).resolves.toEqual({ status: 200, body: { ok: true } });
+    };
+
+    const driverErr: { value: Error | null } = { value: null };
+    const driverPromise = driver().catch((e) => {
+      driverErr.value = e as Error;
+    });
+
+    const result = await runWithTask4Aharness({
+      fsmName: 'task3-owner-choice-transition.fsm.ts',
+      machine,
+      sidecar,
+      connect: connect as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+      stdout,
+      events,
+      onReplyHandler: (handler) => {
+        replyHandler = handler;
+      },
+    });
+
+    await driverPromise;
+    if (driverErr.value) throw driverErr.value;
+
+    expect(result.exitCode, `stderr: ${stderrBuf.join('')}`).toBe(0);
+    const text = stdoutChunks.join('');
+    expect(text).toContain('aharness: transition pick --choice--> done\n');
+    expect(text.split('\n').some((line) => line.startsWith('[transition]'))).toBe(false);
+    expect(events.map((e) => e.event)).toContainEqual(
+      expect.objectContaining({
+        kind: 'StateChange',
+        from: 'pick',
+        to: 'done',
+        cause: 'choice',
       }),
     );
   }, 10_000);

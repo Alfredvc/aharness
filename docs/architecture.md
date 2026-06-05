@@ -24,6 +24,13 @@ At runtime, `aharness run <file.fsm.ts>` runs foreground-only:
    hook dispatch and canonical JSONL event logging in the same CLI process.
 7. It opens a loopback browser UI protected by a per-run token.
 
+The live CLI stdout contract is deliberately small. Standard output reports
+operator milestones for run start, browser UI availability, Codex
+launch/readiness, normalized state transitions, and a single terminal completed
+or failed summary. It does not carry raw model deltas, tool detail, approval
+payloads, or canonical event detail; those remain in the browser UI, run
+artifacts, or diagnostics channels according to their sensitivity and use.
+
 For read-only FSM inspection, `aharness visualize <file.fsm.ts>` verifies and
 opens the same graph/details UI without starting Codex, hooks, a thread, or the
 FSM actor.

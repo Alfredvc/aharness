@@ -194,7 +194,7 @@ async function spawnAppServerImpl(
   for (const [k, v] of opts.cliOverrides ?? []) args.push('-c', `${k}=${v}`);
   const child = spawnFn('codex', args, {
     env,
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['ignore', 'ignore', 'pipe'],
   });
   const childError = new Promise<Error>((resolve) => {
     child.once('error', resolve);

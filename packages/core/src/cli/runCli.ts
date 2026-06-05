@@ -187,6 +187,76 @@ const SIGINT_EXIT_CODE = 130;
 
 export type RunPermissionMode = 'autoReview' | 'ask' | 'yolo';
 
+interface LiveStdoutReporter {
+  runStarting(input: { readonly runId: string; readonly runRoot: string }): void;
+  browserReady(input: { readonly url: string }): void;
+  codexLaunching(): void;
+  codexReady(input: { readonly threadId: string; readonly state: string }): void;
+  transition(input: { readonly from: string; readonly exit: string; readonly to: string }): void;
+  completed(input: { readonly state: string; readonly terminal: string }): void;
+  failed(input: { readonly state?: string; readonly reason: string }): void;
+}
+
+const MAX_STDOUT_FAILURE_REASON_LENGTH = 160;
+
+function stdoutFailureReason(message: string): string {
+  const retainedLines: string[] = [];
+  for (const line of message.split(/\r?\n/)) {
+    if (/^\s*(?:child\s+)?stderr\s*:/i.test(line)) break;
+    if (/^\s+at\s/.test(line)) continue;
+    retainedLines.push(line);
+  }
+  const withoutStackFrames = retainedLines.join(' ');
+  const normalized = withoutStackFrames.replace(/\s+/g, ' ').trim();
+  const reason = normalized.length > 0 ? normalized : 'unknown failure';
+  if (reason.length <= MAX_STDOUT_FAILURE_REASON_LENGTH) return reason;
+  return `${reason.slice(0, MAX_STDOUT_FAILURE_REASON_LENGTH - 3)}...`;
+}
+
+function createLiveStdoutReporter(
+  stdout: NodeJS.WritableStream,
+  runTargetLabel: string,
+  runRoot: string,
+): LiveStdoutReporter {
+  let finalSummaryPrinted = false;
+  const writeLine = (line: string): void => {
+    stdout.write(`${line}\n`);
+  };
+  const writeFinalSummary = (line: string): void => {
+    if (finalSummaryPrinted) return;
+    finalSummaryPrinted = true;
+    writeLine(line);
+  };
+
+  return {
+    runStarting: ({ runId, runRoot }) => {
+      writeLine(`aharness: run ${runId} starting ${runTargetLabel} dir=${runRoot}`);
+    },
+    browserReady: ({ url }) => {
+      writeLine(`aharness: browser UI available at ${url}`);
+    },
+    codexLaunching: () => {
+      writeLine('aharness: codex launching');
+    },
+    codexReady: ({ threadId, state }) => {
+      writeLine(`aharness: codex ready thread=${threadId} state=${state}`);
+    },
+    transition: ({ from, exit, to }) => {
+      writeLine(`aharness: transition ${from} --${exit}--> ${to}`);
+    },
+    completed: ({ state, terminal }) => {
+      writeFinalSummary(
+        `aharness: run completed state=${state} terminal=${terminal} dir=${runRoot}`,
+      );
+    },
+    failed: ({ state, reason }) => {
+      writeFinalSummary(
+        `aharness: run failed${state !== undefined ? ` state=${state}` : ''} reason=${stdoutFailureReason(reason)} dir=${runRoot}`,
+      );
+    },
+  };
+}
+
 function renderPermissionModeOverrides(mode: RunPermissionMode): Array<readonly [string, string]> {
   switch (mode) {
     case 'autoReview':
@@ -214,7 +284,7 @@ export interface RunCliOpts {
   readonly cwd: string;
   /** Sink for diagnostic lines (verifier output, fatal messages). */
   readonly stderr: NodeJS.WritableStream;
-  /** Sink for the agent-message stream and per-transition log. */
+  /** Sink for minimal operator status lines for live runs. */
   readonly stdout: NodeJS.WritableStream;
   /**
    * Forwarded from the dispatcher: unknown `--<flag>` tokens collected
@@ -226,6 +296,8 @@ export interface RunCliOpts {
   readonly permissionMode?: RunPermissionMode;
   /** Command prefix shown in input-flag diagnostics, excluding input flags. */
   readonly inputUsageCommand?: string;
+  /** @internal Display-only target label used by installed command wrappers. */
+  readonly runTargetLabel?: string;
 }
 
 export interface RunCliResult {
@@ -358,6 +430,12 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   const repoRoot = o.cwd;
   const runId = deriveRunId(fsmAbs);
   const finalRunDir = ensureRunDir(runId, repoRoot);
+  const liveStdout = createLiveStdoutReporter(
+    o.stdout,
+    o.runTargetLabel ?? o.fsmPath,
+    finalRunDir.root,
+  );
+  liveStdout.runStarting({ runId: finalRunDir.runId, runRoot: finalRunDir.root });
   const runEventQueryService = createRunEventQueryService({
     runId: finalRunDir.runId,
     eventsPath: finalRunDir.eventsPath,
@@ -369,7 +447,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   try {
     loaded = await loadFsmFn({ filePath: fsmAbs, repoRoot });
   } catch (e) {
-    o.stderr.write(`aharness: failed to load FSM: ${(e as Error).message}\n`);
+    const message = `failed to load FSM: ${(e as Error).message}`;
+    o.stderr.write(`aharness: ${message}\n`);
+    liveStdout.failed({ reason: message });
     return { exitCode: 2 };
   }
   const machine = loaded.machine;
@@ -378,13 +458,16 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   // 5. Auth precheck.
   if (o.authJsonExists !== undefined) {
     if (!o.authJsonExists()) {
-      o.stderr.write('aharness: ~/.codex/auth.json not found. Run `codex login` first.\n');
+      const message = '~/.codex/auth.json not found. Run `codex login` first.';
+      o.stderr.write(`aharness: ${message}\n`);
+      liveStdout.failed({ reason: message });
       return { exitCode: 1 };
     }
   } else {
     const auth = resolveCodexAuthFile({ cwd: o.cwd });
     if (!auth.ok) {
       o.stderr.write(auth.message);
+      liveStdout.failed({ reason: auth.message });
       return { exitCode: 1 };
     }
   }
@@ -400,21 +483,23 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       flags: loaded.inputFlags,
     });
     if (!parsed.ok) {
-      o.stderr.write(
-        formatInputFlagError({
-          errors: parsed.errors,
-          fsmPath: o.fsmPath,
-          schema: loaded.inputSchema,
-          flags: loaded.inputFlags,
-          ...(o.inputUsageCommand !== undefined ? { inputUsageCommand: o.inputUsageCommand } : {}),
-        }),
-      );
+      const message = formatInputFlagError({
+        errors: parsed.errors,
+        fsmPath: o.fsmPath,
+        schema: loaded.inputSchema,
+        flags: loaded.inputFlags,
+        ...(o.inputUsageCommand !== undefined ? { inputUsageCommand: o.inputUsageCommand } : {}),
+      });
+      o.stderr.write(message);
+      liveStdout.failed({ reason: message });
       return { exitCode: 2 };
     }
     resolvedInput = parsed.values;
   } else if (userInputArgs.length > 0) {
     const unknownFlags = userInputArgs.filter((a) => a.startsWith('--')).join(' ');
-    o.stderr.write(`aharness: FSM declares no input fields; unknown flags: ${unknownFlags}\n`);
+    const message = `FSM declares no input fields; unknown flags: ${unknownFlags}`;
+    o.stderr.write(`aharness: ${message}\n`);
+    liveStdout.failed({ reason: message });
     return { exitCode: 2 };
   }
 
@@ -555,6 +640,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
   const publishRunFailedOnce = (message: string): void => {
     if (finalRunEventPublished) return;
     finalRunEventPublished = true;
+    liveStdout.failed({ state: host.currentStateId(), reason: message });
     recordTerminalGitFactsOnce();
     livePublisher.publishRunFailed(message);
   };
@@ -718,6 +804,10 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       finalRunEventPublished = true;
       recordTerminalGitFactsOnce();
       const terminalMeta = host.currentMeta();
+      liveStdout.completed({
+        state: host.currentStateId(),
+        terminal: terminalMeta?.kind === 'terminal' ? terminalMeta.outcome : 'unknown',
+      });
       livePublisher.publishRunTerminal({
         state: host.currentStateId(),
         terminal: terminalMeta?.kind === 'terminal' ? terminalMeta.outcome : 'unknown',
@@ -728,6 +818,11 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       if (shutdownAfterTerminal.current) {
         await shutdownAfterTerminal.current();
       }
+      const terminalMeta = host.currentMeta();
+      liveStdout.completed({
+        state: host.currentStateId(),
+        terminal: terminalMeta?.kind === 'terminal' ? terminalMeta.outcome : 'unknown',
+      });
       terminalResolve(null);
     };
     if (meta) meta.afterReply(complete);
@@ -750,6 +845,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     },
     cause: Extract<AppEvent, { kind: 'StateChange' }>['cause'],
   ): Promise<void> {
+    liveStdout.transition({ from: info.from, exit: cause, to: info.to });
     publishUiEvent({
       kind: 'StateChange',
       from: info.from,
@@ -881,6 +977,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         if (host.currentMeta()?.kind === 'terminal') {
           await writeActiveFinalArtifacts(to);
         }
+        liveStdout.transition({ from: committed.from, exit: 'choice', to });
         publishUiEvent({
           kind: 'StateChange',
           from: committed.from,
@@ -936,7 +1033,6 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     if (activeThreadId === undefined || params.threadId !== activeThreadId) return;
     const delta = typeof params.delta === 'string' ? params.delta : undefined;
     if (delta !== undefined && delta.length > 0) {
-      o.stdout.write(delta);
       const event: AppEvent = {
         kind: 'AgentMessageDelta',
         id:
@@ -1021,7 +1117,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       token: uiToken,
       runId: finalRunDir.runId,
     });
-    o.stdout.write(`aharness: browser UI available at ${browserUrl}\n`);
+    liveStdout.browserReady({ url: browserUrl });
   } catch (e) {
     const message = `UI server failed: ${(e as Error).message}`;
     o.stderr.write(`aharness: ${message}\n`);
@@ -1300,7 +1396,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     applyStateModel: applyStateModelForActiveState,
     onTerminal: (_terminalStateId, meta) => signalTerminalCompletion(meta),
     onTransition: (info) => {
-      o.stdout.write(`\n[transition] ${info.from} --${info.exit}--> ${info.to}\n`);
+      liveStdout.transition(info);
       publishUiEvent({
         kind: 'StateChange',
         from: info.from,
@@ -1384,6 +1480,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
 
   let appServer: AppServerHandle;
   try {
+    liveStdout.codexLaunching();
     appServer = await (o.spawnAppServer ?? realSpawnAppServer)({
       sockPath,
       cliOverrides,
@@ -1653,6 +1750,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       dynamicTools: buildDynamicToolsRegistration(),
     });
     activeThreadBinding.set(r.thread.id);
+    liveStdout.codexReady({ threadId: r.thread.id, state: host.currentStateId() });
   } catch (e) {
     const message = `thread/start failed: ${(e as Error).message}`;
     o.stderr.write(`aharness: ${message}\n`);

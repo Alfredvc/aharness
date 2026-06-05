@@ -157,6 +157,20 @@ describe('spawnAppServer argv construction', () => {
       expect(opts.env['CODEX_HOME']).toBe(process.env['CODEX_HOME']);
     }
   });
+
+  it('sets stdio to ignore child stdin and stdout while piping stderr', async () => {
+    const child = makeFakeChild();
+    spawnMock.mockReturnValue(child);
+
+    const { spawnAppServer } = await import('../src/appServer/spawn.js');
+    const promise = spawnAppServer({ host: '127.0.0.1' });
+
+    queueMicrotask(() => child.emit('exit', 1));
+    await expect(promise).rejects.toBeDefined();
+
+    const opts = spawnMock.mock.calls[0]![2] as { stdio: string[] };
+    expect(opts.stdio).toEqual(['ignore', 'ignore', 'pipe']);
+  });
 });
 
 describe('spawnAppServer unix transport', () => {

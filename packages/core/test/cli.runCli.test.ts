@@ -3608,7 +3608,12 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(r.exitCode).toBe(0);
     expect(stdout.text()).not.toContain('pre-start delta');
     expect(stdout.text()).not.toContain('old delta');
-    expect(stdout.text()).toContain('new delta');
+    expect(stdout.text()).not.toContain('new delta');
+    expect(published.map((entry) => entry.event)).toContainEqual({
+      kind: 'AgentMessageDelta',
+      id: 'new-delta',
+      delta: 'new delta',
+    });
     expect(
       published.some(
         (event) => event.event.kind === 'TurnCompleted' && event.event.turnId === 'turn-old',
