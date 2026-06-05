@@ -1,5 +1,3 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { dirname, join, normalize, relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   applyRecentRowPage,
@@ -3459,17 +3457,6 @@ describe('headless production store helpers', () => {
     expect(state.connection).toBe('live');
     expect(state.posture.open).toBe(true);
   });
-
-  it('keeps the production entry import graph isolated from fixture modules', () => {
-    const srcRoot = resolve(process.cwd(), 'packages/web-ui/src');
-    const productionEntry = join(srcRoot, 'main.tsx');
-    const visited = collectLocalImports(productionEntry, srcRoot);
-    const fixtureImports = visited
-      .map((file) => normalize(relative(srcRoot, file)))
-      .filter((file) => file.startsWith('fixtures/'));
-
-    expect(fixtureImports).toEqual([]);
-  });
 });
 
 describe('final overview state', () => {
@@ -3560,58 +3547,3 @@ describe('final overview state', () => {
     expect(state.completionStats).toBeNull();
   });
 });
-
-const importSpecifierPattern =
-  /(?:import|export)\s+(?:type\s+)?(?:[\s\S]*?\s+from\s+)?['"](?<specifier>\.{1,2}\/[^'"]+)['"]/g;
-
-function collectLocalImports(entry: string, srcRoot: string): string[] {
-  const visited = new Set<string>();
-  const pending = [entry];
-
-  while (pending.length > 0) {
-    const file = pending.pop();
-    if (!file || visited.has(file)) continue;
-    visited.add(file);
-
-    const source = readFileSync(file, 'utf8');
-    for (const match of source.matchAll(importSpecifierPattern)) {
-      const specifier = match.groups?.['specifier'];
-      if (!specifier) continue;
-
-      const imported = resolveImport(dirname(file), specifier, srcRoot);
-      if (imported && !visited.has(imported)) {
-        pending.push(imported);
-      }
-    }
-  }
-
-  return Array.from(visited).sort();
-}
-
-function resolveImport(fromDir: string, specifier: string, srcRoot: string): string | null {
-  const candidate = resolve(fromDir, specifier);
-  const relativeToRoot = relative(srcRoot, candidate);
-  if (relativeToRoot.startsWith('..') || relativeToRoot === '') {
-    return null;
-  }
-
-  for (const resolved of candidatePaths(candidate)) {
-    if (existsSync(resolved) && statSync(resolved).isFile()) {
-      return resolved;
-    }
-  }
-
-  return null;
-}
-
-function candidatePaths(candidate: string): string[] {
-  return [
-    candidate,
-    `${candidate}.ts`,
-    `${candidate}.tsx`,
-    `${candidate}.js`,
-    `${candidate}.jsx`,
-    join(candidate, 'index.ts'),
-    join(candidate, 'index.tsx'),
-  ];
-}

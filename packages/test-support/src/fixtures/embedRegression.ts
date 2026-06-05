@@ -60,17 +60,13 @@ export const embedRegressionMachine: AharnessMachine<
   },
 });
 
-export const EMBED_REGRESSION_FSM_SOURCE = `import { embed, exit, final, aharness, state } from '@aharness/core';
+export const EMBED_REGRESSION_CHILD_FSM_SOURCE = `import { exit, final, aharness, state } from '@aharness/core';
 
 interface EmptyPayload {
   _empty?: never;
 }
 
-interface ParentContext {
-  childOutput: unknown;
-}
-
-const child = aharness.machine({
+export default aharness.machine({
   id: 'embed-regression-child',
   initial: 'work',
   states: {
@@ -89,6 +85,14 @@ const child = aharness.machine({
     }),
   },
 });
+`;
+
+export const EMBED_REGRESSION_FSM_SOURCE = `import { embed, final, aharness } from '@aharness/core';
+import child from './embedRegressionChild.fsm.js';
+
+interface ParentContext {
+  childOutput: unknown;
+}
 
 export default aharness.machine({
   id: 'embed-regression-parent',

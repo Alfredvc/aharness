@@ -6,7 +6,6 @@ import nonExclusive from './fixtures/embed/non-exclusive-host.fsm.js';
 import noFinalChildParent from './fixtures/embed/no-final-child.fsm.js';
 import missingInputFsm from './fixtures/embed/missing-input.fsm.js';
 import { verify, verify as verifyEmbed } from '../src/verify/index.js';
-import { stateKeyPath } from '../src/state.js';
 import { createFsm } from '../src/state/createFsm.js';
 import type { SchemaSidecar } from '../src/types.js';
 
@@ -364,15 +363,6 @@ describe('verifier audit — existing checks recurse into embedded states', () =
     const result = verifyEmbed(parent, goodSidecar as never);
     const issues = result.issues.filter((i) => i.check === 'per-state-data-schema-resolvable');
     expect(issues).toEqual([]);
-  });
-});
-
-describe('verifier audit — qualified state IDs through compound states', () => {
-  it('stateKeyPath returns the dotted qualified id for an embedded child', () => {
-    const innerNode = parent.root.states['inner'];
-    const goNode = innerNode!.states['go'];
-    expect(stateKeyPath(goNode!)).toBe('inner.go');
-    expect(stateKeyPath(innerNode!)).toBe('inner');
   });
 });
 

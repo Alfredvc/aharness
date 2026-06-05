@@ -676,19 +676,56 @@ describe('run event adapter', () => {
   });
 
   it.each([
-    ['hook', { kind: 'hook', name: 'PreToolUse', payloadDigest: 'abc123' }, 'hook.observed'],
+    [
+      'hook',
+      { kind: 'hook', name: 'PreToolUse', payloadDigest: 'abc123' },
+      {
+        type: 'hook.observed',
+        data: { name: 'PreToolUse', payloadDigest: 'abc123' },
+      },
+    ],
     [
       'submit',
       { kind: 'submit', stateId: 'root.work', accepted: false, error: 'bad payload' },
-      'submit.recorded',
+      {
+        type: 'submit.recorded',
+        data: { stateId: 'root.work', accepted: false, error: 'bad payload' },
+      },
     ],
     [
       'transition',
       { kind: 'transition', from: 'root.plan', to: 'root.work', eventType: 'SUBMIT' },
-      'transition.recorded',
+      {
+        type: 'transition.recorded',
+        data: { from: 'root.plan', to: 'root.work', eventType: 'SUBMIT' },
+      },
     ],
-    ['artifact', { kind: 'artifact', relPath: 'report.txt', bytes: 5 }, 'artifact.written'],
-    ['terminal', { kind: 'terminal', state: 'done', terminal: 'success' }, 'run.completed'],
+    [
+      'artifact',
+      { kind: 'artifact', relPath: 'report.txt', bytes: 5 },
+      {
+        type: 'artifact.written',
+        data: { relPath: 'report.txt', bytes: 5 },
+      },
+    ],
+    [
+      'terminal',
+      { kind: 'terminal', state: 'done', terminal: 'success' },
+      {
+        type: 'run.completed',
+        data: expect.objectContaining({
+          state: 'done',
+          terminal: 'success',
+          status: 'success',
+          row: expect.objectContaining({
+            kind: 'run_lifecycle',
+            label: 'run completed',
+            status: 'completed',
+            summary: 'Run completed at done',
+          }),
+        }),
+      },
+    ],
     [
       'abandonedThreadResidue',
       {
@@ -697,14 +734,19 @@ describe('run event adapter', () => {
         source: 'turnCompleted',
         message: 'ignored',
       },
-      'diagnostic.abandoned_thread',
+      {
+        type: 'diagnostic.abandoned_thread',
+        threadId: 'thread-old',
+        data: { source: 'turnCompleted', message: 'ignored' },
+      },
     ],
-  ] satisfies Array<[string, EventLogEntryInput, string]>)(
-    'maps legacy %s audit input to canonical compatibility type',
-    (_name, entry, type) => {
-      expect(legacyEventInputToRunEventAppendInput(entry)).toEqual(
-        expect.objectContaining({ type }),
-      );
+  ] satisfies Array<[string, EventLogEntryInput, unknown]>)(
+    'maps legacy %s audit input to canonical compatibility fields',
+    (_name, entry, expected) => {
+      const input = legacyEventInputToRunEventAppendInput(entry);
+
+      expect(input).toEqual(expect.objectContaining(expected));
+      expect(input).not.toHaveProperty('raw');
     },
   );
 });

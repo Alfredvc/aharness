@@ -15,6 +15,7 @@ pnpm-lock.yaml
 # Out-of-scope for the TS build
 plugin/
 experiments/
+fsms/
 docs/
 examples/workflow-references/
 session_tokens.py

@@ -543,6 +543,27 @@ describe('dispatch', () => {
     expect(s.runUninstall).not.toHaveBeenCalled();
   });
 
+  it('does not route replay helper names as public CLI subcommands', async () => {
+    const cases: ReadonlyArray<ReadonlyArray<string>> = [
+      ['replay', 'events.jsonl', '1'],
+      ['replay-prefix', 'events.jsonl', '1'],
+    ];
+
+    for (const argv of cases) {
+      const s = buildStubs();
+      const cap = captureStderr();
+      const r = await dispatch(argv, { ...s, stderr: cap.stream });
+
+      expect(r).toEqual({ exitCode: 2 });
+      expect(s.runDefault).not.toHaveBeenCalled();
+      expect(s.runTarget).not.toHaveBeenCalled();
+      expect(s.runVisualize).not.toHaveBeenCalled();
+      expect(s.runVerify).not.toHaveBeenCalled();
+      expect(s.runListInstalled).not.toHaveBeenCalled();
+      expect(cap.text()).toContain('usage:');
+    }
+  });
+
   it('keeps an explicit ./package path runnable through the default runner', async () => {
     const s = buildStubs();
     const r = await dispatch(['./package'], s);

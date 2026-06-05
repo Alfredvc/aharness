@@ -200,7 +200,8 @@ export async function extractSchemaSidecar(
     stateBindings.directNames.size === 0 &&
     stateBindings.directChoiceNames.size === 0 &&
     stateBindings.namespaceNames.size === 0 &&
-    createFsmFactoryNames.size === 0
+    createFsmFactoryNames.size === 0 &&
+    childResults.length === 0
   ) {
     return { sidecar: {}, issues: [], skillOriginManifest };
   }

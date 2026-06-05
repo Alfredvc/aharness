@@ -35,11 +35,9 @@ import { join, resolve } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-// Type-only import so test-file evaluation does not load the barrel's
-// `pty.ts` module (node-pty's native binary is unavailable on some
-// runners; the import would fail at file-load time despite
-// `describe.skipIf`). The runtime imports are deferred to a dynamic
-// `import()` inside the `it` body, which only runs when the test is
+// Type-only import so skipped real-Codex E2E test-file evaluation does
+// not initialize test-support helper modules at file-load time. Runtime
+// imports stay inside the `it` body, which only runs when the test is
 // not skipped.
 import type { MockModelHandle } from '@aharness/test-support';
 

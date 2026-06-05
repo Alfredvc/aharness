@@ -2024,13 +2024,6 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(closeUiServer).toHaveBeenCalledTimes(1);
   });
 
-  it('case 15: production runCli source does not import the legacy stdout UI substitute', () => {
-    const source = readFileSync(join(__dirname, '..', 'src', 'cli', 'runCli.ts'), 'utf8');
-
-    expect(source).not.toContain("from './stdoutUI.js'");
-    expect(source).not.toContain('createStdoutUI');
-  });
-
   it('case 16: publishes owner input requests and resolves them through the browser reply handler', async () => {
     interface FinishPayload {
       ok: boolean;

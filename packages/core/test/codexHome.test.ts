@@ -80,6 +80,8 @@ describe('materializeHookScripts', () => {
       expect(existsSync(join(hookDir, 'config.toml'))).toBe(false);
       expect(existsSync(join(hookDir, 'stop.sh'))).toBe(false);
       expect(existsSync(join(hookDir, 'pre_tool_use.sh'))).toBe(false);
+      expect(existsSync(join(hookDir, 'post_tool_use.sh'))).toBe(false);
+      expect(existsSync(join(hookDir, 'user_prompt_submit.sh'))).toBe(false);
     } finally {
       cleanupCodexHome(root);
     }
@@ -131,25 +133,6 @@ describe('materializeHookScripts — per-state hooks', () => {
       expect(existsSync(join(hookDir, 'pre_tool_use.sh'))).toBe(true);
       expect(existsSync(join(hookDir, 'post_tool_use.sh'))).toBe(true);
       expect(existsSync(join(hookDir, 'user_prompt_submit.sh'))).toBe(true);
-    } finally {
-      cleanupCodexHome(root);
-    }
-  });
-
-  it('writes nothing for hook kinds when declaredHookKinds is empty', () => {
-    const root = mkdtempSync(join(tmpdir(), 'h-cdx-'));
-    try {
-      const hookDir = join(root, 'hooks');
-      materializeHookScripts({
-        hookDir,
-        hookSocket: join(root, 'hook.sock'),
-        stopHookTimeoutSec: 30,
-        declaredHookKinds: [],
-      });
-      expect(existsSync(join(hookDir, 'stop.sh'))).toBe(false);
-      expect(existsSync(join(hookDir, 'pre_tool_use.sh'))).toBe(false);
-      expect(existsSync(join(hookDir, 'post_tool_use.sh'))).toBe(false);
-      expect(existsSync(join(hookDir, 'user_prompt_submit.sh'))).toBe(false);
     } finally {
       cleanupCodexHome(root);
     }

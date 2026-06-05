@@ -2,12 +2,10 @@
  * `waitForState` — polling helper for tests that need to wait until a
  * caller-supplied `getState()` reading satisfies a predicate.
  *
- * Per R17 of the codex-migration plan: e2e tests (Task 21+) drive the daemon
- * by polling its current state and asserting transitions, but the polling
- * loop itself is generic — any caller that has a `() => string` snapshot
- * accessor can reuse this helper. Keeping it small and free of `AppHandle`
- * coupling means the same primitive serves the daemon-aware
- * `waitForTransition` (phase 4) and other state-machine fixtures alike.
+ * The polling loop itself is generic: any caller that has a `() => string`
+ * snapshot accessor can reuse this helper. Keeping it small and free of
+ * `AppHandle` coupling lets it serve state-machine fixtures without
+ * depending on an app-server handle shape.
  *
  * Behaviour:
  *

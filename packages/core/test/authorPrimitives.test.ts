@@ -573,15 +573,6 @@ describe('terminal() new shape', () => {
       meta: { aharness: { kind: 'terminal', outcome: 'success' } },
     });
   });
-
-  it('rejects outcomes outside the strict union at TS level (smoke)', () => {
-    // Compile-time check only — runtime accepts strings; TS narrows the
-    // signature to 'success' | 'failure'. Pick one to confirm runtime works.
-    const cfg = terminal('failure');
-    expect((cfg as { meta: { aharness: { outcome: string } } }).meta.aharness.outcome).toBe(
-      'failure',
-    );
-  });
 });
 
 describe('injectFrameworkActions synthesis', () => {
@@ -598,8 +589,24 @@ describe('injectFrameworkActions synthesis', () => {
       },
     });
     const aNode = machine.getStateNodeById('m.a');
-    const handler = aNode.config.on?.['SUBMIT__a__submit'];
-    expect(handler).toBeDefined();
+    const handler = aNode.config.on?.['SUBMIT__a__submit'] as
+      | Array<{
+          target?: string;
+          actions?: Array<{ type: string }>;
+          guard?: unknown;
+          reenter?: boolean;
+        }>
+      | undefined;
+    const transition = handler?.[0];
+
+    expect(handler).toHaveLength(1);
+    expect(transition).toMatchObject({
+      target: 'b',
+      actions: [{ type: '__aharnessClearOwnerReply' }],
+    });
+    expect(transition?.actions).toHaveLength(1);
+    expect(transition?.guard).toBeUndefined();
+    expect(transition?.reenter).toBeUndefined();
   });
 
   it('synthesizes one transition entry per when[] branch', () => {

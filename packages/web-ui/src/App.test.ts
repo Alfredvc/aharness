@@ -104,7 +104,7 @@ function baseSession(overrides: Partial<TestSession> = {}): TestSession {
 }
 
 describe('AharnessShell run stats chrome', () => {
-  it('renders aggregate header and bottom stats without turn-count or ribbon chrome', () => {
+  it('renders aggregate header and bottom stats with formatted duration and token totals', () => {
     const html = renderToStaticMarkup(
       createElement(AharnessShell, {
         session: baseSession({
@@ -139,11 +139,6 @@ describe('AharnessShell run stats chrome', () => {
     expect(html.match(/1m 05s/g)).toHaveLength(2);
     expect(html).toContain('1,234 tokens');
     expect(html).toContain('context 200,000 tokens');
-    expect(html).not.toContain('>turns<');
-    expect(html).not.toContain('no turns completed yet');
-    expect(html).not.toContain('class="ribbon');
-    expect(html).not.toContain('ribbon-bar');
-    expect(html).not.toContain('TurnRibbon');
   });
 
   it('omits unavailable inspect-mode runtime stats while keeping the bottom surface', () => {

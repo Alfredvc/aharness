@@ -46,24 +46,18 @@ describe('watchdogConfig (R28: no env-var override)', () => {
     expect(RUI_RACE_BUDGET_MS).toBe(watchdogConfig.RUI_RACE_BUDGET_MS);
   });
 
-  it('does not read from any AHARNESS_*_BUDGET_MS env var (per R28)', () => {
-    // The constants are compile-time literals; mutating env after import
-    // must not change the exported values. This is a structural assertion
-    // rather than behavioral, since reading process.env at module-load time
-    // would have already happened — the imported constants must equal the
-    // documented defaults regardless.
-    const before = {
-      submit: watchdogConfig.SUBMIT_BUDGET_MS,
-      rui: watchdogConfig.RUI_RACE_BUDGET_MS,
-    };
-    process.env.AHARNESS_SUBMIT_BUDGET_MS = '999';
-    process.env.AHARNESS_RUI_BUDGET_MS = '888';
+  it('ignores AHARNESS_*_BUDGET_MS env vars at module load (per R28)', async () => {
+    vi.resetModules();
+    vi.stubEnv('AHARNESS_SUBMIT_BUDGET_MS', '999');
+    vi.stubEnv('AHARNESS_RUI_BUDGET_MS', '888');
     try {
-      expect(watchdogConfig.SUBMIT_BUDGET_MS).toBe(before.submit);
-      expect(watchdogConfig.RUI_RACE_BUDGET_MS).toBe(before.rui);
+      const importedConfig = await import('../src/runtime/watchdogConfig.js');
+
+      expect(importedConfig.SUBMIT_BUDGET_MS).toBe(500);
+      expect(importedConfig.RUI_RACE_BUDGET_MS).toBe(100);
     } finally {
-      delete process.env.AHARNESS_SUBMIT_BUDGET_MS;
-      delete process.env.AHARNESS_RUI_BUDGET_MS;
+      vi.unstubAllEnvs();
+      vi.resetModules();
     }
   });
 });

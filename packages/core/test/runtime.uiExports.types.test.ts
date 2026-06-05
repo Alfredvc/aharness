@@ -1,65 +1,74 @@
-import { createUiEventLog, type RunMeta, type StartUiServerOptions } from '../src/runtime.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expectTypeOf, it } from 'vitest';
+import type { RunMeta, StartUiServerOptions } from '../src/runtime.js';
 
-const run: RunMeta = {
-  runId: 'run-structural',
-  threadId: 'thread-1',
-  repoRoot: '/repo',
-  fsmFile: 'demo.fsm.ts',
-  fsmHash6: 'abc123',
-  codexPin: 'codex-test',
-  startedAt: '2026-05-29T00:00:00.000Z',
-};
+type RuntimeRunScopedOptions = NonNullable<StartUiServerOptions['runScoped']>;
+type RuntimeRunScopedService = RuntimeRunScopedOptions['service'];
 
-const structuralRunScopedService = {
-  runId: 'run-structural',
-  subscribe: (_listener: () => void) => () => undefined,
-  getLatestEventId: () => 'run-structural:1',
-  getBootstrap: <TRunMeta extends object, TTopology = unknown>(options: {
+type StructuralRunScopedService = {
+  readonly runId: 'run-structural';
+  readonly subscribe: (_listener: () => void) => () => undefined;
+  readonly getLatestEventId: () => 'run-structural:1';
+  readonly getBootstrap: <TRunMeta extends object, TTopology = unknown>(options: {
     readonly getRunMeta: () => TRunMeta;
     readonly topology?: TTopology;
     readonly recentLimit?: number;
-  }) => ({
-    ok: true as const,
-    bootstrap: {
-      run: options.getRunMeta(),
-      topology: options.topology ?? null,
-      latestEventId: 'run-structural:1',
-      currentState: null,
-      currentStateVisit: null,
-      stateVisits: [],
-      statePathVisits: {},
-      pending: [],
-      aggregateStats: { turnCount: 0 },
-      completionStats: null,
-      recentRows: [],
-      diagnostics: [],
-    },
-  }),
-  getCompletionStats: () => ({ ok: true as const, completionStats: null }),
-  getStateVisitRows: () => ({ ok: true as const, rows: [], nextCursor: null }),
-  getRecentRows: () => ({ ok: true as const, rows: [], nextCursor: null }),
-  getEventPage: () => ({ ok: true as const, events: [], nextCursor: null, diagnostics: [] }),
-  eventsAfter: () => ({ ok: true as const, events: [] }),
+  }) => {
+    readonly ok: true;
+    readonly bootstrap: {
+      readonly run: TRunMeta;
+      readonly topology: TTopology | null;
+      readonly latestEventId: 'run-structural:1';
+      readonly currentState: null;
+      readonly currentStateVisit: null;
+      readonly stateVisits: readonly [];
+      readonly statePathVisits: {};
+      readonly pending: readonly [];
+      readonly aggregateStats: { readonly turnCount: 0 };
+      readonly completionStats: null;
+      readonly recentRows: readonly [];
+      readonly diagnostics: readonly [];
+    };
+  };
+  readonly getCompletionStats: () => { readonly ok: true; readonly completionStats: null };
+  readonly getStateVisitRows: () => {
+    readonly ok: true;
+    readonly rows: readonly [];
+    readonly nextCursor: null;
+  };
+  readonly getRecentRows: () => {
+    readonly ok: true;
+    readonly rows: readonly [];
+    readonly nextCursor: null;
+  };
+  readonly getEventPage: () => {
+    readonly ok: true;
+    readonly events: readonly [];
+    readonly nextCursor: null;
+    readonly diagnostics: readonly [];
+  };
+  readonly eventsAfter: () => { readonly ok: true; readonly events: readonly [] };
 };
 
-const _options: StartUiServerOptions = {
-  host: '127.0.0.1',
-  port: 0,
-  uiToken: 'test-ui-token',
-  eventLog: createUiEventLog({ run }),
-  runScoped: {
-    activeRunId: 'run-structural',
-    service: structuralRunScopedService,
-    getRunMeta: () => run,
-    topology: { machineId: 'demo', initial: 'root.plan', nodes: [], edges: [] },
-  },
+type StructuralStartUiServerOptions = {
+  readonly host: '127.0.0.1';
+  readonly port: 0;
+  readonly uiToken: 'test-ui-token';
+  readonly runScoped: {
+    readonly activeRunId: 'run-structural';
+    readonly service: StructuralRunScopedService;
+    readonly getRunMeta: () => RunMeta;
+    readonly topology: {
+      readonly machineId: 'demo';
+      readonly initial: 'root.plan';
+      readonly nodes: readonly [];
+      readonly edges: readonly [];
+    };
+  };
 };
-
-void _options;
 
 describe('runtime UI export types', () => {
   it('accepts a structural run-scoped route service', () => {
-    expect(_options.runScoped?.activeRunId).toBe('run-structural');
+    expectTypeOf<StructuralRunScopedService>().toMatchTypeOf<RuntimeRunScopedService>();
+    expectTypeOf<StructuralStartUiServerOptions>().toMatchTypeOf<StartUiServerOptions>();
   });
 });

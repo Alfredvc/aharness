@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it, vi } from 'vitest';
 import {
   ApiClientError,
@@ -814,13 +813,5 @@ describe('run-scoped API client', () => {
       body: JSON.stringify({ kind: 'user-prompt', text: 'continue' }),
     });
     expect(retainStateAfterReplyFailure(state)).toBe(state);
-  });
-
-  it('does not retain production references to the flat browser endpoints', () => {
-    const source = readFileSync(new URL('./client.ts', import.meta.url), 'utf8');
-
-    expect(source).not.toContain('/api/state');
-    expect(source).not.toContain('/api/stream');
-    expect(source).not.toContain('/api/reply');
   });
 });

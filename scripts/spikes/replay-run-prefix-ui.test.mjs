@@ -7,7 +7,6 @@ import { afterEach, describe, it } from 'node:test';
 import {
   createReplayRunPrefixRouteService,
   startReplayRunPrefixUi,
-  urlWithReplayBootParams,
 } from './replay-run-prefix-ui.mjs';
 
 const RUN_ID = 'replay-run';
@@ -645,21 +644,24 @@ describe('replay-run-prefix-ui spike helper', () => {
     }
   });
 
-  it('does not add a public production CLI dispatch or package bin entry', () => {
+  it('keeps the replay helper as a root-only dev script outside published core entrypoints', () => {
     const rootPackageJson = JSON.parse(readFileSync('package.json', 'utf8'));
+    expect(rootPackageJson.private).toBe(true);
     expect(rootPackageJson.scripts.replay).toBe('node scripts/spikes/replay-run-prefix-ui.mjs');
 
     const packageJson = JSON.parse(readFileSync('packages/core/package.json', 'utf8'));
+    const publishedCoreSurface = {
+      bin: packageJson.bin,
+      exports: packageJson.exports,
+      files: packageJson.files,
+    };
+
     expect(packageJson.bin).toEqual({ aharness: './dist/cli/main.js' });
-
-    const cliMain = readFileSync('packages/core/src/cli/main.ts', 'utf8');
-    expect(cliMain).not.toContain('replay-run-prefix-ui');
-    expect(cliMain).not.toContain('replay-prefix');
-
-    const url = urlWithReplayBootParams('http://127.0.0.1:0/', {
-      token: 'token',
-      runId: RUN_ID,
-    });
-    expect(new URL(url).searchParams.has('mode')).toBe(false);
+    expect(packageJson.exports).not.toHaveProperty('./replay-prefix');
+    expect(packageJson.exports).not.toHaveProperty('./replay-run-prefix-ui');
+    expect(packageJson.files).toEqual(['dist', 'scripts/codex-version-min.txt']);
+    expect(JSON.stringify(publishedCoreSurface)).not.toContain('scripts/spikes');
+    expect(JSON.stringify(publishedCoreSurface)).not.toContain('replay-run-prefix-ui');
+    expect(JSON.stringify(publishedCoreSurface)).not.toContain('replay-prefix');
   });
 });

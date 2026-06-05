@@ -3,7 +3,8 @@
  * (a tmpdir, set via `extraEnv.CODEX_HOME`), open a JSON-RPC WebSocket
  * transport, perform the `initialize` handshake, and call `thread/start`.
  *
- * Test fixture only. Production wiring of the daemon arrives in phase 4.
+ * Test fixture only. This handle owns a Codex app-server thread; it does not
+ * expose aharness daemon/FSM state.
  *
  * Wire-shape contract (verified at codex-rs commit `127434cd8b96`):
  *

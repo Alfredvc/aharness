@@ -83,6 +83,7 @@ import type {
   UserInput,
   UserInputSkill,
 } from '../src/protocol/index.js';
+import { METHOD } from '../src/protocol/methodNames.js';
 import { DAEMON_PROBE_CLIENT_NAME } from '../src/protocol/types.js';
 
 describe('protocol request/response types', () => {
@@ -114,14 +115,23 @@ describe('protocol request/response types', () => {
       config?: Record<string, unknown>;
       sessionStartSource?: 'startup' | 'clear';
     }>();
-    const params: ThreadStartParams = {
-      model: 'gpt-5.1-codex',
-      config: { model_reasoning_effort: 'high' },
-      sessionStartSource: 'clear',
-    };
-    expect(params.model).toBe('gpt-5.1-codex');
-    expect(params.config?.['model_reasoning_effort']).toBe('high');
-    expect(params.sessionStartSource).toBe('clear');
+    const request = {
+      method: 'thread/start',
+      params: {
+        model: 'gpt-5.1-codex',
+        config: { model_reasoning_effort: 'high' },
+        sessionStartSource: 'clear',
+      },
+    } satisfies { method: typeof METHOD.threadStart; params: ThreadStartParams };
+
+    expect(request).toStrictEqual({
+      method: METHOD.threadStart,
+      params: {
+        model: 'gpt-5.1-codex',
+        config: { model_reasoning_effort: 'high' },
+        sessionStartSource: 'clear',
+      },
+    });
   });
 
   it('ThreadStartResponse nests a Thread snapshot', () => {
@@ -610,6 +620,14 @@ describe('ServerNotification union', () => {
         params: { threadId: 't', turnId: 'u', itemId: 'i', delta: 'd' },
       },
       {
+        method: 'rawResponseItem/completed',
+        params: {
+          threadId: 't',
+          turnId: 'u',
+          item: { type: 'function_call', call_id: 'c1', name: 'shell', arguments: '{}' },
+        },
+      },
+      {
         method: 'thread/tokenUsage/updated',
         params: {
           threadId: 't',
@@ -623,22 +641,45 @@ describe('ServerNotification union', () => {
       },
       { method: 'serverRequest/resolved', params: { threadId: 't', requestId: 'r' } },
       { method: 'error', params: { code: -32000, message: 'boom' } },
-    ];
-    for (const n of variants) {
-      expect(typeof n.method).toBe('string');
-    }
+    ] satisfies ReadonlyArray<ServerNotification>;
+
+    type VariantMethod = (typeof variants)[number]['method'];
+    expectTypeOf<VariantMethod>().toEqualTypeOf<ServerNotification['method']>();
+    expect(variants.map((n) => n.method)).toStrictEqual([
+      METHOD.turnStarted,
+      METHOD.turnCompleted,
+      METHOD.itemStarted,
+      METHOD.itemCompleted,
+      METHOD.fileChangePatchUpdated,
+      METHOD.hookStarted,
+      METHOD.hookCompleted,
+      METHOD.agentMessageDelta,
+      METHOD.rawResponseItemCompleted,
+      METHOD.threadTokenUsageUpdated,
+      METHOD.serverRequestResolved,
+      'error',
+    ] satisfies ReadonlyArray<ServerNotification['method']>);
   });
 });
 
 describe('InitializeParams camelCase wire fields', () => {
   it('declares clientInfo (not client_info)', () => {
-    const p: InitializeParams = {
-      clientInfo: { name: 'x', version: '0' },
-      capabilities: { experimentalApi: true, optOutNotificationMethods: ['fs/changed'] },
-    };
-    expect(p.clientInfo.name).toBe('x');
-    // @ts-expect-error - client_info must not exist on the wire-shape type
-    expect(p.client_info).toBeUndefined();
+    const request = {
+      method: 'initialize',
+      params: {
+        clientInfo: { name: 'x', version: '0' },
+        capabilities: { experimentalApi: true, optOutNotificationMethods: ['fs/changed'] },
+      },
+    } satisfies { method: typeof METHOD.initialize; params: InitializeParams };
+
+    expectTypeOf<InitializeParams>().not.toMatchTypeOf<{ client_info: unknown }>();
+    expect(request).toStrictEqual({
+      method: METHOD.initialize,
+      params: {
+        clientInfo: { name: 'x', version: '0' },
+        capabilities: { experimentalApi: true, optOutNotificationMethods: ['fs/changed'] },
+      },
+    });
   });
 
   it('exports DAEMON_PROBE_CLIENT_NAME = "codex_app_server_daemon"', () => {

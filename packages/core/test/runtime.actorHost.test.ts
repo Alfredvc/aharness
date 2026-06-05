@@ -80,18 +80,21 @@ describe('ActorHost', () => {
     }
   });
 
-  it('dryRunSubmit returns ok:false on an unknown exit', () => {
+  it('dryRunSubmit returns an unchanged projection for an unknown exit', () => {
     const host = new ActorHost(buildMachine(), undefined);
     host.start();
-    // The fixture has no `bogus` exit on state `a`. `transition` will
-    // produce a snapshot that didn't move (XState ignores unhandled
-    // events) — so we check the projection still lands at `a`.
-    // What we want here is the no-throw path; XState v5's `transition`
-    // does not throw on unhandled events, it returns the unchanged
-    // snapshot.
+    // The fixture has no `bogus` exit on state `a`. XState v5 treats
+    // unhandled events as unchanged transition snapshots, so this verifies
+    // ActorHost preserves that no-throw projection path without mutating
+    // the live actor.
     const result = host.dryRunSubmit('a', 'bogus', {});
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.nextStateId).toBe('a');
+    if (result.ok) {
+      expect(result.nextStateId).toBe('a');
+      expect((result.nextContext as { count: number }).count).toBe(0);
+    }
+    expect(host.currentStateId()).toBe('a');
+    expect((host.currentContext() as { count: number }).count).toBe(0);
   });
 
   it('commitSubmit advances the live actor', () => {

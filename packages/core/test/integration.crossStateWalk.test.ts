@@ -70,9 +70,8 @@ describe.skipIf(!E2E_ENABLED)('runCli — Phase 2a cross-state walk (end-to-end)
 
   it('walks a → b (cross-state dance) → c (terminal) and exits 0', async () => {
     // Deferred imports — same pattern as `cli.runCli.phase1.test.ts`'s
-    // type-only import note: keep the @aharness/test-support barrel
-    // out of file-load (its `pty.ts` may fail on systems without
-    // node-pty native bindings).
+    // type-only import note: keep test-support helper initialization out
+    // of file-load for skipped real-Codex E2E tests.
     const { startMockModel, CROSS_STATE_WALK_FSM_SOURCE, buildCrossStateSubmitTurn } =
       await import('@aharness/test-support');
 

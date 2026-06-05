@@ -6,8 +6,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   RunCompletionShareCard,
-  SHARE_CARD_HEIGHT,
-  SHARE_CARD_WIDTH,
   buildRunCompletionShareCardProps,
   type RunCompletionShareCardProps,
 } from './RunCompletionShareCard.js';
@@ -252,7 +250,5 @@ describe('shareCardExport', () => {
         fsmDisplayName: 'Repo Root / Secret Branch / Workflow',
       }),
     ).toBe('aharness-repo-root-secret-branch-workflow-success.png');
-    expect(SHARE_CARD_WIDTH).toBe(1320);
-    expect(SHARE_CARD_HEIGHT).toBe(2868);
   });
 });

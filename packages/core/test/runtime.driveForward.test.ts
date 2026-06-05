@@ -295,46 +295,27 @@ describe('drive-forward (Phase 1)', () => {
     expect(requests).toEqual([]);
   });
 
-  it('submittedThisTurn opt absent or returns false falls through to existing behavior', async () => {
-    // Case A: opt absent — same shape as the first test in this suite,
-    // re-asserted to lock the "opt absent ⇒ default branch" contract.
-    const requestsA: Array<{ method: string; params: unknown }> = [];
-    const clientA = makeStubClient({
+  it('submittedThisTurn() returning false falls through to default turn/start', async () => {
+    const requests: Array<{ method: string; params: unknown }> = [];
+    const submittedThisTurn = vi.fn(() => false);
+    const client = makeStubClient({
       request: (async (method: string, params: unknown) => {
-        requestsA.push({ method, params });
+        requests.push({ method, params });
         return {};
       }) as JsonRpcClient['request'],
     });
-    const dfA = createDriveForward({
-      client: clientA,
+    const driveForward = createDriveForward({
+      client,
       activeThreadBinding: activeThread('p'),
       isTerminal: () => false,
       composeActiveStateNudge: () => 'nudge',
       onShutdown: () => {},
+      submittedThisTurn,
     });
-    await dfA.onTurnCompleted();
-    expect(requestsA).toEqual([
-      { method: 'turn/start', params: { threadId: 'p', input: [{ type: 'text', text: 'nudge' }] } },
-    ]);
+    await driveForward.onTurnCompleted();
 
-    // Case B: opt defined but returns false — same default-branch path.
-    const requestsB: Array<{ method: string; params: unknown }> = [];
-    const clientB = makeStubClient({
-      request: (async (method: string, params: unknown) => {
-        requestsB.push({ method, params });
-        return {};
-      }) as JsonRpcClient['request'],
-    });
-    const dfB = createDriveForward({
-      client: clientB,
-      activeThreadBinding: activeThread('p'),
-      isTerminal: () => false,
-      composeActiveStateNudge: () => 'nudge',
-      onShutdown: () => {},
-      submittedThisTurn: () => false,
-    });
-    await dfB.onTurnCompleted();
-    expect(requestsB).toEqual([
+    expect(submittedThisTurn).toHaveBeenCalledTimes(1);
+    expect(requests).toEqual([
       { method: 'turn/start', params: { threadId: 'p', input: [{ type: 'text', text: 'nudge' }] } },
     ]);
   });

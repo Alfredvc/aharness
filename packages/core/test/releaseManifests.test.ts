@@ -1,13 +1,31 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+
+import { findStaleDistArtifacts } from '../../../scripts/verify-no-stale-dist.mjs';
+import { verifyPackedManifest } from '../../../scripts/verify-release-manifests.mjs';
 
 const root = process.cwd();
 const publishablePackageDirs = ['packages/core', 'packages/test-support'];
 const retiredVizPackageName = ['aharness', 'viz'].join('-');
 const retiredVizPackageDir = `packages/${retiredVizPackageName}`;
+const tempDirs: string[] = [];
+const staleDistArtifacts = [
+  'packages/core/dist/daemon',
+  'packages/core/dist/mcp',
+  'packages/core/dist/cli/daemonInternal.js',
+  'packages/core/dist/cli/daemonInternal.d.ts',
+  'packages/core/dist/cli/shutdownSequence.js',
+  'packages/core/dist/cli/shutdownSequence.d.ts',
+  'packages/core/dist/package-runner.js',
+  'packages/core/dist/package-runner.d.ts',
+  'packages/core/dist/cli/packageCli.js',
+  'packages/core/dist/cli/packageCli.d.ts',
+  'packages/core/dist/fsmPackage',
+];
 
 function readPackageJson(path: string): Record<string, unknown> {
   return JSON.parse(readFileSync(join(root, path, 'package.json'), 'utf8')) as Record<
@@ -15,6 +33,27 @@ function readPackageJson(path: string): Record<string, unknown> {
     unknown
   >;
 }
+
+function makeTempDir(prefix: string): string {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
+function writeFixtureFile(baseDir: string, relativePath: string, body: string): void {
+  const fullPath = join(baseDir, relativePath);
+  mkdirSync(dirname(fullPath), { recursive: true });
+  writeFileSync(fullPath, body);
+}
+
+afterEach(() => {
+  while (tempDirs.length > 0) {
+    const dir = tempDirs.pop();
+    if (dir !== undefined) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
 
 describe('release manifest readiness', () => {
   it('passes release manifest verification with real release versions', () => {
@@ -64,24 +103,45 @@ describe('release manifest readiness', () => {
   });
 
   it('release checks deny stale dist artifacts by name', () => {
-    const script = readFileSync(join(root, 'scripts/verify-no-stale-dist.mjs'), 'utf8');
+    const fixtureRoot = makeTempDir('aharness-stale-dist-');
+    for (const artifactPath of staleDistArtifacts) {
+      writeFixtureFile(fixtureRoot, artifactPath, 'stale release artifact\n');
+    }
 
-    expect(script).toContain('packages/core/dist/daemon');
-    expect(script).toContain('packages/core/dist/mcp');
-    expect(script).toContain('packages/core/dist/cli/daemonInternal.js');
-    expect(script).toContain('packages/core/dist/cli/shutdownSequence.js');
-    expect(script).toContain('packages/core/dist/package-runner.js');
-    expect(script).toContain('packages/core/dist/package-runner.d.ts');
-    expect(script).toContain('packages/core/dist/cli/packageCli.js');
-    expect(script).toContain('packages/core/dist/cli/packageCli.d.ts');
-    expect(script).toContain('packages/core/dist/fsmPackage');
+    expect(findStaleDistArtifacts(fixtureRoot)).toEqual(staleDistArtifacts);
   });
 
   it('release pack verification rejects source trees and build-info files', () => {
-    const script = readFileSync(join(root, 'scripts/verify-release-manifests.mjs'), 'utf8');
+    const packageDir = makeTempDir('aharness-pack-fixture-');
+    const packDestination = makeTempDir('aharness-pack-destination-');
+    writeFixtureFile(
+      packageDir,
+      'package.json',
+      JSON.stringify(
+        {
+          name: 'release-pack-fixture',
+          version: '1.0.0',
+          files: ['dist', 'src', 'tsconfig.tsbuildinfo'],
+        },
+        null,
+        2,
+      ) + '\n',
+    );
+    writeFixtureFile(packageDir, 'dist/index.js', 'export {};\n');
+    writeFixtureFile(packageDir, 'src/index.ts', 'export {};\n');
+    writeFixtureFile(packageDir, 'tsconfig.tsbuildinfo', '{}\n');
 
-    expect(script).toContain("entry.startsWith('package/src/')");
-    expect(script).toContain("entry.endsWith('.tsbuildinfo')");
+    let error: unknown;
+    try {
+      verifyPackedManifest(packageDir, packDestination);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('packed tarball contains non-release artifacts');
+    expect((error as Error).message).toContain('package/src/index.ts');
+    expect((error as Error).message).toContain('package/tsconfig.tsbuildinfo');
   });
 
   it('root verify wires UI typecheck and Codex drift checks', () => {

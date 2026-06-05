@@ -193,8 +193,8 @@ describe.skipIf(!E2E_ENABLED)('runCli — Phase 2a M6 drain-then-interrupt port'
     'iteration %d — no stray item/completed between TurnAborted and dance turn/start; rollout function_call ↔ function_call_output paired',
     async () => {
       // Deferred imports — mirror `integration.crossStateWalk.test.ts`:
-      // keep the test-support barrel out of file-load (its `pty.ts` may
-      // fail on systems without node-pty native bindings).
+      // keep test-support helper initialization out of file-load for
+      // skipped real-Codex E2E tests.
       const { startMockModel, CROSS_STATE_WALK_FSM_SOURCE, buildCrossStateSubmitTurn } =
         await import('@aharness/test-support');
 

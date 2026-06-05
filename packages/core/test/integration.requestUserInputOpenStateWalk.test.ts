@@ -72,8 +72,8 @@ describe.skipIf(!E2E_ENABLED)('runCli — request-user-input open-state walk (en
 
   it('walks a → b (open state, owner-input request) → c (terminal) and exits 0', async () => {
     // Deferred imports — same pattern as `integration.crossStateWalk.test.ts`.
-    // Keeps `pty.ts` (node-pty native bindings) out of file-load on systems
-    // without that binary.
+    // Keeps test-support helper initialization out of file-load for skipped
+    // real-Codex E2E tests.
     const {
       startMockModel,
       createMockOwnerInputProvider,

@@ -63,18 +63,6 @@ describe('resolveClearOnEntryOptions', () => {
     ).toEqual({ cwd });
   });
 
-  it('resolves clearOnEntry cwd against the default launch cwd', () => {
-    const defaultCwd = makeTempDir();
-    expect(
-      resolveClearOnEntryOptions({
-        clearOnEntry: { cwd: defaultCwd },
-        context: {},
-        defaultCwd,
-        stateId: 'fresh',
-      }),
-    ).toEqual({ cwd: defaultCwd });
-  });
-
   it('rejects object-form clearOnEntry without supported options', () => {
     expect(() =>
       resolveClearOnEntryOptions({

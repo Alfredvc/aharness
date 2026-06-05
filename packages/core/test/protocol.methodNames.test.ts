@@ -14,12 +14,13 @@ import { METHOD } from '../src/protocol/methodNames.js';
 
 describe('METHOD wire literals', () => {
   // Each row is the property name → exact wire literal expected at the
-  // pinned codex commit. Keep this table in sync with R18's verification
-  // table in `SUPPORTED_CODEX.md`.
-  const expected: Record<keyof typeof METHOD, string> = {
+  // pinned codex commit. The full-export assertion below keeps this
+  // table exhaustive as `METHOD` changes.
+  const expected = {
     initialize: 'initialize',
     threadStart: 'thread/start',
     threadResume: 'thread/resume',
+    threadSettingsUpdate: 'thread/settings/update',
     threadRollback: 'thread/rollback',
     threadInjectItems: 'thread/inject_items',
     skillsList: 'skills/list',
@@ -49,20 +50,10 @@ describe('METHOD wire literals', () => {
     mcpServerStatusList: 'mcpServerStatus/list',
     modelList: 'model/list',
     configRead: 'config/read',
-  };
+  } satisfies { [Key in keyof typeof METHOD]: (typeof METHOD)[Key] };
 
-  for (const [key, literal] of Object.entries(expected) as Array<[keyof typeof METHOD, string]>) {
-    it(`METHOD.${String(key)} === ${JSON.stringify(literal)}`, () => {
-      expect(METHOD[key]).toBe(literal);
-    });
-  }
-
-  it('exposes turn/interrupt with the codex wire literal', () => {
-    expect(METHOD.turnInterrupt).toBe('turn/interrupt');
-  });
-
-  it('exposes thread/rollback with the codex wire literal', () => {
-    expect(METHOD.threadRollback).toBe('thread/rollback');
+  it('matches the full METHOD export', () => {
+    expect(METHOD).toStrictEqual(expected);
   });
 
   it('does not export turnAborted (no such notification in codex v2)', () => {
@@ -78,22 +69,7 @@ describe('METHOD wire literals', () => {
     expect(Object.prototype.hasOwnProperty.call(METHOD, 'threadSubscribe')).toBe(false);
   });
 
-  it('exposes thread/unsubscribe with the codex wire literal', () => {
-    expect(METHOD.threadUnsubscribe).toBe('thread/unsubscribe');
-  });
-
   it('does not export an `error` method (errors flow via JSON-RPC error envelopes)', () => {
     expect(Object.prototype.hasOwnProperty.call(METHOD, 'error')).toBe(false);
-  });
-
-  it('every entry is non-empty and namespaced', () => {
-    for (const [key, value] of Object.entries(METHOD)) {
-      expect(value.length).toBeGreaterThan(0);
-      // `initialize` is the only un-namespaced wire literal; everything
-      // else uses a `<namespace>/<rest>` shape.
-      if (key !== 'initialize') {
-        expect(value).toMatch(/\//);
-      }
-    }
   });
 });

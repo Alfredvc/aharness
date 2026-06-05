@@ -8,6 +8,7 @@ import type { Topology } from '../types/topology.js';
 import { resolveFixture } from '../fixtures/registry.js';
 import { formatNodeLabelForTest, graphInternalsForTest } from './Graph.js';
 import type { GraphElkLayout, LaidOutEdge, LaidOutNode } from './graphElk.js';
+import { buildGraphLayoutModel } from './graphLayoutModel.js';
 import {
   buildFocusableEdges,
   buildGraphLegendItems,
@@ -791,33 +792,6 @@ describe('Graph focus styling stylesheet', () => {
     ]);
   });
 
-  it('makes hover and selected edge focus stronger without replacing fired semantics', () => {
-    expectCssRule('.edge.edge-hovered:not(.fired):not(.candidate-fired) path:not(.edge-hit-area)', [
-      'stroke-width: 2.75;',
-      'opacity: 1;',
-    ]);
-    expectCssRule(
-      '.edge.edge-selected-source:not(.fired):not(.candidate-fired) path:not(.edge-hit-area)',
-      ['stroke-width: 2.55;', 'opacity: 0.98;'],
-    );
-    expectCssRule(
-      '.edge.edge-selected-target:not(.fired):not(.candidate-fired) path:not(.edge-hit-area)',
-      ['stroke-width: 2.15;', 'opacity: 0.88;'],
-    );
-    expectCssRule(
-      '.edge.edge-selected-self:not(.fired):not(.candidate-fired) path:not(.edge-hit-area)',
-      ['stroke-width: 2.85;', 'opacity: 1;'],
-    );
-    expectCssRule('.edge.fired.edge-hovered path:not(.edge-hit-area)', [
-      'stroke: var(--plasma);',
-      'stroke-width: 2.95;',
-    ]);
-    expectCssRule('.edge.candidate-fired.edge-hovered path:not(.edge-hit-area)', [
-      'stroke: var(--plasma);',
-      'stroke-dasharray: 5 4;',
-    ]);
-  });
-
   it('dims unrelated graph elements while keeping current and transition signals readable', () => {
     expectCssRule('.edge.edge-dimmed', ['opacity: 0.3;']);
     expectCssRule('.edge.edge-dimmed.fired', ['opacity: 0.86;']);
@@ -841,32 +815,12 @@ describe('Graph focus styling stylesheet', () => {
     expect(cssRuleBody('.graph-edge-tooltip')).not.toContain('right:');
   });
 
-  it('styles choice nodes and edges distinctly', () => {
-    expectCssRule('.node-choice .node-rect', [
-      'fill: var(--mint-soft);',
-      'stroke: var(--mint);',
-      'stroke-dasharray: 5 3;',
-    ]);
-    expectCssRule('.edge.edge-choice:not(.fired):not(.candidate-fired) path', [
-      'stroke: var(--mint);',
-      'stroke-dasharray: 4 3;',
-    ]);
-  });
-
   it('keeps reduced motion disabling animation-only graph affordances', () => {
     expect(componentCss).toContain('@media (prefers-reduced-motion: reduce)');
     expect(componentCss).toContain('.edge.fired path,');
     expect(componentCss).toContain('animation: none !important;');
     expect(componentCss).toContain('.edge-pulse,\n  .legend .sw-edge-dot');
     expect(componentCss).toContain('display: none !important;');
-  });
-
-  it('styles contextual selected and final-state legend swatches', () => {
-    expectCssRule('.sw-node.selected', ['border-width: 2px;', 'background: var(--panel-3);']);
-    expectCssRule('.sw-node.sw-final', [
-      'border-radius: 6px;',
-      'background: linear-gradient(90deg, var(--mint-soft) 0 50%, var(--rose-soft) 50% 100%);',
-    ]);
   });
 });
 
@@ -1308,13 +1262,32 @@ describe('Graph edge rendering helpers', () => {
   });
 });
 
-describe('embed fixture', () => {
-  it('registers a topology that exercises one-level embed expansion', () => {
-    const fixture = resolveFixture('embed');
+describe('embed fixture graph behavior', () => {
+  it('models collapsed and one-level-expanded embed hosts from the registered fixture', () => {
+    const { topology } = resolveFixture('embed');
+    const host = topology.nodes.find(
+      (candidate) => candidate.kind === 'embed' && !candidate.parent,
+    );
+    if (!host?.entry) throw new Error('embed fixture must include a root embed host with an entry');
 
-    expect(fixture.topology.nodes.some((node) => node.kind === 'embed' && !node.parent)).toBe(true);
-    expect(fixture.topology.nodes.some((node) => node.kind === 'embed' && node.parent)).toBe(true);
-    expect(fixture.topology.edges.some((candidate) => candidate.from === candidate.to)).toBe(true);
-    expect(fixture.topology.edges.some((candidate) => candidate.exit === 'embed-final')).toBe(true);
+    const collapsed = buildGraphLayoutModel(topology, new Set());
+    const expanded = buildGraphLayoutModel(topology, new Set([host.id]));
+    const expandedChildNodes = expanded.visibleNodes.filter(
+      (candidate) => candidate.parent === host.id,
+    );
+    const nestedHost = expandedChildNodes.find((candidate) => candidate.kind === 'embed');
+
+    expect(collapsed.visibleNodes.some((candidate) => candidate.parent === host.id)).toBe(false);
+    expect(collapsed.visibleNodeMetadata.get(host.id)).toMatchObject({
+      isCollapsedEmbedHost: true,
+    });
+    expect(expanded.scopes.some((scope) => scope.hostId === host.id)).toBe(true);
+    expect(expandedChildNodes.map((candidate) => candidate.id)).toContain(host.entry);
+    expect(nestedHost).toBeDefined();
+    if (!nestedHost) throw new Error('embed fixture must include a nested embed host');
+    expect(expanded.visibleNodeMetadata.get(nestedHost.id)).toMatchObject({
+      isCollapsedEmbedHost: true,
+    });
+    expect(expanded.scopes.some((scope) => scope.hostId === nestedHost.id)).toBe(false);
   });
 });

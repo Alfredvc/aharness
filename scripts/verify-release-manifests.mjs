@@ -3,7 +3,8 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import {
   PUBLISHABLE_PACKAGES,
@@ -62,7 +63,7 @@ export function verifyReleaseManifests() {
   return errors;
 }
 
-function verifyPackedManifest(packageDir, packDestination) {
+export function verifyPackedManifest(packageDir, packDestination) {
   const stdout = execFileSync(
     'pnpm',
     ['--dir', packageDir, 'pack', '--pack-destination', packDestination, '--json'],
@@ -144,16 +145,22 @@ function runReleaseGate() {
   assertCleanWorktree('after release verification');
 }
 
-try {
+function runCli() {
   if (process.argv.includes('--release-gate')) {
     runReleaseGate();
   } else {
     const errors = verifyReleaseManifests();
     if (errors.length > 0) throw new Error(errors.join('\n'));
   }
-} catch (error) {
-  console.error(
-    `verify-release-manifests: ${error instanceof Error ? error.message : String(error)}`,
-  );
-  process.exit(1);
+}
+
+if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  try {
+    runCli();
+  } catch (error) {
+    console.error(
+      `verify-release-manifests: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exit(1);
+  }
 }

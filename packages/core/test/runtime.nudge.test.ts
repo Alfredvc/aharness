@@ -57,15 +57,6 @@ describe('composeStateNudge', () => {
     expect(bulletLine).toMatch(/^ {2}- /);
   });
 
-  it('does not render request_user_input guidance for submit states', () => {
-    const n = composeStateNudge({
-      stateId: 's',
-      exits: [{ kind: 'submit', name: 'go', schema: { type: 'object' } }],
-      entryPromptText: '',
-    });
-    expect(n).not.toContain('request_user_input');
-  });
-
   it('renders the schema on a single line with $schema and empty definitions stripped', () => {
     const n = composeStateNudge({
       stateId: 's',

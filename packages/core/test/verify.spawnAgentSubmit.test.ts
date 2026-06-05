@@ -10,8 +10,7 @@ interface APayload {
 
 describe('verify: no-submit-in-spawn-agent-reachable-states', () => {
   it('rejects an FSM with a submit exit AND a spawn_agent reference in author code', () => {
-    // The detection signal MVP: any author-fn that mentions "spawn_agent"
-    // by name in its body (per spec §7.1 conservative analysis).
+    const spawn_agent = (): string => 'delegate';
     const m = aharness.machine({
       id: 'm',
       initial: 'a',
@@ -19,7 +18,7 @@ describe('verify: no-submit-in-spawn-agent-reachable-states', () => {
       states: {
         a: state({
           exits: { go: exit<APayload>({ to: 't' }) },
-          entryPrompt: () => 'spawn_agent will be called by some author code',
+          entryPrompt: () => spawn_agent(),
         }),
         t: terminal('success'),
       },

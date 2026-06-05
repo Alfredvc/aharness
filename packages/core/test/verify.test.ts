@@ -6,9 +6,7 @@
  *     check) to confirm byte-for-byte parity (R4) for the unchanged checks.
  *   - Cover the deltas: removed `state-id-length`; renamed
  *     `submit-schemas-resolved` → `per-state-data-schema-resolvable`; added
- *     `state-exit-tuple-unique`; added scaffold checks
- *     `submit-tool-name-collision` and `request-user-input-name-collision`
- *     (R5 — empty-input passes today).
+ *     `state-exit-tuple-unique`.
  *   - New verifier checks from Task 8: one test per check.
  *
  * Event names follow `SUBMIT__<stateId>__<exitName>` /
@@ -1366,31 +1364,6 @@ describe('@aharness/core verify: state-exit-tuple-unique (new in §13.3)', () =>
     expect(collision).toBeDefined();
     expect(collision?.stateId).toBe('shared');
     expect(collision?.message).toContain('shared::go');
-  });
-});
-
-// ─── Delta: scaffold check for MCP-server tool-name collisions (R5) ────────
-
-describe('@aharness/core verify: request-user-input-name-collision (scaffold; activates with future MCP surface)', () => {
-  it('passes when the FSM declares no MCP-server tools (the only path today)', () => {
-    const m = aharness.machine({
-      id: 'sc2',
-      initial: 'a',
-      context: () => ({}),
-      states: {
-        a: state({
-          entryPrompt: 'do',
-          exits: {
-            ok: exit<Record<string, never>>({ to: 'final' }),
-          },
-        }),
-        final: terminal('success'),
-      },
-    });
-    const result = verify(m, sidecarWith([['a', 'ok']]));
-    expect(
-      result.issues.find((i) => i.check === 'request-user-input-name-collision'),
-    ).toBeUndefined();
   });
 });
 

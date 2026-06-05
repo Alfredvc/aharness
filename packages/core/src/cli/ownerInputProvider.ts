@@ -159,10 +159,9 @@ export function createStdinOwnerInputProvider(
         // Per-question prompt format:
         //   <header>:\n<question>\n>    (when header is non-empty)
         //   <question>\n>                (otherwise)
-        // The trailing "> " mirrors the shape used by `stdoutUI` sinks
-        // elsewhere in the codebase. NOTE: `isSecret: true` is ignored
-        // in v1 — readline echoes by default and platform-portable
-        // raw-mode echo suppression is out of scope.
+        // NOTE: `isSecret: true` is ignored in v1 — readline echoes by
+        // default and platform-portable raw-mode echo suppression is out
+        // of scope.
         const header = q.header.length > 0 ? `${q.header}:\n` : '';
         const prompt = `${header}${q.question}\n> `;
         const line = await askOne(iface, prompt);

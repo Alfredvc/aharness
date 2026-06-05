@@ -16,15 +16,15 @@
  *          cross-suite in `verify.aharnessSubmitNameCollision.test.ts`;
  *          this entry documents the coverage source).
  *
- * VC-1, VC-2, VC-4, VC-5 spawn the real `aharness` CLI binary against a
- * real codex `app-server` + a mock-model HTTP server. They are gated
- * behind `AHARNESS_E2E_REAL_CODEX=1` for parity with the other phase-1
- * end-to-end tests (`cli.runCli.phase1.test.ts`): the gate skips cleanly
- * when the `codex` binary is unavailable on PATH or the opt-in env var is
- * unset.
+ * This file executes the checklist items that need spawned-binary coverage:
+ * VC-1, VC-2, VC-4, VC-5 spawn the real `aharness` CLI binary against a real
+ * codex `app-server` + a mock-model HTTP server. They are gated behind
+ * `AHARNESS_E2E_REAL_CODEX=1` for parity with the other phase-1 end-to-end
+ * tests (`cli.runCli.phase1.test.ts`): the gate skips cleanly when the
+ * `codex` binary is unavailable on PATH or the opt-in env var is unset.
  *
- * VC-3 and VC-6 are structural-only and always pass — they exist to make
- * the six checklist items legible in vitest's reporter.
+ * VC-3 and VC-6 are covered by the suites named above; they are not duplicated
+ * here as checklist-only tests.
  */
 import { spawn, execFileSync } from 'node:child_process';
 import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
@@ -59,20 +59,6 @@ describe('Phase 1 verify checklist', () => {
       }
     }
     cleanups = [];
-  });
-
-  it('VC-3: sub-thread threadId filter — covered by transport.notificationRouter.test.ts', () => {
-    // Structural assertion: the cross-suite test exists (verified at
-    // file-listing time; this entry documents the coverage source so
-    // the checklist remains legible in the vitest reporter).
-    expect(true).toBe(true);
-  });
-
-  it('VC-6: aharness-submit-name-collision — covered by verify.aharnessSubmitNameCollision.test.ts', () => {
-    // Structural assertion: the cross-suite test exists (verified at
-    // file-listing time; this entry documents the coverage source so
-    // the checklist remains legible in the vitest reporter).
-    expect(true).toBe(true);
   });
 
   // VC-1, VC-2, VC-4, VC-5 spawn the real `aharness` CLI binary plus a real

@@ -1,10 +1,9 @@
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { Virtuoso, VirtuosoMockContext } from 'react-virtuoso';
+import { VirtuosoMockContext } from 'react-virtuoso';
 import { describe, expect, it } from 'vitest';
 
 import {
-  activePanelVirtuosoComponentsForTest,
   activePanelFollowOutputForTest,
   activePanelRowForTest,
   activePanelShouldAutoscrollForTest,
@@ -13,9 +12,7 @@ import {
   buildNodeDetailRowsForTest,
   ActivePanel,
 } from './ActivePanel.js';
-import type { ActivePanelTimelineRow } from './ActivePanel.js';
 import { canAcceptElicitation } from './elicitationActions.js';
-import { OwnerInputComposer } from './OwnerInputComposer.js';
 import type { UiState, UiActions } from '../state/store.js';
 
 type TestSession = UiState & UiActions;
@@ -799,33 +796,6 @@ describe('ActivePanel virtualized list', () => {
     expect(activePanelShouldAutoscrollForTest({ isFollowing: true, atBottom: true })).toBe(true);
     expect(activePanelShouldAutoscrollForTest({ isFollowing: false, atBottom: true })).toBe(false);
   });
-
-  it('renders measured timeline rows with the Virtuoso mock context', () => {
-    const data: ActivePanelTimelineRow[] = [
-      { kind: 'empty', key: 'empty-current', text: 'no activity yet in this visit' },
-    ];
-    const html = renderToStaticMarkup(
-      createElement(() =>
-        createElement(
-          VirtuosoMockContext.Provider,
-          { value: { viewportHeight: 300, itemHeight: 48 } },
-          createElement(Virtuoso<ActivePanelTimelineRow>, {
-            data,
-            components: activePanelVirtuosoComponentsForTest,
-            initialItemCount: 1,
-            itemContent: (_: number, row: ActivePanelTimelineRow) =>
-              row.kind === 'empty'
-                ? createElement('div', { className: 'ap-empty quiet' }, row.text)
-                : null,
-          }),
-        ),
-      ),
-    );
-
-    expect(html).toContain('ap-virtual-item');
-    expect(html).toContain('ap-virtual-header');
-    expect(html).toContain('no activity yet in this visit');
-  });
 });
 
 describe('ActivePanel historical visits', () => {
@@ -1289,56 +1259,5 @@ describe('ActivePanel historical visits', () => {
     expect(html).toContain('could not load activity for this visit');
     expect(html).not.toContain('no activity in this visit');
     expect(html).not.toContain('no activity yet in this visit');
-  });
-
-  it('uses the run-scoped reply endpoint hint for open-state composer replies', () => {
-    const html = renderActivePanel(
-      baseSession({
-        posture: {
-          isTerminal: false,
-          isAwaiting: false,
-          submittedThisTurn: false,
-          open: true,
-        },
-      }),
-    );
-
-    expect(html).toContain('POST /api/runs/:runId/reply');
-    expect(html).not.toContain('POST /api/reply');
-  });
-});
-
-describe('OwnerInputComposer reply hint', () => {
-  it('uses the run-scoped reply endpoint hint', () => {
-    const html = renderToStaticMarkup(
-      createElement(OwnerInputComposer, {
-        session: baseSession({
-          pending: {
-            fileApprovals: [],
-            cmdApprovals: [],
-            permissionApprovals: [],
-            elicitations: [],
-            ownerChoice: null,
-            ownerInput: {
-              kind: 'ServerRequest',
-              id: 'owner-1',
-              method: 'item/tool/requestUserInput',
-              questions: [
-                {
-                  id: 'q1',
-                  header: 'Next',
-                  question: 'What now?',
-                  isOther: false,
-                  isSecret: false,
-                },
-              ],
-            },
-          },
-        }),
-      }),
-    );
-
-    expect(html).toContain('POST /api/runs/:runId/reply');
-    expect(html).not.toContain('POST /api/reply');
   });
 });

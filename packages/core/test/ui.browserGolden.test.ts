@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -13,7 +13,10 @@ import {
 import { createUiEventLog, type UiEventLog } from '../src/ui/sse.js';
 
 const handles: UiServerHandle[] = [];
+const browserGoldenProcesses: ChildProcessWithoutNullStreams[] = [];
 const TEST_UI_TOKEN = 'browser-golden-token';
+const testFileDir = dirname(fileURLToPath(import.meta.url));
+const browserGoldenScriptPath = resolve(testFileDir, '../scripts/browserGoldenServer.mjs');
 
 const runMeta: RunMeta = {
   runId: 'browser-golden-run',
@@ -44,7 +47,11 @@ const requirementSpecState: FsmState = {
 
 afterEach(async () => {
   const openHandles = handles.splice(0);
-  await Promise.all(openHandles.map((handle) => handle.close()));
+  const openProcesses = browserGoldenProcesses.splice(0);
+  await Promise.all([
+    ...openHandles.map((handle) => handle.close()),
+    ...openProcesses.map((child) => stopBrowserGoldenProcess(child)),
+  ]);
 });
 
 type GoldenFixture = {
@@ -384,6 +391,74 @@ async function readSseUntil(response: Response, marker: string): Promise<string>
   return text;
 }
 
+async function startBrowserGoldenScript(scenario: string): Promise<URL> {
+  const child = spawn(process.execPath, [browserGoldenScriptPath, scenario], {
+    env: { ...process.env, BROWSER_GOLDEN_RESOLUTION_DELAY_MS: '0' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  browserGoldenProcesses.push(child);
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+
+  return new Promise((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    let resolved = false;
+    const timeout = setTimeout(() => {
+      rejectWithOutput(`Timed out waiting for browser golden server URL`);
+    }, 5_000);
+
+    const rejectWithOutput = (message: string) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timeout);
+      reject(new Error(`${message}\nstdout:\n${stdout}\nstderr:\n${stderr}`));
+    };
+
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+      const match = stdout.match(/^URL: (.+)$/m);
+      if (match === null || resolved) return;
+
+      resolved = true;
+      clearTimeout(timeout);
+      resolve(new URL(match[1]));
+    });
+    child.stderr.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+    child.once('exit', (code, signal) => {
+      rejectWithOutput(
+        `Browser golden server exited before printing a URL (code ${code ?? 'null'}, signal ${
+          signal ?? 'null'
+        })`,
+      );
+    });
+  });
+}
+
+async function stopBrowserGoldenProcess(child: ChildProcessWithoutNullStreams): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+
+  await new Promise<void>((resolveStop) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(forceKillTimer);
+      resolveStop();
+    };
+    const forceKillTimer = setTimeout(() => {
+      child.kill('SIGKILL');
+    }, 1_000);
+
+    child.once('exit', finish);
+    if (!child.kill('SIGTERM')) {
+      finish();
+    }
+  });
+}
+
 describe('Phase 3 browser-rendered golden contract', () => {
   it('serves production HTML that references built JS and CSS assets', async () => {
     const handle = await startGoldenServer(seedPirateRoast());
@@ -474,18 +549,42 @@ describe('Phase 3 browser-rendered golden contract', () => {
     },
   );
 
-  it('keeps the fixture server script available for real-browser Phase 3 checks', () => {
-    const scriptPath = resolve(
-      dirname(fileURLToPath(import.meta.url)),
-      '../scripts/browserGoldenServer.mjs',
-    );
-    const script = readFileSync(scriptPath, 'utf8');
+  it.each([
+    ['pirate-roast', 'pirate-roast.awaiting-open-composer', 'Arrr, your diff needs a sharper hook'],
+    [
+      'requirement-spec',
+      'requirement-spec.open-owner-input',
+      'Which requirement should the spec lock down next?',
+    ],
+  ])(
+    'starts the standalone %s fixture server for real-browser Phase 3 checks',
+    async (scenario, expectedStatePath, expectedText) => {
+      const url = await startBrowserGoldenScript(scenario);
+      const token = url.searchParams.get('token');
+      const runId = url.searchParams.get('runId');
 
-    expect(scriptPath).toMatch(/packages\/core\/scripts\/browserGoldenServer\.mjs$/);
-    expect(script).toContain("import { startUiServer } from '../dist/ui/server.js'");
-    expect(script).toContain("import { createUiEventLog } from '../dist/ui/sse.js'");
-    expect(script).toContain('pirate-roast');
-    expect(script).toContain('requirement-spec');
-    expect(script).toContain('getCompletionStats');
-  });
+      expect(runId).toBe(`browser-golden-${scenario}`);
+      expect(token).toEqual(expect.any(String));
+      if (token === null || runId === null) {
+        throw new Error(`Browser golden URL was missing token or runId: ${url.toString()}`);
+      }
+
+      const index = await fetchText(url.toString());
+      expect(index.response.status).toBe(200);
+      expect(index.body).toContain('<div id="root">');
+
+      const bootstrapResponse = await fetch(
+        `${url.origin}/api/runs/${runId}/bootstrap?token=${token}`,
+      );
+      const bootstrap = await bootstrapResponse.json();
+      expect(bootstrapResponse.status).toBe(200);
+      expect(bootstrap.currentState.path).toBe(expectedStatePath);
+      expect(JSON.stringify(bootstrap)).toContain(expectedText);
+
+      const summaryResponse = await fetch(`${url.origin}/api/runs/${runId}/summary?token=${token}`);
+      const summary = await summaryResponse.json();
+      expect(summaryResponse.status).toBe(200);
+      expect(summary).toEqual({ completionStats: null });
+    },
+  );
 });

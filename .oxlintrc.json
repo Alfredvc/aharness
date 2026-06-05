@@ -17,6 +17,7 @@
     "aharness/**",
     "plugin/**",
     "experiments/**",
+    "fsms/**",
     "docs/**",
     "coverage/**",
     ".vitest/**",

@@ -15,7 +15,6 @@
     "packages/test-support/src/**/*.ts",
     "packages/*/scripts/**/*.ts",
     "packages/*/test/**/*.types.test.ts",
-    "fsms/**/*.ts",
     "examples/*.fsm.ts",
     "*.config.ts",
     "*.config.js"

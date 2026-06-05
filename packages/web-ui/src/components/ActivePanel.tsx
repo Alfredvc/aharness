@@ -52,8 +52,6 @@ const activePanelVirtuosoComponents: Components<ActivePanelTimelineRow> = {
   ),
 };
 
-export const activePanelVirtuosoComponentsForTest = activePanelVirtuosoComponents;
-
 function activePanelFollowOutput(input: { isFollowing: boolean; atBottom: boolean }) {
   return input.isFollowing && input.atBottom ? 'smooth' : false;
 }

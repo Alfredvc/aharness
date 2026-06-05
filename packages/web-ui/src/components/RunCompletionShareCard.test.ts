@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -73,6 +75,20 @@ function render(statsValue: RunCompletionStats): string {
   return renderToStaticMarkup(createElement(RunCompletionShareCard, props));
 }
 
+function renderSvg(statsValue: RunCompletionStats): SVGSVGElement {
+  const host = document.createElement('div');
+  host.innerHTML = render(statsValue);
+  const svg = host.querySelector('svg');
+  if (!svg) throw new Error('expected share-card svg');
+  return svg;
+}
+
+function requiredElement(container: ParentNode, selector: string): Element {
+  const element = container.querySelector(selector);
+  if (!element) throw new Error(`missing SVG element: ${selector}`);
+  return element;
+}
+
 describe('RunCompletionShareCard', () => {
   it('builds safe props only for success and failure outcomes', () => {
     expect(buildRunCompletionShareCardProps(stats({ outcome: 'success' }))?.outcome).toBe(
@@ -98,41 +114,78 @@ describe('RunCompletionShareCard', () => {
     expect(successHtml).not.toContain('class=');
   });
 
-  it('renders the dark poster hierarchy, unavailable work fallback, and other time bucket', () => {
-    const html = render(
-      stats({
-        workDelta: { status: 'unavailable', reason: 'missing' },
-      }),
+  it('renders the poster hierarchy, unavailable work fallback, and other time bucket', () => {
+    const unavailableReason = 'missing';
+    const statsValue = stats({
+      workDelta: { status: 'unavailable', reason: unavailableReason },
+    });
+    const props = buildRunCompletionShareCardProps(statsValue);
+    if (props === null) throw new Error('expected share-card props');
+    const svg = renderSvg(statsValue);
+
+    expect(requiredElement(svg, '#run-completion-share-title').textContent).toContain(
+      props.fsmDisplayName,
+    );
+    expect(props.totalTimeLabel).toBe('2m 05s');
+    expect(props.totalTokenLabel).toBe('9,876');
+    expect(props.filesChangedLabel).toBe('N/A');
+    expect(props.linesChangedLabel).toBe('N/A');
+    expect(props.lineDeltaDetailLabel).toBe('N/A');
+    expect(props.topTimeBuckets.at(-1)).toEqual(expect.objectContaining({ label: 'Other states' }));
+
+    requiredElement(svg, 'defs linearGradient#share-card-bg');
+    requiredElement(svg, 'defs linearGradient#share-card-token-burn');
+    requiredElement(svg, 'defs linearGradient#share-card-time-bars');
+    requiredElement(svg, 'defs pattern#share-card-grid');
+    requiredElement(svg, 'defs filter#share-card-glow');
+    requiredElement(svg, 'rect[fill="url(#share-card-bg)"]');
+    requiredElement(svg, 'rect[fill="url(#share-card-grid)"]');
+
+    const timePanel = requiredElement(svg, 'g[transform="translate(96 704)"]');
+    expect(timePanel.textContent).toContain(props.totalTimeLabel);
+    requiredElement(timePanel, 'rect[width="682"][height="420"]');
+
+    requiredElement(svg, 'g[transform="translate(826 704)"] circle[stroke-dasharray]');
+
+    const tokenPanel = requiredElement(svg, 'g[transform="translate(96 1190)"]');
+    expect(tokenPanel.textContent).toContain(props.totalTokenLabel);
+    requiredElement(tokenPanel, '#share-card-token-main-bar');
+    requiredElement(tokenPanel, '#share-card-token-subthread-bar');
+
+    const statTiles = requiredElement(svg, 'g[transform="translate(96 1700)"]');
+    expect(statTiles.querySelectorAll('g[transform]')).toHaveLength(4);
+
+    const timeBucketRows = requiredElement(
+      svg,
+      'g[transform="translate(96 2288)"]',
+    ).querySelectorAll('g[transform^="translate(42 "]');
+    expect(timeBucketRows).toHaveLength(props.topTimeBuckets.length);
+    expect(timeBucketRows.item(timeBucketRows.length - 1).textContent).toContain(
+      props.topTimeBuckets.at(-1)?.label,
     );
 
-    expect(html).toContain('autonomous repair');
-    expect(html).toContain('#07131f');
-    expect(html).toContain('#14b8a6');
-    expect(html).toContain('#fb7185');
-    expect(html).toContain('TOTAL TIME');
-    expect(html).toContain('TOKEN BURN');
-    expect(html).toContain('Time by state');
-    expect(html).toContain('Files changed');
-    expect(html).toContain('Lines changed');
-    expect(html).not.toContain('Main tokens');
-    expect(html).not.toContain('Subthread tokens');
-    expect(html).toContain('2m 05s');
-    expect(html).toContain('9,876');
-    expect(html).toContain('N/A');
-    expect(html).toContain('Committed delta unavailable');
-    expect(html).toContain('Other states');
+    const footerStatus = requiredElement(svg, 'text[text-anchor="end"]');
+    expect(footerStatus.textContent).not.toContain(unavailableReason);
+    expect(footerStatus.textContent).not.toContain(props.lineDeltaDetailLabel);
   });
 
   it('uses distinct success and failure tones with the same poster layout', () => {
-    const successHtml = render(stats({ outcome: 'success' }));
-    const failureHtml = render(stats({ outcome: 'failure' }));
+    const successSvg = renderSvg(stats({ outcome: 'success' }));
+    const failureSvg = renderSvg(stats({ outcome: 'failure' }));
+    const successRing = requiredElement(
+      successSvg,
+      'g[transform="translate(826 704)"] circle[stroke-dasharray]',
+    );
+    const failureRing = requiredElement(
+      failureSvg,
+      'g[transform="translate(826 704)"] circle[stroke-dasharray]',
+    );
 
-    expect(successHtml).toContain('#14b8a6');
-    expect(successHtml).toContain('DONE');
-    expect(successHtml).toContain('TOKEN BURN');
-    expect(failureHtml).toContain('#f43f5e');
-    expect(failureHtml).toContain('HALT');
-    expect(failureHtml).toContain('TOKEN BURN');
+    expect(successRing.getAttribute('stroke')).not.toBe(failureRing.getAttribute('stroke'));
+    expect(successRing.getAttribute('stroke-dasharray')).toBe('100 0');
+    expect(failureRing.getAttribute('stroke-dasharray')).toBe('72 28');
+    requiredElement(successSvg, 'g[transform="translate(96 1190)"] #share-card-token-main-bar');
+    requiredElement(failureSvg, 'g[transform="translate(96 1190)"] #share-card-token-main-bar');
   });
 
   it('builds derived poster metric labels from display-safe completion stats', () => {

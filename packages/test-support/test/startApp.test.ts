@@ -5,24 +5,15 @@
  *   skips when `codex` is not on PATH.
  * - `waitForState` is unit-runnable: happy-path resolution and timeout
  *   reporting cover the R17 helper.
- * - The phase-4 stubs (`waitForTransition`, `currentState`, `lastSnapshot`)
- *   are asserted to throw with a stable message so a future phase-4 wiring
- *   change is loud rather than silent.
+ * - The public barrel is checked to avoid exporting retired helpers.
  */
 
 import { execFileSync } from 'node:child_process';
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  currentState,
-  lastSnapshot,
-  startApp,
-  startMockModel,
-  waitForState,
-  waitForTransition,
-  type AppHandle,
-} from '../src/index.js';
+import * as testSupport from '../src/index.js';
+import { startApp, startMockModel, waitForState, type AppHandle } from '../src/index.js';
 
 const hasCodex = (() => {
   try {
@@ -72,22 +63,11 @@ describe('waitForState', () => {
   });
 });
 
-describe('phase-4 stubs', () => {
-  // Cast through `unknown` because the stubs throw before reading the handle;
-  // the test only verifies the surface is callable and emits a stable error.
-  const fakeHandle = {} as unknown as AppHandle;
-
-  it('waitForTransition throws phase-4 wiring error', async () => {
-    await expect(waitForTransition(fakeHandle, () => true)).rejects.toThrow(
-      /phase-4 daemon wiring/,
-    );
-  });
-
-  it('currentState throws phase-4 wiring error', () => {
-    expect(() => currentState(fakeHandle)).toThrow(/phase-4 daemon wiring/);
-  });
-
-  it('lastSnapshot throws phase-4 wiring error', () => {
-    expect(() => lastSnapshot(fakeHandle)).toThrow(/phase-4 daemon wiring/);
+describe('@aharness/test-support public surface', () => {
+  it('does not export retired helpers', () => {
+    expect(testSupport).not.toHaveProperty('waitForTransition');
+    expect(testSupport).not.toHaveProperty('currentState');
+    expect(testSupport).not.toHaveProperty('lastSnapshot');
+    expect(testSupport).not.toHaveProperty('spawnPty');
   });
 });

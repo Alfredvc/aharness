@@ -54,9 +54,9 @@ import type { AharnessMeta } from '../types.js';
 
 /**
  * Result of `dryRunSubmit`. `ok: true` carries the projected post-
- * transition state-id and context; `ok: false` carries the throw
- * message from the pure `transition` call (e.g. unknown event,
- * unresolved guard).
+ * transition state-id and context; `ok: false` carries an error thrown
+ * by the pure `transition` call. Unhandled events are valid unchanged
+ * projections, not `ok: false` results.
  */
 export type DryRunResult =
   | { ok: true; nextStateId: string; nextContext: Record<string, unknown> }

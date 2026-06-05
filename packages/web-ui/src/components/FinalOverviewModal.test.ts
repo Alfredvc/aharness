@@ -131,7 +131,10 @@ describe('FinalOverviewModal', () => {
     expect(html).toContain('Where the time went');
     expect(html).toContain('12');
     expect(html).toContain('collect');
-    expect(html.match(/final-overview-dashboard-tile/g)).toHaveLength(4);
+    expect(html).toContain('Transitions');
+    expect(html).toContain('Turns');
+    expect(html).toContain('Lines changed');
+    expect(html).toContain('+12 / -5');
     expect(html).not.toContain('Main tokens');
     expect(html).not.toContain('Subthread tokens');
   });

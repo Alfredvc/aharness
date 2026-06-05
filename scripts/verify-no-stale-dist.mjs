@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { ROOT } from './release-helpers.mjs';
 
@@ -19,11 +20,21 @@ export const STALE_DIST_PATHS = [
   'packages/core/dist/fsmPackage',
 ];
 
-const stale = STALE_DIST_PATHS.filter((path) => existsSync(join(ROOT, path)));
+export function findStaleDistArtifacts(root = ROOT) {
+  return STALE_DIST_PATHS.filter((path) => existsSync(join(root, path)));
+}
 
-if (stale.length > 0) {
-  console.error(
-    `verify-no-stale-dist: stale release artifacts found:\n${stale.map((p) => `  - ${p}`).join('\n')}`,
-  );
-  process.exit(1);
+function runCli() {
+  const stale = findStaleDistArtifacts();
+
+  if (stale.length > 0) {
+    console.error(
+      `verify-no-stale-dist: stale release artifacts found:\n${stale.map((p) => `  - ${p}`).join('\n')}`,
+    );
+    process.exit(1);
+  }
+}
+
+if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  runCli();
 }
