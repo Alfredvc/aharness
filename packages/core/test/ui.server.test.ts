@@ -88,6 +88,8 @@ describe('startUiServer', () => {
     const jsBody = await jsResponse.text();
     const cssResponse = await fetch(`${handle.url}${builtAssetPath('css')}`);
     const cssBody = await cssResponse.text();
+    const faviconResponse = await fetch(`${handle.url}/assets/favicon.ico`);
+    const faviconBody = await faviconResponse.arrayBuffer();
 
     expect(jsResponse.status).toBe(200);
     expect(jsResponse.headers.get('content-type')).toMatch(/(?:application|text)\/javascript/);
@@ -98,6 +100,9 @@ describe('startUiServer', () => {
     expect(cssResponse.status).toBe(200);
     expect(cssResponse.headers.get('content-type')).toContain('text/css');
     expect(cssBody).toContain('font-family');
+    expect(faviconResponse.status).toBe(200);
+    expect(faviconResponse.headers.get('content-type')).toBe('image/x-icon');
+    expect(faviconBody.byteLength).toBeGreaterThan(0);
   });
 
   it('returns 404 for unknown static files and rejects encoded traversal', async () => {
