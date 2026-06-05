@@ -34,6 +34,13 @@ export type ActivePanelTimelineRow =
   | { kind: 'awaiting_codex'; key: string }
   | { kind: 'empty'; key: string; text: string }
   | {
+      kind: 'visit_summary';
+      key: string;
+      tone: 'empty' | 'filtered' | 'loading' | 'error';
+      title: string;
+      detail: string;
+    }
+  | {
       kind: 'visit_header';
       key: string;
       visit: number;
@@ -77,12 +84,43 @@ function visitNumber(visitId: string): number {
   return Number.isFinite(parsed) ? parsed : 1;
 }
 
-function emptyVisitMessage(group: VisitGroup): string {
-  if (group.rowCount > 0) return 'activity hidden in this view';
-  if (group.loadStatus?.loading) return 'loading activity for this visit…';
-  if (group.loadStatus?.error) return 'could not load activity for this visit';
-  if (group.loadStatus?.loaded) return 'no activity in this visit';
-  return 'activity not loaded yet';
+function emptyVisitSummary(
+  group: VisitGroup,
+): Extract<ActivePanelTimelineRow, { kind: 'visit_summary' }> {
+  if (group.loadStatus?.loading) {
+    return {
+      kind: 'visit_summary',
+      key: `${group.visitId}:summary`,
+      tone: 'loading',
+      title: 'loading activity',
+      detail: 'fetching rows for this visit',
+    };
+  }
+  if (group.loadStatus?.error) {
+    return {
+      kind: 'visit_summary',
+      key: `${group.visitId}:summary`,
+      tone: 'error',
+      title: 'activity unavailable',
+      detail: 'could not load rows for this visit',
+    };
+  }
+  if (group.rowCount > 0) {
+    return {
+      kind: 'visit_summary',
+      key: `${group.visitId}:summary`,
+      tone: 'filtered',
+      title: 'transition-only visit',
+      detail: 'no model or tool rows recorded for this visit',
+    };
+  }
+  return {
+    kind: 'visit_summary',
+    key: `${group.visitId}:summary`,
+    tone: 'empty',
+    title: 'no activity recorded',
+    detail: 'this visit has no compact rows',
+  };
 }
 
 function submitReply(onReply: UiActions['reply'], payload: ReplyPayload) {
@@ -132,11 +170,7 @@ function buildActivePanelTimelineRows(input: {
         return item.type !== 'state_change';
       });
       if (renderableItems.length === 0) {
-        rows.push({
-          kind: 'empty',
-          key: `${group.visitId}:empty`,
-          text: emptyVisitMessage(group),
-        });
+        rows.push(emptyVisitSummary(group));
       } else {
         for (const item of renderableItems) {
           rows.push({ kind: 'transcript', key: item.id, item });
@@ -607,6 +641,13 @@ function ActivePanelTimelineRowView({
       return <AwaitingCodexPlaceholder />;
     case 'visit_header':
       return <VisitHeader visit={row.visit} entry={row.entry} />;
+    case 'visit_summary':
+      return (
+        <div className="ap-visit-summary" data-tone={row.tone}>
+          <span>{row.title}</span>
+          <em>{row.detail}</em>
+        </div>
+      );
     case 'transcript':
       return <ActivePanelRow item={row.item} />;
     case 'inline_indicator':

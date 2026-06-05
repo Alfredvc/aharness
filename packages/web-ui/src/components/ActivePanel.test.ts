@@ -795,7 +795,14 @@ describe('ActivePanel timeline rows', () => {
       showApprovals: false,
     });
 
-    expect(rows.map((row) => row.kind)).toEqual(['visit_header', 'empty']);
+    expect(rows.map((row) => row.kind)).toEqual(['visit_header', 'visit_summary']);
+    expect(rows[1]).toEqual({
+      kind: 'visit_summary',
+      key: 'workflow.collect#1:summary',
+      tone: 'filtered',
+      title: 'transition-only visit',
+      detail: 'no model or tool rows recorded for this visit',
+    });
     expect(rows.some((row) => row.kind === 'transcript')).toBe(false);
   });
 
@@ -1125,9 +1132,11 @@ describe('ActivePanel historical visits', () => {
       baseSession({ scopedPath: 'workflow.collect', transcript, devMode: true }),
     );
 
-    expect(hidden).toContain('activity hidden in this view');
+    expect(hidden).toContain('transition-only visit');
+    expect(hidden).toContain('no model or tool rows recorded');
     expect(hidden).not.toContain('aharness_submit');
-    expect(dev).toContain('activity hidden in this view');
+    expect(dev).toContain('transition-only visit');
+    expect(dev).toContain('no model or tool rows recorded');
     expect(dev).not.toContain('aharness_submit');
   });
 
@@ -1182,12 +1191,13 @@ describe('ActivePanel historical visits', () => {
     );
 
     expect(html).toContain('visit 1');
-    expect(html).toContain('loading activity for this visit');
+    expect(html).toContain('loading activity');
+    expect(html).toContain('fetching rows for this visit');
     expect(html).not.toContain('no activity in this visit');
     expect(html).not.toContain('no activity yet in this visit');
   });
 
-  it('does not claim emptiness when a loaded visit only has rows hidden by the default filter', () => {
+  it('renders transition-only summaries when a loaded visit only has filtered state rows', () => {
     const html = renderActivePanel(
       baseSession({
         scopedPath: 'workflow.collect',
@@ -1210,7 +1220,9 @@ describe('ActivePanel historical visits', () => {
       }),
     );
 
-    expect(html).toContain('activity hidden in this view');
+    expect(html).not.toContain('activity hidden in this view');
+    expect(html).toContain('transition-only visit');
+    expect(html).toContain('no model or tool rows recorded');
     expect(html).not.toContain('no activity in this visit');
     expect(html).not.toContain('no activity yet in this visit');
   });
@@ -1294,7 +1306,8 @@ describe('ActivePanel historical visits', () => {
     );
 
     expect(html).toContain('visit 1');
-    expect(html).toContain('activity hidden in this view');
+    expect(html).toContain('transition-only visit');
+    expect(html).toContain('no model or tool rows recorded');
     expect(html).toContain('visit 2');
     expect(html).toContain('second visit row');
     expect(html).not.toContain('no activity in this visit');
@@ -1312,7 +1325,8 @@ describe('ActivePanel historical visits', () => {
       }),
     );
 
-    expect(html).toContain('could not load activity for this visit');
+    expect(html).toContain('activity unavailable');
+    expect(html).toContain('could not load rows for this visit');
     expect(html).not.toContain('no activity in this visit');
     expect(html).not.toContain('no activity yet in this visit');
   });

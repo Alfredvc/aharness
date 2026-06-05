@@ -51,7 +51,9 @@ Terminal or aggregate-completed runs continue to display completed/failed shell
 status when the foreground SSE stream closes, so stream loss does not mask a
 known terminal outcome.
 Selecting a graph state switches the right panel to that state's historical
-visits, grouped chronologically by visit id. Pending approvals, including
+visits, grouped chronologically by visit id. Visits that only contain filtered
+state-transition rows render as transition-only visit summaries rather than
+generic hidden-activity placeholders. Pending approvals, including
 pending file approval cards that can show diffs for approval decisions, owner
 choices, model-originated owner prompts, and open-state prompts remain live-run
 interaction surfaces rather than raw JSONL payload views. Owner input is

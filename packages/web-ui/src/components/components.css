@@ -2358,6 +2358,30 @@
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
+.ap-visit-summary {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-left: 2px solid var(--line-strong);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--panel);
+}
+.ap-visit-summary span {
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: var(--t-tiny);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ap-visit-summary em {
+  color: var(--muted);
+  font-style: normal;
+  font-size: var(--t-small);
+}
+.ap-visit-summary[data-tone='error'] {
+  border-left-color: var(--rose);
+  background: var(--rose-soft);
+}
 
 .ap-visit-group {
   display: flex;
