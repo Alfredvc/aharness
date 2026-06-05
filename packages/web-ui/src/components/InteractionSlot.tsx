@@ -23,16 +23,19 @@ export function OwnerChoiceSlot({ req, reply }: OwnerChoiceProps) {
   const [cursor, setCursor] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const submittingRef = useRef(false);
   const options = req.options;
 
   useEffect(() => {
     setCursor(0);
+    submittingRef.current = false;
     setSubmitting(false);
     setError(null);
   }, [req.requestId]);
 
   async function commit(label: string) {
-    if (submitting) return;
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     setError(null);
     try {
@@ -45,17 +48,20 @@ export function OwnerChoiceSlot({ req, reply }: OwnerChoiceProps) {
     } catch {
       setError('choice failed; selection retained');
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   }
 
   function pick(i: number) {
+    if (submittingRef.current) return;
     if (i < 0 || i >= options.length) return;
     void commit(options[i]?.label ?? '');
   }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (submittingRef.current) return;
       if (e.key === 'ArrowDown' || e.key === 'j') {
         e.preventDefault();
         setCursor((c) => Math.min(options.length - 1, c + 1));
@@ -75,10 +81,13 @@ export function OwnerChoiceSlot({ req, reply }: OwnerChoiceProps) {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cursor, options, req.requestId, submitting]);
+  }, [cursor, options, req.requestId]);
 
   return (
-    <div className="slot slot-choice slot-owner-choice">
+    <div
+      className="slot slot-choice slot-owner-choice"
+      data-submitting={submitting ? 'true' : 'false'}
+    >
       <div className="slot-head">
         <span className="dot" aria-hidden />
         <span className="label">framework choice</span>
@@ -89,7 +98,10 @@ export function OwnerChoiceSlot({ req, reply }: OwnerChoiceProps) {
           <li
             key={option.label}
             className={`choice ${i === cursor ? 'on' : ''}`}
-            onMouseEnter={() => setCursor(i)}
+            aria-disabled={submitting}
+            onMouseEnter={() => {
+              if (!submittingRef.current) setCursor(i);
+            }}
             onClick={() => pick(i)}
           >
             <span className="num">{i + 1}</span>

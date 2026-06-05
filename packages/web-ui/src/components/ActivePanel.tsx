@@ -305,6 +305,13 @@ export function ActivePanel({ session }: Props) {
     !session.pending.ownerInput &&
     !session.posture.isAwaiting &&
     !session.posture.isTerminal;
+  const interactionKind = session.pending.ownerChoice
+    ? 'owner-choice'
+    : session.pending.ownerInput
+      ? 'owner-input'
+      : showOpenComposer
+        ? 'open-state'
+        : null;
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const atBottomRef = useRef(true);
   useEffect(() => {
@@ -356,7 +363,13 @@ export function ActivePanel({ session }: Props) {
 
   return (
     <section
-      className={`active-panel ${session.posture.isAwaiting && isRunTranscript ? 'awaits' : ''}`}
+      className={[
+        'active-panel',
+        session.posture.isAwaiting && isRunTranscript ? 'awaits' : null,
+        interactionKind !== null ? 'has-interaction' : null,
+      ]
+        .filter(Boolean)
+        .join(' ')}
     >
       <header className="ap-head">
         {session.mode === 'inspect' ? <NodeDetailBox node={displayNode} /> : null}
@@ -457,12 +470,16 @@ export function ActivePanel({ session }: Props) {
         itemContent={(_, row) => <ActivePanelTimelineRowView row={row} session={session} />}
       />
 
-      {isRunTranscript && session.pending.ownerChoice ? (
-        <OwnerChoiceSlot req={session.pending.ownerChoice} reply={session.reply} />
-      ) : isRunTranscript && session.pending.ownerInput ? (
-        <InteractionSlot req={session.pending.ownerInput} reply={session.reply} />
-      ) : showOpenComposer ? (
-        <OpenStateComposer onReply={session.reply} />
+      {interactionKind ? (
+        <div className="ap-interaction-dock" data-interaction-kind={interactionKind}>
+          {session.pending.ownerChoice ? (
+            <OwnerChoiceSlot req={session.pending.ownerChoice} reply={session.reply} />
+          ) : session.pending.ownerInput ? (
+            <InteractionSlot req={session.pending.ownerInput} reply={session.reply} />
+          ) : (
+            <OpenStateComposer onReply={session.reply} />
+          )}
+        </div>
       ) : null}
     </section>
   );

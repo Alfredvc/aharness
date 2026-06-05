@@ -2330,6 +2330,18 @@
   min-height: 0;
   scrollbar-width: thin;
 }
+.active-panel.has-interaction .ap-body {
+  border-bottom: var(--hair) solid var(--line);
+}
+.ap-interaction-dock {
+  flex: 0 0 auto;
+  padding: 14px 26px 22px;
+  background: linear-gradient(180deg, rgba(7, 8, 11, 0), var(--bg) 18px), var(--bg);
+}
+.ap-interaction-dock .slot {
+  margin: 0;
+  box-shadow: var(--shadow-card);
+}
 .ap-virtual-item {
   padding: 0 26px 16px;
   box-sizing: border-box;
@@ -3108,6 +3120,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  min-height: 44px;
   padding: 10px 12px;
   border: var(--hair) solid var(--line-strong);
   border-radius: var(--r-sm);
@@ -3130,9 +3143,12 @@
   justify-content: center;
 }
 .choice .text {
+  min-width: 0;
   font-family: var(--font-sans);
   font-size: 14px;
   color: var(--ink-soft);
+  overflow-wrap: anywhere;
+  letter-spacing: 0;
 }
 .choice.on {
   border-color: var(--amber);
@@ -3163,6 +3179,9 @@
 .slot-owner-choice .choice.on .num {
   border-color: var(--indigo);
   color: var(--indigo);
+}
+.slot-owner-choice[data-submitting='true'] .choice {
+  cursor: wait;
 }
 
 /* multi-question */

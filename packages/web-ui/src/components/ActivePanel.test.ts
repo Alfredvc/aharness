@@ -732,6 +732,39 @@ describe('ActivePanel timeline rows', () => {
     expect(html).not.toContain('Approve this plan?');
   });
 
+  it('renders pending owner choices in a distinct interaction dock', () => {
+    const html = renderActivePanel(
+      baseSession({
+        posture: {
+          isTerminal: false,
+          isAwaiting: true,
+          submittedThisTurn: false,
+          open: false,
+        },
+        pending: {
+          fileApprovals: [],
+          cmdApprovals: [],
+          permissionApprovals: [],
+          elicitations: [],
+          ownerChoice: {
+            kind: 'OwnerChoice',
+            id: 'owner-choice:workflow.pick#2',
+            requestId: 'owner-choice:workflow.pick#2',
+            state: 'workflow.pick',
+            visitCount: 2,
+            question: 'Pick a path',
+            options: [{ label: 'Left' }, { label: 'Right' }],
+          },
+          ownerInput: null,
+        },
+      }),
+    );
+
+    expect(html).toContain('class="ap-interaction-dock"');
+    expect(html).toContain('data-interaction-kind="owner-choice"');
+    expect(html).toContain('framework choice');
+  });
+
   it('still suppresses duplicate state transitions inside scoped visit rows', () => {
     const rows = buildActivePanelTimelineRowsForTest({
       mode: 'run',
