@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { zoomIdentity } from 'd3-zoom';
@@ -782,6 +783,23 @@ describe('Graph interaction helpers', () => {
 });
 
 describe('Graph focus styling stylesheet', () => {
+  it('defines graph polish selectors and tokens used by the visual hierarchy pass', () => {
+    const css = readFileSync(
+      join(process.cwd(), 'packages/web-ui/src/components/components.css'),
+      'utf8',
+    );
+    const tokens = readFileSync(
+      join(process.cwd(), 'packages/web-ui/src/styles/tokens.css'),
+      'utf8',
+    );
+
+    expect(tokens).toContain('--graph-edge-idle');
+    expect(tokens).toContain('--graph-label-bg');
+    expect(css).toContain('.edge.fired path');
+    expect(css).toContain('.node.active .node-rect');
+    expect(css).toContain('.edge-label-bg');
+  });
+
   it('keeps edge hit areas invisible, broad, and pointer-owned', () => {
     expectCssRule('.edge .edge-hit-area', [
       'pointer-events: stroke;',
@@ -832,6 +850,22 @@ describe('Graph edge rendering helpers', () => {
         edge({ id: 'rank', semanticId: 'visible', isRankOnly: true }),
       ]).map((candidate) => candidate.id),
     ).toEqual(['visible']);
+  });
+
+  it('preserves fired-edge classification and semantic edge classes', () => {
+    expect(graphInternalsForTest.classifyFiredEdge({ semanticId: 'e1' }, new Set(['e1']))).toBe(
+      'exact',
+    );
+    expect(graphInternalsForTest.classifyFiredEdge({ semanticId: 'e2' }, new Set(['e1']))).toBe(
+      'none',
+    );
+
+    const className = edgeClassName(edge({ kind: 'choice', mainRole: 'forward' }), 'exact', true);
+
+    expect(className).toContain('fired');
+    expect(className).toContain('visited');
+    expect(className).toContain('edge-choice');
+    expect(className).toContain('main-forward');
   });
 
   it('reserves exact fired for a single from-to match and marks parallel matches as candidates', () => {

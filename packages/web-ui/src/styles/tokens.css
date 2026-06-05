@@ -56,6 +56,14 @@
   --plasma-soft: rgba(255, 93, 143, 0.16);
   --plasma-glow: rgba(255, 93, 143, 0.38);
 
+  /* Graph-specific hierarchy tokens keep path emphasis out of global accents. */
+  --graph-edge-idle: rgba(156, 151, 137, 0.34);
+  --graph-edge-muted: rgba(106, 110, 124, 0.24);
+  --graph-label-bg: rgba(7, 8, 11, 0.86);
+  --graph-active: var(--plasma);
+  --graph-choice: var(--indigo);
+  --graph-terminal: var(--mint);
+
   /* Geometry. */
   --r-xs: 2px;
   --r-sm: 4px;

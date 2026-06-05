@@ -958,9 +958,14 @@
 /* edges */
 .edge path {
   fill: none;
-  stroke: var(--line-strong);
-  stroke-width: 1.5;
-  color: var(--line-strong);
+  stroke: var(--graph-edge-idle);
+  stroke-width: 1.35;
+  color: var(--graph-edge-idle);
+}
+.edge:not(.fired):not(.candidate-fired):not(.edge-hovered):not(.edge-selected-source):not(
+    .edge-selected-target
+  ):not(.edge-selected-self) {
+  opacity: 0.58;
 }
 .edge.edge-role-primary:not(.fired):not(.candidate-fired) path {
   stroke: var(--line-strong);
@@ -973,23 +978,9 @@
   stroke-width: 1.65;
 }
 .edge.edge-role-terminal:not(.fired):not(.candidate-fired) path {
-  stroke: var(--mint);
-  color: var(--mint);
+  stroke: var(--graph-terminal);
+  color: var(--graph-terminal);
   stroke-width: 1.75;
-}
-.edge.edge-role-auxiliary:not(.fired):not(.candidate-fired) path {
-  stroke: var(--indigo-deep);
-  color: var(--indigo-deep);
-  stroke-width: 1.35;
-  stroke-dasharray: 7 4;
-  opacity: 0.68;
-}
-.edge.edge-role-resume:not(.fired):not(.candidate-fired) path {
-  stroke: var(--indigo);
-  color: var(--indigo);
-  stroke-width: 1.45;
-  stroke-dasharray: 2 4;
-  opacity: 0.76;
 }
 .edge.edge-role-feedback:not(.fired):not(.candidate-fired) path {
   stroke: var(--amber);
@@ -1001,11 +992,25 @@
   stroke: var(--ink-quiet);
   color: var(--ink-quiet);
 }
+.edge.edge-role-auxiliary:not(.fired):not(.candidate-fired) path,
+.edge.edge-role-resume:not(.fired):not(.candidate-fired) path {
+  stroke: var(--graph-edge-muted);
+  color: var(--graph-edge-muted);
+  opacity: 1;
+}
+.edge.edge-role-auxiliary:not(.fired):not(.candidate-fired) path {
+  stroke-width: 1.35;
+  stroke-dasharray: 7 4;
+}
+.edge.edge-role-resume:not(.fired):not(.candidate-fired) path {
+  stroke-width: 1.45;
+  stroke-dasharray: 2 4;
+}
 .edge.fired path {
-  stroke: var(--plasma);
-  color: var(--plasma);
-  stroke-width: 2.4;
-  filter: drop-shadow(0 0 8px var(--plasma-glow));
+  stroke: var(--graph-active);
+  color: var(--graph-active);
+  stroke-width: 3;
+  filter: drop-shadow(0 0 10px var(--plasma-glow));
   animation: edgeFlash 1.1s var(--ease-out) both;
 }
 .edge.candidate-fired path {
@@ -1044,8 +1049,8 @@
     filter: drop-shadow(0 0 16px var(--plasma)) drop-shadow(0 0 4px #fff);
   }
   100% {
-    stroke-width: 2.4;
-    filter: drop-shadow(0 0 8px var(--plasma-glow));
+    stroke-width: 3;
+    filter: drop-shadow(0 0 10px var(--plasma-glow));
   }
 }
 .edge.edge-await:not(.fired):not(.candidate-fired) path {
@@ -1056,8 +1061,8 @@
   opacity: 0.7;
 }
 .edge.edge-choice:not(.fired):not(.candidate-fired) path {
-  stroke: var(--mint);
-  color: var(--mint);
+  stroke: var(--graph-choice);
+  color: var(--graph-choice);
   stroke-dasharray: 4 3;
   opacity: 0.9;
 }
@@ -1092,7 +1097,7 @@
 }
 
 .edge-label-bg {
-  fill: var(--bg-2);
+  fill: var(--graph-label-bg);
   stroke: var(--line);
   stroke-width: 1;
 }
@@ -1125,9 +1130,9 @@
 }
 .edge .edge-label {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 11px;
   fill: var(--ink-quiet);
-  letter-spacing: 0.04em;
+  letter-spacing: 0;
   pointer-events: none;
 }
 .edge.edge-role-auxiliary:not(.fired):not(.candidate-fired) .edge-label,
@@ -1728,9 +1733,9 @@
 }
 .node .node-label {
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 13px;
   fill: var(--ink-soft);
-  letter-spacing: 0.01em;
+  letter-spacing: 0;
   pointer-events: none;
 }
 .node .node-glyph {
@@ -1811,9 +1816,9 @@
 
 /* active: plasma fill + glow */
 .node.active .node-rect {
-  fill: var(--plasma-soft);
-  stroke: var(--plasma);
-  stroke-width: 2;
+  fill: color-mix(in srgb, var(--plasma-soft) 70%, var(--panel));
+  stroke: var(--graph-active);
+  stroke-width: 2.4;
   transform-box: fill-box;
   transform-origin: center;
   animation:
