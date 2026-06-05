@@ -50,8 +50,8 @@
   grid-area: top;
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 12px 22px;
+  gap: 14px;
+  padding: 10px 20px;
   border-bottom: var(--hair) solid var(--line);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent), var(--bg);
 }
@@ -96,13 +96,18 @@
 .top-meta {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   margin-left: 10px;
   flex: 1;
   min-width: 0;
   overflow: hidden;
 }
 .top-file {
+  min-width: 160px;
+  max-width: min(420px, 34vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: var(--t-tiny);
   color: var(--ink-quiet);
@@ -132,6 +137,7 @@
 
 .top-actions {
   display: flex;
+  flex: 0 0 auto;
   gap: 8px;
 }
 .top-btn {
@@ -143,7 +149,7 @@
   border: var(--hair) solid var(--line-strong);
   border-radius: var(--r-sm);
   color: var(--ink-quiet);
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
   cursor: pointer;
   transition:
     color 160ms var(--ease),
@@ -771,7 +777,7 @@
   text-transform: uppercase;
   letter-spacing: 0.22em;
   color: var(--ink-soft);
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
 }
 .pill[data-tone='amber'] {
   border-color: var(--amber);
@@ -789,9 +795,8 @@
   background: var(--rose-soft);
 }
 .pill[data-tone='indigo'] {
-  border-color: var(--indigo);
+  border-color: color-mix(in srgb, var(--indigo) 68%, var(--line));
   color: var(--indigo);
-  background: var(--indigo-soft);
 }
 .pill[data-tone='plasma'] {
   border-color: var(--plasma);
@@ -841,7 +846,7 @@
   padding: 3px 8px;
   border: var(--hair) solid var(--line);
   border-radius: var(--r-xs);
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
   font-family: var(--font-mono);
   white-space: nowrap;
 }
@@ -2005,6 +2010,16 @@
 }
 
 @media (max-width: 900px) {
+  .top {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .top-meta {
+    order: 3;
+    flex-basis: 100%;
+  }
+
   .main {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(320px, 1fr) minmax(280px, 0.9fr);

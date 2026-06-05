@@ -142,6 +142,54 @@ describe('AharnessShell run stats chrome', () => {
     expect(html).toContain('foreground run ended');
   });
 
+  it('renders a single completed shell status label for successful terminal runs', () => {
+    const html = renderToStaticMarkup(
+      createElement(AharnessShell, {
+        session: baseSession({
+          posture: {
+            isTerminal: true,
+            isAwaiting: false,
+            submittedThisTurn: false,
+            open: false,
+          },
+          aggregateStats: {
+            status: 'success',
+            startedAt: '2026-05-29T00:00:00.000Z',
+            endedAt: '2026-05-29T00:01:05.000Z',
+            turnCount: 2,
+          },
+        }),
+      }),
+    );
+
+    expect(html.match(/>completed</g) ?? []).toHaveLength(1);
+    expect(html).not.toContain('>success<');
+  });
+
+  it('renders a single failed shell status label for failed terminal runs', () => {
+    const html = renderToStaticMarkup(
+      createElement(AharnessShell, {
+        session: baseSession({
+          posture: {
+            isTerminal: true,
+            isAwaiting: false,
+            submittedThisTurn: false,
+            open: false,
+          },
+          aggregateStats: {
+            status: 'failed',
+            startedAt: '2026-05-29T00:00:00.000Z',
+            endedAt: '2026-05-29T00:01:05.000Z',
+            turnCount: 2,
+          },
+        }),
+      }),
+    );
+
+    expect(html.match(/>failed</g) ?? []).toHaveLength(1);
+    expect(html).not.toContain('>failure<');
+  });
+
   it('renders aggregate header and bottom stats with formatted duration and token totals', () => {
     const html = renderToStaticMarkup(
       createElement(AharnessShell, {
