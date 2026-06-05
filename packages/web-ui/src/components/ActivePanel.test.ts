@@ -423,6 +423,29 @@ describe('ActivePanel tool rows', () => {
     expect(html).toContain('src');
   });
 
+  it('renders owner-choice compact replies as owner decisions', () => {
+    const html = renderToStaticMarkup(
+      createElement(() =>
+        activePanelRowForTest({
+          id: 'reply-choice-1',
+          stateVisitId: 'workflow.pick#1',
+          type: 'compact_status',
+          category: 'reply',
+          label: 'owner choice',
+          status: 'accepted',
+          summary: 'blue',
+        }),
+      ),
+    );
+
+    expect(html).toContain('owner-choice-row');
+    expect(html).toContain('data-kind="owner_choice"');
+    expect(html).toContain('owner chose');
+    expect(html).toContain('blue');
+    expect(html).toContain('accepted');
+    expect(html).not.toContain('owner choice');
+  });
+
   it('uses normalized command, MCP, and subagent display hints', () => {
     const command = renderToStaticMarkup(
       createElement(() =>

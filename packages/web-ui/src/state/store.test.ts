@@ -14,6 +14,7 @@ import {
   openFinalOverviewState,
   startFinalOverviewSummaryLoad,
   visibleItems,
+  type TranscriptItem,
 } from './store.js';
 import { applyAppEvent, hydrateFromSnapshot } from './legacyFlatEvents.js';
 import {
@@ -622,6 +623,48 @@ describe('headless production store helpers', () => {
       }),
     );
     expect(accepted.pending.ownerChoice).toBeNull();
+  });
+
+  it('shows successful owner-choice selections in the default transcript', () => {
+    const items: TranscriptItem[] = [
+      {
+        id: 'reply-choice-1',
+        stateVisitId: 'workflow.pick#1',
+        type: 'compact_status',
+        category: 'reply',
+        label: 'owner choice',
+        status: 'accepted',
+        summary: 'blue',
+      },
+    ];
+
+    expect(visibleItems(items, false)).toEqual(items);
+  });
+
+  it('keeps generic request and reply protocol rows hidden by default', () => {
+    const items: TranscriptItem[] = [
+      {
+        id: 'request-1',
+        stateVisitId: 'workflow.pick#1',
+        type: 'compact_status',
+        category: 'request',
+        label: 'request',
+        status: 'pending',
+        summary: 'protocol request',
+      },
+      {
+        id: 'reply-1',
+        stateVisitId: 'workflow.pick#1',
+        type: 'compact_status',
+        category: 'reply',
+        label: 'owner input',
+        status: 'accepted',
+        summary: 'protocol reply',
+      },
+    ];
+
+    expect(visibleItems(items, false)).toEqual([]);
+    expect(visibleItems(items, true)).toEqual(items);
   });
 
   it('formats aggregate run stats with explicit zero values and omitted missing fields', () => {

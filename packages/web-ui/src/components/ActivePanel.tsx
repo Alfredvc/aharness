@@ -1540,6 +1540,20 @@ function FrameworkNoteRow({ item }: { item: Extract<TranscriptItem, { type: 'fra
 }
 
 function CompactStatusRow({ item }: { item: Extract<TranscriptItem, { type: 'compact_status' }> }) {
+  if (item.category === 'reply' && item.label === 'owner choice') {
+    return (
+      <div
+        className="compact-row owner-choice-row"
+        data-kind="owner_choice"
+        data-status={item.status ?? 'accepted'}
+      >
+        <span className="compact-kicker">owner chose</span>
+        <span className="compact-label">{truncate(item.summary ?? 'selection accepted', 120)}</span>
+        {item.status ? <span className="compact-status">{item.status}</span> : null}
+      </div>
+    );
+  }
+
   const elapsed = item.elapsedMs === undefined ? null : formatElapsed(item.elapsedMs);
   return (
     <div className="compact-row" data-kind={item.category} data-status={item.status ?? 'info'}>

@@ -198,8 +198,10 @@ unchanged by this terminal-summary surface: event pages and SSE continue to omit
 `raw` payloads rather than applying new normalized-field redaction. Raw evidence
 remains in `events.jsonl`. Live transcripts render a default summary from
 API-safe compact rows, while dev mode can inspect additional
-protocol/state/lifecycle rows and successful tool output. Those compact rows can
-include command display fields such as `data.row.data.displayKind`,
+protocol/state/lifecycle rows and successful tool output. Owner-choice
+selections remain visible in the default transcript as operator-flow rows, while
+generic request/reply protocol rows stay hidden unless dev mode is enabled.
+Those compact rows can include command display fields such as `data.row.data.displayKind`,
 `data.row.data.command`, row `output`, row `elapsedMs`, and summary-only
 file-change transcript rows. File-change rows expose safe display summaries
 rather than diff bodies; full file diffs remain only in sensitive

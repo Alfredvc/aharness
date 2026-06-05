@@ -2321,12 +2321,7 @@ function isVisibleTranscriptItem(i: TranscriptItem): boolean {
   if (i.type === 'tool_call' && i.reserved) return false;
   if (i.type === 'tool_result' && i.reserved) return false;
   if (i.type === 'compact_status' && i.reserved) return false;
-  if (
-    i.type === 'compact_status' &&
-    i.category === 'reply' &&
-    i.status === 'failed' &&
-    i.label === 'owner choice'
-  ) {
+  if (i.type === 'compact_status' && i.category === 'reply' && i.label === 'owner choice') {
     return true;
   }
   if (
