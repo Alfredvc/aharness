@@ -109,6 +109,18 @@ npx aharness run ./workflow.fsm.ts
 Machine inputs become kebab-case flags, so `fixtureRoot` is passed as
 `--fixture-root`.
 
+## Installable Workflows
+
+For a full recipe-driven development workflow, install the Codeflow package:
+
+```bash
+npx aharness install @aharness/codeflow
+npx aharness run @aharness/codeflow/recipe-driven-development --roadmap-path docs/plans/example-roadmap.md
+```
+
+Codeflow packages the long-running roadmap-to-commits workflow separately from
+the core framework, including its bundled support skills.
+
 ## First Workflow
 
 aharness workflows are TypeScript files built with `createFsm`:

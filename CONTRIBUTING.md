@@ -55,8 +55,7 @@ The Husky pre-commit hook runs `lint-staged` and the repository-specific
 workflow-term check. `lint-staged` formats staged files and runs oxlint against
 staged JavaScript and TypeScript files. The oxlint command uses
 `--no-error-on-unmatched-pattern` so staged files intentionally ignored by the
-root oxlint config, such as root `fsms/**/*.ts` entries, do not fail the commit
-with a no-files-found error.
+root oxlint config do not fail the commit with a no-files-found error.
 
 ## Codex Edit Hook
 

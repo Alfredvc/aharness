@@ -18,7 +18,6 @@
     "plugin/**",
     "experiments/**",
     "docs/**",
-    "fsms/**/*.ts",
     "coverage/**",
     ".vitest/**",
     ".pnpm-store/**",
