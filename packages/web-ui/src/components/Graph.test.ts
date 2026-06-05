@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { zoomIdentity } from 'd3-zoom';
@@ -54,6 +53,7 @@ const {
 } = graphInternalsForTest;
 
 const componentCss = readFileSync(new URL('./components.css', import.meta.url), 'utf8');
+const tokensCss = readFileSync(new URL('../styles/tokens.css', import.meta.url), 'utf8');
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -784,20 +784,11 @@ describe('Graph interaction helpers', () => {
 
 describe('Graph focus styling stylesheet', () => {
   it('defines graph polish selectors and tokens used by the visual hierarchy pass', () => {
-    const css = readFileSync(
-      join(process.cwd(), 'packages/web-ui/src/components/components.css'),
-      'utf8',
-    );
-    const tokens = readFileSync(
-      join(process.cwd(), 'packages/web-ui/src/styles/tokens.css'),
-      'utf8',
-    );
-
-    expect(tokens).toContain('--graph-edge-idle');
-    expect(tokens).toContain('--graph-label-bg');
-    expect(css).toContain('.edge.fired path');
-    expect(css).toContain('.node.active .node-rect');
-    expect(css).toContain('.edge-label-bg');
+    expect(tokensCss).toContain('--graph-edge-idle');
+    expect(tokensCss).toContain('--graph-label-bg');
+    expect(componentCss).toContain('.edge.fired path');
+    expect(componentCss).toContain('.node.active .node-rect');
+    expect(componentCss).toContain('.edge-label-bg');
   });
 
   it('keeps edge hit areas invisible, broad, and pointer-owned', () => {

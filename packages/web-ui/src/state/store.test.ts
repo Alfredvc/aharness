@@ -3551,6 +3551,19 @@ describe('final overview state', () => {
     expect(terminal.finalOverview.autoOpened).toBe(true);
   });
 
+  it('keeps terminal bootstrap without local summary stats closed', () => {
+    const terminal = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      posture: { ...posture, isTerminal: true, open: false },
+      completionStats: null,
+    });
+
+    expect(terminal.posture.isTerminal).toBe(true);
+    expect(terminal.completionStats).toBeNull();
+    expect(terminal.finalOverview.open).toBe(false);
+    expect(terminal.finalOverview.autoOpened).toBe(false);
+  });
+
   it('supports dismissal, explicit reopen, summary loading, success, and failure', () => {
     const terminal = hydrateFromBootstrap({
       ...runScopedBootstrap(),
@@ -3592,7 +3605,7 @@ describe('final overview state', () => {
     expect(loaded.finalOverview.dismissed).toBe(true);
   });
 
-  it('marks live terminal events without deriving completion stats from event payloads', () => {
+  it('marks live terminal events without opening a summary-less overview', () => {
     const initial = hydrateFromBootstrap(runScopedBootstrap());
     const state = applyRunEvent(
       initial,
@@ -3606,7 +3619,8 @@ describe('final overview state', () => {
     );
 
     expect(state.posture.isTerminal).toBe(true);
-    expect(state.finalOverview.open).toBe(true);
+    expect(state.finalOverview.open).toBe(false);
+    expect(state.finalOverview.autoOpened).toBe(false);
     expect(state.completionStats).toBeNull();
   });
 });

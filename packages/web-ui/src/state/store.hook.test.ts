@@ -204,7 +204,7 @@ describe('useAharnessSession final overview summary fetch', () => {
     expect(latest?.completionStats?.fsmDisplayName).toBe('workflow');
   });
 
-  it('fetches summary for terminal bootstrap with null stats', async () => {
+  it('auto-fetches summary for terminal bootstrap with null stats without showing a loading modal', async () => {
     const fetchSummary = vi.fn<SummaryFetcher>(() =>
       Promise.resolve({
         completionStats: stats({ transitionCount: 5 }),
@@ -232,6 +232,8 @@ describe('useAharnessSession final overview summary fetch', () => {
     expect(fetchSummary).toHaveBeenCalledTimes(1);
     expect(latest?.connection).toBe('live');
     expect(latest?.completionStats?.transitionCount).toBe(5);
+    expect(latest?.finalOverview.open).toBe(true);
+    expect(latest?.finalOverview.autoOpened).toBe(true);
     expect(latest?.finalOverview.loading).toBe(false);
   });
 
@@ -270,9 +272,10 @@ describe('useAharnessSession final overview summary fetch', () => {
     expect(fetchSummary).toHaveBeenCalledTimes(1);
     expect(latest?.posture.isTerminal).toBe(true);
     expect(latest?.completionStats?.outcome).toBe('failure');
+    expect(latest?.finalOverview.open).toBe(true);
   });
 
-  it('keeps summary fetch errors out of connection-lost state', async () => {
+  it('keeps automatic summary fetch errors out of connection-lost state and out of the modal', async () => {
     const fetchSummary = vi.fn<SummaryFetcher>(() =>
       Promise.reject(new Error('summary unavailable')),
     );
@@ -296,6 +299,9 @@ describe('useAharnessSession final overview summary fetch', () => {
 
     const latest = sessions[sessions.length - 1];
     expect(latest?.connection).toBe('live');
+    expect(latest?.posture.isTerminal).toBe(true);
+    expect(latest?.finalOverview.open).toBe(false);
+    expect(latest?.finalOverview.loading).toBe(false);
     expect(latest?.finalOverview.error).toBe('summary unavailable');
   });
 });

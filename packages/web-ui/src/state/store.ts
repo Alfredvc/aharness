@@ -395,13 +395,18 @@ export function dismissFinalOverviewState(state: UiState): UiState {
   };
 }
 
-export function startFinalOverviewSummaryLoad(state: UiState): UiState {
+export function startFinalOverviewSummaryLoad(
+  state: UiState,
+  options: { open?: boolean } = {},
+): UiState {
+  const open = options.open ?? true;
+  const base = open ? openFinalOverviewState(state) : state;
   return {
-    ...openFinalOverviewState(state),
+    ...base,
     finalOverview: {
-      ...state.finalOverview,
-      open: true,
-      dismissed: false,
+      ...base.finalOverview,
+      open: open ? true : base.finalOverview.open,
+      dismissed: open ? false : base.finalOverview.dismissed,
       loading: true,
       error: null,
     },
@@ -412,12 +417,18 @@ export function completeFinalOverviewSummaryLoad(
   state: UiState,
   response: RunSummaryResponse,
 ): UiState {
+  const completionStats = response.completionStats ?? null;
+  const shouldOpen =
+    !state.finalOverview.dismissed && (state.finalOverview.open || completionStats !== null);
   return {
     ...state,
-    completionStats: response.completionStats ?? null,
+    completionStats,
     finalOverview: {
       ...state.finalOverview,
-      open: state.finalOverview.dismissed ? false : true,
+      open: shouldOpen,
+      autoOpened:
+        state.finalOverview.autoOpened ||
+        (!state.finalOverview.open && shouldOpen && completionStats !== null),
       dismissed: state.finalOverview.dismissed,
       loading: false,
       error: null,
@@ -439,6 +450,7 @@ export function failFinalOverviewSummaryLoad(state: UiState, error: string): UiS
 function autoOpenTerminalOverview(state: UiState): UiState {
   if (
     !state.posture.isTerminal ||
+    state.completionStats === null ||
     state.finalOverview.autoOpened ||
     state.finalOverview.dismissed
   ) {
@@ -698,7 +710,7 @@ type Action =
   | { type: 'connectionLost' }
   | { type: 'openFinalOverview' }
   | { type: 'dismissFinalOverview' }
-  | { type: 'startFinalOverviewSummaryLoad' }
+  | { type: 'startFinalOverviewSummaryLoad'; open?: boolean }
   | { type: 'completeFinalOverviewSummaryLoad'; response: RunSummaryResponse }
   | { type: 'failFinalOverviewSummaryLoad'; error: string }
   | { type: 'replyFailed'; error: string }
@@ -1635,7 +1647,7 @@ function reduceRunEvent(previous: UiState, e: RunScopedApiEvent): UiState {
   switch (e.type) {
     case 'run.completed':
     case 'run.failed':
-      return openFinalOverviewState({
+      return autoOpenTerminalOverview({
         ...appendRunEventRow(state, e),
         posture: {
           ...state.posture,
@@ -1863,7 +1875,7 @@ function reducer(s: UiState, a: Action): UiState {
     return dismissFinalOverviewState(s);
   }
   if (a.type === 'startFinalOverviewSummaryLoad') {
-    return startFinalOverviewSummaryLoad(s);
+    return startFinalOverviewSummaryLoad(s, { open: a.open });
   }
   if (a.type === 'completeFinalOverviewSummaryLoad') {
     return completeFinalOverviewSummaryLoad(s, a.response);
@@ -2059,8 +2071,8 @@ export function useAharnessSession(
       unsubscribeRef.current = null;
     }
 
-    function loadSummary() {
-      dispatch({ type: 'startFinalOverviewSummaryLoad' });
+    function loadSummary(open: boolean) {
+      dispatch({ type: 'startFinalOverviewSummaryLoad', open });
       void fetchSummaryImpl({ runId, uiToken: token, fetch: fetchImpl })
         .then((response) => {
           if (!disposed) dispatch({ type: 'completeFinalOverviewSummaryLoad', response });
@@ -2087,7 +2099,7 @@ export function useAharnessSession(
           latestEventIdRef.current = event.id;
           dispatch({ type: 'runEvent', e: event });
           if (event.type === 'run.completed' || event.type === 'run.failed') {
-            loadSummary();
+            loadSummary(false);
           }
         },
         onConnectionLost: () => dispatch({ type: 'connectionLost' }),
@@ -2114,7 +2126,7 @@ export function useAharnessSession(
         latestEventIdRef.current = bootstrap.latestEventId;
         dispatch({ type: 'hydrate', bootstrap });
         if (bootstrap.posture.isTerminal && bootstrap.completionStats == null) {
-          loadSummary();
+          loadSummary(false);
         }
         openStream(bootstrap.latestEventId);
       })
@@ -2235,7 +2247,33 @@ export function useAharnessSession(
     reply,
     requestRowsForStatePath,
     requestRecentRows,
-    openFinalOverview: () => dispatch({ type: 'openFinalOverview' }),
+    openFinalOverview: () => {
+      if (s.completionStats !== null) {
+        dispatch({ type: 'openFinalOverview' });
+        return;
+      }
+      if (s.finalOverview.loading) {
+        dispatch({ type: 'startFinalOverviewSummaryLoad', open: true });
+        return;
+      }
+      const runId = s.run?.runId;
+      if (!uiToken || !runId) {
+        dispatch({ type: 'openFinalOverview' });
+        return;
+      }
+      const token = uiToken;
+      dispatch({ type: 'startFinalOverviewSummaryLoad', open: true });
+      void fetchSummaryImpl({ runId, uiToken: token, fetch: fetchImpl })
+        .then((response) => {
+          dispatch({ type: 'completeFinalOverviewSummaryLoad', response });
+        })
+        .catch((error) => {
+          dispatch({
+            type: 'failFinalOverviewSummaryLoad',
+            error: error instanceof Error ? error.message : 'Summary load failed',
+          });
+        });
+    },
     dismissFinalOverview: () => dispatch({ type: 'dismissFinalOverview' }),
     toggleDevMode: () => dispatch({ type: 'toggleDevMode' }),
     setScope: (path: string | null) => dispatch({ type: 'setScope', path }),

@@ -203,6 +203,9 @@ API-safe compact rows, while dev mode can inspect additional
 protocol/state/lifecycle rows and successful tool output. Owner-choice
 selections remain visible in the default transcript as operator-flow rows, while
 generic request/reply protocol rows stay hidden unless dev mode is enabled.
+Terminal final-overview auto-open waits for local `completionStats`; automatic
+summary fetch failures stay off-screen so a foreground UI shutdown cannot cover
+a successful terminal transcript with a failed modal.
 The live run-event projection tails the same canonical JSONL and catches up
 from disk when compatibility writers append events outside the live publisher,
 so later terminal events are not dropped because an artifact metadata event
