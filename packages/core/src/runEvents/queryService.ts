@@ -346,6 +346,39 @@ export function createRunEventQueryService(
     index = buildRunEventIndex({ events });
   }
 
+  function catchUpFromDisk(entry: RunEventWithOffset): RunEventQueryServiceUpdateResult | null {
+    const previousSeq = events.at(-1)?.event.seq ?? 0;
+    const nextReplay = replayRunEvents(options);
+    diagnostics = [...nextReplay.diagnostics];
+    available = nextReplay.ok;
+
+    if (!nextReplay.ok) {
+      return {
+        ok: false,
+        diagnostic: diagnostics.find((item) => item.severity === 'corruption') ?? {
+          severity: 'corruption',
+          code: 'invalid-json-object',
+          message: 'run event log is unavailable',
+          offset: entry.offset,
+          seq: entry.event.seq,
+          id: entry.event.id,
+        },
+      };
+    }
+
+    const replayedCurrent = nextReplay.events.find(
+      (candidate) =>
+        candidate.event.seq === entry.event.seq && candidate.event.id === entry.event.id,
+    );
+    if (replayedCurrent === undefined) return null;
+
+    const newEntries = nextReplay.events.filter((candidate) => candidate.event.seq > previousSeq);
+    events = [...nextReplay.events];
+    rebuildIndex();
+    for (const newEntry of newEntries) notify(newEntry);
+    return { ok: true, latestEventId: latestEventId(events) ?? entry.event.id };
+  }
+
   function rejectAppend(
     code: RunEventReplayDiagnostic['code'],
     message: string,
@@ -400,6 +433,10 @@ export function createRunEventQueryService(
       }
       const expectedSeq = (events.at(-1)?.event.seq ?? 0) + 1;
       if (entry.event.seq !== expectedSeq) {
+        if (entry.event.seq > expectedSeq) {
+          const caughtUp = catchUpFromDisk(entry);
+          if (caughtUp !== null) return caughtUp;
+        }
         return rejectAppend(
           entry.event.seq < expectedSeq ? 'non-increasing-seq' : 'invalid-seq',
           'live append seq must be the next canonical sequence for this run',

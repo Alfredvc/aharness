@@ -638,6 +638,51 @@ describe('run event query service', () => {
     expect(notified).toEqual(['run-query:3']);
   });
 
+  it('catches up from disk when a compatibility writer appends a missing live seq', () => {
+    const eventsPath = tempEventsPath();
+    const initialEvents = [
+      event(1, 'run.started', { data: { startedAt: '2026-05-29T00:00:01.000Z' } }),
+      event(2, 'state.changed', {
+        stateVisitId: 'root.confirm#1',
+        data: { path: 'root.confirm', kind: 'choice', stateVisitId: 'root.confirm#1' },
+      }),
+    ];
+    writeJsonl(eventsPath, ...initialEvents);
+    const service = createRunEventQueryService({ runId: RUN_ID, eventsPath });
+    const notified: string[] = [];
+    service.subscribe((entry) => notified.push(entry.event.id));
+
+    const terminal = event(4, 'run.completed', {
+      data: { state: 'root.final', terminal: 'success', status: 'success' },
+    });
+    writeJsonl(
+      eventsPath,
+      ...initialEvents,
+      event(3, 'artifact.written', { data: { relPath: 'result.md', bytes: 12 } }),
+      terminal,
+    );
+
+    const accepted = service.acceptAppend(withOffsets([terminal])[0]!);
+
+    expect(accepted).toEqual({ ok: true, latestEventId: 'run-query:4' });
+    expect(notified).toEqual(['run-query:3', 'run-query:4']);
+    expect(service.getLatestEventId()).toBe('run-query:4');
+    const bootstrap = service.getBootstrap({
+      getRunMeta: () => ({
+        runId: RUN_ID,
+        repoRoot: '/repo',
+        fsmFile: '/repo/demo.fsm.ts',
+        fsmHash6: 'abc123',
+        codexPin: 'codex-test',
+        startedAt: '2026-05-29T00:00:01.000Z',
+      }),
+    });
+    expect(bootstrap.ok).toBe(true);
+    if (!bootstrap.ok) return;
+    expect(bootstrap.bootstrap.aggregateStats.status).toBe('success');
+    expect(bootstrap.bootstrap.completionStats?.outcome).toBe('success');
+  });
+
   it('does not recover an unavailable corrupted replay service from a later append', () => {
     const eventsPath = tempEventsPath();
     writeFileSync(eventsPath, 'not json\n');

@@ -203,6 +203,10 @@ API-safe compact rows, while dev mode can inspect additional
 protocol/state/lifecycle rows and successful tool output. Owner-choice
 selections remain visible in the default transcript as operator-flow rows, while
 generic request/reply protocol rows stay hidden unless dev mode is enabled.
+The live run-event projection tails the same canonical JSONL and catches up
+from disk when compatibility writers append events outside the live publisher,
+so later terminal events are not dropped because an artifact metadata event
+landed through the legacy writer path.
 Those compact rows can include command display fields such as `data.row.data.displayKind`,
 `data.row.data.command`, row `output`, row `elapsedMs`, and summary-only
 file-change transcript rows. File-change rows expose safe display summaries
