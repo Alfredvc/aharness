@@ -41,6 +41,21 @@ interface CanonicalChildData {
   topic: string;
 }
 
+interface RecoveryProbeParentData {
+  config: {
+    maxRecoveryAttempts: number;
+  };
+  recovery: { maxAttempts: number } | null;
+}
+
+interface RecoveryProbeChildData {
+  maxAttempts: number;
+}
+
+type RecoveryProbeInput = {
+  maxAttempts: number;
+};
+
 function buildCanonicalEmbedVerifierMachine() {
   const childFsm = createFsm<CanonicalChildData>();
   const child = childFsm.machine({
@@ -98,6 +113,62 @@ function buildCanonicalEmbedVerifierMachine() {
   });
 }
 
+function buildCanonicalRecoveryProbeMachine(
+  projectInput: (data: Readonly<RecoveryProbeParentData>) => RecoveryProbeInput,
+) {
+  const childFsm = createFsm<RecoveryProbeChildData>();
+  const child = childFsm.machine({
+    id: 'canonicalRecoveryProbeChild',
+    input: {
+      maxAttempts: childFsm.input.number(),
+    },
+    data: ({ input }) => ({ maxAttempts: input.maxAttempts }),
+    initial: 'attempt',
+    states: {
+      attempt: childFsm.state({
+        prompt: (data) => `Attempt recovery with ${data.maxAttempts} tries`,
+        on: {
+          complete: childFsm.submit<{}>({ to: 'completed' }),
+        },
+      }),
+      completed: childFsm.final({
+        outcome: 'success',
+        output: (data) => ({ maxAttempts: data.maxAttempts }),
+      }),
+    },
+  });
+
+  const parentFsm = createFsm<RecoveryProbeParentData>();
+  return parentFsm.machine({
+    id: 'canonicalRecoveryProbeParent',
+    data: () => ({
+      config: { maxRecoveryAttempts: 3 },
+      recovery: null,
+    }),
+    initial: 'router',
+    states: {
+      router: parentFsm.state({
+        prompt: 'Route into recovery probe',
+        on: {
+          start: parentFsm.submit<{}>({ to: 'embeddedWork' }),
+        },
+      }),
+      embeddedWork: parentFsm.embed(child, {
+        input: projectInput,
+        on: {
+          completed: {
+            to: 'done',
+            reduce: (draft, output) => {
+              draft.recovery = { maxAttempts: output.maxAttempts };
+            },
+          },
+        },
+      }),
+      done: parentFsm.final({ outcome: 'success' }),
+    },
+  });
+}
+
 const canonicalSidecar: SchemaSidecar = {
   router: {
     go: {
@@ -114,6 +185,21 @@ const canonicalSidecar: SchemaSidecar = {
       jsonSchema: {
         type: 'object',
       },
+      validate: (input: unknown) => ({ ok: true, data: input }),
+    },
+  },
+};
+
+const recoveryProbeSidecar: SchemaSidecar = {
+  router: {
+    start: {
+      jsonSchema: { type: 'object' },
+      validate: (input: unknown) => ({ ok: true, data: input }),
+    },
+  },
+  'embeddedWork.attempt': {
+    complete: {
+      jsonSchema: { type: 'object' },
       validate: (input: unknown) => ({ ok: true, data: input }),
     },
   },
@@ -581,6 +667,30 @@ describe('verifier — embedded-input-must-be-satisfied', () => {
     expect(issues).toEqual([]);
   });
 
+  it('does not warn when a canonical input projection reads required parent initial data', () => {
+    const machine = buildCanonicalRecoveryProbeMachine((data) => ({
+      maxAttempts: data.config.maxRecoveryAttempts,
+    }));
+
+    const result = verify(machine, recoveryProbeSidecar);
+    const issues = result.issues.filter((i) => i.check === 'embedded-input-must-be-satisfied');
+    expect(issues).toEqual([]);
+  });
+
+  it('errors when a probeable canonical input projection omits a required child input key', () => {
+    const machine = buildCanonicalRecoveryProbeMachine((() => ({})) as (
+      data: Readonly<RecoveryProbeParentData>,
+    ) => RecoveryProbeInput);
+
+    const result = verify(machine, recoveryProbeSidecar);
+    const issues = result.issues.filter((i) => i.check === 'embedded-input-must-be-satisfied');
+    const missingKeyIssue = issues.find(
+      (i) => i.stateId === 'embeddedWork' && /maxAttempts/.test(i.message),
+    );
+    expect(missingKeyIssue?.severity).toBe('error');
+    expect(issues.some((i) => i.severity === 'warning')).toBe(false);
+  });
+
   it('still recurses into nested states when a projection throws', () => {
     // Construct a parent whose top-level `embed()` has a throwing projection
     // AND a sibling state that contains a deeper embed with a missing input.
@@ -606,7 +716,7 @@ describe('verifier — embedded-input-must-be-satisfied', () => {
     if (!innerEmbedded) throw new Error('missing-input fixture: `inner` is not an embed-host');
     const savedInnerInput = innerEmbedded.input;
     innerEmbedded.input = () => {
-      throw new Error('throws on synthesized empty context');
+      throw new Error('throws on synthesized verifier context');
     };
     restorers.push(() => {
       innerEmbedded.input = savedInnerInput;

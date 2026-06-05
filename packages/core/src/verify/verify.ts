@@ -2288,6 +2288,111 @@ function checkEmbeddingAcyclic(machine: AnyStateMachine): VerifyIssue[] {
 
 // ─── Check: embedded-input-must-be-satisfied ──────────────────────────────
 
+type _ProbeContextResult =
+  | { readonly available: true; readonly context: Record<string, unknown> }
+  | { readonly available: false };
+
+type _EmbeddedInputProjectionProbe =
+  | { readonly available: true; readonly projected: unknown }
+  | { readonly available: false };
+
+const _VERIFY_PROBE_RUN_ID = 'verify-probe-run';
+const _VERIFY_PROBE_RUN_ROOT = '/tmp/aharness-verify-probe';
+
+function _deriveRootProbeContext(machine: AnyStateMachine): _ProbeContextResult {
+  const config = asPlainObject((machine as { readonly config?: unknown }).config);
+  if (config === null) return { available: false };
+  return _resolveProbeContext(config['context'], _syntheticRootProbeInput(config['input']));
+}
+
+function _syntheticRootProbeInput(rootInputDecl: unknown): Record<string, unknown> {
+  const declaredDefaults: Record<string, unknown> = {};
+  const input = asPlainObject(rootInputDecl);
+  if (input !== null) {
+    for (const [key, decl] of Object.entries(input)) {
+      const declaration = asPlainObject(decl);
+      if (declaration === null) continue;
+      const meta = asPlainObject(declaration['meta']);
+      const defaultValue = meta?.['default'];
+      if (defaultValue !== undefined) declaredDefaults[key] = defaultValue;
+    }
+  }
+  return {
+    runId: _VERIFY_PROBE_RUN_ID,
+    runDir: {
+      runId: _VERIFY_PROBE_RUN_ID,
+      root: _VERIFY_PROBE_RUN_ROOT,
+      snapshotPath: `${_VERIFY_PROBE_RUN_ROOT}/snapshot.json`,
+      eventsPath: `${_VERIFY_PROBE_RUN_ROOT}/events.jsonl`,
+      artifactsDir: `${_VERIFY_PROBE_RUN_ROOT}/artifacts`,
+    },
+    ...declaredDefaults,
+  };
+}
+
+function _resolveProbeContext(
+  contextConfig: unknown,
+  input: Record<string, unknown>,
+): _ProbeContextResult {
+  try {
+    const resolved =
+      typeof contextConfig === 'function'
+        ? (
+            contextConfig as (args: {
+              readonly input: Record<string, unknown>;
+              readonly spawn: undefined;
+              readonly self: undefined;
+            }) => unknown
+          )({
+            input,
+            spawn: undefined,
+            self: undefined,
+          })
+        : contextConfig;
+    const context = asPlainObject(resolved);
+    if (context === null) return { available: false };
+    return { available: true, context: { ...context } };
+  } catch {
+    return { available: false };
+  }
+}
+
+function _probeContextCandidates(
+  probeContext: _ProbeContextResult,
+): ReadonlyArray<Record<string, unknown>> {
+  if (!probeContext.available) return [{}];
+  if (Object.keys(probeContext.context).length === 0) return [probeContext.context];
+  return [probeContext.context, {}];
+}
+
+function _probeEmbeddedInputProjection(
+  projection: ((a: { readonly context: Record<string, unknown> }) => unknown) | undefined,
+  parentProbeContexts: ReadonlyArray<Record<string, unknown>>,
+): _EmbeddedInputProjectionProbe | undefined {
+  if (typeof projection !== 'function') return undefined;
+  for (const context of parentProbeContexts) {
+    try {
+      return { available: true, projected: projection({ context }) };
+    } catch {
+      // Try the next candidate. The caller warns only if every candidate fails.
+    }
+  }
+  return { available: false };
+}
+
+function _projectedChildInputObject(projected: unknown): Record<string, unknown> | null {
+  if (projected === null || typeof projected !== 'object') return null;
+  return projected as Record<string, unknown>;
+}
+
+function _deriveChildProbeContexts(
+  childContextConfig: unknown,
+  projectedChildInput: Record<string, unknown> | null,
+): ReadonlyArray<Record<string, unknown>> {
+  if (projectedChildInput === null) return [{}];
+  return _probeContextCandidates(_resolveProbeContext(childContextConfig, projectedChildInput));
+}
+
 /**
  * Walk every embedded compound state. Read the child FSM's
  * `meta.aharness.embedded.childConfig.input` declaration. The parent must
@@ -2295,18 +2400,21 @@ function checkEmbeddingAcyclic(machine: AnyStateMachine): VerifyIssue[] {
  * projection function.
  *
  * Two layers cover this rule:
- *   1. Static type check at TS-compile time (Task 17): `embed<TParent, TChild>`
- *      rejects projection mismatch at user `tsc` time.
- *   2. Runtime probe at verify time (this check): invoke the projection with a
- *      synthesized parent context (`{}`) and read the keys of the returned
- *      object; subtract from the child's required fields; flag any that remain.
+ *   1. For typed authors, TypeScript remains authoritative:
+ *      `InputOf<typeof child>` is the contract for the projection accepted by
+ *      canonical `embed(...)`.
+ *   2. At verify time, this check is a compiled-machine guard for raw, cast,
+ *      or dynamic cases. It invokes the projection with best-effort parent data,
+ *      then the legacy `{}` fallback; reads the keys of the first returned
+ *      object; subtracts them from the child's required fields; and flags any
+ *      that remain.
  *
- * The runtime probe is conservative — a projection that derives keys from
- * runtime context state will produce different keys than static analysis,
- * and may even throw on the synthesized empty context. When the probe
- * throws, the check emits a `embedded-input-must-be-satisfied` WARNING
- * noting the static type-check is authoritative, and CONTINUES recursing
- * into nested `node.states` so deeper embeds still get checked.
+ * The runtime probe is conservative. Verify-time data can omit runtime-only
+ * values, so a valid projection may still throw on all synthesized probe
+ * contexts. In that case, the check emits a
+ * `embedded-input-must-be-satisfied` WARNING rather than an error, and
+ * CONTINUES recursing into nested `node.states` with `{}` so deeper embeds
+ * still get checked.
  */
 function checkEmbeddedInputMustBeSatisfied(machine: AnyStateMachine): VerifyIssue[] {
   const out: VerifyIssue[] = [];
@@ -2316,35 +2424,37 @@ function checkEmbeddedInputMustBeSatisfied(machine: AnyStateMachine): VerifyIssu
       aharness?: {
         embedded?: {
           source: string;
-          childConfig: { input?: ChildInputDecl };
-          input?: (a: { context: Record<string, unknown> }) => Record<string, unknown>;
+          childConfig: { context?: unknown; input?: ChildInputDecl };
+          input?: (a: { readonly context: Record<string, unknown> }) => unknown;
         };
       };
     };
     states?: Record<string, unknown>;
   };
-  function walk(node: EmbeddedNode | undefined, pathLabel: string): void {
+  function walk(
+    node: EmbeddedNode | undefined,
+    pathLabel: string,
+    parentProbeContexts: ReadonlyArray<Record<string, unknown>>,
+  ): void {
     if (!node) return;
     const embedded = node.meta?.aharness?.embedded;
+    let childProbeContexts = parentProbeContexts;
     if (embedded) {
+      const projectionProbe = _probeEmbeddedInputProjection(embedded.input, parentProbeContexts);
+      const projectedChildInput =
+        projectionProbe?.available === true
+          ? _projectedChildInputObject(projectionProbe.projected)
+          : null;
       const childInput = embedded.childConfig?.input;
       if (childInput) {
         const requiredFields = Object.keys(childInput).filter(
           (k) => childInput[k]?.meta?.default === undefined,
         );
         let providedKeys = new Set<string>();
-        let probeFailed = false;
-        if (typeof embedded.input === 'function') {
-          try {
-            const projected = embedded.input({ context: {} });
-            if (projected && typeof projected === 'object') {
-              providedKeys = new Set(Object.keys(projected));
-            }
-          } catch {
-            probeFailed = true;
-          }
+        if (projectedChildInput !== null) {
+          providedKeys = new Set(Object.keys(projectedChildInput));
         }
-        if (probeFailed) {
+        if (projectionProbe?.available === false) {
           // Author projection requires real ctx state; the runtime probe
           // cannot statically determine the keys. Emit a WARNING noting
           // the static type-check is authoritative, and CONTINUE walking
@@ -2353,7 +2463,7 @@ function checkEmbeddedInputMustBeSatisfied(machine: AnyStateMachine): VerifyIssu
             warn(
               'embedded-input-must-be-satisfied',
               pathLabel,
-              `embedded(${embedded.source}) at '${pathLabel}': could not statically probe input projection (it threw on synthesized empty context). Relying on TS type-check (InputOf<typeof child>) — see Task 17.`,
+              `embedded(${embedded.source}) at '${pathLabel}': could not statically probe input projection (it threw on available synthesized context(s)). For typed authors, InputOf<typeof child> remains authoritative; verify-time data may be incomplete.`,
             ),
           );
         } else {
@@ -2369,14 +2479,22 @@ function checkEmbeddedInputMustBeSatisfied(machine: AnyStateMachine): VerifyIssu
           }
         }
       }
+      childProbeContexts = _deriveChildProbeContexts(
+        embedded.childConfig?.context,
+        projectedChildInput,
+      );
     }
     if (node.states) {
       for (const [k, v] of Object.entries(node.states)) {
-        walk(v as EmbeddedNode, pathLabel === '' ? k : `${pathLabel}.${k}`);
+        walk(v as EmbeddedNode, pathLabel === '' ? k : `${pathLabel}.${k}`, childProbeContexts);
       }
     }
   }
-  walk(machine.config as EmbeddedNode, '');
+  walk(
+    machine.config as EmbeddedNode,
+    '',
+    _probeContextCandidates(_deriveRootProbeContext(machine)),
+  );
   return out;
 }
 
