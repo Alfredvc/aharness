@@ -295,12 +295,15 @@ values. Machine input completion is schema-aware for boolean flags, static value
 sets, file and directory values, and dynamic completion callbacks declared by the
 FSM. Already-used input flags are hidden after their values are consumed.
 
-`aharness verify` checks an FSM without starting a run. `aharness doctor` checks
-the Codex CLI version gate and reports active run health from `.aharness/runs`.
-`aharness visualize` verifies and opens the browser graph/details UI in
-inspection mode without starting Codex, hooks, a thread, or the FSM actor.
-Function-form prompts are shown as source so dynamic state instructions remain
-inspectable.
+`aharness verify` checks an FSM without starting a run. Verification issues are
+printed as `[error]` or `[warning]` lines, prefixed with `file:line:` when the
+loader can identify the source location. Warnings do not block verification, but
+their detail lines are printed before the final `verify: ok (...)` summary.
+`aharness doctor` checks the Codex CLI version gate and reports active run health
+from `.aharness/runs`. `aharness visualize` verifies and opens the browser
+graph/details UI in inspection mode without starting Codex, hooks, a thread, or
+the FSM actor. Function-form prompts are shown as source so dynamic state
+instructions remain inspectable.
 
 During live runs, the same browser shell also shows the active turn state and a
 polished transcript with state transitions, lifecycle rows, markdown assistant
@@ -442,7 +445,9 @@ bare command alias.
 `aharness verify <file.fsm.ts>` still verifies a direct FSM file. Installed
 packages can be checked with `aharness verify <package-name>`, and a single
 installed command can be checked with
-`aharness verify <package-name>/<command-name>`.
+`aharness verify <package-name>/<command-name>`. Installed command warnings are
+printed as diagnostic lines while the successful command summary remains on
+standard output.
 
 Installed `run` and installed `verify` recompute the current managed npm
 project lock fingerprint before loading a package command. If the managed tree

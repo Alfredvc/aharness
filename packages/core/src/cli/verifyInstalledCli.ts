@@ -13,9 +13,10 @@ import {
   type TrustedInstallRecord,
 } from '../installStore/index.js';
 import { loadInstalledFsm } from '../loader/index.js';
-import { verify, type VerifyIssue } from '../verify/index.js';
+import { verify } from '../verify/index.js';
 
 import { writeInstallStoreDiagnostics } from './installStoreDiagnostics.js';
+import { formatVerifyIssue } from './verifyIssueFormat.js';
 
 export interface RunVerifyInstalledCliOptions {
   readonly target: string;
@@ -147,8 +148,14 @@ async function verifyOneCommand(args: {
       repoRoot: args.install.packageRoot,
     },
     skillOriginManifest: loaded.skillOriginManifest,
+    sourceLocations: loaded.sourceLocations,
   });
   if (result.ok) {
+    for (const issue of result.warnings) {
+      args.opts.stderr.write(
+        `${formatVerifyIssue(issue, { sourceLocations: loaded.sourceLocations })}\n`,
+      );
+    }
     args.opts.stdout.write(
       `verify: ok (${args.identity}, ${String(result.warnings.length)} warnings)\n`,
     );
@@ -156,13 +163,11 @@ async function verifyOneCommand(args: {
   }
 
   for (const issue of result.issues) {
-    args.opts.stderr.write(`${formatVerifyIssue(issue)}\n`);
+    args.opts.stderr.write(
+      `${formatVerifyIssue(issue, { sourceLocations: loaded.sourceLocations })}\n`,
+    );
   }
   return { exitCode: 1 };
-}
-
-function formatVerifyIssue(issue: VerifyIssue): string {
-  return `[${issue.severity}] ${issue.check} (${issue.stateId}): ${issue.message}`;
 }
 
 function errorMessage(err: unknown): string {

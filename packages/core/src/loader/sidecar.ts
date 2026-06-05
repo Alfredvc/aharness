@@ -59,7 +59,7 @@ import type { AvailableSkillRef } from '../state/skills.js';
 import { getEnclosingStateId } from './stateId.js';
 import { getInstallPaths, type InstallPaths } from './installPath.js';
 import { collectArgBindings, extractInputFromLiteral, type ArgFlagMeta } from './inputSchema.js';
-import type { SkillOriginManifest } from './cache.js';
+import type { SkillOriginManifest, SourceLocation, SourceLocationManifest } from './cache.js';
 import {
   resolveDirectFsmImport,
   resolvePackageSourceImport,
@@ -96,6 +96,7 @@ export interface SidecarExtractionResult {
   readonly sidecar: SchemaSidecar;
   readonly issues: readonly SidecarIssue[];
   readonly skillOriginManifest: SkillOriginManifest;
+  readonly sourceLocations: SourceLocationManifest;
   /**
    * Top-level JSON Schema for the FSM's `input` declaration. Present iff the
    * file's default export resolves to a `aharness.machine({input: {...}, ...})`
@@ -154,6 +155,8 @@ export interface SidecarIssue {
   readonly message: string;
   /** 1-indexed line in the source file. */
   readonly line: number;
+  /** Absolute source file path, when the issue came from an AST source node. */
+  readonly sourceFile?: string;
 }
 
 /**
@@ -179,18 +182,26 @@ export async function extractSchemaSidecar(
   const xstateBindings = collectXstateCreateMachineBindings(sourceFile);
   const machineBindings = collectMachineBindings(sourceFile, createFsmFactoryNames);
   const machineCall = findDefaultExportMachineCall(sourceFile, machineBindings);
+  const rootSourceFile = path.resolve(opts.filePath);
   const rootSourceDir = path.dirname(path.resolve(opts.filePath));
   const rootAvailableSkills = extractAvailableSkillsFromMachineCall(
     sourceFile,
     machineCall,
     createFsmFactoryNames,
   ).map((ref) => ({ sourceDir: rootSourceDir, ref }));
+  const rootSourceLocations = collectSourceLocations(sourceFile, machineCall, rootSourceFile);
   const childResults = await resolveAndExtractChildSidecars(
     sourceFile,
     opts.filePath,
     opts.cycleGuard ?? new Set([opts.filePath]),
     opts.packageResolution,
   );
+  const sourceLocations = mergeSourceLocationManifests([
+    rootSourceLocations,
+    ...childResults.map((child) =>
+      prefixSourceLocationManifest(child.hostKey, child.childSourceLocations),
+    ),
+  ]);
   const skillOriginManifest = buildSkillOriginManifest({
     rootSourceDir,
     rootAvailableSkills,
@@ -203,7 +214,7 @@ export async function extractSchemaSidecar(
     createFsmFactoryNames.size === 0 &&
     childResults.length === 0
   ) {
-    return { sidecar: {}, issues: [], skillOriginManifest };
+    return { sidecar: {}, issues: [], skillOriginManifest, sourceLocations };
   }
 
   const completed: CompletedConfig = {
@@ -543,10 +554,212 @@ export async function extractSchemaSidecar(
     }
   }
 
+  const finalizedIssues = attachSourceFileToIssues(issues, rootSourceFile);
   if (inputSchema && inputFlags) {
-    return { sidecar, issues, skillOriginManifest, inputSchema, inputFlags };
+    return {
+      sidecar,
+      issues: finalizedIssues,
+      skillOriginManifest,
+      sourceLocations,
+      inputSchema,
+      inputFlags,
+    };
   }
-  return { sidecar, issues, skillOriginManifest };
+  return { sidecar, issues: finalizedIssues, skillOriginManifest, sourceLocations };
+}
+
+function attachSourceFileToIssues(
+  issues: readonly SidecarIssue[],
+  sourceFile: string,
+): SidecarIssue[] {
+  return issues.map((issue) => (issue.sourceFile === undefined ? { ...issue, sourceFile } : issue));
+}
+
+function collectSourceLocations(
+  sourceFile: ts.SourceFile,
+  machineCall: ts.CallExpression | null,
+  sourceFilePath: string,
+): SourceLocationManifest {
+  const manifest = mutableSourceLocationManifest();
+  if (!machineCall) return manifest;
+  const machineArg0 = machineCall.arguments[0];
+  if (!machineArg0 || !ts.isObjectLiteralExpression(machineArg0)) return manifest;
+
+  const availableSkillsProp = findProperty(machineArg0, 'availableSkills');
+  if (availableSkillsProp && ts.isArrayLiteralExpression(availableSkillsProp.initializer)) {
+    manifest.availableSkills = availableSkillsProp.initializer.elements.map((element) =>
+      sourceLocationOf(sourceFile, sourceFilePath, element),
+    );
+  }
+
+  const statesProp = findProperty(machineArg0, 'states');
+  if (statesProp && ts.isObjectLiteralExpression(statesProp.initializer)) {
+    collectStateSourceLocations(manifest, sourceFile, sourceFilePath, statesProp.initializer, '');
+  }
+  return manifest;
+}
+
+function collectStateSourceLocations(
+  manifest: MutableSourceLocationManifest,
+  sourceFile: ts.SourceFile,
+  sourceFilePath: string,
+  statesObject: ts.ObjectLiteralExpression,
+  prefix: string,
+): void {
+  for (const prop of statesObject.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue;
+    const key = staticPropertyName(prop);
+    if (!key) continue;
+    const stateId = prefix.length === 0 ? key : `${prefix}.${key}`;
+    manifest.states[stateId] = sourceLocationOf(sourceFile, sourceFilePath, prop.name);
+
+    const config = configObjectFromInitializer(prop.initializer);
+    if (!config) continue;
+    collectStateConfigSourceLocations(manifest, sourceFile, sourceFilePath, stateId, config);
+
+    const nestedStates = findProperty(config, 'states');
+    if (nestedStates && ts.isObjectLiteralExpression(nestedStates.initializer)) {
+      collectStateSourceLocations(
+        manifest,
+        sourceFile,
+        sourceFilePath,
+        nestedStates.initializer,
+        stateId,
+      );
+    }
+  }
+}
+
+function collectStateConfigSourceLocations(
+  manifest: MutableSourceLocationManifest,
+  sourceFile: ts.SourceFile,
+  sourceFilePath: string,
+  stateId: string,
+  config: ts.ObjectLiteralExpression,
+): void {
+  const skillsProp = findProperty(config, 'skills');
+  if (skillsProp && ts.isArrayLiteralExpression(skillsProp.initializer)) {
+    manifest.stateSkills[stateId] = skillsProp.initializer.elements.map((element) =>
+      sourceLocationOf(sourceFile, sourceFilePath, element),
+    );
+  }
+
+  for (const exitPropName of ['exits', 'on']) {
+    const exitsProp = findProperty(config, exitPropName);
+    if (!exitsProp || !ts.isObjectLiteralExpression(exitsProp.initializer)) continue;
+    for (const prop of exitsProp.initializer.properties) {
+      if (!ts.isPropertyAssignment(prop)) continue;
+      const exitName = staticPropertyName(prop);
+      if (!exitName) continue;
+      const exits = (manifest.exits[stateId] ??= {});
+      exits[exitName] = sourceLocationOf(sourceFile, sourceFilePath, prop.name);
+
+      const exitConfig = configObjectFromInitializer(prop.initializer);
+      if (!exitConfig) continue;
+      const whenProp = findProperty(exitConfig, 'when');
+      if (!whenProp || !ts.isArrayLiteralExpression(whenProp.initializer)) continue;
+      const stateBranches = (manifest.whenBranches[stateId] ??= {});
+      stateBranches[exitName] = whenProp.initializer.elements.map((element) =>
+        sourceLocationOf(sourceFile, sourceFilePath, element),
+      );
+    }
+  }
+}
+
+function configObjectFromInitializer(node: ts.Expression): ts.ObjectLiteralExpression | null {
+  const init = unwrapTypeAssertion(node);
+  if (ts.isObjectLiteralExpression(init)) return init;
+  if (ts.isCallExpression(init)) {
+    const firstArg = init.arguments[0];
+    if (firstArg && ts.isObjectLiteralExpression(firstArg)) return firstArg;
+  }
+  return null;
+}
+
+function sourceLocationOf(
+  sourceFile: ts.SourceFile,
+  sourceFilePath: string,
+  node: ts.Node,
+): SourceLocation {
+  const position = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+  return {
+    sourceFile: sourceFilePath,
+    line: position.line + 1,
+    column: position.character + 1,
+  };
+}
+
+type MutableSourceLocationManifest = {
+  states: Record<string, SourceLocation>;
+  exits: Record<string, Record<string, SourceLocation>>;
+  whenBranches: Record<string, Record<string, Array<SourceLocation | null>>>;
+  stateSkills: Record<string, Array<SourceLocation | null>>;
+  availableSkills: Array<SourceLocation | null>;
+};
+
+function mutableSourceLocationManifest(): MutableSourceLocationManifest {
+  return {
+    states: {},
+    exits: {},
+    whenBranches: {},
+    stateSkills: {},
+    availableSkills: [],
+  };
+}
+
+function prefixSourceLocationManifest(
+  prefix: string,
+  manifest: SourceLocationManifest,
+): SourceLocationManifest {
+  const out = mutableSourceLocationManifest();
+  for (const [stateId, location] of Object.entries(manifest.states)) {
+    out.states[`${prefix}.${stateId}`] = location;
+  }
+  for (const [stateId, exits] of Object.entries(manifest.exits)) {
+    out.exits[`${prefix}.${stateId}`] = { ...exits };
+  }
+  for (const [stateId, exits] of Object.entries(manifest.whenBranches)) {
+    out.whenBranches[`${prefix}.${stateId}`] = copySourceLocationArrayRecord(exits);
+  }
+  for (const [stateId, skills] of Object.entries(manifest.stateSkills)) {
+    out.stateSkills[`${prefix}.${stateId}`] = [...skills];
+  }
+  return out;
+}
+
+function mergeSourceLocationManifests(
+  manifests: readonly SourceLocationManifest[],
+): SourceLocationManifest {
+  const out = mutableSourceLocationManifest();
+  for (const manifest of manifests) {
+    Object.assign(out.states, manifest.states);
+    for (const [stateId, exits] of Object.entries(manifest.exits)) {
+      out.exits[stateId] = { ...(out.exits[stateId] ?? {}), ...exits };
+    }
+    for (const [stateId, exits] of Object.entries(manifest.whenBranches)) {
+      out.whenBranches[stateId] = {
+        ...(out.whenBranches[stateId] ?? {}),
+        ...copySourceLocationArrayRecord(exits),
+      };
+    }
+    for (const [stateId, skills] of Object.entries(manifest.stateSkills)) {
+      out.stateSkills[stateId] = [...skills];
+    }
+    if (manifest.availableSkills.length > 0) {
+      out.availableSkills.push(...manifest.availableSkills);
+    }
+  }
+  return out;
+}
+
+function copySourceLocationArrayRecord(
+  value: Readonly<Record<string, ReadonlyArray<SourceLocation | null>>>,
+): Record<string, Array<SourceLocation | null>> {
+  const out: Record<string, Array<SourceLocation | null>> = {};
+  for (const [key, locations] of Object.entries(value)) {
+    out[key] = [...locations];
+  }
+  return out;
 }
 
 /**
@@ -567,6 +780,7 @@ async function resolveAndExtractChildSidecars(
     childSidecar: SchemaSidecar;
     childIssues: SidecarIssue[];
     childSkillOriginManifest: SkillOriginManifest;
+    childSourceLocations: SourceLocationManifest;
     childSourceDir: string;
   }>
 > {
@@ -605,6 +819,7 @@ async function resolveAndExtractChildSidecars(
     childSidecar: SchemaSidecar;
     childIssues: SidecarIssue[];
     childSkillOriginManifest: SkillOriginManifest;
+    childSourceLocations: SourceLocationManifest;
     childSourceDir: string;
   }> = [];
   for (const { hostKey, childTsPath } of embedHosts) {
@@ -621,6 +836,7 @@ async function resolveAndExtractChildSidecars(
       childSidecar: childResult.sidecar,
       childIssues: [...childResult.issues],
       childSkillOriginManifest: childResult.skillOriginManifest,
+      childSourceLocations: childResult.sourceLocations,
       childSourceDir: path.dirname(path.resolve(childTsPath)),
     });
   }

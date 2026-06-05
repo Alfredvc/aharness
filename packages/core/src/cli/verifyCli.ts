@@ -7,10 +7,11 @@
  * Codex config/model catalog only when explicit state-level model declarations
  * declarations require it. The command performs no run directory writes and
  * returns an exit code:
- *   - `0` when the verifier returns `ok: true`. Warnings are reported via
- *     the injected `log` callback and do not block.
+ *   - `0` when the verifier returns `ok: true`. Warning detail lines are
+ *     reported via the injected `log` callback and do not block.
  *   - `1` when any error-severity issue is present. Each issue is logged
- *     in the form `[<severity>] <check> (<stateId>): <message>`.
+ *     in the form `[<severity>] <check> (<stateId>): <message>`, prefixed
+ *     with `file:line:` when source-location metadata is available.
  *
  * The `log` callback is injected so tests can capture output without
  * stubbing `console.log`. The function never calls `process.exit`; the
@@ -27,6 +28,7 @@ import {
   type CodexConfigModelProvider,
   type CodexConfigModelProviderFactory,
 } from '../verify/clearOnEntryModelCatalog.js';
+import { formatVerifyIssue } from './verifyIssueFormat.js';
 
 export interface RunVerifyCliOpts {
   /** Absolute or `repoRoot`-relative path to the user's `<file>.fsm.ts`. */
@@ -58,7 +60,15 @@ export async function runVerifyCli(opts: RunVerifyCliOpts): Promise<RunVerifyCli
     if (e instanceof RetiredOwnerDecisionSurfaceError) {
       for (const issue of e.issues) {
         opts.log(
-          `[error] per-state-data-schema-resolvable (${issue.stateId ?? ''}): ${issue.message}`,
+          formatVerifyIssue({
+            severity: 'error',
+            check: 'per-state-data-schema-resolvable',
+            stateId: issue.stateId ?? '',
+            message: issue.message,
+            ...(issue.sourceFile !== undefined
+              ? { location: { sourceFile: issue.sourceFile, line: issue.line } }
+              : {}),
+          }),
         );
       }
       return { exitCode: 1 };
@@ -71,6 +81,9 @@ export async function runVerifyCli(opts: RunVerifyCliOpts): Promise<RunVerifyCli
     skillOriginManifest: loaded.skillOriginManifest,
   });
   if (result.ok) {
+    for (const issue of result.warnings) {
+      opts.log(formatVerifyIssue(issue, { sourceLocations: loaded.sourceLocations }));
+    }
     const catalogIssues = await verifyStateModelCatalog({
       machine: loaded.machine,
       defaultCwd: repoRoot,
@@ -80,7 +93,7 @@ export async function runVerifyCli(opts: RunVerifyCliOpts): Promise<RunVerifyCli
     });
     if (catalogIssues.length > 0) {
       for (const issue of catalogIssues) {
-        opts.log(`[${issue.severity}] ${issue.check} (${issue.stateId}): ${issue.message}`);
+        opts.log(formatVerifyIssue(issue, { sourceLocations: loaded.sourceLocations }));
       }
       return { exitCode: 1 };
     }
@@ -89,7 +102,7 @@ export async function runVerifyCli(opts: RunVerifyCliOpts): Promise<RunVerifyCli
     return { exitCode: 0 };
   }
   for (const issue of result.issues) {
-    opts.log(`[${issue.severity}] ${issue.check} (${issue.stateId}): ${issue.message}`);
+    opts.log(formatVerifyIssue(issue, { sourceLocations: loaded.sourceLocations }));
   }
   return { exitCode: 1 };
 }

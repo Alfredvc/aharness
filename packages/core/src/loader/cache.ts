@@ -75,10 +75,16 @@ import type { ArgFlagMeta } from './inputSchema.js';
  * v2 (2026-04-29): top-level discriminated-union schemas now carry
  *   `type: "object"` so MCP's `inputSchema.type === "object"` contract holds.
  *   Pre-v2 caches encode the bare-`anyOf` shape MCP rejects.
+ *
+ * v6 (2026-06-05): serialized sidecars carry verifier source-location
+ *   metadata so CLI diagnostics can print file:line details.
  */
-const CACHE_VERSION = 'v5';
+const CACHE_VERSION = 'v6';
 /**
  * Installed-package cache key version.
+ *
+ * v4 (2026-06-05): serialized sidecars carry verifier source-location
+ *   metadata so CLI diagnostics can print file:line details.
  *
  * v3 (2026-06-02): adds required `skillOriginManifest` metadata to the
  *   serialized sidecar. The installed cache key already includes the full
@@ -92,7 +98,7 @@ const CACHE_VERSION = 'v5';
  *   source inputs plus package identity, host runtime identity, sidecar
  *   serialization, and lock fingerprint.
  */
-const INSTALLED_CACHE_VERSION = 'v3';
+const INSTALLED_CACHE_VERSION = 'v4';
 
 const SKIP_DIR_NAMES = new Set(['node_modules', 'dist', '.aharness']);
 
@@ -131,6 +137,24 @@ export interface SkillOriginManifest {
   }[];
 }
 
+export interface SourceLocation {
+  readonly sourceFile: string;
+  /** 1-indexed line in the source file. */
+  readonly line: number;
+  /** 1-indexed column in the source file, when known. */
+  readonly column?: number;
+}
+
+export interface SourceLocationManifest {
+  readonly states: Readonly<Record<string, SourceLocation>>;
+  readonly exits: Readonly<Record<string, Readonly<Record<string, SourceLocation>>>>;
+  readonly whenBranches: Readonly<
+    Record<string, Readonly<Record<string, ReadonlyArray<SourceLocation | null>>>>
+  >;
+  readonly stateSkills: Readonly<Record<string, ReadonlyArray<SourceLocation | null>>>;
+  readonly availableSkills: ReadonlyArray<SourceLocation | null>;
+}
+
 /**
  * Shape of the `__sidecar` re-export injected into the compiled `fsm.mjs`
  * via esbuild's `banner` option (`compile.ts`). The bundle stringifies a
@@ -144,6 +168,8 @@ export interface SerializedSidecar {
   readonly issues: readonly SidecarIssue[];
   /** Loader-only metadata used by later runtime slices to resolve native skill refs. */
   readonly skillOriginManifest: SkillOriginManifest;
+  /** Best-effort source locations for verifier diagnostics. */
+  readonly sourceLocations?: SourceLocationManifest;
   /**
    * Top-level JSON Schema for the FSM's `input` declaration. Present iff the
    * source file's default-export `aharness.machine(...)` declared `input: {...}`.
@@ -321,10 +347,18 @@ export function isSerializedSidecar(parsed: unknown): parsed is SerializedSideca
     if (typeof i['code'] !== 'string') return false;
     if (typeof i['message'] !== 'string') return false;
     if (typeof i['line'] !== 'number') return false;
+    if ('sourceFile' in i && typeof i['sourceFile'] !== 'string') return false;
     if (i['stateId'] !== null && typeof i['stateId'] !== 'string') return false;
     if (i['exitName'] !== null && typeof i['exitName'] !== 'string') return false;
   }
   if (!isSkillOriginManifest(obj['skillOriginManifest'])) return false;
+  if (
+    'sourceLocations' in obj &&
+    obj['sourceLocations'] !== undefined &&
+    !isSourceLocationManifest(obj['sourceLocations'])
+  ) {
+    return false;
+  }
   if ('inputSchema' in obj) {
     const inSchema = obj['inputSchema'];
     if (inSchema !== undefined && (!inSchema || typeof inSchema !== 'object')) return false;
@@ -338,6 +372,67 @@ export function isSerializedSidecar(parsed: unknown): parsed is SerializedSideca
       }
     }
   }
+  return true;
+}
+
+function isSourceLocationManifest(parsed: unknown): parsed is SourceLocationManifest {
+  if (!parsed || typeof parsed !== 'object') return false;
+  const obj = parsed as Record<string, unknown>;
+  return (
+    isSourceLocationRecord(obj['states']) &&
+    isNestedSourceLocationRecord(obj['exits']) &&
+    isNestedSourceLocationArrayRecord(obj['whenBranches']) &&
+    isSourceLocationArrayRecord(obj['stateSkills']) &&
+    isSourceLocationArray(obj['availableSkills'])
+  );
+}
+
+function isNestedSourceLocationRecord(parsed: unknown): boolean {
+  if (!parsed || typeof parsed !== 'object') return false;
+  for (const value of Object.values(parsed as Record<string, unknown>)) {
+    if (!isSourceLocationRecord(value)) return false;
+  }
+  return true;
+}
+
+function isNestedSourceLocationArrayRecord(parsed: unknown): boolean {
+  if (!parsed || typeof parsed !== 'object') return false;
+  for (const value of Object.values(parsed as Record<string, unknown>)) {
+    if (!isSourceLocationArrayRecord(value)) return false;
+  }
+  return true;
+}
+
+function isSourceLocationArrayRecord(parsed: unknown): boolean {
+  if (!parsed || typeof parsed !== 'object') return false;
+  for (const value of Object.values(parsed as Record<string, unknown>)) {
+    if (!isSourceLocationArray(value)) return false;
+  }
+  return true;
+}
+
+function isSourceLocationRecord(parsed: unknown): boolean {
+  if (!parsed || typeof parsed !== 'object') return false;
+  for (const value of Object.values(parsed as Record<string, unknown>)) {
+    if (!isSourceLocation(value)) return false;
+  }
+  return true;
+}
+
+function isSourceLocationArray(parsed: unknown): boolean {
+  if (!Array.isArray(parsed)) return false;
+  for (const value of parsed) {
+    if (value !== null && !isSourceLocation(value)) return false;
+  }
+  return true;
+}
+
+function isSourceLocation(parsed: unknown): parsed is SourceLocation {
+  if (!parsed || typeof parsed !== 'object') return false;
+  const obj = parsed as Record<string, unknown>;
+  if (typeof obj['sourceFile'] !== 'string') return false;
+  if (typeof obj['line'] !== 'number') return false;
+  if ('column' in obj && typeof obj['column'] !== 'number') return false;
   return true;
 }
 

@@ -58,6 +58,9 @@ describe('runVerifyCli', () => {
     // At least one issue line should name a real check id from the verifier.
     const lines = log.mock.calls.map((c) => String(c[0]));
     expect(lines.some((l) => l.includes('no-black-hole-non-terminals'))).toBe(true);
+    expect(lines).toContainEqual(
+      expect.stringContaining(`${join(fixtureDir, 'black-hole.fsm.ts')}:22:`),
+    );
     expect(provider.listModels).not.toHaveBeenCalled();
     expect(provider.readConfig).not.toHaveBeenCalled();
   });
@@ -347,7 +350,7 @@ export const machine = aharness.machine({
   initial: 'a',
   context: () => ({ __aharness_visitCount: {} as Record<string, number> }),
   states: {
-    a: state({ entryPrompt: 'x', skills: [skill('missing-but-optional', { optional: true })], exits: { ok: exit<P>({ to: 'done' }) } }),
+    a: state({ entryPrompt: 'x', skills: [skill({ path: './skills/missing/SKILL.md', optional: true })], exits: { ok: exit<P>({ to: 'done' }) } }),
     done: terminal('success'),
   },
 });
@@ -357,6 +360,10 @@ export default machine;
     const log = vi.fn();
     const r = await runVerifyCli({ fsmPath: tmpFsmPath, repoRoot, log });
     expect(r.exitCode).toBe(0);
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    expect(lines).toContainEqual(expect.stringContaining(`${tmpFsmPath}:8:`));
+    expect(lines).toContainEqual(expect.stringContaining('[warning] skill-must-resolve (a):'));
+    expect(lines.at(-1)).toBe('verify: ok (1 warnings)');
     await fs.rm(tmpFsmDir, { recursive: true, force: true });
   });
 });

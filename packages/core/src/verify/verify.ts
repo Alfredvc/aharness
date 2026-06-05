@@ -94,7 +94,11 @@ import type { AnyStateMachine, StateNode } from 'xstate';
 import { getAharnessMeta as unsafeGetAharnessMeta, iterStates, stateKeyPath } from '../state.js';
 import type { AharnessMeta, AharnessStateMeta, ChoiceMeta, SchemaSidecar } from '../types.js';
 import type { SidecarIssue } from '../loader/index.js';
-import type { SkillOriginManifest } from '../loader/cache.js';
+import type {
+  SkillOriginManifest,
+  SourceLocation,
+  SourceLocationManifest,
+} from '../loader/cache.js';
 import { SUBMIT_TOOL_NAME } from '../protocol/submitTool.js';
 import {
   availableSkillKey,
@@ -179,6 +183,8 @@ export interface VerifyIssue {
   readonly stateId: string;
   /** Human-readable explanation. */
   readonly message: string;
+  /** Best-effort source location for CLI diagnostics. */
+  readonly location?: SourceLocation;
   /**
    * `'error'` blocks `/aharness` from starting; `'warning'` surfaces but does
    * not block. Defaults to `'error'` everywhere except `await-only-strict-state`.
@@ -223,6 +229,8 @@ export interface VerifyOpts {
    * source directory instead of a single root FSM directory.
    */
   readonly skillOriginManifest?: SkillOriginManifest;
+  /** Best-effort source locations from the loader's AST pass. */
+  readonly sourceLocations?: SourceLocationManifest | undefined;
 }
 
 export function verify(
@@ -241,7 +249,9 @@ export function verify(
     issues.push(...checkClearOnEntryNotInitial(machine));
     issues.push(...checkTerminalReachability(machine));
     issues.push(...checkNoBlackHoleNonTerminals(machine));
-    issues.push(...checkPerStateDataSchemaResolvable(machine, sidecar, sidecarIssues));
+    issues.push(
+      ...checkPerStateDataSchemaResolvable(machine, sidecar, sidecarIssues, opts?.sourceLocations),
+    );
     issues.push(...checkEntryPromptPaired(machine));
     issues.push(...checkNoUnresolvedReferences(machine));
     issues.push(...checkFinalClassification(machine));
@@ -269,7 +279,7 @@ export function verify(
     issues.push(...checkAwaitsOwnerTextNoAwaitExit(machine));
     issues.push(...checkStateOnEntryMustBeFunction(machine));
     issues.push(...checkOnEntryOnlyOnStatefulStates(machine));
-    issues.push(...checkBareBranchWarning(machine));
+    issues.push(...checkBareBranchWarning(machine, opts?.sourceLocations));
     issues.push(...checkEmbeddedFinalMustBeWired(machine));
     issues.push(...checkEmbeddingAcyclic(machine));
     issues.push(...checkEmbeddedInputMustBeSatisfied(machine));
@@ -288,29 +298,77 @@ export function verify(
     issues.push(...checkSkillNameShapeAndDuplicates(machine));
     issues.push(...checkStateSkillPathsUseSkillMd(machine));
     if (opts?.skillEnv !== undefined) {
-      issues.push(...checkAvailableSkillsResolve(machine, opts.skillEnv));
-      issues.push(...checkSkillsResolve(machine, opts.skillEnv, opts.skillOriginManifest));
+      issues.push(...checkAvailableSkillsResolve(machine, opts.skillEnv, opts.sourceLocations));
+      issues.push(
+        ...checkSkillsResolve(
+          machine,
+          opts.skillEnv,
+          opts.skillOriginManifest,
+          opts.sourceLocations,
+        ),
+      );
     }
   } finally {
     activeMetaReader = previousReader;
   }
+  const sourceLocations = opts?.sourceLocations;
+  const locatedIssues =
+    sourceLocations === undefined
+      ? issues
+      : issues.map((issue) => issueWithFallbackLocation(issue, sourceLocations));
   // Split into errors and warnings; compute ok from errors only.
-  const errors = issues.filter((i) => i.severity === 'error');
-  const warnings = issues.filter((i) => i.severity === 'warning');
+  const errors = locatedIssues.filter((i) => i.severity === 'error');
+  const warnings = locatedIssues.filter((i) => i.severity === 'warning');
   const ok = errors.length === 0;
-  return { ok, errors, warnings, issues };
+  return { ok, errors, warnings, issues: locatedIssues };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Build an error-severity issue. */
-function err(check: VerifyIssueCheck, stateId: string, message: string): VerifyIssue {
-  return { check, stateId, message, severity: 'error' };
+function err(
+  check: VerifyIssueCheck,
+  stateId: string,
+  message: string,
+  location?: SourceLocation,
+): VerifyIssue {
+  return {
+    check,
+    stateId,
+    message,
+    severity: 'error',
+    ...(location !== undefined ? { location } : {}),
+  };
 }
 
 /** Build a warning-severity issue. */
-function warn(check: VerifyIssueCheck, stateId: string, message: string): VerifyIssue {
-  return { check, stateId, message, severity: 'warning' };
+function warn(
+  check: VerifyIssueCheck,
+  stateId: string,
+  message: string,
+  location?: SourceLocation,
+): VerifyIssue {
+  return {
+    check,
+    stateId,
+    message,
+    severity: 'warning',
+    ...(location !== undefined ? { location } : {}),
+  };
+}
+
+function issueWithFallbackLocation(
+  issue: VerifyIssue,
+  sourceLocations: SourceLocationManifest,
+): VerifyIssue {
+  if (issue.location !== undefined || issue.stateId.length === 0) return issue;
+  const location = sourceLocations.states[issue.stateId];
+  return location === undefined ? issue : { ...issue, location };
+}
+
+function sidecarIssueLocation(issue: SidecarIssue): SourceLocation | undefined {
+  if (issue.sourceFile === undefined) return undefined;
+  return { sourceFile: issue.sourceFile, line: issue.line };
 }
 
 interface MetaReader {
@@ -703,6 +761,7 @@ function checkPerStateDataSchemaResolvable(
   machine: AnyStateMachine,
   sidecar: SchemaSidecar,
   sidecarIssues: ReadonlyArray<SidecarIssue>,
+  sourceLocations?: SourceLocationManifest,
 ): VerifyIssue[] {
   const issues: VerifyIssue[] = [];
   // Track "(stateId, exitName)" pairs already covered by a loader issue so we
@@ -710,7 +769,14 @@ function checkPerStateDataSchemaResolvable(
   const loaderFlaggedPairs = new Set<string>();
   for (const si of sidecarIssues) {
     if (si.code === 'author-fn-async' || si.code === 'direct-create-machine') continue;
-    issues.push(err('per-state-data-schema-resolvable', si.stateId ?? '', si.message));
+    issues.push(
+      err(
+        'per-state-data-schema-resolvable',
+        si.stateId ?? '',
+        si.message,
+        sidecarIssueLocation(si),
+      ),
+    );
     if (si.stateId !== null && si.exitName !== null) {
       loaderFlaggedPairs.add(`${si.stateId}::${si.exitName}`);
     }
@@ -732,6 +798,7 @@ function checkPerStateDataSchemaResolvable(
             'per-state-data-schema-resolvable',
             sid,
             `submit exit '${sid}::${exitName}' has no schema sidecar entry — loader could not resolve the type`,
+            sourceLocations?.exits[sid]?.[exitName],
           ),
         );
         continue;
@@ -742,6 +809,7 @@ function checkPerStateDataSchemaResolvable(
             'per-state-data-schema-resolvable',
             sid,
             `submit exit '${sid}::${exitName}' has no compiled validator`,
+            sourceLocations?.exits[sid]?.[exitName],
           ),
         );
       }
@@ -1084,7 +1152,9 @@ function checkAuthorFunctionsSync(sidecarIssues: ReadonlyArray<SidecarIssue>): V
   const issues: VerifyIssue[] = [];
   for (const si of sidecarIssues) {
     if (si.code !== 'author-fn-async') continue;
-    issues.push(err('author-functions-sync', si.stateId ?? '', si.message));
+    issues.push(
+      err('author-functions-sync', si.stateId ?? '', si.message, sidecarIssueLocation(si)),
+    );
   }
   return issues;
 }
@@ -1098,7 +1168,9 @@ function checkMachineUsesAharnessWrapper(
   const issues: VerifyIssue[] = [];
   for (const si of sidecarIssues) {
     if (si.code !== 'direct-create-machine') continue;
-    issues.push(err('machine-uses-aharness-wrapper', si.stateId ?? '', si.message));
+    issues.push(
+      err('machine-uses-aharness-wrapper', si.stateId ?? '', si.message, sidecarIssueLocation(si)),
+    );
   }
   return issues;
 }
@@ -2154,7 +2226,10 @@ function checkHooksOnlyOnStatefulStates(machine: AnyStateMachine): VerifyIssue[]
  * Carve-out: the LAST entry of `when[]` is the intentional unguarded
  * fallback — it is exempt even if it also has no actions.
  */
-function checkBareBranchWarning(machine: AnyStateMachine): VerifyIssue[] {
+function checkBareBranchWarning(
+  machine: AnyStateMachine,
+  sourceLocations?: SourceLocationManifest,
+): VerifyIssue[] {
   const out: VerifyIssue[] = [];
   for (const node of iterStates(machine)) {
     const meta = asStatefulMeta(node);
@@ -2172,6 +2247,7 @@ function checkBareBranchWarning(machine: AnyStateMachine): VerifyIssue[] {
               'bare-branch-warning',
               sid,
               `exit '${exitName}' when[${String(i)}] has no guard and no actions (likely unreachable; the prior catch-all swallows execution)`,
+              sourceLocations?.whenBranches[sid]?.[exitName]?.[i] ?? undefined,
             ),
           );
         }
@@ -2982,6 +3058,7 @@ function checkStateSkillPathsUseSkillMd(machine: AnyStateMachine): VerifyIssue[]
 function checkAvailableSkillsResolve(
   machine: AnyStateMachine,
   env: SkillResolverEnv,
+  sourceLocations?: SourceLocationManifest,
 ): VerifyIssue[] {
   const raw = rawAvailableSkills(machine);
   if (!Array.isArray(raw)) return [];
@@ -3001,6 +3078,7 @@ function checkAvailableSkillsResolve(
           'available-skills-well-formed',
           '',
           `availableSkills[${String(i)}] duplicates resolved '${resolvedKey}'`,
+          sourceLocations?.availableSkills[i] ?? undefined,
         ),
       );
     }
@@ -3014,6 +3092,7 @@ function checkAvailableSkillsResolve(
           'available-skill-must-resolve',
           '',
           `availableSkills[${String(i)}] (${res.displayName}): not found in any of:\n  - ${res.searched.join('\n  - ')}`,
+          sourceLocations?.availableSkills[i] ?? undefined,
         ),
       );
       continue;
@@ -3025,6 +3104,7 @@ function checkAvailableSkillsResolve(
         'available-skill-must-resolve',
         '',
         `availableSkills[${String(i)}] (${res.displayName}): directory not found in any of:\n  - ${res.searched.join('\n  - ')}`,
+        sourceLocations?.availableSkills[i] ?? undefined,
       ),
     );
   }
@@ -3040,6 +3120,7 @@ function checkSkillsResolve(
   machine: AnyStateMachine,
   env: SkillResolverEnv,
   skillOriginManifest?: SkillOriginManifest,
+  sourceLocations?: SourceLocationManifest,
 ): VerifyIssue[] {
   const issues: VerifyIssue[] = [];
   const originEnv: SkillOriginEnv =
@@ -3060,8 +3141,11 @@ function checkSkillsResolve(
       });
       if (res.kind === 'resolved') continue;
       const ctx = `state '${sid}' skills[${String(i)}] (${res.displayName}): not found in any of:\n  - ${res.searched.join('\n  - ')}`;
+      const location = sourceLocations?.stateSkills[sid]?.[i] ?? undefined;
       issues.push(
-        res.optional ? warn('skill-must-resolve', sid, ctx) : err('skill-must-resolve', sid, ctx),
+        res.optional
+          ? warn('skill-must-resolve', sid, ctx, location)
+          : err('skill-must-resolve', sid, ctx, location),
       );
     }
   }

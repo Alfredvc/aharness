@@ -43,6 +43,7 @@ import {
   moduleExists,
   type SerializedSidecar,
   type SkillOriginManifest,
+  type SourceLocationManifest,
 } from './cache.js';
 import { buildInstalledFsmBundle, compileFsm, importFsmModule } from './compile.js';
 import { getInstallPaths } from './installPath.js';
@@ -96,6 +97,8 @@ export interface LoadFsmResult {
   readonly inputFlags?: Record<string, ArgFlagMeta>;
   /** Loader-only source-origin metadata for native Codex skill refs. */
   readonly skillOriginManifest: SkillOriginManifest;
+  /** Best-effort source locations for verifier diagnostics. */
+  readonly sourceLocations?: SourceLocationManifest;
 }
 
 export class RetiredOwnerDecisionSurfaceError extends Error {
@@ -136,6 +139,7 @@ export async function loadFsm(opts: LoadFsmOptions): Promise<LoadFsmResult> {
         cacheHit: true,
         hash,
         skillOriginManifest: cached.skillOriginManifest,
+        ...(cached.sourceLocations ? { sourceLocations: cached.sourceLocations } : {}),
         ...(cached.inputSchema
           ? { inputSchema: cached.inputSchema, inputFlags: cached.inputFlags ?? {} }
           : {}),
@@ -153,6 +157,7 @@ export async function loadFsm(opts: LoadFsmOptions): Promise<LoadFsmResult> {
     schemas: schemasOnly(extraction.sidecar),
     issues: extraction.issues,
     skillOriginManifest: extraction.skillOriginManifest,
+    sourceLocations: extraction.sourceLocations,
     ...(extraction.inputSchema
       ? { inputSchema: extraction.inputSchema, inputFlags: extraction.inputFlags ?? {} }
       : {}),
@@ -167,6 +172,7 @@ export async function loadFsm(opts: LoadFsmOptions): Promise<LoadFsmResult> {
     cacheHit: false,
     hash,
     skillOriginManifest: extraction.skillOriginManifest,
+    sourceLocations: extraction.sourceLocations,
     ...(extraction.inputSchema
       ? { inputSchema: extraction.inputSchema, inputFlags: extraction.inputFlags ?? {} }
       : {}),
@@ -222,6 +228,7 @@ export async function loadInstalledFsm(opts: LoadInstalledFsmOptions): Promise<L
         cacheHit: true,
         hash,
         skillOriginManifest: cached.skillOriginManifest,
+        ...(cached.sourceLocations ? { sourceLocations: cached.sourceLocations } : {}),
         ...(cached.inputSchema
           ? { inputSchema: cached.inputSchema, inputFlags: cached.inputFlags ?? {} }
           : {}),
@@ -240,6 +247,7 @@ export async function loadInstalledFsm(opts: LoadInstalledFsmOptions): Promise<L
     cacheHit: false,
     hash,
     skillOriginManifest: extraction.skillOriginManifest,
+    sourceLocations: extraction.sourceLocations,
     ...(extraction.inputSchema
       ? { inputSchema: extraction.inputSchema, inputFlags: extraction.inputFlags ?? {} }
       : {}),
@@ -271,6 +279,7 @@ function serializeExtraction(extraction: {
   readonly sidecar: SchemaSidecar;
   readonly issues: readonly SidecarIssue[];
   readonly skillOriginManifest: SkillOriginManifest;
+  readonly sourceLocations: SourceLocationManifest;
   readonly inputSchema?: JSONSchema7;
   readonly inputFlags?: Record<string, ArgFlagMeta>;
 }): SerializedSidecar {
@@ -278,6 +287,7 @@ function serializeExtraction(extraction: {
     schemas: schemasOnly(extraction.sidecar),
     issues: extraction.issues,
     skillOriginManifest: extraction.skillOriginManifest,
+    sourceLocations: extraction.sourceLocations,
     ...(extraction.inputSchema
       ? { inputSchema: extraction.inputSchema, inputFlags: extraction.inputFlags ?? {} }
       : {}),

@@ -326,6 +326,47 @@ describe('aharness verify installed packages and commands', () => {
     expect(result).toEqual({ exitCode: 1 });
     expect(stderr.text()).toContain('[error] terminal-reachability (start): cannot reach');
   });
+
+  it('prints verifier warnings for installed commands that verify successfully', async () => {
+    const snapshot = runtimeSnapshot([
+      installRecord('@scope/tools', { build: commandMetadata('build') }),
+    ]);
+    const stdout = captureStream();
+    const stderr = captureStream();
+    const warning = {
+      severity: 'warning',
+      check: 'skill-must-resolve',
+      stateId: 'build',
+      message: 'optional skill is missing',
+      location: {
+        sourceFile: '/store/packages/node_modules/@scope/tools/fsms/build.fsm.ts',
+        line: 12,
+        column: 9,
+      },
+    } as VerifyResult['warnings'][number];
+
+    const result = await runVerifyInstalledCli({
+      target: '@scope/tools/build',
+      cwd: '/workspace',
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      readSnapshotImpl: async () => ({ ok: true, value: snapshot }),
+      checkLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
+      loadInstalledFsmImpl: vi.fn(async () => makeLoadedFsm()),
+      verifyImpl: vi.fn(() => ({
+        ok: true,
+        errors: [],
+        warnings: [warning],
+        issues: [warning],
+      })),
+    });
+
+    expect(result).toEqual({ exitCode: 0 });
+    expect(stderr.text()).toContain(
+      '/store/packages/node_modules/@scope/tools/fsms/build.fsm.ts:12:9: [warning] skill-must-resolve (build): optional skill is missing',
+    );
+    expect(stdout.text()).toContain('verify: ok (@scope/tools/build, 1 warnings)');
+  });
 });
 
 function runtimeSnapshot(

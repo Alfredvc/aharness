@@ -56,7 +56,9 @@ Run:
 npx aharness verify ./path/to/workflow.fsm.ts
 ```
 
-The verifier catches invalid FSM shape before Codex starts. Common causes are:
+The verifier catches invalid FSM shape before Codex starts. It prints each
+blocking error and non-blocking warning as a diagnostic line, with `file:line:`
+when source locations are available. Common causes are:
 
 - `on` keys that are neither `fsm.submit(...)`, `fsm.choice(...)`, built-in
   events, nor events declared with `withEvents(...)`.
