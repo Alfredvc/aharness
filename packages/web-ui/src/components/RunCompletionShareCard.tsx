@@ -4,7 +4,12 @@ export const SHARE_CARD_WIDTH = 1320;
 export const SHARE_CARD_HEIGHT = 2868;
 
 const numberFormat = new Intl.NumberFormat('en-US');
+const compactNumberFormat = new Intl.NumberFormat('en-US', {
+  maximumFractionDigits: 1,
+  notation: 'compact',
+});
 const MAX_BUCKET_ROWS = 5;
+const MAX_TIME_BUCKET_ROWS = 3;
 const MAX_DISPLAY_NAME_LENGTH = 76;
 const MAX_BUCKET_LABEL_LENGTH = 34;
 
@@ -17,6 +22,13 @@ export type RunCompletionShareCardBucket = {
   tokenTotalLabel: string;
 };
 
+export type RunCompletionShareCardTimeBucket = {
+  label: string;
+  durationLabel: string;
+  percent: number;
+  percentageLabel: string;
+};
+
 export type RunCompletionShareCardWorkDelta = {
   filesChangedLabel: string;
   linesAddedLabel: string;
@@ -27,15 +39,27 @@ export type RunCompletionShareCardProps = {
   fsmDisplayName: string;
   outcome: RunCompletionShareCardOutcome;
   durationLabel: string;
+  totalTimeLabel: string;
   transitionCountLabel: string;
   freshClearCountLabel: string;
+  totalTurnCountLabel: string;
   mainTurnCountLabel: string;
   subthreadTurnCountLabel: string;
   totalTokenLabel: string;
   mainTokenLabel: string;
   subthreadTokenLabel: string;
+  cacheHitPercentageLabel: string;
+  outputTokenLabel: string;
+  mainTokenPercent: number;
+  subthreadTokenPercent: number;
+  mainTokenPercentageLabel: string;
+  subthreadTokenPercentageLabel: string;
+  filesChangedLabel: string;
+  linesChangedLabel: string;
+  lineDeltaDetailLabel: string;
   workDelta: RunCompletionShareCardWorkDelta;
   buckets: ReadonlyArray<RunCompletionShareCardBucket>;
+  topTimeBuckets: ReadonlyArray<RunCompletionShareCardTimeBucket>;
 };
 
 export function buildRunCompletionShareCardProps(
@@ -43,45 +67,60 @@ export function buildRunCompletionShareCardProps(
 ): RunCompletionShareCardProps | null {
   if (stats.outcome !== 'success' && stats.outcome !== 'failure') return null;
 
+  const durationLabel = formatDuration(stats.duration.elapsedMs);
+  const totalTurnCount = stats.mainTurnCount + stats.subthreadTurnCount;
+  const totalTokens = stats.tokenTotals.totalTokens;
+  const mainTokenPercent = safePercent(stats.tokenTotals.mainTokens, totalTokens);
+  const subthreadTokenPercent = safePercent(stats.tokenTotals.subthreadTokens, totalTokens);
+  const workDeltaLabels = buildWorkDeltaLabels(stats);
+
   return {
     fsmDisplayName: truncateDisplay(sanitizeDisplay(stats.fsmDisplayName), MAX_DISPLAY_NAME_LENGTH),
     outcome: stats.outcome,
-    durationLabel: formatDuration(stats.duration.elapsedMs),
+    durationLabel,
+    totalTimeLabel: durationLabel,
     transitionCountLabel: formatNumber(stats.transitionCount),
     freshClearCountLabel: formatNumber(stats.freshClearCount),
+    totalTurnCountLabel: formatNumber(totalTurnCount),
     mainTurnCountLabel: formatNumber(stats.mainTurnCount),
     subthreadTurnCountLabel: formatNumber(stats.subthreadTurnCount),
-    totalTokenLabel: formatNumber(stats.tokenTotals.totalTokens),
-    mainTokenLabel: formatNumber(stats.tokenTotals.mainTokens),
-    subthreadTokenLabel: formatNumber(stats.tokenTotals.subthreadTokens),
-    workDelta:
-      stats.workDelta.status === 'available'
-        ? {
-            filesChangedLabel: formatNumber(stats.workDelta.filesChanged),
-            linesAddedLabel: formatNumber(stats.workDelta.linesAdded),
-            linesDeletedLabel: formatNumber(stats.workDelta.linesDeleted),
-          }
-        : {
-            filesChangedLabel: 'N/A',
-            linesAddedLabel: 'N/A',
-            linesDeletedLabel: 'N/A',
-          },
+    totalTokenLabel: formatCompactNumber(stats.tokenTotals.totalTokens),
+    mainTokenLabel: formatCompactNumber(stats.tokenTotals.mainTokens),
+    subthreadTokenLabel: formatCompactNumber(stats.tokenTotals.subthreadTokens),
+    cacheHitPercentageLabel: formatPercent(
+      safePercent(stats.tokenTotals.cachedInputTokens, stats.tokenTotals.inputTokens),
+    ),
+    outputTokenLabel: formatCompactNumber(stats.tokenTotals.outputTokens),
+    mainTokenPercent,
+    subthreadTokenPercent,
+    mainTokenPercentageLabel: formatPercent(mainTokenPercent),
+    subthreadTokenPercentageLabel: formatPercent(subthreadTokenPercent),
+    filesChangedLabel: workDeltaLabels.filesChangedLabel,
+    linesChangedLabel: workDeltaLabels.linesChangedLabel,
+    lineDeltaDetailLabel: workDeltaLabels.lineDeltaDetailLabel,
+    workDelta: workDeltaLabels.workDelta,
     buckets: buildBucketRows(stats),
+    topTimeBuckets: buildTopTimeBuckets(stats),
   };
 }
 
 export function RunCompletionShareCard(props: RunCompletionShareCardProps) {
   const tone = props.outcome === 'success' ? SHARE_TONES.success : SHARE_TONES.failure;
-  const outcomeLabel = props.outcome === 'success' ? 'Completed' : 'Failed';
-  const bucketRows =
-    props.buckets.length > 0
-      ? props.buckets
+  const titleLines = splitTitleLines(props.fsmDisplayName);
+  const outcomeLabel = props.outcome === 'success' ? 'Run completed' : 'Run failed';
+  const workDeltaNote =
+    props.lineDeltaDetailLabel === 'N/A'
+      ? 'Committed delta unavailable'
+      : props.lineDeltaDetailLabel;
+  const timeBucketRows =
+    props.topTimeBuckets.length > 0
+      ? props.topTimeBuckets
       : [
           {
             label: 'No state buckets',
             durationLabel: 'N/A',
-            turnCountLabel: '0',
-            tokenTotalLabel: '0',
+            percent: 0,
+            percentageLabel: '0%',
           },
         ];
 
@@ -94,261 +133,478 @@ export function RunCompletionShareCard(props: RunCompletionShareCardProps) {
       role="img"
       aria-labelledby="run-completion-share-title"
     >
-      <rect width="1320" height="2868" fill="#f7f7f2" />
-      <rect
-        x="86"
-        y="86"
-        width="1148"
-        height="2696"
-        rx="42"
-        fill="#ffffff"
-        stroke="#1f2937"
-        strokeWidth="4"
+      <defs>
+        <linearGradient id="share-card-bg" x1="0" y1="0" x2="1320" y2="2868">
+          <stop offset="0" stopColor="#07131f" />
+          <stop offset="0.58" stopColor="#0b1726" />
+          <stop offset="1" stopColor="#132337" />
+        </linearGradient>
+        <linearGradient id="share-card-token-burn" x1="0" y1="0" x2="600" y2="0">
+          <stop offset="0" stopColor="#f59e0b" />
+          <stop offset="0.54" stopColor="#fb7185" />
+          <stop offset="1" stopColor="#f97316" />
+        </linearGradient>
+        <linearGradient id="share-card-time-bars" x1="0" y1="0" x2="720" y2="0">
+          <stop offset="0" stopColor="#14b8a6" />
+          <stop offset="1" stopColor="#60a5fa" />
+        </linearGradient>
+        <pattern id="share-card-grid" width="72" height="72" patternUnits="userSpaceOnUse">
+          <path d="M 72 0 L 0 0 0 72" fill="none" stroke="#24364a" strokeWidth="2" />
+        </pattern>
+        <filter id="share-card-glow" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="18" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+
+      <rect width="1320" height="2868" fill="url(#share-card-bg)" />
+      <rect width="1320" height="2868" fill="url(#share-card-grid)" opacity="0.34" />
+      <path d="M0 0 H1320 V620 C920 548 472 656 0 516 Z" fill="#102237" opacity="0.82" />
+      <path d="M0 2300 C346 2206 668 2308 1320 2154 V2868 H0 Z" fill="#07131f" opacity="0.78" />
+      <circle
+        cx="1062"
+        cy="356"
+        r="220"
+        fill={tone.aura}
+        opacity="0.36"
+        filter="url(#share-card-glow)"
       />
-      <rect x="86" y="86" width="1148" height="28" rx="14" fill={tone.accent} />
+      <circle cx="212" cy="2298" r="164" fill="#f59e0b" opacity="0.08" />
+
+      <g transform="translate(96 104)">
+        <text
+          x="0"
+          y="0"
+          fill="#8ea4bb"
+          fontFamily="Inter, Arial, sans-serif"
+          fontSize="30"
+          fontWeight="800"
+        >
+          AHARNESS
+        </text>
+        <rect x="0" y="46" width={tone.pillWidth} height="76" rx="38" fill={tone.pillFill} />
+        <circle cx="44" cy="84" r="12" fill={tone.accent} />
+        <text
+          x="70"
+          y="98"
+          fill={tone.pillText}
+          fontFamily="Inter, Arial, sans-serif"
+          fontSize="32"
+          fontWeight="800"
+        >
+          {outcomeLabel}
+        </text>
+      </g>
 
       <text
-        x="126"
-        y="184"
-        fill="#4b5563"
+        id="run-completion-share-title"
+        x="96"
+        y="382"
+        fill="#fff7ed"
+        fontFamily="Inter, Arial, sans-serif"
+        fontSize="92"
+        fontWeight="900"
+      >
+        {titleLines.map((line, index) => (
+          <tspan key={`${line}-${index}`} x="96" dy={index === 0 ? 0 : 104}>
+            {line}
+          </tspan>
+        ))}
+      </text>
+      <text
+        x="98"
+        y={titleLines.length > 1 ? 612 : 508}
+        fill="#9fb4c8"
         fontFamily="Inter, Arial, sans-serif"
         fontSize="34"
         fontWeight="700"
-        letterSpacing="4"
       >
-        AHARNESS RUN SUMMARY
-      </text>
-      <text
-        id="run-completion-share-title"
-        x="126"
-        y="338"
-        fill="#111827"
-        fontFamily="Inter, Arial, sans-serif"
-        fontSize="78"
-        fontWeight="800"
-      >
-        {props.fsmDisplayName}
-      </text>
-      <rect
-        x="126"
-        y="414"
-        width="314"
-        height="92"
-        rx="46"
-        fill={tone.soft}
-        stroke={tone.accent}
-        strokeWidth="3"
-      />
-      <text
-        x="166"
-        y="474"
-        fill={tone.text}
-        fontFamily="Inter, Arial, sans-serif"
-        fontSize="38"
-        fontWeight="800"
-      >
-        {outcomeLabel}
+        Display-safe terminal FSM run summary
       </text>
 
-      <MetricGrid
-        y={612}
-        metrics={[
-          ['Duration', props.durationLabel],
-          ['Transitions', props.transitionCountLabel],
-          ['Fresh clears', props.freshClearCountLabel],
-          ['Main turns', props.mainTurnCountLabel],
-          ['Subthread turns', props.subthreadTurnCountLabel],
-          ['Total tokens', props.totalTokenLabel],
-        ]}
-      />
+      <g transform="translate(96 704)">
+        <rect width="682" height="420" rx="34" fill="#0f2234" stroke="#284258" strokeWidth="3" />
+        <text
+          x="42"
+          y="78"
+          fill="#8ea4bb"
+          fontFamily="Inter, Arial, sans-serif"
+          fontSize="30"
+          fontWeight="800"
+        >
+          TOTAL TIME
+        </text>
+        <text
+          x="42"
+          y="214"
+          fill="#fff7ed"
+          fontFamily="Inter, Arial, sans-serif"
+          fontSize="104"
+          fontWeight="900"
+        >
+          {props.totalTimeLabel}
+        </text>
+        <text
+          x="44"
+          y="306"
+          fill="#9fb4c8"
+          fontFamily="Inter, Arial, sans-serif"
+          fontSize="36"
+          fontWeight="700"
+        >
+          {props.totalTurnCountLabel} turns across main and subthreads
+        </text>
+        <text
+          x="44"
+          y="360"
+          fill="#fbbf24"
+          fontFamily="Inter, Arial, sans-serif"
+          fontSize="30"
+          fontWeight="800"
+        >
+          {props.transitionCountLabel} transitions / {props.freshClearCountLabel} fresh clears
+        </text>
+      </g>
 
-      <SectionTitle y={1278} title="Token split" />
-      <MetricGrid
-        y={1348}
-        compact
-        metrics={[
-          ['Main', props.mainTokenLabel],
-          ['Subthreads', props.subthreadTokenLabel],
-          ['Total', props.totalTokenLabel],
-        ]}
-      />
+      <g transform="translate(826 704)">
+        <rect width="398" height="420" rx="34" fill="#0f2234" stroke="#284258" strokeWidth="3" />
+        <RingIndicator tone={tone} outcome={props.outcome} />
+      </g>
 
-      <SectionTitle y={1742} title="Committed work" />
-      <MetricGrid
-        y={1812}
-        compact
-        metrics={[
-          ['Files', props.workDelta.filesChangedLabel],
-          ['Added', props.workDelta.linesAddedLabel],
-          ['Deleted', props.workDelta.linesDeletedLabel],
-        ]}
-      />
+      <g transform="translate(96 1190)">
+        <rect width="1128" height="444" rx="34" fill="#111f31" stroke="#31465c" strokeWidth="3" />
+        <text
+          x="42"
+          y="78"
+          fill="#8ea4bb"
+          fontFamily="Inter, Arial, sans-serif"
+          fontSize="30"
+          fontWeight="800"
+        >
+          TOKEN BURN
+        </text>
+        <text
+          x="42"
+          y="188"
+          fill="#fff7ed"
+          fontFamily="Inter, Arial, sans-serif"
+          fontSize="84"
+          fontWeight="900"
+        >
+          {props.totalTokenLabel}
+        </text>
+        <text x="46" y="244" fill="#9fb4c8" fontFamily="Inter, Arial, sans-serif" fontSize="30">
+          total tokens
+        </text>
+        <TokenSplitBar
+          x={42}
+          y={300}
+          mainPercent={props.mainTokenPercent}
+          subthreadPercent={props.subthreadTokenPercent}
+        />
+        <MetricPair x={720} y={126} label="Output" value={props.outputTokenLabel} />
+        <MetricPair x={720} y={262} label="Cache hit" value={props.cacheHitPercentageLabel} />
+        <TokenSplitLabel
+          x={42}
+          y={386}
+          main={props.mainTokenPercentageLabel}
+          subthread={props.subthreadTokenPercentageLabel}
+        />
+      </g>
 
-      <SectionTitle y={2206} title="Top state buckets" />
-      <g transform="translate(126 2266)">
-        <rect width="1068" height="504" rx="28" fill="#f9fafb" stroke="#d1d5db" strokeWidth="3" />
-        <BucketHeader />
-        {bucketRows.slice(0, 6).map((bucket, index) => (
-          <BucketRow key={`${bucket.label}-${index}`} bucket={bucket} y={88 + index * 72} />
+      <g transform="translate(96 1700)">
+        <StatTile
+          x={0}
+          y={0}
+          label="Transitions"
+          value={props.transitionCountLabel}
+          accent="#14b8a6"
+        />
+        <StatTile x={584} y={0} label="Turns" value={props.totalTurnCountLabel} accent="#60a5fa" />
+        <StatTile
+          x={0}
+          y={260}
+          label="Files changed"
+          value={props.filesChangedLabel}
+          accent="#fbbf24"
+        />
+        <StatTile
+          x={584}
+          y={260}
+          label="Lines changed"
+          value={props.linesChangedLabel}
+          accent="#fb7185"
+        />
+      </g>
+
+      <g transform="translate(96 2288)">
+        <rect width="1128" height="462" rx="34" fill="#0f2234" stroke="#284258" strokeWidth="3" />
+        <text
+          x="42"
+          y="76"
+          fill="#fff7ed"
+          fontFamily="Inter, Arial, sans-serif"
+          fontSize="44"
+          fontWeight="900"
+        >
+          Time by state
+        </text>
+        <text
+          x="42"
+          y="124"
+          fill="#9fb4c8"
+          fontFamily="Inter, Arial, sans-serif"
+          fontSize="28"
+          fontWeight="700"
+        >
+          Top parent/root buckets plus other
+        </text>
+        {timeBucketRows.map((bucket, index) => (
+          <TimeBucketBar key={`${bucket.label}-${index}`} bucket={bucket} y={176 + index * 82} />
         ))}
       </g>
 
       <text
-        x="126"
-        y="2730"
-        fill="#6b7280"
+        x="96"
+        y="2806"
+        fill="#fff7ed"
         fontFamily="Inter, Arial, sans-serif"
-        fontSize="26"
-        fontWeight="700"
+        fontSize="32"
+        fontWeight="900"
       >
         aharness
       </text>
-      <text x="1016" y="2730" fill="#6b7280" fontFamily="Inter, Arial, sans-serif" fontSize="24">
-        Display-safe summary
+      <text
+        x="1224"
+        y="2806"
+        fill="#8ea4bb"
+        fontFamily="Inter, Arial, sans-serif"
+        fontSize="24"
+        fontWeight="700"
+        textAnchor="end"
+      >
+        {workDeltaNote} / Display-safe poster
       </text>
     </svg>
   );
 }
 
-function MetricGrid({
-  y,
-  metrics,
-  compact = false,
+function RingIndicator({
+  tone,
+  outcome,
 }: {
-  y: number;
-  metrics: ReadonlyArray<readonly [string, string]>;
-  compact?: boolean;
+  tone: ShareCardTone;
+  outcome: RunCompletionShareCardOutcome;
 }) {
-  const columns = compact ? 3 : 2;
-  const cellWidth = compact ? 336 : 514;
-  const cellHeight = 164;
+  const dash = outcome === 'success' ? '100 0' : '72 28';
   return (
-    <g transform={`translate(126 ${y})`}>
-      {metrics.map(([label, value], index) => {
-        const x = (index % columns) * (cellWidth + 30);
-        const row = Math.floor(index / columns);
-        return (
-          <g key={label} transform={`translate(${x} ${row * (cellHeight + 30)})`}>
-            <rect
-              width={cellWidth}
-              height={cellHeight}
-              rx="26"
-              fill="#f9fafb"
-              stroke="#d1d5db"
-              strokeWidth="3"
-            />
-            <text
-              x="30"
-              y="58"
-              fill="#6b7280"
-              fontFamily="Inter, Arial, sans-serif"
-              fontSize="28"
-              fontWeight="700"
-            >
-              {label}
-            </text>
-            <text
-              x="30"
-              y="118"
-              fill="#111827"
-              fontFamily="Inter, Arial, sans-serif"
-              fontSize="46"
-              fontWeight="800"
-            >
-              {value}
-            </text>
-          </g>
-        );
-      })}
-    </g>
-  );
-}
-
-function SectionTitle({ y, title }: { y: number; title: string }) {
-  return (
-    <text
-      x="126"
-      y={y}
-      fill="#111827"
-      fontFamily="Inter, Arial, sans-serif"
-      fontSize="42"
-      fontWeight="800"
-    >
-      {title}
-    </text>
-  );
-}
-
-function BucketHeader() {
-  return (
-    <g transform="translate(30 52)">
+    <g>
+      <circle cx="199" cy="202" r="132" fill="#07131f" stroke="#1f3347" strokeWidth="34" />
+      <circle
+        cx="199"
+        cy="202"
+        r="132"
+        fill="none"
+        stroke={tone.accent}
+        strokeWidth="34"
+        strokeDasharray={dash}
+        pathLength="100"
+        strokeLinecap="round"
+        transform="rotate(-90 199 202)"
+      />
+      <circle cx="199" cy="202" r="84" fill="#0f2234" />
       <text
-        x="0"
-        y="0"
-        fill="#6b7280"
+        x="199"
+        y="192"
+        fill="#fff7ed"
         fontFamily="Inter, Arial, sans-serif"
-        fontSize="24"
-        fontWeight="800"
+        fontSize="40"
+        fontWeight="900"
+        textAnchor="middle"
       >
-        State
+        {outcome === 'success' ? 'DONE' : 'HALT'}
       </text>
       <text
-        x="492"
-        y="0"
-        fill="#6b7280"
+        x="199"
+        y="238"
+        fill="#9fb4c8"
         fontFamily="Inter, Arial, sans-serif"
         fontSize="24"
         fontWeight="800"
+        textAnchor="middle"
       >
-        Time
-      </text>
-      <text
-        x="680"
-        y="0"
-        fill="#6b7280"
-        fontFamily="Inter, Arial, sans-serif"
-        fontSize="24"
-        fontWeight="800"
-      >
-        Turns
-      </text>
-      <text
-        x="842"
-        y="0"
-        fill="#6b7280"
-        fontFamily="Inter, Arial, sans-serif"
-        fontSize="24"
-        fontWeight="800"
-      >
-        Tokens
+        terminal state
       </text>
     </g>
   );
 }
 
-function BucketRow({ bucket, y }: { bucket: RunCompletionShareCardBucket; y: number }) {
+function MetricPair({
+  x,
+  y,
+  label,
+  value,
+}: {
+  x: number;
+  y: number;
+  label: string;
+  value: string;
+}) {
   return (
-    <g transform={`translate(30 ${y})`}>
-      <line x1="0" y1="-30" x2="1008" y2="-30" stroke="#e5e7eb" strokeWidth="2" />
+    <g transform={`translate(${x} ${y})`}>
+      <text fill="#8ea4bb" fontFamily="Inter, Arial, sans-serif" fontSize="28" fontWeight="800">
+        {label}
+      </text>
+      <text
+        y="68"
+        fill="#fff7ed"
+        fontFamily="Inter, Arial, sans-serif"
+        fontSize="52"
+        fontWeight="900"
+      >
+        {value}
+      </text>
+    </g>
+  );
+}
+
+function TokenSplitLabel({
+  x,
+  y,
+  main,
+  subthread,
+}: {
+  x: number;
+  y: number;
+  main: string;
+  subthread: string;
+}) {
+  return (
+    <g transform={`translate(${x} ${y})`}>
+      <circle cx="10" cy="-8" r="8" fill="#14b8a6" />
+      <text x="28" fill="#9fb4c8" fontFamily="Inter, Arial, sans-serif" fontSize="26">
+        Main {main}
+      </text>
+      <circle cx="196" cy="-8" r="8" fill="#60a5fa" />
+      <text x="214" fill="#9fb4c8" fontFamily="Inter, Arial, sans-serif" fontSize="26">
+        Subthreads {subthread}
+      </text>
+    </g>
+  );
+}
+
+function TokenSplitBar({
+  x,
+  y,
+  mainPercent,
+  subthreadPercent,
+}: {
+  x: number;
+  y: number;
+  mainPercent: number;
+  subthreadPercent: number;
+}) {
+  const trackWidth = 600;
+  const mainWidth = percentWidth(mainPercent, trackWidth);
+  const subthreadWidth = percentWidth(subthreadPercent, trackWidth);
+
+  return (
+    <g transform={`translate(${x} ${y})`}>
+      <clipPath id="share-card-token-split-clip">
+        <rect width={trackWidth} height="32" rx="16" />
+      </clipPath>
+      <rect width={trackWidth} height="32" rx="16" fill="#1f3347" />
+      <g clipPath="url(#share-card-token-split-clip)">
+        <rect
+          id="share-card-token-main-bar"
+          width={mainWidth}
+          height="32"
+          fill="url(#share-card-token-burn)"
+        />
+        <rect
+          id="share-card-token-subthread-bar"
+          x={mainWidth}
+          width={subthreadWidth}
+          height="32"
+          fill="#60a5fa"
+          opacity="0.9"
+        />
+      </g>
+    </g>
+  );
+}
+
+function StatTile({
+  x,
+  y,
+  label,
+  value,
+  accent,
+}: {
+  x: number;
+  y: number;
+  label: string;
+  value: string;
+  accent: string;
+}) {
+  return (
+    <g transform={`translate(${x} ${y})`}>
+      <rect width="544" height="214" rx="28" fill="#0f2234" stroke="#284258" strokeWidth="3" />
+      <rect x="24" y="24" width="78" height="8" rx="4" fill={accent} />
+      <text
+        x="28"
+        y="82"
+        fill="#8ea4bb"
+        fontFamily="Inter, Arial, sans-serif"
+        fontSize="26"
+        fontWeight="800"
+      >
+        {label}
+      </text>
+      <text
+        x="28"
+        y="154"
+        fill="#fff7ed"
+        fontFamily="Inter, Arial, sans-serif"
+        fontSize="56"
+        fontWeight="900"
+      >
+        {value}
+      </text>
+    </g>
+  );
+}
+
+function TimeBucketBar({ bucket, y }: { bucket: RunCompletionShareCardTimeBucket; y: number }) {
+  const width = Math.max(8, Math.round((bucket.percent / 100) * 1000));
+  return (
+    <g transform={`translate(42 ${y})`}>
       <text
         x="0"
         y="0"
-        fill="#111827"
+        fill="#fff7ed"
         fontFamily="Inter, Arial, sans-serif"
-        fontSize="30"
-        fontWeight="700"
+        fontSize="28"
+        fontWeight="800"
       >
         {bucket.label}
       </text>
-      <text x="492" y="0" fill="#374151" fontFamily="Inter, Arial, sans-serif" fontSize="30">
-        {bucket.durationLabel}
+      <text
+        x="1000"
+        y="0"
+        fill="#9fb4c8"
+        fontFamily="Inter, Arial, sans-serif"
+        fontSize="26"
+        fontWeight="800"
+        textAnchor="end"
+      >
+        {bucket.percentageLabel} / {bucket.durationLabel}
       </text>
-      <text x="680" y="0" fill="#374151" fontFamily="Inter, Arial, sans-serif" fontSize="30">
-        {bucket.turnCountLabel}
-      </text>
-      <text x="842" y="0" fill="#374151" fontFamily="Inter, Arial, sans-serif" fontSize="30">
-        {bucket.tokenTotalLabel}
-      </text>
+      <rect x="0" y="24" width="1000" height="22" rx="11" fill="#1f3347" />
+      <rect x="0" y="24" width={width} height="22" rx="11" fill="url(#share-card-time-bars)" />
     </g>
   );
 }
@@ -381,6 +637,72 @@ function buildBucketRows(stats: RunCompletionStats): RunCompletionShareCardBucke
   return rows;
 }
 
+function buildTopTimeBuckets(stats: RunCompletionStats): RunCompletionShareCardTimeBucket[] {
+  const visible = stats.stateBuckets.slice(0, MAX_TIME_BUCKET_ROWS);
+  const remaining = stats.stateBuckets.slice(MAX_TIME_BUCKET_ROWS);
+  const denominator =
+    stats.duration.elapsedMs !== undefined
+      ? stats.duration.elapsedMs
+      : stats.stateBuckets.reduce((total, bucket) => total + bucket.elapsedMs, 0);
+  const rows = visible.map((bucket) => {
+    const percent = safePercent(bucket.elapsedMs, denominator);
+    return {
+      label: truncateDisplay(sanitizeDisplay(bucket.label), MAX_BUCKET_LABEL_LENGTH),
+      durationLabel: formatDuration(bucket.elapsedMs),
+      percent,
+      percentageLabel: formatPercent(percent),
+    };
+  });
+
+  if (remaining.length > 0) {
+    const otherElapsedMs = remaining.reduce((total, bucket) => total + bucket.elapsedMs, 0);
+    const percent = safePercent(otherElapsedMs, denominator);
+    rows.push({
+      label: 'Other states',
+      durationLabel: formatDuration(otherElapsedMs),
+      percent,
+      percentageLabel: formatPercent(percent),
+    });
+  }
+
+  return rows;
+}
+
+function buildWorkDeltaLabels(stats: RunCompletionStats): {
+  filesChangedLabel: string;
+  linesChangedLabel: string;
+  lineDeltaDetailLabel: string;
+  workDelta: RunCompletionShareCardWorkDelta;
+} {
+  if (stats.workDelta.status !== 'available') {
+    const unavailableWorkDelta = {
+      filesChangedLabel: 'N/A',
+      linesAddedLabel: 'N/A',
+      linesDeletedLabel: 'N/A',
+    };
+    return {
+      filesChangedLabel: 'N/A',
+      linesChangedLabel: 'N/A',
+      lineDeltaDetailLabel: 'N/A',
+      workDelta: unavailableWorkDelta,
+    };
+  }
+
+  const linesChanged = stats.workDelta.linesAdded + stats.workDelta.linesDeleted;
+  return {
+    filesChangedLabel: formatNumber(stats.workDelta.filesChanged),
+    linesChangedLabel: formatNumber(linesChanged),
+    lineDeltaDetailLabel: `+${formatNumber(stats.workDelta.linesAdded)} / -${formatNumber(
+      stats.workDelta.linesDeleted,
+    )}`,
+    workDelta: {
+      filesChangedLabel: formatNumber(stats.workDelta.filesChanged),
+      linesAddedLabel: formatNumber(stats.workDelta.linesAdded),
+      linesDeletedLabel: formatNumber(stats.workDelta.linesDeleted),
+    },
+  };
+}
+
 function sanitizeDisplay(value: string): string {
   return (
     Array.from(value, (character) => (isControlCharacter(character) ? ' ' : character))
@@ -399,8 +721,43 @@ function truncateDisplay(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
 }
 
+function splitTitleLines(value: string): [string] | [string, string] {
+  if (value.length <= 24) return [value];
+
+  const words = value.split(' ');
+  const firstLine: string[] = [];
+  const secondLine: string[] = [];
+  for (const word of words) {
+    const target = firstLine.join(' ').length < 24 ? firstLine : secondLine;
+    target.push(word);
+  }
+
+  const first = truncateDisplay(firstLine.join(' ') || value, 30);
+  const second = truncateDisplay(secondLine.join(' '), 30);
+  return second ? [first, second] : [first];
+}
+
 function formatNumber(value: number): string {
   return numberFormat.format(value);
+}
+
+function formatCompactNumber(value: number): string {
+  const normalized = Math.max(0, value);
+  if (normalized < 1_000_000) return formatNumber(normalized);
+  return compactNumberFormat.format(normalized);
+}
+
+function safePercent(numerator: number, denominator: number): number {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((numerator / denominator) * 100)));
+}
+
+function percentWidth(percent: number, width: number): number {
+  return Math.max(0, Math.min(width, Math.round((percent / 100) * width)));
+}
+
+function formatPercent(value: number): string {
+  return `${value}%`;
 }
 
 function formatDuration(elapsedMs: number | undefined): string {
@@ -415,10 +772,27 @@ function formatDuration(elapsedMs: number | undefined): string {
   return `${hours}h ${restMinutes.toString().padStart(2, '0')}m`;
 }
 
-const SHARE_TONES: Record<
-  RunCompletionShareCardOutcome,
-  { accent: string; soft: string; text: string }
-> = {
-  success: { accent: '#047857', soft: '#d1fae5', text: '#065f46' },
-  failure: { accent: '#be123c', soft: '#ffe4e6', text: '#9f1239' },
+type ShareCardTone = {
+  accent: string;
+  aura: string;
+  pillFill: string;
+  pillText: string;
+  pillWidth: number;
+};
+
+const SHARE_TONES: Record<RunCompletionShareCardOutcome, ShareCardTone> = {
+  success: {
+    accent: '#14b8a6',
+    aura: '#14b8a6',
+    pillFill: '#123f3d',
+    pillText: '#a7f3d0',
+    pillWidth: 318,
+  },
+  failure: {
+    accent: '#f43f5e',
+    aura: '#fb7185',
+    pillFill: '#471b2c',
+    pillText: '#fecdd3',
+    pillWidth: 248,
+  },
 };

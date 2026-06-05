@@ -365,12 +365,14 @@ API-safe terminal projection after success or failure. It follows the same
 run-scoped token authentication and unavailable-log error shape as the other
 run APIs.
 
-When a run reaches a terminal state, the browser shows a final overview with
-completion outcome, duration, transition and turn counts, token totals, top
-state buckets, topology status, and committed work delta. Live terminal
-completion and terminal inspect/replay bootstrap can auto-open this overview
-once per page load. After dismissal, the terminal-only header `Summary` action
-reopens it. Active non-terminal runs do not show the action or modal.
+When a run reaches a terminal state, the browser shows a poster-style final
+overview dashboard with completion outcome, total time, completion status, token
+burn, cache-hit rate, main/subthread token split, transition and turn tiles,
+four compact tiles for transitions, turns, files changed, and lines changed, and
+"Where the time went" bars for top state buckets. Live terminal completion and
+terminal inspect/replay bootstrap can auto-open this overview once per page
+load. After dismissal, the terminal-only header `Summary` action reopens it.
+Active non-terminal runs do not show the action or modal.
 
 Committed work-delta values come only from git facts recorded during the run.
 When those facts are unavailable, the overview renders work-delta values as
@@ -379,11 +381,20 @@ summary time.
 
 Terminal success and failure overviews can open a share-card preview with
 browser-native `Download PNG` and `Copy PNG` actions. The exported image is a
-fixed `1320 x 2868` PNG. Share cards use display-safe summary fields only:
-sanitized FSM display name, outcome, duration, transition and turn counts,
-token totals, committed-work counts or `N/A`, top state buckets, and neutral
-aharness branding. They do not include raw run metadata, transcript text,
-command output, owner input, repo paths, git object ids, or Codex pins.
+fixed `1320 x 2868` poster-style PNG rendered from a self-contained SVG. Share
+cards use a screenshot-matched dark-poster palette: dark navy backgrounds,
+near-ivory primary type, blue-gray secondary labels, teal success accents,
+coral/orange token-burn gradients, and restrained amber highlights. Failure
+cards keep the same layout but use failure-toned accents.
+
+Share cards use display-safe summary fields only: sanitized FSM display name,
+outcome, duration, derived turn totals, transition and fresh-clear counts,
+derived token percentages, token totals, committed-work counts or `N/A`, top
+time buckets plus `Other states`, and neutral aharness branding. When committed
+work-delta facts are unavailable, file and line cells render `N/A` and the
+poster shows an unavailable committed-delta note instead of inferring checkout
+changes. Share cards do not include raw run metadata, transcript text, command
+output, owner input, repo paths, git object ids, branch names, or Codex pins.
 Partial summaries with `outcome: 'unknown'` are not shareable.
 
 `aharness install <source>` delegates package-spec handling to npm inside the

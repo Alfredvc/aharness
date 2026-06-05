@@ -1,6 +1,9 @@
-import { createElement } from 'react';
+// @vitest-environment jsdom
+
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { FinalOverviewModal } from './FinalOverviewModal.js';
 import type { RunCompletionStats } from '../types/events.js';
@@ -48,7 +51,10 @@ function stats(overrides: Partial<RunCompletionStats> = {}): RunCompletionStats 
   };
 }
 
-function render(props: {
+let root: Root | null = null;
+let host: HTMLDivElement | null = null;
+
+function renderStatic(props: {
   completionStats: RunCompletionStats | null;
   loading?: boolean;
   error?: string | null;
@@ -63,28 +69,76 @@ function render(props: {
   );
 }
 
+function renderInteractive(props: {
+  completionStats: RunCompletionStats | null;
+  loading?: boolean;
+  error?: string | null;
+  onClose?: () => void;
+}): HTMLDivElement {
+  host = document.createElement('div');
+  document.body.appendChild(host);
+  root = createRoot(host);
+  act(() => {
+    root?.render(
+      createElement(FinalOverviewModal, {
+        completionStats: props.completionStats,
+        loading: props.loading ?? false,
+        error: props.error ?? null,
+        onClose: props.onClose ?? (() => undefined),
+      }),
+    );
+  });
+  return host;
+}
+
+function buttonByText(container: HTMLElement, text: string): HTMLButtonElement {
+  const button = Array.from(container.querySelectorAll('button')).find(
+    (candidate) => candidate.textContent === text,
+  );
+  if (!button) throw new Error(`button not found: ${text}`);
+  return button;
+}
+
+afterEach(() => {
+  act(() => {
+    root?.unmount();
+  });
+  root = null;
+  host?.remove();
+  host = null;
+  document.body.innerHTML = '';
+  vi.unstubAllGlobals();
+});
+
 describe('FinalOverviewModal', () => {
   it('renders loading without stats', () => {
-    const html = render({ completionStats: null, loading: true });
+    const html = renderStatic({ completionStats: null, loading: true });
 
     expect(html).toContain('Loading summary');
     expect(html).toContain('Loading exact summary');
   });
 
   it('renders success stats and available work delta', () => {
-    const html = render({ completionStats: stats() });
+    const html = renderStatic({ completionStats: stats() });
 
     expect(html).toContain('workflow completed');
     expect(html).toContain('1m 05s');
     expect(html).toContain('1,234');
+    expect(html).toContain('Token burn');
+    expect(html).toContain('Cache hit');
     expect(html).toContain('Committed Work');
+    expect(html).toContain('17 lines changed');
+    expect(html).toContain('Where the time went');
     expect(html).toContain('12');
     expect(html).toContain('collect');
+    expect(html.match(/final-overview-dashboard-tile/g)).toHaveLength(4);
+    expect(html).not.toContain('Main tokens');
+    expect(html).not.toContain('Subthread tokens');
   });
 
   it('renders share controls for failure but not unknown outcomes', () => {
-    const failureHtml = render({ completionStats: stats({ outcome: 'failure' }) });
-    const unknownHtml = render({ completionStats: stats({ outcome: 'unknown' }) });
+    const failureHtml = renderStatic({ completionStats: stats({ outcome: 'failure' }) });
+    const unknownHtml = renderStatic({ completionStats: stats({ outcome: 'unknown' }) });
 
     expect(failureHtml).toContain('workflow failed');
     expect(failureHtml).toContain('Share Card');
@@ -95,13 +149,13 @@ describe('FinalOverviewModal', () => {
   });
 
   it('does not render share controls without shareable stats', () => {
-    const html = render({ completionStats: null, loading: true });
+    const html = renderStatic({ completionStats: null, loading: true });
 
     expect(html).not.toMatch(/download|copy png|share/i);
   });
 
   it('renders unavailable work delta as N/A with explanatory copy', () => {
-    const html = render({
+    const html = renderStatic({
       completionStats: stats({
         workDelta: { status: 'unavailable', reason: 'missing' },
       }),
@@ -112,10 +166,53 @@ describe('FinalOverviewModal', () => {
   });
 
   it('does not render low-disclosure forbidden fields', () => {
-    const html = render({ completionStats: stats() });
+    const html = renderStatic({ completionStats: stats() });
 
     expect(html).not.toMatch(
       /run-1|repoRoot|fsmFile|codex|git head|[a-f0-9]{40}|transcript text|owner input|raw tool output|command output/i,
     );
+  });
+
+  it('opens an intentional poster preview with export actions only for shareable SVG stats', () => {
+    const success = renderInteractive({ completionStats: stats() });
+
+    act(() => {
+      buttonByText(success, 'Share').click();
+    });
+
+    expect(success.querySelector('.final-overview-share-card-frame')).not.toBeNull();
+    expect(success.querySelector('.final-overview-share-card svg')).not.toBeNull();
+    expect(success.textContent).toContain('Download PNG');
+    expect(success.textContent).toContain('Copy PNG');
+
+    act(() => {
+      root?.unmount();
+    });
+    root = null;
+    success.remove();
+
+    const unknown = renderInteractive({ completionStats: stats({ outcome: 'unknown' }) });
+
+    expect(unknown.querySelector('.final-overview-share-card svg')).toBeNull();
+    expect(unknown.textContent).not.toMatch(/Download PNG|Copy PNG|Share Card/);
+  });
+
+  it('keeps the modal open and reports distinct copy failure status', async () => {
+    vi.stubGlobal('ClipboardItem', undefined);
+    const onClose = vi.fn();
+    const container = renderInteractive({ completionStats: stats(), onClose });
+
+    act(() => {
+      buttonByText(container, 'Share').click();
+    });
+    await act(async () => {
+      buttonByText(container, 'Copy PNG').click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onClose).not.toHaveBeenCalled();
+    expect(container.querySelector('.final-overview-modal')).not.toBeNull();
+    expect(container.textContent).toContain('Copy PNG unsupported in this browser.');
   });
 });

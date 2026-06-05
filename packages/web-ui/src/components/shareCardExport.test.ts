@@ -189,6 +189,23 @@ describe('shareCardExport', () => {
     expect(revokedUrls).toEqual(['blob:0', 'blob:1']);
   });
 
+  it('distinguishes download encoding failure and dimension mismatch statuses', async () => {
+    const props = shareProps();
+    const encoding = await downloadShareCardPng(
+      actualShareCardSvg(props),
+      props,
+      mockEnvironment({ blob: null }).environment,
+    );
+    const mismatch = await downloadShareCardPng(
+      actualShareCardSvg(props),
+      props,
+      mockEnvironment({ mutateCanvasDimensions: true }).environment,
+    );
+
+    expect(encoding).toEqual({ ok: false, kind: 'encoding-failed' });
+    expect(mismatch).toEqual({ ok: false, kind: 'dimension-mismatch' });
+  });
+
   it('copies PNG through ClipboardItem when supported', async () => {
     const { environment, clipboardItems } = mockEnvironment({
       clipboardWrite: () => Promise.resolve(),
@@ -214,6 +231,18 @@ describe('shareCardExport', () => {
     expect(unsupported).toEqual({ ok: false, kind: 'unsupported' });
     expect(denied).toEqual({ ok: false, kind: 'permission-denied' });
     expect(encoding).toEqual({ ok: false, kind: 'encoding-failed' });
+  });
+
+  it('distinguishes copy dimension mismatch from other copy failures', async () => {
+    const mismatch = await copyShareCardPng(
+      actualShareCardSvg(),
+      mockEnvironment({
+        clipboardWrite: vi.fn(),
+        mutateCanvasDimensions: true,
+      }).environment,
+    );
+
+    expect(mismatch).toEqual({ ok: false, kind: 'dimension-mismatch' });
   });
 
   it('builds filenames from display-safe props only', () => {

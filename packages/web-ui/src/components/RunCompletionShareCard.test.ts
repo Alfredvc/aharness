@@ -92,13 +92,13 @@ describe('RunCompletionShareCard', () => {
     expect(successHtml).toContain(`height="${SHARE_CARD_HEIGHT}"`);
     expect(successHtml).toContain(`viewBox="0 0 ${SHARE_CARD_WIDTH} ${SHARE_CARD_HEIGHT}"`);
     expect(successHtml).toContain('xmlns="http://www.w3.org/2000/svg"');
-    expect(successHtml).toContain('Completed');
-    expect(failureHtml).toContain('Failed');
+    expect(successHtml).toContain('Run completed');
+    expect(failureHtml).toContain('Run failed');
     expect(successHtml).toContain('font-family');
     expect(successHtml).not.toContain('class=');
   });
 
-  it('renders approved metrics, unavailable work as N/A, and an Other states row', () => {
+  it('renders the dark poster hierarchy, unavailable work fallback, and other time bucket', () => {
     const html = render(
       stats({
         workDelta: { status: 'unavailable', reason: 'missing' },
@@ -106,17 +106,208 @@ describe('RunCompletionShareCard', () => {
     );
 
     expect(html).toContain('autonomous repair');
+    expect(html).toContain('#07131f');
+    expect(html).toContain('#14b8a6');
+    expect(html).toContain('#fb7185');
+    expect(html).toContain('TOTAL TIME');
+    expect(html).toContain('TOKEN BURN');
+    expect(html).toContain('Time by state');
+    expect(html).toContain('Files changed');
+    expect(html).toContain('Lines changed');
+    expect(html).not.toContain('Main tokens');
+    expect(html).not.toContain('Subthread tokens');
     expect(html).toContain('2m 05s');
     expect(html).toContain('9,876');
-    expect(html).toContain('Fresh clears');
     expect(html).toContain('N/A');
+    expect(html).toContain('Committed delta unavailable');
     expect(html).toContain('Other states');
   });
 
+  it('uses distinct success and failure tones with the same poster layout', () => {
+    const successHtml = render(stats({ outcome: 'success' }));
+    const failureHtml = render(stats({ outcome: 'failure' }));
+
+    expect(successHtml).toContain('#14b8a6');
+    expect(successHtml).toContain('DONE');
+    expect(successHtml).toContain('TOKEN BURN');
+    expect(failureHtml).toContain('#f43f5e');
+    expect(failureHtml).toContain('HALT');
+    expect(failureHtml).toContain('TOKEN BURN');
+  });
+
+  it('builds derived poster metric labels from display-safe completion stats', () => {
+    const props = buildRunCompletionShareCardProps(
+      stats({
+        mainTurnCount: 9,
+        subthreadTurnCount: 3,
+        tokenTotals: {
+          totalTokens: 99_600_000,
+          inputTokens: 80_000_000,
+          cachedInputTokens: 20_000_000,
+          outputTokens: 19_600_000,
+          reasoningOutputTokens: 7_000_000,
+          mainTokens: 74_700_000,
+          subthreadTokens: 24_900_000,
+          unattributedTokens: 0,
+        },
+        workDelta: { status: 'available', filesChanged: 5, linesAdded: 44, linesDeleted: 12 },
+        stateBuckets: [
+          {
+            id: 'workflow.plan',
+            label: 'Planning',
+            elapsedMs: 50_000,
+            eventCount: 6,
+            transitionCount: 1,
+            mainTurnCount: 3,
+            subthreadTurnCount: 1,
+            tokenTotals: {
+              totalTokens: 700,
+              inputTokens: 250,
+              cachedInputTokens: 20,
+              outputTokens: 450,
+              reasoningOutputTokens: 120,
+            },
+          },
+          {
+            id: 'workflow.build',
+            label: 'Build',
+            elapsedMs: 25_000,
+            eventCount: 5,
+            transitionCount: 2,
+            mainTurnCount: 4,
+            subthreadTurnCount: 0,
+            tokenTotals: {
+              totalTokens: 500,
+              inputTokens: 200,
+              cachedInputTokens: 30,
+              outputTokens: 300,
+              reasoningOutputTokens: 80,
+            },
+          },
+          {
+            id: 'workflow.verify',
+            label: 'Verify',
+            elapsedMs: 25_000,
+            eventCount: 4,
+            transitionCount: 1,
+            mainTurnCount: 2,
+            subthreadTurnCount: 2,
+            tokenTotals: {
+              totalTokens: 400,
+              inputTokens: 180,
+              cachedInputTokens: 20,
+              outputTokens: 220,
+              reasoningOutputTokens: 40,
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(props).not.toBeNull();
+    expect(props?.totalTimeLabel).toBe('2m 05s');
+    expect(props?.totalTurnCountLabel).toBe('12');
+    expect(props?.transitionCountLabel).toBe('8');
+    expect(props?.filesChangedLabel).toBe('5');
+    expect(props?.linesChangedLabel).toBe('56');
+    expect(props?.lineDeltaDetailLabel).toBe('+44 / -12');
+    expect(props?.cacheHitPercentageLabel).toBe('25%');
+    expect(props?.outputTokenLabel).toBe('19.6M');
+    expect(props?.totalTokenLabel).toBe('99.6M');
+    expect(props?.mainTokenPercent).toBe(75);
+    expect(props?.subthreadTokenPercent).toBe(25);
+    expect(props?.mainTokenPercentageLabel).toBe('75%');
+    expect(props?.subthreadTokenPercentageLabel).toBe('25%');
+    expect(props?.topTimeBuckets).toEqual([
+      expect.objectContaining({ label: 'Planning', percentageLabel: '40%', percent: 40 }),
+      expect.objectContaining({ label: 'Build', percentageLabel: '20%', percent: 20 }),
+      expect.objectContaining({ label: 'Verify', percentageLabel: '20%', percent: 20 }),
+    ]);
+  });
+
+  it('renders token burn as derived main and subthread split bar segments', () => {
+    const html = render(
+      stats({
+        tokenTotals: {
+          totalTokens: 1000,
+          inputTokens: 600,
+          cachedInputTokens: 120,
+          outputTokens: 400,
+          reasoningOutputTokens: 140,
+          mainTokens: 250,
+          subthreadTokens: 500,
+          unattributedTokens: 250,
+        },
+      }),
+    );
+
+    expect(html).toContain('Main 25%');
+    expect(html).toContain('Subthreads 50%');
+    expect(html).toContain(
+      'id="share-card-token-main-bar" width="150" height="32" fill="url(#share-card-token-burn)"',
+    );
+    expect(html).toContain(
+      'id="share-card-token-subthread-bar" x="150" width="300" height="32" fill="#60a5fa"',
+    );
+  });
+
+  it('guards poster metric percentages against zero denominators and unavailable work deltas', () => {
+    const props = buildRunCompletionShareCardProps(
+      stats({
+        duration: {},
+        tokenTotals: {
+          totalTokens: 0,
+          inputTokens: 0,
+          cachedInputTokens: 0,
+          outputTokens: 0,
+          reasoningOutputTokens: 0,
+          mainTokens: 0,
+          subthreadTokens: 0,
+          unattributedTokens: 0,
+        },
+        workDelta: { status: 'unavailable', reason: 'missing' },
+        stateBuckets: [
+          {
+            id: 'workflow.wait',
+            label: 'Wait',
+            elapsedMs: 0,
+            eventCount: 1,
+            transitionCount: 0,
+            mainTurnCount: 0,
+            subthreadTurnCount: 0,
+            tokenTotals: {
+              totalTokens: 0,
+              inputTokens: 0,
+              cachedInputTokens: 0,
+              outputTokens: 0,
+              reasoningOutputTokens: 0,
+            },
+          },
+        ],
+      }),
+    );
+
+    expect(props).not.toBeNull();
+    expect(props?.cacheHitPercentageLabel).toBe('0%');
+    expect(props?.mainTokenPercent).toBe(0);
+    expect(props?.subthreadTokenPercent).toBe(0);
+    expect(props?.mainTokenPercentageLabel).toBe('0%');
+    expect(props?.subthreadTokenPercentageLabel).toBe('0%');
+    expect(props?.filesChangedLabel).toBe('N/A');
+    expect(props?.linesChangedLabel).toBe('N/A');
+    expect(props?.lineDeltaDetailLabel).toBe('N/A');
+    expect(props?.topTimeBuckets).toEqual([
+      expect.objectContaining({ label: 'Wait', percentageLabel: '0%', percent: 0 }),
+    ]);
+  });
+
   it('does not render forbidden low-disclosure strings', () => {
-    const html = render(stats());
+    const statsValue = stats();
+    const props = buildRunCompletionShareCardProps(statsValue);
+    const html = render(statsValue);
 
     for (const value of forbidden) {
+      expect(JSON.stringify(props)).not.toContain(value);
       expect(html).not.toContain(value);
     }
   });

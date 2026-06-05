@@ -4,6 +4,7 @@ import {
   RunCompletionShareCard,
   buildRunCompletionShareCardProps,
   type RunCompletionShareCardProps,
+  type RunCompletionShareCardTimeBucket,
 } from './RunCompletionShareCard.js';
 import {
   copyShareCardPng,
@@ -20,6 +21,10 @@ type FinalOverviewModalProps = {
 };
 
 const numberFormat = new Intl.NumberFormat('en-US');
+const compactNumberFormat = new Intl.NumberFormat('en-US', {
+  maximumFractionDigits: 1,
+  notation: 'compact',
+});
 
 export function FinalOverviewModal({
   completionStats,
@@ -62,34 +67,12 @@ export function FinalOverviewModal({
 
 function StatsBody({ stats }: { stats: RunCompletionStats }) {
   const shareProps = buildRunCompletionShareCardProps(stats);
+  const dashboard = buildDashboardDisplay(stats, shareProps);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [copyStatus, setCopyStatus] = useState<ShareCardCopyStatus | null>(null);
   const [downloadStatus, setDownloadStatus] = useState<ShareCardDownloadStatus | null>(null);
   const [exporting, setExporting] = useState<'download' | 'copy' | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const topBuckets = stats.stateBuckets.slice(0, 6);
-  const remainingBuckets = stats.stateBuckets.slice(6);
-  const otherBucket =
-    remainingBuckets.length === 0
-      ? null
-      : remainingBuckets.reduce(
-          (acc, bucket) => ({
-            elapsedMs: acc.elapsedMs + bucket.elapsedMs,
-            eventCount: acc.eventCount + bucket.eventCount,
-            transitionCount: acc.transitionCount + bucket.transitionCount,
-            mainTurnCount: acc.mainTurnCount + bucket.mainTurnCount,
-            subthreadTurnCount: acc.subthreadTurnCount + bucket.subthreadTurnCount,
-            totalTokens: acc.totalTokens + bucket.tokenTotals.totalTokens,
-          }),
-          {
-            elapsedMs: 0,
-            eventCount: 0,
-            transitionCount: 0,
-            mainTurnCount: 0,
-            subthreadTurnCount: 0,
-            totalTokens: 0,
-          },
-        );
 
   return (
     <div className="final-overview-body">
@@ -97,14 +80,31 @@ function StatsBody({ stats }: { stats: RunCompletionStats }) {
         <p className="final-overview-note">Partial terminal summary from available run events.</p>
       ) : null}
 
-      <div className="final-overview-metrics" aria-label="Run completion metrics">
-        <Metric label="Duration" value={formatDuration(stats.duration.elapsedMs)} />
-        <Metric label="Transitions" value={formatNumber(stats.transitionCount)} />
-        <Metric label="Fresh clears" value={formatNumber(stats.freshClearCount)} />
-        <Metric label="Main turns" value={formatNumber(stats.mainTurnCount)} />
-        <Metric label="Subthread turns" value={formatNumber(stats.subthreadTurnCount)} />
-        <Metric label="Topology" value={stats.topologyStatus} />
-      </div>
+      <section className="final-overview-dashboard-hero" aria-label="Run completion dashboard">
+        <div className="final-overview-title-block">
+          <span className="final-overview-outcome-pill" data-outcome={dashboard.tone}>
+            {dashboard.statusLabel}
+          </span>
+          <h3>{stats.fsmDisplayName}</h3>
+          <p>Display-safe terminal FSM run summary.</p>
+        </div>
+        <div className="final-overview-time-card">
+          <span>Total time</span>
+          <strong>{dashboard.totalTimeLabel}</strong>
+          <p>{dashboard.totalTurnCountLabel} turns across main and subthreads</p>
+          <small>
+            {dashboard.transitionCountLabel} transitions / {dashboard.freshClearCountLabel} fresh
+            clears
+          </small>
+        </div>
+        <div className="final-overview-status-card">
+          <div className="final-overview-status-ring" data-outcome={dashboard.tone}>
+            <strong>{dashboard.statusValue}</strong>
+            <span>{dashboard.statusLabel}</span>
+          </div>
+          <p>{dashboard.statusDetail}</p>
+        </div>
+      </section>
 
       {shareProps ? (
         <section className="final-overview-section">
@@ -165,66 +165,79 @@ function StatsBody({ stats }: { stats: RunCompletionStats }) {
         </section>
       ) : null}
 
-      <section className="final-overview-section">
-        <h3>Tokens</h3>
-        <div className="final-overview-metrics compact">
-          <Metric label="Total" value={formatNumber(stats.tokenTotals.totalTokens)} />
-          <Metric label="Input" value={formatNumber(stats.tokenTotals.inputTokens)} />
-          <Metric label="Cached" value={formatNumber(stats.tokenTotals.cachedInputTokens)} />
-          <Metric label="Output" value={formatNumber(stats.tokenTotals.outputTokens)} />
-          <Metric label="Reasoning" value={formatNumber(stats.tokenTotals.reasoningOutputTokens)} />
-          <Metric label="Main" value={formatNumber(stats.tokenTotals.mainTokens)} />
-          <Metric label="Subthreads" value={formatNumber(stats.tokenTotals.subthreadTokens)} />
-          <Metric label="Unattributed" value={formatNumber(stats.tokenTotals.unattributedTokens)} />
+      <section className="final-overview-token-panel" aria-label="Token burn">
+        <div className="final-overview-token-primary">
+          <span>Token burn</span>
+          <strong>{dashboard.totalTokenLabel}</strong>
+          <p>total tokens</p>
+        </div>
+        <div className="final-overview-token-side">
+          <div>
+            <span>Output</span>
+            <strong>{dashboard.outputTokenLabel}</strong>
+          </div>
+          <div>
+            <span>Cache hit</span>
+            <strong>{dashboard.cacheHitPercentageLabel}</strong>
+          </div>
+        </div>
+        <div className="final-overview-token-split">
+          <div className="final-overview-token-track" aria-hidden="true">
+            <span style={{ width: `${dashboard.mainTokenPercent}%` }} />
+            <span style={{ width: `${dashboard.subthreadTokenPercent}%` }} />
+          </div>
+          <div className="final-overview-token-legend">
+            <span>Main {dashboard.mainTokenPercentageLabel}</span>
+            <span>Subthreads {dashboard.subthreadTokenPercentageLabel}</span>
+          </div>
         </div>
       </section>
 
-      <section className="final-overview-section">
-        <h3>Committed Work</h3>
-        {stats.workDelta.status === 'available' ? (
-          <div className="final-overview-metrics compact">
-            <Metric label="Files" value={formatNumber(stats.workDelta.filesChanged)} />
-            <Metric label="Added" value={formatNumber(stats.workDelta.linesAdded)} />
-            <Metric label="Deleted" value={formatNumber(stats.workDelta.linesDeleted)} />
-          </div>
-        ) : (
-          <div className="final-overview-unavailable">
-            <span>N/A</span>
-            <p>Committed work delta was unavailable from recorded git facts.</p>
-          </div>
-        )}
+      <section className="final-overview-tile-grid" aria-label="Run summary tiles">
+        <DashboardTile
+          label="Transitions"
+          value={dashboard.transitionCountLabel}
+          detail={`${dashboard.freshClearCountLabel} fresh clears`}
+          accent="teal"
+        />
+        <DashboardTile
+          label="Turns"
+          value={dashboard.totalTurnCountLabel}
+          detail={`${dashboard.mainTurnCountLabel} main / ${dashboard.subthreadTurnCountLabel} subthreads`}
+          accent="blue"
+        />
+        <DashboardTile
+          label="Committed Work"
+          value={dashboard.filesChangedLabel}
+          detail={
+            stats.workDelta.status === 'available'
+              ? `${dashboard.linesChangedLabel} lines changed (${dashboard.lineDeltaDetailLabel})`
+              : 'Committed work delta was unavailable from recorded git facts.'
+          }
+          accent="amber"
+        />
+        <DashboardTile
+          label="Lines changed"
+          value={dashboard.linesChangedLabel}
+          detail={
+            stats.workDelta.status === 'available'
+              ? dashboard.lineDeltaDetailLabel
+              : 'N/A from recorded git facts'
+          }
+          accent="rose"
+        />
       </section>
 
       <section className="final-overview-section">
-        <h3>Top State Buckets</h3>
-        <div className="final-overview-buckets" role="table" aria-label="Top state buckets">
-          <div className="final-overview-bucket header" role="row">
-            <span>State</span>
-            <span>Time</span>
-            <span>Events</span>
-            <span>Turns</span>
-            <span>Tokens</span>
-          </div>
-          {topBuckets.map((bucket) => (
-            <div className="final-overview-bucket" role="row" key={bucket.id}>
-              <span>{bucket.label}</span>
-              <span>{formatDuration(bucket.elapsedMs)}</span>
-              <span>{formatNumber(bucket.eventCount)}</span>
-              <span>{formatNumber(bucket.mainTurnCount + bucket.subthreadTurnCount)}</span>
-              <span>{formatNumber(bucket.tokenTotals.totalTokens)}</span>
-            </div>
-          ))}
-          {otherBucket ? (
-            <div className="final-overview-bucket" role="row">
-              <span>Other states</span>
-              <span>{formatDuration(otherBucket.elapsedMs)}</span>
-              <span>{formatNumber(otherBucket.eventCount)}</span>
-              <span>
-                {formatNumber(otherBucket.mainTurnCount + otherBucket.subthreadTurnCount)}
-              </span>
-              <span>{formatNumber(otherBucket.totalTokens)}</span>
-            </div>
-          ) : null}
+        <h3>Where the time went</h3>
+        <div className="final-overview-time-bars" aria-label="Where the time went">
+          {dashboard.topTimeBuckets.length > 0 ? (
+            dashboard.topTimeBuckets.map((bucket, index) => (
+              <TimeBucketRow bucket={bucket} key={`${bucket.label}-${index}`} />
+            ))
+          ) : (
+            <p>No state buckets were available in the recorded run events.</p>
+          )}
         </div>
       </section>
     </div>
@@ -261,12 +274,16 @@ function ShareExportStatus({
   if (!copyStatus && !downloadStatus) return null;
   return (
     <div className="final-overview-share-status" role="status">
-      {downloadStatus ? (
-        <p>{downloadStatus.ok ? 'Download PNG ready.' : 'Download PNG failed.'}</p>
-      ) : null}
+      {downloadStatus ? <p>{downloadStatusLabel(downloadStatus)}</p> : null}
       {copyStatus ? <p>{copyStatusLabel(copyStatus)}</p> : null}
     </div>
   );
+}
+
+function downloadStatusLabel(status: ShareCardDownloadStatus): string {
+  if (status.ok) return 'Download PNG ready.';
+  if (status.kind === 'encoding-failed') return 'Download PNG failed while encoding.';
+  return 'Download PNG failed because the image dimensions changed.';
 }
 
 function copyStatusLabel(status: ShareCardCopyStatus): string {
@@ -277,11 +294,38 @@ function copyStatusLabel(status: ShareCardCopyStatus): string {
   return 'Copy PNG failed because the image dimensions changed.';
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function DashboardTile({
+  label,
+  value,
+  detail,
+  accent,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  accent: 'amber' | 'blue' | 'rose' | 'teal';
+}) {
   return (
-    <div className="final-overview-metric">
+    <div className="final-overview-dashboard-tile" data-accent={accent}>
       <span>{label}</span>
       <strong>{value}</strong>
+      <p>{detail}</p>
+    </div>
+  );
+}
+
+function TimeBucketRow({ bucket }: { bucket: RunCompletionShareCardTimeBucket }) {
+  return (
+    <div className="final-overview-time-bar-row">
+      <div>
+        <strong>{bucket.label}</strong>
+        <span>
+          {bucket.percentageLabel} / {bucket.durationLabel}
+        </span>
+      </div>
+      <div className="final-overview-time-bar-track" aria-hidden="true">
+        <span style={{ width: `${bucket.percent}%` }} />
+      </div>
     </div>
   );
 }
@@ -297,6 +341,12 @@ function formatNumber(value: number): string {
   return numberFormat.format(value);
 }
 
+function formatCompactNumber(value: number): string {
+  const normalized = Math.max(0, value);
+  if (normalized < 1_000_000) return formatNumber(normalized);
+  return compactNumberFormat.format(normalized);
+}
+
 function formatDuration(elapsedMs: number | undefined): string {
   if (elapsedMs === undefined) return 'N/A';
   const totalSeconds = Math.max(0, Math.round(elapsedMs / 1000));
@@ -307,4 +357,180 @@ function formatDuration(elapsedMs: number | undefined): string {
   const restMinutes = minutes % 60;
   if (hours === 0) return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
   return `${hours}h ${restMinutes.toString().padStart(2, '0')}m`;
+}
+
+type FinalOverviewDashboardDisplay = {
+  tone: 'failure' | 'partial' | 'success';
+  statusLabel: string;
+  statusValue: string;
+  statusDetail: string;
+  totalTimeLabel: string;
+  totalTurnCountLabel: string;
+  transitionCountLabel: string;
+  freshClearCountLabel: string;
+  totalTokenLabel: string;
+  outputTokenLabel: string;
+  cacheHitPercentageLabel: string;
+  mainTokenLabel: string;
+  subthreadTokenLabel: string;
+  mainTokenPercent: number;
+  subthreadTokenPercent: number;
+  mainTokenPercentageLabel: string;
+  subthreadTokenPercentageLabel: string;
+  mainTurnCountLabel: string;
+  subthreadTurnCountLabel: string;
+  filesChangedLabel: string;
+  linesChangedLabel: string;
+  lineDeltaDetailLabel: string;
+  topTimeBuckets: ReadonlyArray<RunCompletionShareCardTimeBucket>;
+};
+
+function buildDashboardDisplay(
+  stats: RunCompletionStats,
+  shareProps: RunCompletionShareCardProps | null,
+): FinalOverviewDashboardDisplay {
+  const status = statusForOutcome(stats.outcome);
+  if (shareProps) {
+    return {
+      ...status,
+      totalTimeLabel: shareProps.totalTimeLabel,
+      totalTurnCountLabel: shareProps.totalTurnCountLabel,
+      transitionCountLabel: shareProps.transitionCountLabel,
+      freshClearCountLabel: shareProps.freshClearCountLabel,
+      totalTokenLabel: shareProps.totalTokenLabel,
+      outputTokenLabel: shareProps.outputTokenLabel,
+      cacheHitPercentageLabel: shareProps.cacheHitPercentageLabel,
+      mainTokenLabel: shareProps.mainTokenLabel,
+      subthreadTokenLabel: shareProps.subthreadTokenLabel,
+      mainTokenPercent: shareProps.mainTokenPercent,
+      subthreadTokenPercent: shareProps.subthreadTokenPercent,
+      mainTokenPercentageLabel: shareProps.mainTokenPercentageLabel,
+      subthreadTokenPercentageLabel: shareProps.subthreadTokenPercentageLabel,
+      mainTurnCountLabel: shareProps.mainTurnCountLabel,
+      subthreadTurnCountLabel: shareProps.subthreadTurnCountLabel,
+      filesChangedLabel: shareProps.filesChangedLabel,
+      linesChangedLabel: shareProps.linesChangedLabel,
+      lineDeltaDetailLabel: shareProps.lineDeltaDetailLabel,
+      topTimeBuckets: shareProps.topTimeBuckets,
+    };
+  }
+
+  const totalTokens = stats.tokenTotals.totalTokens;
+  const mainTokenPercent = safePercent(stats.tokenTotals.mainTokens, totalTokens);
+  const subthreadTokenPercent = safePercent(stats.tokenTotals.subthreadTokens, totalTokens);
+  const workDelta = buildFallbackWorkDeltaLabels(stats);
+
+  return {
+    ...status,
+    totalTimeLabel: formatDuration(stats.duration.elapsedMs),
+    totalTurnCountLabel: formatNumber(stats.mainTurnCount + stats.subthreadTurnCount),
+    transitionCountLabel: formatNumber(stats.transitionCount),
+    freshClearCountLabel: formatNumber(stats.freshClearCount),
+    totalTokenLabel: formatCompactNumber(totalTokens),
+    outputTokenLabel: formatCompactNumber(stats.tokenTotals.outputTokens),
+    cacheHitPercentageLabel: formatPercent(
+      safePercent(stats.tokenTotals.cachedInputTokens, stats.tokenTotals.inputTokens),
+    ),
+    mainTokenLabel: formatCompactNumber(stats.tokenTotals.mainTokens),
+    subthreadTokenLabel: formatCompactNumber(stats.tokenTotals.subthreadTokens),
+    mainTokenPercent,
+    subthreadTokenPercent,
+    mainTokenPercentageLabel: formatPercent(mainTokenPercent),
+    subthreadTokenPercentageLabel: formatPercent(subthreadTokenPercent),
+    mainTurnCountLabel: formatNumber(stats.mainTurnCount),
+    subthreadTurnCountLabel: formatNumber(stats.subthreadTurnCount),
+    ...workDelta,
+    topTimeBuckets: buildFallbackTimeBuckets(stats),
+  };
+}
+
+function statusForOutcome(
+  outcome: RunCompletionStats['outcome'],
+): Pick<FinalOverviewDashboardDisplay, 'statusDetail' | 'statusLabel' | 'statusValue' | 'tone'> {
+  if (outcome === 'success') {
+    return {
+      tone: 'success',
+      statusLabel: 'Run completed',
+      statusValue: '100%',
+      statusDetail: 'Reached a terminal success state.',
+    };
+  }
+  if (outcome === 'failure') {
+    return {
+      tone: 'failure',
+      statusLabel: 'Run failed',
+      statusValue: 'HALT',
+      statusDetail: 'Reached a terminal failure state.',
+    };
+  }
+  return {
+    tone: 'partial',
+    statusLabel: 'Partial summary',
+    statusValue: 'N/A',
+    statusDetail: 'Terminal evidence was incomplete, so sharing is disabled.',
+  };
+}
+
+function buildFallbackWorkDeltaLabels(
+  stats: RunCompletionStats,
+): Pick<
+  FinalOverviewDashboardDisplay,
+  'filesChangedLabel' | 'lineDeltaDetailLabel' | 'linesChangedLabel'
+> {
+  if (stats.workDelta.status !== 'available') {
+    return {
+      filesChangedLabel: 'N/A',
+      linesChangedLabel: 'N/A',
+      lineDeltaDetailLabel: 'N/A',
+    };
+  }
+
+  const linesChanged = stats.workDelta.linesAdded + stats.workDelta.linesDeleted;
+  return {
+    filesChangedLabel: formatNumber(stats.workDelta.filesChanged),
+    linesChangedLabel: formatNumber(linesChanged),
+    lineDeltaDetailLabel: `+${formatNumber(stats.workDelta.linesAdded)} / -${formatNumber(
+      stats.workDelta.linesDeleted,
+    )}`,
+  };
+}
+
+function buildFallbackTimeBuckets(stats: RunCompletionStats): RunCompletionShareCardTimeBucket[] {
+  const visible = stats.stateBuckets.slice(0, 3);
+  const remaining = stats.stateBuckets.slice(3);
+  const denominator =
+    stats.duration.elapsedMs !== undefined
+      ? stats.duration.elapsedMs
+      : stats.stateBuckets.reduce((total, bucket) => total + bucket.elapsedMs, 0);
+  const rows = visible.map((bucket) => {
+    const percent = safePercent(bucket.elapsedMs, denominator);
+    return {
+      label: bucket.label,
+      durationLabel: formatDuration(bucket.elapsedMs),
+      percent,
+      percentageLabel: formatPercent(percent),
+    };
+  });
+
+  if (remaining.length > 0) {
+    const elapsedMs = remaining.reduce((total, bucket) => total + bucket.elapsedMs, 0);
+    const percent = safePercent(elapsedMs, denominator);
+    rows.push({
+      label: 'Other states',
+      durationLabel: formatDuration(elapsedMs),
+      percent,
+      percentageLabel: formatPercent(percent),
+    });
+  }
+
+  return rows;
+}
+
+function safePercent(numerator: number, denominator: number): number {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round((numerator / denominator) * 100)));
+}
+
+function formatPercent(value: number): string {
+  return `${value}%`;
 }
