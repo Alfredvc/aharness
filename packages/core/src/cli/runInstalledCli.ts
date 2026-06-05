@@ -77,6 +77,7 @@ export async function runInstalledCli(
 
   return runCliImpl({
     fsmPath: entryFile,
+    runTargetLabel: opts.command,
     cwd: opts.cwd,
     stdout: opts.stdout,
     stderr: opts.stderr,

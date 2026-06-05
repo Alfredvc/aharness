@@ -305,6 +305,17 @@ graph/details UI in inspection mode without starting Codex, hooks, a thread, or
 the FSM actor. Function-form prompts are shown as source so dynamic state
 instructions remain inspectable.
 
+During live runs, standard output is an operator status stream rather than the
+model transcript. It is limited to the run start line, browser UI availability,
+Codex launch/readiness, normalized state transitions, and one final completed or
+failed summary with the run directory. Completed summaries include the terminal
+outcome. Failed summaries include the current state when available plus a short
+single-line reason. Transition lines use the form
+`aharness: transition <from> --<cause-or-exit>--> <to>`. Detailed model
+messages, tool activity, approvals, diagnostics, and raw event payloads remain
+available through the browser UI, sensitive run artifacts, or standard error as
+appropriate.
+
 During live runs, the same browser shell also shows the active turn state and a
 polished transcript with state transitions, lifecycle rows, markdown assistant
 messages, concise tool/MCP/subagent rows, and fresh-clear boundaries. Internal

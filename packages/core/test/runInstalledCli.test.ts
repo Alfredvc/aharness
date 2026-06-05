@@ -20,7 +20,7 @@ import {
 import type { LoadFsmResult } from '../src/loader/index.js';
 
 describe('aharness run installed commands', () => {
-  it('runs a fully qualified installed command through the normal runtime', async () => {
+  it('passes the installed command as the run target label to runCliImpl', async () => {
     const snapshot = runtimeSnapshot([
       installRecord('@scope/tools', {
         build: commandMetadata('build'),
@@ -56,6 +56,7 @@ describe('aharness run installed commands', () => {
     expect(runtimeCalls).toHaveLength(1);
     expect(runtimeCalls[0]).toMatchObject({
       fsmPath: path.join('/store/packages/node_modules/@scope/tools', 'fsms/build.fsm.ts'),
+      runTargetLabel: '@scope/tools/build',
       cwd: '/workspace',
       inputArgs: ['--topic', 'auth'],
       permissionMode: 'ask',
