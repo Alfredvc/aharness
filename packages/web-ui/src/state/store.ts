@@ -678,8 +678,17 @@ export function applyRecentRowPage(state: UiState, page: RunScopedRowPage): UiSt
   return mergeRecentRowPage(state, page);
 }
 
+function isAggregateTerminal(stats: UiState['aggregateStats']): boolean {
+  return (
+    stats.status === 'success' ||
+    stats.status === 'completed' ||
+    stats.status === 'failed' ||
+    stats.status === 'failure'
+  );
+}
+
 export function markConnectionLost(state: UiState): UiState {
-  if (state.posture.isTerminal) return state;
+  if (state.posture.isTerminal || isAggregateTerminal(state.aggregateStats)) return state;
   return { ...state, connection: 'lost' };
 }
 

@@ -47,6 +47,9 @@ interaction cards. File-change transcript rows show compact status/path/count
 summaries and never expose diff bodies. State markers,
 request/reply protocol rows, lifecycle rows, and successful tool output stay out
 of the default transcript and are available through dev mode when needed.
+Terminal or aggregate-completed runs continue to display completed/failed shell
+status when the foreground SSE stream closes, so stream loss does not mask a
+known terminal outcome.
 Selecting a graph state switches the right panel to that state's historical
 visits, grouped chronologically by visit id. Pending approvals, including
 pending file approval cards that can show diffs for approval decisions, owner

@@ -104,6 +104,44 @@ function baseSession(overrides: Partial<TestSession> = {}): TestSession {
 }
 
 describe('AharnessShell run stats chrome', () => {
+  it('prioritizes completed run status over a lost stream', () => {
+    const html = renderToStaticMarkup(
+      createElement(AharnessShell, {
+        session: baseSession({
+          connection: 'lost',
+          posture: {
+            isTerminal: true,
+            isAwaiting: false,
+            submittedThisTurn: false,
+            open: false,
+          },
+          aggregateStats: {
+            status: 'success',
+            startedAt: '2026-05-29T00:00:00.000Z',
+            endedAt: '2026-05-29T00:01:05.000Z',
+            turnCount: 2,
+          },
+        }),
+      }),
+    );
+
+    expect(html).toContain('>completed<');
+    expect(html).toContain('data-tone="mint"');
+    expect(html).not.toContain('>lost<');
+    expect(html).not.toContain('connection lost');
+  });
+
+  it('shows a foreground-ended banner only for non-terminal lost sessions', () => {
+    const html = renderToStaticMarkup(
+      createElement(AharnessShell, {
+        session: baseSession({ connection: 'lost' }),
+      }),
+    );
+
+    expect(html).toContain('connection lost');
+    expect(html).toContain('foreground run ended');
+  });
+
   it('renders aggregate header and bottom stats with formatted duration and token totals', () => {
     const html = renderToStaticMarkup(
       createElement(AharnessShell, {

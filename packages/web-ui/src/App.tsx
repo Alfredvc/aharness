@@ -1,11 +1,53 @@
 import { useEffect, useState } from 'react';
-import { readBootToken, useAharnessSession } from './state/store';
+import { readBootToken, useAharnessSession, type UiState } from './state/store';
 import { Graph } from './components/Graph';
 import { ActivePanel } from './components/ActivePanel';
 import { BootSkeleton } from './components/BootSkeleton';
 import { FinalOverviewModal } from './components/FinalOverviewModal';
 import { RunStatsBar } from './components/RunStatsBar';
 import './components/components.css';
+
+type ShellStatus = {
+  label: string;
+  tone: 'indigo' | 'amber' | 'mint' | 'plasma' | 'rose';
+  terminalish: boolean;
+};
+
+type ShellSession = ReturnType<typeof useAharnessSession>;
+
+function terminalOutcome(session: UiState): 'success' | 'failure' | null {
+  const completionOutcome = session.completionStats?.outcome;
+  if (completionOutcome === 'success' || completionOutcome === 'failure') return completionOutcome;
+  const status = session.aggregateStats.status;
+  if (status === 'success' || status === 'completed') return 'success';
+  if (status === 'failed' || status === 'failure') return 'failure';
+  return null;
+}
+
+function shellStatus(session: UiState): ShellStatus {
+  const outcome = terminalOutcome(session);
+  if (outcome === 'success') return { label: 'completed', tone: 'mint', terminalish: true };
+  if (outcome === 'failure') return { label: 'failed', tone: 'rose', terminalish: true };
+  if (session.posture.isTerminal) return { label: 'terminal', tone: 'mint', terminalish: true };
+  if (session.connection === 'connecting') {
+    return { label: 'connecting', tone: 'plasma', terminalish: false };
+  }
+  if (session.connection === 'lost') return { label: 'lost', tone: 'rose', terminalish: false };
+  if (session.mode === 'inspect') return { label: 'inspect', tone: 'indigo', terminalish: false };
+  if (session.posture.isAwaiting) {
+    return { label: 'awaiting owner', tone: 'amber', terminalish: false };
+  }
+  return { label: 'live', tone: 'indigo', terminalish: false };
+}
+
+function runStatsSession(session: ShellSession, status: ShellStatus): ShellSession {
+  if (!status.terminalish) return session;
+  return {
+    ...session,
+    connection: session.connection === 'lost' ? 'live' : session.connection,
+    posture: { ...session.posture, isTerminal: true },
+  };
+}
 
 export function App() {
   const session = useAharnessSession(readBootToken());
@@ -16,6 +58,8 @@ export function App() {
 export function AharnessShell({ session }: { session: ReturnType<typeof useAharnessSession> }) {
   const [helpOpen, setHelpOpen] = useState(false);
   const showBoot = !session.state;
+  const status = shellStatus(session);
+  const statsSession = runStatsSession(session, status);
 
   useEffect(() => {
     document.title = session.mode === 'inspect' ? 'aharness · inspect' : 'aharness · run';
@@ -58,7 +102,9 @@ export function AharnessShell({ session }: { session: ReturnType<typeof useAharn
   return (
     <div className="shell">
       <TopHeader session={session} onHelp={() => setHelpOpen(true)} />
-      {session.connection === 'lost' && session.state ? <ConnectionBanner /> : null}
+      {session.connection === 'lost' && session.state && !status.terminalish ? (
+        <ConnectionBanner />
+      ) : null}
       {showBoot ? (
         <BootSkeleton connection={session.connection} />
       ) : (
@@ -85,7 +131,7 @@ export function AharnessShell({ session }: { session: ReturnType<typeof useAharn
           </div>
         </main>
       )}
-      {showBoot ? null : <RunStatsBar session={session} variant="bottom" />}
+      {showBoot ? null : <RunStatsBar session={statsSession} variant="bottom" />}
       {session.posture.isTerminal && session.finalOverview.open ? (
         <FinalOverviewModal
           completionStats={session.completionStats}
@@ -107,18 +153,7 @@ function TopHeader({
   onHelp: () => void;
 }) {
   const { run, posture, devMode, toggleDevMode } = session;
-  const posturePill =
-    session.connection === 'connecting'
-      ? { label: 'connecting', tone: 'plasma' }
-      : session.connection === 'lost'
-        ? { label: 'lost', tone: 'rose' }
-        : session.mode === 'inspect'
-          ? { label: 'inspect', tone: 'indigo' }
-          : posture.isTerminal
-            ? { label: 'terminal', tone: 'mint' }
-            : posture.isAwaiting
-              ? { label: 'awaiting owner', tone: 'amber' }
-              : { label: 'live', tone: 'indigo' };
+  const posturePill = shellStatus(session);
   return (
     <header className="top">
       <div className="brand">

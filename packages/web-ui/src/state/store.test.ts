@@ -3438,6 +3438,26 @@ describe('headless production store helpers', () => {
     expect(state.state?.path).toBe('victory');
   });
 
+  it('does not mark aggregate-completed sessions as lost on stream loss', () => {
+    const running = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      posture: {
+        isTerminal: false,
+        isAwaiting: false,
+        submittedThisTurn: false,
+        open: false,
+      },
+      aggregateStats: {
+        status: 'success',
+        startedAt: '2026-05-29T00:00:00.000Z',
+        endedAt: '2026-05-29T00:01:00.000Z',
+        turnCount: 1,
+      },
+    });
+
+    expect(markConnectionLost(running).connection).toBe('live');
+  });
+
   it('returns the connection to live when hydrating after a lost connection', () => {
     const lost = markConnectionLost(createConnectingUiState());
     const state = hydrateFromSnapshot(snapshot());
