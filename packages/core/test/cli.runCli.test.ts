@@ -884,7 +884,7 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(err).toContain('Required input flags:');
     expect(err).toContain('--topic <string>');
     expect(err).toContain('Project topic');
-    expect(err).toContain('Example: aharness pipeline.fsm.ts --topic <string>');
+    expect(err).toContain('Example: aharness run pipeline.fsm.ts --topic <string>');
     expect(spawnAppServer).not.toHaveBeenCalled();
   });
 

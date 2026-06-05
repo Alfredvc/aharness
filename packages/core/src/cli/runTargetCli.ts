@@ -1,6 +1,3 @@
-import { promises as fs } from 'node:fs';
-import * as path from 'node:path';
-
 import type { RunCliOpts, RunCliResult, RunPermissionMode } from './runCli.js';
 import { runLocalFsmInputHelp } from './inputHelpCli.js';
 import type { RunInstalledCliOptions } from './runInstalledCli.js';
@@ -16,7 +13,6 @@ export interface RunTargetCliOptions {
   readonly runInstalledCliImpl?: (
     opts: RunInstalledCliOptions,
   ) => Promise<{ readonly exitCode: number }>;
-  readonly statImpl?: typeof fs.stat;
 }
 
 export interface RunTargetHelpCliOptions {
@@ -31,7 +27,7 @@ export async function runTargetCli(
   opts: RunTargetCliOptions,
 ): Promise<{ readonly exitCode: number }> {
   const inputArgs = opts.inputArgs ?? [];
-  if (await isExistingRegularFile(opts.cwd, opts.target, opts.statImpl ?? fs.stat)) {
+  if (isLocalRunTarget(opts.target)) {
     const runCliImpl = opts.runCliImpl ?? (await import('./runCli.js')).runCli;
     return runCliImpl({
       fsmPath: opts.target,
@@ -39,6 +35,7 @@ export async function runTargetCli(
       stdout: opts.stdout,
       stderr: opts.stderr,
       inputArgs,
+      inputUsageCommand: `aharness run ${opts.target}`,
       ...(opts.permissionMode !== undefined ? { permissionMode: opts.permissionMode } : {}),
     });
   }
@@ -58,7 +55,7 @@ export async function runTargetCli(
 export async function runTargetHelpCli(
   opts: RunTargetHelpCliOptions,
 ): Promise<{ readonly exitCode: number }> {
-  if (!isLocalFsmHelpTarget(opts.target)) {
+  if (!isLocalRunTarget(opts.target)) {
     return { exitCode: runTargetHelpUsage(opts.stderr) };
   }
 
@@ -72,20 +69,7 @@ export async function runTargetHelpCli(
   });
 }
 
-async function isExistingRegularFile(
-  cwd: string,
-  target: string,
-  statImpl: typeof fs.stat,
-): Promise<boolean> {
-  try {
-    const stats = await statImpl(path.resolve(cwd, target));
-    return stats.isFile();
-  } catch {
-    return false;
-  }
-}
-
-function isLocalFsmHelpTarget(target: string): boolean {
+function isLocalRunTarget(target: string): boolean {
   return target.endsWith('.fsm.ts') && !target.startsWith('-');
 }
 

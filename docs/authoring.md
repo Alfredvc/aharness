@@ -82,7 +82,7 @@ Run it with:
 ```bash
 npx aharness verify ./tiny-coding-task.fsm.ts
 npx aharness visualize ./tiny-coding-task.fsm.ts
-npx aharness ./tiny-coding-task.fsm.ts
+npx aharness run ./tiny-coding-task.fsm.ts
 ```
 
 ## Authoring Guidelines

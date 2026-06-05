@@ -16,7 +16,7 @@ references for individual FSM primitives.
 ```bash
 pnpm run build
 node packages/core/dist/cli/main.js verify examples/coding-smoke.fsm.ts
-node packages/core/dist/cli/main.js examples/coding-smoke.fsm.ts
+node packages/core/dist/cli/main.js run examples/coding-smoke.fsm.ts
 ```
 
 The fixture is under [`coding-smoke/fixture`](coding-smoke/fixture). It is
@@ -26,7 +26,7 @@ run.
 ## Run A Mechanism Demo
 
 ```bash
-aharness examples/<name>.fsm.ts
+aharness run examples/<name>.fsm.ts
 ```
 
 See [`DEMOS.md`](DEMOS.md) for the walkthrough catalog.

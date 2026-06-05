@@ -3,7 +3,7 @@
  *
  * Wires AST schema extraction (`./sidecar`), esbuild compilation (`./compile`),
  * dynamic import, and the content-hash cache (`./cache`) into a single async
- * function called by the `aharness <file>.fsm.ts` command (§6.2 step 1).
+ * function called by the `aharness run <file>.fsm.ts` command (§6.2 step 1).
  *
  * The result is consumed by:
  *   - the verifier (`verify(machine, sidecar, issues)`);

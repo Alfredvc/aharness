@@ -12,7 +12,7 @@ The file declares states, prompts, typed submit exits, owner-choice gates,
 open-state collaboration, built-in hook events, embedded child machines,
 inputs, skills, and final artifacts.
 
-At runtime, `aharness <file.fsm.ts>` runs foreground-only:
+At runtime, `aharness run <file.fsm.ts>` runs foreground-only:
 
 1. It verifies and loads the FSM.
 2. It starts one Codex `app-server` child process.

@@ -16,7 +16,7 @@
  *          cross-suite in `verify.aharnessSubmitNameCollision.test.ts`;
  *          this entry documents the coverage source).
  *
- * This file executes the checklist items that need spawned-binary coverage:
+ * This file executes the checklist items that need spawned-binary run coverage:
  * VC-1, VC-2, VC-4, VC-5 spawn the real `aharness` CLI binary against a real
  * codex `app-server` + a mock-model HTTP server. They are gated behind
  * `AHARNESS_E2E_REAL_CODEX=1` for parity with the other phase-1 end-to-end
@@ -27,9 +27,9 @@
  * here as checklist-only tests.
  */
 import { spawn, execFileSync } from 'node:child_process';
-import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -61,7 +61,7 @@ describe('Phase 1 verify checklist', () => {
     cleanups = [];
   });
 
-  // VC-1, VC-2, VC-4, VC-5 spawn the real `aharness` CLI binary plus a real
+  // VC-1, VC-2, VC-4, VC-5 spawn the real `aharness run` CLI path plus a real
   // codex `app-server`; gated behind `AHARNESS_E2E_REAL_CODEX=1` (parity
   // with `cli.runCli.phase1.test.ts` and the other e2e tests). Timing
   // tolerance for VC-4 / VC-5 uses vitest 4's `{retry}` options-object
@@ -85,8 +85,8 @@ describe('Phase 1 verify checklist', () => {
 
       const result = await runAharnessBin({
         cwd: repo,
-        args: ['hello.fsm.ts'],
-        env: { AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
+        args: ['run', 'hello.fsm.ts'],
+        env: withFakeBrowserOpener(repo, { AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl }),
       });
       expect(result.exitCode, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
     });
@@ -123,8 +123,8 @@ describe('Phase 1 verify checklist', () => {
 
         const result = await runAharnessBin({
           cwd: repo,
-          args: ['mssl.fsm.ts'],
-          env: { AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
+          args: ['run', 'mssl.fsm.ts'],
+          env: withFakeBrowserOpener(repo, { AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl }),
         });
         expect(result.exitCode, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
       },
@@ -142,9 +142,9 @@ describe('Phase 1 verify checklist', () => {
       // The mock never queues a turn — the model POST parks indefinitely
       // and the CLI stays in the turn loop until the app-server WS drops.
 
-      const child = spawn(process.execPath, [CLI_BIN, 'hello.fsm.ts'], {
+      const child = spawn(process.execPath, [CLI_BIN, 'run', 'hello.fsm.ts'], {
         cwd: repo,
-        env: { ...process.env, AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
+        env: withFakeBrowserOpener(repo, { AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl }),
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       cleanups.push(async () => {
@@ -174,9 +174,9 @@ describe('Phase 1 verify checklist', () => {
         const mock = await startMockModel();
         cleanups.push(() => mock.close());
 
-        const child = spawn(process.execPath, [CLI_BIN, 'hello.fsm.ts'], {
+        const child = spawn(process.execPath, [CLI_BIN, 'run', 'hello.fsm.ts'], {
           cwd: repo,
-          env: { ...process.env, AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
+          env: withFakeBrowserOpener(repo, { AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl }),
           stdio: ['ignore', 'pipe', 'pipe'],
         });
         cleanups.push(async () => {
@@ -202,7 +202,7 @@ describe('Phase 1 verify checklist', () => {
 async function runAharnessBin(opts: {
   cwd: string;
   args: string[];
-  env?: Record<string, string>;
+  env?: NodeJS.ProcessEnv;
 }): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   return new Promise((resolveP, reject) => {
     const child = spawn(process.execPath, [CLI_BIN, ...opts.args], {
@@ -224,6 +224,31 @@ async function runAharnessBin(opts: {
       else resolveP({ exitCode: code, stdout, stderr });
     });
   });
+}
+
+function withFakeBrowserOpener(
+  root: string,
+  extraEnv: Record<string, string> = {},
+): NodeJS.ProcessEnv {
+  const fakeBin = join(root, '.fake-browser-bin');
+  mkdirSync(fakeBin, { recursive: true });
+
+  const commandName =
+    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd.cmd' : 'xdg-open';
+  const commandPath = join(fakeBin, commandName);
+  writeFileSync(commandPath, fakeBrowserOpenerScript(), 'utf8');
+  if (process.platform !== 'win32') chmodSync(commandPath, 0o755);
+
+  return {
+    ...process.env,
+    ...extraEnv,
+    PATH: `${fakeBin}${delimiter}${process.env['PATH'] ?? ''}`,
+  };
+}
+
+function fakeBrowserOpenerScript(): string {
+  if (process.platform === 'win32') return '@echo off\r\nexit /b 0\r\n';
+  return '#!/bin/sh\nexit 0\n';
 }
 
 async function runProc(cmd: string, args: string[]): Promise<string> {

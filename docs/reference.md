@@ -233,8 +233,6 @@ Built-in event keys are reserved:
 ## CLI
 
 ```bash
-aharness [--ask|--yolo] <file.fsm.ts> [--<flag> <value>]...
-aharness <file.fsm.ts> --help
 aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...
 aharness run <file.fsm.ts> --help
 aharness visualize <file.fsm.ts> [--<flag> <value>]...
@@ -251,25 +249,22 @@ aharness completion uninstall
 ```
 
 Machine inputs become kebab-case flags for
-`aharness run <file.fsm.ts|command>`, compatibility direct runs with
-`aharness <file.fsm.ts>`, and `aharness visualize <file.fsm.ts>`. For example,
-`fixtureRoot` becomes `--fixture-root`. Default live runs use Codex
-auto-review for eligible approval prompts. `--ask` restores manual
+`aharness run <file.fsm.ts|command>` and `aharness visualize <file.fsm.ts>`.
+For example, `fixtureRoot` becomes `--fixture-root`. Default live runs use
+Codex auto-review for eligible approval prompts. `--ask` restores manual
 user/browser review, and `--yolo` remains a dangerous bypass that disables
 approvals and grants full filesystem access.
 
-In compatibility direct-run form, runtime flags such as `--ask` and `--yolo`
-may appear before or after the FSM path. On `aharness run`, they must appear
+On `aharness run`, runtime flags such as `--ask` and `--yolo` must appear
 before the run target, while FSM input flags must appear after the target:
 
 ```bash
 aharness run --ask ./workflow.fsm.ts --fixture-root ./fixture
 ```
 
-Local FSM input help is available for exactly these forms:
+Local FSM input help is available only through:
 
 ```bash
-aharness ./workflow.fsm.ts --help
 aharness run ./workflow.fsm.ts --help
 ```
 
@@ -287,13 +282,13 @@ are checked for name/type validity but are not used to start an actor.
 shell-side completion delegate for bash, zsh, or fish. That delegate invokes
 the hidden `aharness completion-server` bridge on every Tab press; bare
 `aharness completion` is kept as a compatibility alias for the same bridge. At
-the root, completion lists top-level subcommands. Path-like direct-run prefixes
-delegate to the shell's native file completion. `aharness run` completes local
-directories, local `.fsm.ts` files, and installed command identities. After a
-target resolves, completion suggests that FSM's input flags and supported flag
-values. Machine input completion is schema-aware for boolean flags, static value
-sets, file and directory values, and dynamic completion callbacks declared by the
-FSM. Already-used input flags are hidden after their values are consumed.
+the root, completion lists top-level subcommands only; local FSM targets are
+completed after `aharness run`. `aharness run` completes local directories,
+local `.fsm.ts` files, and installed command identities. After a target
+resolves, completion suggests that FSM's input flags and supported flag values.
+Machine input completion is schema-aware for boolean flags, static value sets,
+file and directory values, and dynamic completion callbacks declared by the FSM.
+Already-used input flags are hidden after their values are consumed.
 
 `aharness verify` checks an FSM without starting a run. Verification issues are
 printed as `[error]` or `[warning]` lines, prefixed with `file:line:` when the

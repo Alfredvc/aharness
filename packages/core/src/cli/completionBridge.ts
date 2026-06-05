@@ -117,7 +117,7 @@ type CompletionInputTarget =
 type CompletionContext =
   | { readonly kind: 'root'; readonly partial: string }
   | { readonly kind: 'run-target'; readonly partial: string }
-  | { readonly kind: 'direct-file-target' }
+  | { readonly kind: 'native-file-target' }
   | {
       readonly kind: 'post-target-input';
       readonly target: CompletionInputTarget;
@@ -169,7 +169,7 @@ export async function runCompletionBridge(
       for (const suggestion of suggestions) opts.stdout.write(`${suggestion}\n`);
       return { exitCode: 0 };
     }
-    if (context.kind === 'direct-file-target') {
+    if (context.kind === 'native-file-target') {
       if (!parsed.last.startsWith('--')) {
         emitNativeFileCompletion(opts.stdout);
       }
@@ -236,8 +236,9 @@ function tokeniseLine(line: string, point: number): ReadonlyArray<string> {
 
 /**
  * Classify completion from the command grammar instead of scanning the whole
- * line for any later `.ts` token. Direct FSM input completion is only active
- * when the first user token itself resolves to an existing regular `.ts` file.
+ * line for any later `.ts` token. Local FSM input completion is active through
+ * `run <target.fsm.ts>` and `visualize <target>`; root direct-run forms are not
+ * completion targets.
  */
 async function deriveCompletionContext(
   tokens: ReadonlyArray<string>,
@@ -258,64 +259,16 @@ async function deriveCompletionContext(
     if (fileTarget) return fileTarget;
   }
 
-  const directRun = deriveDirectRunCompletionContext(tokens, last, cwd);
-  if (directRun) return directRun;
-
-  if (tokens.length === 2 && last !== '') {
-    if (isPathLikeToken(firstToken)) {
-      const target = resolveLocalInputTarget(firstToken, cwd);
-      return target
-        ? { kind: 'post-target-input', target, inputArgs: [] }
-        : { kind: 'direct-file-target' };
-    }
+  if (
+    tokens.length === 2 &&
+    last !== '' &&
+    !firstToken.startsWith('-') &&
+    !isPathLikeToken(firstToken)
+  ) {
     return { kind: 'root', partial: firstToken };
   }
 
-  if (isPathLikeToken(firstToken)) {
-    if (tokens.length > 2) return { kind: 'other-subcommand' };
-    const target = resolveLocalInputTarget(firstToken, cwd);
-    return target
-      ? { kind: 'post-target-input', target, inputArgs: [] }
-      : { kind: 'direct-file-target' };
-  }
-
   return { kind: 'other-subcommand' };
-}
-
-function deriveDirectRunCompletionContext(
-  tokens: ReadonlyArray<string>,
-  last: string,
-  cwd: string,
-): CompletionContext | null {
-  const args = tokens.slice(1);
-  let targetIndex = 0;
-  let consumedPermissionFlag: string | undefined;
-
-  if (isRuntimePermissionFlag(args[targetIndex])) {
-    consumedPermissionFlag = args[targetIndex];
-    targetIndex++;
-  }
-
-  const targetToken = args[targetIndex];
-  if (!targetToken) {
-    return last === '' ? { kind: 'direct-file-target' } : null;
-  }
-  if (targetToken.startsWith('--')) return null;
-
-  const cursorIsOnTarget = targetIndex === args.length - 1 && last === targetToken && last !== '';
-  if (cursorIsOnTarget) {
-    const target = resolveLocalInputTarget(targetToken, cwd);
-    if (target) return { kind: 'post-target-input', target, inputArgs: [] };
-    return consumedPermissionFlag || isPathLikeToken(targetToken)
-      ? { kind: 'direct-file-target' }
-      : null;
-  }
-
-  const inputArgs = stripDirectRunRuntimeFlags(args.slice(targetIndex + 1), consumedPermissionFlag);
-  if (!inputArgs || !isValidInputCompletionTail(inputArgs)) return null;
-
-  const target = resolveLocalInputTarget(targetToken, cwd);
-  return target ? { kind: 'post-target-input', target, inputArgs } : null;
 }
 
 function deriveFilePathSubcommandCompletionContext(
@@ -326,14 +279,14 @@ function deriveFilePathSubcommandCompletionContext(
   const subcommand = tokens[1];
   const targetToken = tokens[2];
   if (!targetToken) {
-    return last === '' ? { kind: 'direct-file-target' } : null;
+    return last === '' ? { kind: 'native-file-target' } : null;
   }
   if (targetToken.startsWith('--')) return null;
 
   const cursorIsOnTarget = tokens.length === 3 && last === targetToken && last !== '';
   if (cursorIsOnTarget) {
     const target = resolveLocalInputTarget(targetToken, cwd);
-    return target ? { kind: 'other-subcommand' } : { kind: 'direct-file-target' };
+    return target ? { kind: 'other-subcommand' } : { kind: 'native-file-target' };
   }
 
   if (subcommand === 'visualize') {
@@ -388,25 +341,6 @@ function isValidInputCompletionTail(inputArgs: ReadonlyArray<string>): boolean {
   return true;
 }
 
-function stripDirectRunRuntimeFlags(
-  inputArgs: ReadonlyArray<string>,
-  leadingPermissionFlag: string | undefined,
-): readonly string[] | null {
-  const stripped: string[] = [];
-  let permissionFlag = leadingPermissionFlag;
-
-  for (const current of inputArgs) {
-    if (!isRuntimePermissionFlag(current)) {
-      stripped.push(current);
-      continue;
-    }
-    if (permissionFlag !== undefined && permissionFlag !== current) return null;
-    permissionFlag = current;
-  }
-
-  return stripped;
-}
-
 function isRuntimePermissionFlag(flag: string | undefined): flag is '--ask' | '--yolo' {
   return flag === '--ask' || flag === '--yolo';
 }
@@ -416,9 +350,8 @@ async function resolveCompletionInputTarget(args: {
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
 }): Promise<CompletionInputTarget | null> {
-  const localPath = path.resolve(args.cwd, args.targetToken);
-  if (isExistingRegularFileSync(args.cwd, args.targetToken)) {
-    return { kind: 'local', filePath: localPath };
+  if (isLocalRunTarget(args.targetToken)) {
+    return { kind: 'local', filePath: path.resolve(args.cwd, args.targetToken) };
   }
 
   const snapshot = await readInstalledCompletionSnapshot({ env: args.env });
@@ -439,6 +372,10 @@ async function resolveCompletionInputTarget(args: {
     storeRoot: snapshot.paths.storeRoot,
     lockFingerprint: lock.value,
   };
+}
+
+function isLocalRunTarget(target: string): boolean {
+  return target.endsWith('.fsm.ts') && !target.startsWith('-');
 }
 
 function resolveLocalInputTarget(token: string, cwd: string): CompletionInputTarget | null {
@@ -533,7 +470,11 @@ function buildInstalledCommandSuggestions(
 
   return [...bare.sort(byValue), ...qualified.sort(byValue)]
     .filter((suggestion) => matchesInstalledPartial(suggestion, partial))
-    .filter((suggestion) => !isExistingRegularFileSync(cwd, suggestion.value))
+    .filter(
+      (suggestion) =>
+        !hasLocalRunTargetCollision(cwd, suggestion.value) &&
+        !hasLocalRunTargetCollision(cwd, suggestion.commandName),
+    )
     .map((suggestion) => suggestion.output);
 }
 
@@ -556,7 +497,8 @@ function byValue(a: InstalledSuggestion, b: InstalledSuggestion): number {
   return a.value.localeCompare(b.value);
 }
 
-function isExistingRegularFileSync(cwd: string, target: string): boolean {
+function hasLocalRunTargetCollision(cwd: string, target: string): boolean {
+  if (!isLocalRunTarget(target)) return false;
   try {
     return fs.statSync(path.resolve(cwd, target)).isFile();
   } catch {

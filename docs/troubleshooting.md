@@ -82,9 +82,6 @@ passed as:
 npx aharness run ./workflow.fsm.ts --fixture-root ./examples/coding-smoke/fixture
 ```
 
-The older `npx aharness ./workflow.fsm.ts ...` form remains supported for
-compatibility.
-
 Every flag value must be a separate token and values may not start with `--`.
 If an input field shadows a framework flag, aharness warns that the field is
 unreachable from the CLI; set that value with another input path or rename the

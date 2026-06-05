@@ -2,7 +2,7 @@
  * Static verifier — @aharness/core port of `@aharness/core`'s `verify.ts`.
  *
  * Closed-world checks; failure of any error-severity check blocks
- * `aharness <file.fsm.ts>` from starting. Warnings surface in
+ * `aharness run <file.fsm.ts>` from starting. Warnings surface in
  * the `warnings` channel of `VerifyResult` and do not block (`ok` stays
  * true when there are only warnings).
  *

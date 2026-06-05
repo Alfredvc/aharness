@@ -18,7 +18,7 @@ From the repository root:
 ```bash
 pnpm run build
 node packages/core/dist/cli/main.js verify examples/coding-smoke.fsm.ts
-node packages/core/dist/cli/main.js examples/coding-smoke.fsm.ts
+node packages/core/dist/cli/main.js run examples/coding-smoke.fsm.ts
 ```
 
 During the run, approve the plan when aharness asks for owner input. The model

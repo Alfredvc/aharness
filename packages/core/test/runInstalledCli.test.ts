@@ -5,8 +5,8 @@ import { Writable } from 'node:stream';
 
 import { describe, expect, it, vi } from 'vitest';
 
+import { runCliForTest, type RunCliForTestOpts } from '../src/cli/runCli.js';
 import { runInstalledCli } from '../src/cli/runInstalledCli.js';
-import type { RunCliForTestOpts } from '../src/cli/runCli.js';
 import {
   computeLockFingerprint,
   resolveInstallStorePaths,
@@ -58,6 +58,7 @@ describe('aharness run installed commands', () => {
       fsmPath: path.join('/store/packages/node_modules/@scope/tools', 'fsms/build.fsm.ts'),
       cwd: '/workspace',
       inputArgs: ['--topic', 'auth'],
+      inputUsageCommand: 'aharness run @scope/tools/build',
       permissionMode: 'ask',
     });
     expect(loadInstalledFsmImpl).toHaveBeenCalledWith({
@@ -70,6 +71,50 @@ describe('aharness run installed commands', () => {
       lockFingerprint: 'verified-lock',
     });
     expect(stdout.text()).toBe('');
+  });
+
+  it('uses the installed command invocation in required input flag examples', async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'aharness-run-installed-input-'));
+    try {
+      const snapshot = runtimeSnapshot([
+        installRecord('@scope/tools', {
+          build: commandMetadata('build'),
+        }),
+      ]);
+      const stderr = captureStream();
+      const loaded = makeLoadedFsm({
+        inputSchema: {
+          type: 'object',
+          properties: { topic: { type: 'string' } },
+          required: ['topic'],
+          additionalProperties: false,
+        },
+        inputFlags: { topic: { description: 'Project topic' } },
+      });
+
+      const result = await runInstalledCli({
+        command: 'build',
+        cwd,
+        stdout: captureStream().stream,
+        stderr: stderr.stream,
+        readSnapshotImpl: async () => ({ ok: true, value: snapshot }),
+        checkLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
+        loadInstalledFsmImpl: vi.fn(async () => loaded),
+        runCliImpl: (opts) =>
+          runCliForTest({
+            ...opts,
+            versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+            authJsonExists: () => true,
+          }),
+      });
+
+      expect(result).toEqual({ exitCode: 2 });
+      expect(stderr.text()).toContain('missing required flag --topic');
+      expect(stderr.text()).toContain('Example: aharness run build --topic <string>');
+      expect(stderr.text()).not.toContain('/store/packages');
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
   });
 
   it('forwards yolo permission mode into the runtime', async () => {
@@ -525,7 +570,9 @@ async function writeJson(filePath: string, value: unknown): Promise<void> {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function makeLoadedFsm(): LoadFsmResult {
+function makeLoadedFsm(
+  overrides: Partial<Pick<LoadFsmResult, 'inputSchema' | 'inputFlags'>> = {},
+): LoadFsmResult {
   return {
     machine: {} as LoadFsmResult['machine'],
     sidecar: {},
@@ -533,6 +580,7 @@ function makeLoadedFsm(): LoadFsmResult {
     issues: [],
     cacheHit: false,
     hash: 'hash',
+    ...overrides,
   };
 }
 

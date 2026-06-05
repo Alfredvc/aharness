@@ -1,5 +1,5 @@
 /**
- * `aharness <file>.fsm.ts` — headless foreground CLI boot sequence.
+ * `aharness run <file>.fsm.ts` — headless foreground CLI boot sequence.
  *
  * Spec §3 (boot sequence), §4.1, §4.2, §4.3.1, §4.3.2, §5.1, §5.6, §5.7.
  *
@@ -224,6 +224,8 @@ export interface RunCliOpts {
   readonly inputArgs?: ReadonlyArray<string>;
   /** Runtime permission behavior for Codex approval handling. */
   readonly permissionMode?: RunPermissionMode;
+  /** Command prefix shown in input-flag diagnostics, excluding input flags. */
+  readonly inputUsageCommand?: string;
 }
 
 export interface RunCliResult {
@@ -404,6 +406,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
           fsmPath: o.fsmPath,
           schema: loaded.inputSchema,
           flags: loaded.inputFlags,
+          ...(o.inputUsageCommand !== undefined ? { inputUsageCommand: o.inputUsageCommand } : {}),
         }),
       );
       return { exitCode: 2 };
@@ -2930,6 +2933,7 @@ function formatUiValueFallback(value: unknown): string {
 function formatInputFlagError(o: {
   readonly errors: ReadonlyArray<string>;
   readonly fsmPath: string;
+  readonly inputUsageCommand?: string;
   readonly schema: JSONSchema7;
   readonly flags: Record<string, ArgFlagMeta>;
 }): string {
@@ -2944,7 +2948,7 @@ function formatInputFlagError(o: {
     }
     lines.push(
       '',
-      `Example: aharness ${displayFsmPath(o.fsmPath)} ${requiredFields
+      `Example: ${o.inputUsageCommand ?? defaultInputUsageCommand(o.fsmPath)} ${requiredFields
         .map((field) => formatExampleFlag(field, o.schema))
         .join(' ')}`,
     );
@@ -2975,6 +2979,10 @@ function inputFlagTypeName(schema: JSONSchema7, field: string): string {
   if (fieldSchema.type === 'integer') return 'integer';
   if (fieldSchema.type === 'boolean') return 'boolean';
   return 'value';
+}
+
+function defaultInputUsageCommand(fsmPath: string): string {
+  return `aharness run ${displayFsmPath(fsmPath)}`;
 }
 
 function displayFsmPath(fsmPath: string): string {

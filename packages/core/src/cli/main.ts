@@ -19,7 +19,6 @@
  *   - `aharness list` — installed package command listing.
  *   - `aharness uninstall <package-name>` — npm-backed package removal.
  *   - `aharness visualize <file.fsm.ts>` — browser-only FSM inspection.
- *   - `aharness <file.fsm.ts>` — foreground boot (Phase 1: single-process).
  *
  * The `dispatch` function takes the argv slice and a `Dispatcher` of
  * function-shaped subcommand handlers; tests pass stubs and assert that
@@ -38,7 +37,6 @@ import { runDoctorCli } from './doctorCli.js';
 import type { RunPermissionMode } from './runCli.js';
 import { runCompletionInstall, runCompletionUninstall } from './completion.js';
 import { runCompletionBridge } from './completionBridge.js';
-import { runLocalFsmInputHelp } from './inputHelpCli.js';
 import { runInitCli } from './initCli.js';
 import { runInstallCli } from './installCli.js';
 import { runTargetCli, runTargetHelpCli } from './runTargetCli.js';
@@ -53,15 +51,6 @@ export interface DispatchResult {
 export interface Dispatcher {
   readonly runVerify: (o: { fsmPath: string }) => Promise<{ exitCode: number }>;
   readonly runDoctor: () => Promise<{ exitCode: number }>;
-  readonly runDefault: (o: {
-    fsmPath: string;
-    inputArgs: ReadonlyArray<string>;
-    permissionMode?: RunPermissionMode;
-  }) => Promise<{ exitCode: number }>;
-  readonly runLocalInputHelp: (o: {
-    fsmPath: string;
-    invocation: 'direct';
-  }) => Promise<{ exitCode: number }>;
   readonly runVisualize: (o: {
     fsmPath: string;
     inputArgs: ReadonlyArray<string>;
@@ -171,32 +160,11 @@ export async function dispatch(
   }
   if (cmd === 'visualize') {
     if (rest.includes('--help')) return { exitCode: usage(stderr) };
-    const parsed = parseFsmPathAndInputArgs(rest);
+    const parsed = parseVisualizeFsmPathAndInputArgs(rest);
     if (!parsed) return { exitCode: usage(stderr) };
     return d.runVisualize(parsed);
   }
-  if (argv.length === 2 && argv[1] === '--help') {
-    const fsmPath = argv[0]!;
-    if (isLocalFsmHelpTarget(fsmPath)) {
-      return d.runLocalInputHelp({ fsmPath, invocation: 'direct' });
-    }
-    return { exitCode: usage(stderr) };
-  }
-  if (argv.includes('--help')) return { exitCode: usage(stderr) };
-  // Default form: `aharness <file.fsm.ts> [--<flag> <value>]…`.
-  // Every `--<flag>` token and its non-flag value, if any, is collected
-  // verbatim into `inputArgs` and forwarded to `runCli`, which calls
-  // `parseInputFlags` against the loaded FSM's `inputFlags` after `loadFsm`.
-  const parsedDefault = parseFsmPathAndInputArgs(argv, { consumeRuntimePermissionFlags: true });
-  if (!parsedDefault) return { exitCode: usage(stderr) };
-
-  return d.runDefault({
-    fsmPath: parsedDefault.fsmPath,
-    inputArgs: parsedDefault.inputArgs,
-    ...(parsedDefault.permissionMode !== undefined
-      ? { permissionMode: parsedDefault.permissionMode }
-      : {}),
-  });
+  return { exitCode: usage(stderr) };
 }
 
 function parseUninstallPackageName(args: ReadonlyArray<string>): string | null {
@@ -220,10 +188,6 @@ function isDirectVerifyTarget(target: string): boolean {
     target.startsWith('../') ||
     isAbsolute(target)
   );
-}
-
-function isLocalFsmHelpTarget(target: string): boolean {
-  return target.endsWith('.fsm.ts') && !target.startsWith('-');
 }
 
 function isKnownSubcommand(cmd: string | undefined): boolean {
@@ -254,30 +218,18 @@ async function runCompletionBridgeWithWatchdog(d: Dispatcher): Promise<{ exitCod
   ]);
 }
 
-function parseFsmPathAndInputArgs(
-  argv: ReadonlyArray<string>,
-  opts: { consumeRuntimePermissionFlags?: boolean } = {},
-): {
+function parseVisualizeFsmPathAndInputArgs(argv: ReadonlyArray<string>): {
   fsmPath: string;
   inputArgs: ReadonlyArray<string>;
-  permissionMode?: RunPermissionMode;
 } | null {
   const positional: string[] = [];
   const inputArgs: string[] = [];
-  let permissionMode: RunPermissionMode | undefined;
-  // The verbs (`verify`, `doctor`, `completion`, `init`, `visualize`) have already been
-  // triaged by the early-returns above. The loop below scans the same `argv`
-  // only because no verb matched; the remaining tokens are the FSM path and
-  // any user-defined `--<flag>` pairs.
+  // Visualize accepts one FSM path plus author-defined `--<flag>` pairs.
+  // Runtime permission flags remain live-run-only and are rejected here.
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     const runtimePermissionMode = runtimePermissionModeFromFlag(a);
-    if (opts.consumeRuntimePermissionFlags && runtimePermissionMode) {
-      if (permissionMode !== undefined && permissionMode !== runtimePermissionMode) return null;
-      permissionMode = runtimePermissionMode;
-      continue;
-    }
-    if (!opts.consumeRuntimePermissionFlags && runtimePermissionMode) return null;
+    if (runtimePermissionMode) return null;
     if (a.startsWith('--')) {
       inputArgs.push(a);
       const next = argv[i + 1];
@@ -293,7 +245,6 @@ function parseFsmPathAndInputArgs(
   return {
     fsmPath: positional[0]!,
     inputArgs,
-    ...(permissionMode !== undefined ? { permissionMode } : {}),
   };
 }
 
@@ -378,7 +329,6 @@ function parseInitArgs(args: ReadonlyArray<string>): {
 function usage(stderr: NodeJS.WritableStream): number {
   stderr.write(
     'usage:\n' +
-      '  aharness [--ask|--yolo] <file.fsm.ts> [--<flag> <value>]...\n' +
       '  aharness visualize <file.fsm.ts> [--<flag> <value>]...\n' +
       '  aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|yarn|bun>]\n' +
       '  aharness install <source>\n' +
@@ -404,26 +354,6 @@ if (process.argv[1]?.endsWith('main.js')) {
       runDoctorCli({
         log: (s) => process.stdout.write(s + '\n'),
         now: () => new Date(),
-      }),
-    runDefault: async ({ fsmPath, inputArgs, permissionMode }) => {
-      const opts = {
-        fsmPath,
-        cwd: process.cwd(),
-        stderr: process.stderr,
-        stdout: process.stdout,
-        inputArgs,
-        ...(permissionMode !== undefined ? { permissionMode } : {}),
-      };
-      const { runCli } = await import('./runCli.js');
-      return runCli(opts);
-    },
-    runLocalInputHelp: ({ fsmPath }) =>
-      runLocalFsmInputHelp({
-        cwd: process.cwd(),
-        target: fsmPath,
-        usage: `aharness ${fsmPath} --help`,
-        stdout: process.stdout,
-        stderr: process.stderr,
       }),
     runVisualize: async ({ fsmPath, inputArgs }) => {
       const { runVisualizeCli } = await import('./visualizeCli.js');

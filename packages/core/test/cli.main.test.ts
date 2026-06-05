@@ -24,20 +24,6 @@ function buildStubs() {
       return { exitCode: 0 };
     }),
     runDoctor: vi.fn(async () => ({ exitCode: 0 })),
-    runDefault: vi.fn(
-      async (o: {
-        fsmPath: string;
-        inputArgs: ReadonlyArray<string>;
-        permissionMode?: RunPermissionMode;
-      }) => {
-        void o;
-        return { exitCode: 0 };
-      },
-    ),
-    runLocalInputHelp: vi.fn(async (o: { fsmPath: string; invocation: 'direct' }) => {
-      void o;
-      return { exitCode: 0 };
-    }),
     runVisualize: vi.fn(async (o: { fsmPath: string; inputArgs: ReadonlyArray<string> }) => {
       void o;
       return { exitCode: 0 };
@@ -100,6 +86,8 @@ function buildStubs() {
   };
 }
 
+type DispatcherStubs = ReturnType<typeof buildStubs>;
+
 function captureStderr(): { stream: NodeJS.WritableStream; text: () => string } {
   const chunks: string[] = [];
   const stream = new Writable({
@@ -111,6 +99,35 @@ function captureStderr(): { stream: NodeJS.WritableStream; text: () => string } 
   return { stream, text: () => chunks.join('') };
 }
 
+function expectNoHandlersCalled(s: DispatcherStubs): void {
+  expect(s.runVerify).not.toHaveBeenCalled();
+  expect(s.runDoctor).not.toHaveBeenCalled();
+  expect(s.runVisualize).not.toHaveBeenCalled();
+  expect(s.runCompletionInstall).not.toHaveBeenCalled();
+  expect(s.runCompletionUninstall).not.toHaveBeenCalled();
+  expect(s.runCompletionBridge).not.toHaveBeenCalled();
+  expect(s.runInit).not.toHaveBeenCalled();
+  expect(s.runInstall).not.toHaveBeenCalled();
+  expect(s.runTarget).not.toHaveBeenCalled();
+  expect(s.runTargetInputHelp).not.toHaveBeenCalled();
+  expect(s.runListInstalled).not.toHaveBeenCalled();
+  expect(s.runVerifyInstalled).not.toHaveBeenCalled();
+  expect(s.runUninstall).not.toHaveBeenCalled();
+}
+
+async function expectUsageOnly(argv: ReadonlyArray<string>): Promise<string> {
+  const s = buildStubs();
+  const cap = captureStderr();
+  const r = await dispatch(argv, { ...s, stderr: cap.stream });
+
+  expect(r).toEqual({ exitCode: 2 });
+  expectNoHandlersCalled(s);
+  expect(cap.text()).toContain('usage:');
+  expect(cap.text()).not.toContain('aharness [--ask|--yolo] <file.fsm.ts> [--<flag> <value>]...');
+
+  return cap.text();
+}
+
 describe('dispatch', () => {
   it('routes "verify <file>" to runVerify with the path', async () => {
     const s = buildStubs();
@@ -118,7 +135,6 @@ describe('dispatch', () => {
     expect(r).toEqual({ exitCode: 0 });
     expect(s.runVerify).toHaveBeenCalledWith({ fsmPath: 'foo.fsm.ts' });
     expect(s.runDoctor).not.toHaveBeenCalled();
-    expect(s.runDefault).not.toHaveBeenCalled();
   });
 
   it('routes "doctor" to runDoctor', async () => {
@@ -137,19 +153,10 @@ describe('dispatch', () => {
       fsmPath: 'workflow.fsm.ts',
       inputArgs: ['--topic', 'auth', '--dry-run'],
     });
-    expect(s.runDefault).not.toHaveBeenCalled();
   });
 
-  it('routes exact direct local FSM help before default run routing', async () => {
-    const s = buildStubs();
-    const r = await dispatch(['workflow.fsm.ts', '--help'], s);
-
-    expect(r).toEqual({ exitCode: 0 });
-    expect(s.runLocalInputHelp).toHaveBeenCalledWith({
-      fsmPath: 'workflow.fsm.ts',
-      invocation: 'direct',
-    });
-    expect(s.runDefault).not.toHaveBeenCalled();
+  it('returns usage for exact direct local FSM help without routing handlers', async () => {
+    await expectUsageOnly(['workflow.fsm.ts', '--help']);
   });
 
   it('returns usage for visualize with --yolo instead of treating it as author input', async () => {
@@ -225,15 +232,9 @@ describe('dispatch', () => {
     expect(cap.text()).toMatch(/aharness init --dir/);
   });
 
-  it('does not reserve "package" as a generated package namespace', async () => {
-    const s = buildStubs();
-    const r = await dispatch(['package'], s);
-
-    expect(r).toEqual({ exitCode: 0 });
-    expect(s.runDefault).toHaveBeenCalledWith({
-      fsmPath: 'package',
-      inputArgs: [],
-    });
+  it('returns usage for package-like root invocations without generated package hints', async () => {
+    const text = await expectUsageOnly(['package']);
+    expect(text).not.toContain('aharness package build');
   });
 
   it('returns usage for old generated package subcommands', async () => {
@@ -242,7 +243,7 @@ describe('dispatch', () => {
     const r = await dispatch(['package', 'build'], { ...s, stderr: cap.stream });
 
     expect(r).toEqual({ exitCode: 2 });
-    expect(s.runDefault).not.toHaveBeenCalled();
+    expectNoHandlersCalled(s);
     expect(cap.text()).toContain('usage:');
     expect(cap.text()).not.toContain('aharness package build');
   });
@@ -253,7 +254,6 @@ describe('dispatch', () => {
 
     expect(r).toEqual({ exitCode: 0 });
     expect(s.runInstall).toHaveBeenCalledWith({ source: '@scope/tools@latest' });
-    expect(s.runDefault).not.toHaveBeenCalled();
   });
 
   it('returns usage for malformed install invocations', async () => {
@@ -274,22 +274,9 @@ describe('dispatch', () => {
     }
   });
 
-  it('keeps explicit install-like paths runnable through the default runner', async () => {
-    const s = buildStubs();
-    const dotSlash = await dispatch(['./install'], s);
-    const fsmPath = await dispatch(['install.fsm.ts'], s);
-
-    expect(dotSlash).toEqual({ exitCode: 0 });
-    expect(fsmPath).toEqual({ exitCode: 0 });
-    expect(s.runDefault).toHaveBeenNthCalledWith(1, {
-      fsmPath: './install',
-      inputArgs: [],
-    });
-    expect(s.runDefault).toHaveBeenNthCalledWith(2, {
-      fsmPath: 'install.fsm.ts',
-      inputArgs: [],
-    });
-    expect(s.runInstall).not.toHaveBeenCalled();
+  it('returns usage for explicit install-like root direct invocations', async () => {
+    await expectUsageOnly(['./install']);
+    await expectUsageOnly(['install.fsm.ts']);
   });
 
   it('routes "run <command>" to target execution with author input flags', async () => {
@@ -301,7 +288,6 @@ describe('dispatch', () => {
       target: '@scope/tools/build',
       inputArgs: ['--topic', 'auth'],
     });
-    expect(s.runDefault).not.toHaveBeenCalled();
   });
 
   it('routes exact run-target help before normal run routing', async () => {
@@ -458,7 +444,6 @@ describe('dispatch', () => {
 
     expect(r).toEqual({ exitCode: 0 });
     expect(s.runListInstalled).toHaveBeenCalledWith({});
-    expect(s.runDefault).not.toHaveBeenCalled();
   });
 
   it('returns usage for malformed list invocations', async () => {
@@ -480,7 +465,6 @@ describe('dispatch', () => {
     expect(unscoped).toEqual({ exitCode: 0 });
     expect(s.runUninstall).toHaveBeenNthCalledWith(1, { packageName: '@scope/tools' });
     expect(s.runUninstall).toHaveBeenNthCalledWith(2, { packageName: 'tools' });
-    expect(s.runDefault).not.toHaveBeenCalled();
   });
 
   it('returns usage for malformed uninstall invocations', async () => {
@@ -517,30 +501,21 @@ describe('dispatch', () => {
     expect(s.runVerifyInstalled).toHaveBeenNthCalledWith(3, { target: 'tools/build' });
   });
 
-  it('keeps explicit run/list/verify-like paths runnable through the default runner', async () => {
-    const s = buildStubs();
+  it('returns usage for explicit run/list/verify-like root direct invocations', async () => {
+    const cases: ReadonlyArray<ReadonlyArray<string>> = [
+      ['./run'],
+      ['run.fsm.ts'],
+      ['./list'],
+      ['list.fsm.ts'],
+      ['./verify'],
+      ['verify.fsm.ts'],
+      ['./uninstall'],
+      ['uninstall.fsm.ts'],
+    ];
 
-    await dispatch(['./run'], s);
-    await dispatch(['run.fsm.ts'], s);
-    await dispatch(['./list'], s);
-    await dispatch(['list.fsm.ts'], s);
-    await dispatch(['./verify'], s);
-    await dispatch(['verify.fsm.ts'], s);
-    await dispatch(['./uninstall'], s);
-    await dispatch(['uninstall.fsm.ts'], s);
-
-    expect(s.runDefault).toHaveBeenNthCalledWith(1, { fsmPath: './run', inputArgs: [] });
-    expect(s.runDefault).toHaveBeenNthCalledWith(2, { fsmPath: 'run.fsm.ts', inputArgs: [] });
-    expect(s.runDefault).toHaveBeenNthCalledWith(3, { fsmPath: './list', inputArgs: [] });
-    expect(s.runDefault).toHaveBeenNthCalledWith(4, { fsmPath: 'list.fsm.ts', inputArgs: [] });
-    expect(s.runDefault).toHaveBeenNthCalledWith(5, { fsmPath: './verify', inputArgs: [] });
-    expect(s.runDefault).toHaveBeenNthCalledWith(6, { fsmPath: 'verify.fsm.ts', inputArgs: [] });
-    expect(s.runDefault).toHaveBeenNthCalledWith(7, { fsmPath: './uninstall', inputArgs: [] });
-    expect(s.runDefault).toHaveBeenNthCalledWith(8, { fsmPath: 'uninstall.fsm.ts', inputArgs: [] });
-    expect(s.runTarget).not.toHaveBeenCalled();
-    expect(s.runListInstalled).not.toHaveBeenCalled();
-    expect(s.runVerifyInstalled).not.toHaveBeenCalled();
-    expect(s.runUninstall).not.toHaveBeenCalled();
+    for (const argv of cases) {
+      await expectUsageOnly(argv);
+    }
   });
 
   it('does not route replay helper names as public CLI subcommands', async () => {
@@ -550,41 +525,21 @@ describe('dispatch', () => {
     ];
 
     for (const argv of cases) {
-      const s = buildStubs();
-      const cap = captureStderr();
-      const r = await dispatch(argv, { ...s, stderr: cap.stream });
-
-      expect(r).toEqual({ exitCode: 2 });
-      expect(s.runDefault).not.toHaveBeenCalled();
-      expect(s.runTarget).not.toHaveBeenCalled();
-      expect(s.runVisualize).not.toHaveBeenCalled();
-      expect(s.runVerify).not.toHaveBeenCalled();
-      expect(s.runListInstalled).not.toHaveBeenCalled();
-      expect(cap.text()).toContain('usage:');
+      await expectUsageOnly(argv);
     }
   });
 
-  it('keeps an explicit ./package path runnable through the default runner', async () => {
-    const s = buildStubs();
-    const r = await dispatch(['./package'], s);
-    expect(r).toEqual({ exitCode: 0 });
-    expect(s.runDefault).toHaveBeenCalledWith({
-      fsmPath: './package',
-      inputArgs: [],
-    });
+  it('returns usage for an explicit ./package root direct invocation', async () => {
+    const text = await expectUsageOnly(['./package']);
+    expect(text).not.toContain('aharness package build');
   });
 
-  it('routes "<file>" to runDefault with no input args', async () => {
-    const s = buildStubs();
-    const r = await dispatch(['my.fsm.ts'], s);
-    expect(r).toEqual({ exitCode: 0 });
-    expect(s.runDefault).toHaveBeenCalledWith({
-      fsmPath: 'my.fsm.ts',
-      inputArgs: [],
-    });
+  it('returns usage for bare and path-like root direct FSM paths without routing handlers', async () => {
+    await expectUsageOnly(['my.fsm.ts']);
+    await expectUsageOnly(['./x.fsm.ts']);
   });
 
-  it('returns usage for unsupported direct help-like forms without default run routing', async () => {
+  it('returns usage for unsupported direct help-like forms without routing handlers', async () => {
     const cases: ReadonlyArray<ReadonlyArray<string>> = [
       ['--help'],
       ['help'],
@@ -599,106 +554,47 @@ describe('dispatch', () => {
     ];
 
     for (const argv of cases) {
-      const s = buildStubs();
-      const cap = captureStderr();
-      const r = await dispatch(argv, { ...s, stderr: cap.stream });
-
-      expect(r).toEqual({ exitCode: 2 });
-      expect(s.runDefault).not.toHaveBeenCalled();
-      expect(s.runVisualize).not.toHaveBeenCalled();
-      expect(s.runLocalInputHelp).not.toHaveBeenCalled();
-      expect(s.runVerify).not.toHaveBeenCalled();
-      expect(s.runDoctor).not.toHaveBeenCalled();
-      expect(s.runCompletionInstall).not.toHaveBeenCalled();
-      expect(cap.text()).toContain('usage:');
+      await expectUsageOnly(argv);
     }
   });
 
-  it('routes "--ask <file>" to runDefault with ask mode and clean input args', async () => {
-    const s = buildStubs();
-    const r = await dispatch(['--ask', '/a.fsm.ts', '--topic', 'auth'], s);
-    expect(r).toEqual({ exitCode: 0 });
-    expect(s.runDefault).toHaveBeenCalledWith({
-      fsmPath: '/a.fsm.ts',
-      inputArgs: ['--topic', 'auth'],
-      permissionMode: 'ask',
-    });
+  it('returns usage for "--ask <file>" root direct invocations', async () => {
+    await expectUsageOnly(['--ask', '/a.fsm.ts', '--topic', 'auth']);
   });
 
-  it('routes "<file> --ask" to runDefault with ask mode and clean input args', async () => {
-    const s = buildStubs();
-    const r = await dispatch(['/a.fsm.ts', '--ask', '--topic', 'auth'], s);
-    expect(r).toEqual({ exitCode: 0 });
-    expect(s.runDefault).toHaveBeenCalledWith({
-      fsmPath: '/a.fsm.ts',
-      inputArgs: ['--topic', 'auth'],
-      permissionMode: 'ask',
-    });
+  it('returns usage for "<file> --ask" root direct invocations', async () => {
+    await expectUsageOnly(['/a.fsm.ts', '--ask', '--topic', 'auth']);
   });
 
-  it('routes "--yolo <file>" to runDefault with yolo mode and clean input args', async () => {
-    const s = buildStubs();
-    const r = await dispatch(['--yolo', '/a.fsm.ts', '--topic', 'auth'], s);
-    expect(r).toEqual({ exitCode: 0 });
-    expect(s.runDefault).toHaveBeenCalledWith({
-      fsmPath: '/a.fsm.ts',
-      inputArgs: ['--topic', 'auth'],
-      permissionMode: 'yolo',
-    });
+  it('returns usage for "--yolo <file>" root direct invocations', async () => {
+    await expectUsageOnly(['--yolo', '/a.fsm.ts', '--topic', 'auth']);
   });
 
-  it('routes "<file> --yolo" to runDefault with yolo mode and clean input args', async () => {
-    const s = buildStubs();
-    const r = await dispatch(['/a.fsm.ts', '--yolo', '--topic', 'auth'], s);
-    expect(r).toEqual({ exitCode: 0 });
-    expect(s.runDefault).toHaveBeenCalledWith({
-      fsmPath: '/a.fsm.ts',
-      inputArgs: ['--topic', 'auth'],
-      permissionMode: 'yolo',
-    });
+  it('returns usage for "<file> --yolo" root direct invocations', async () => {
+    await expectUsageOnly(['/a.fsm.ts', '--yolo', '--topic', 'auth']);
   });
 
-  it('returns usage when default form mixes --ask and --yolo', async () => {
+  it('returns usage when root direct invocations mix --ask and --yolo', async () => {
     const cases: ReadonlyArray<ReadonlyArray<string>> = [
       ['--ask', '--yolo', '/a.fsm.ts'],
       ['--yolo', '/a.fsm.ts', '--ask'],
     ];
 
     for (const argv of cases) {
-      const s = buildStubs();
-      const cap = captureStderr();
-      const r = await dispatch(argv, { ...s, stderr: cap.stream });
-
-      expect(r).toEqual({ exitCode: 2 });
-      expect(s.runDefault).not.toHaveBeenCalled();
-      expect(cap.text()).toContain('usage:');
+      await expectUsageOnly(argv);
     }
   });
 
-  it('routes "<file> --resume" to runDefault as an author input flag', async () => {
-    const s = buildStubs();
-    await dispatch(['my.fsm.ts', '--resume'], s);
-    expect(s.runDefault).toHaveBeenCalledWith({
-      fsmPath: 'my.fsm.ts',
-      inputArgs: ['--resume'],
-    });
+  it('returns usage for "<file> --resume" root direct invocations', async () => {
+    await expectUsageOnly(['my.fsm.ts', '--resume']);
   });
 
-  it('returns usage when "--resume" before the file path leaves no single FSM path', async () => {
-    const s = buildStubs();
-    const cap = captureStderr();
-    const r = await dispatch(['--resume', 'my.fsm.ts'], { ...s, stderr: cap.stream });
-    expect(r).toEqual({ exitCode: 2 });
-    expect(s.runDefault).not.toHaveBeenCalled();
-    expect(cap.text()).toContain('usage:');
+  it('returns usage for "--resume <file>" root direct invocations', async () => {
+    await expectUsageOnly(['--resume', 'my.fsm.ts']);
   });
 
-  it('returns 2 when the default form has no file path', async () => {
-    const s = buildStubs();
-    const cap = captureStderr();
-    const r = await dispatch(['--resume'], { ...s, stderr: cap.stream });
-    expect(r).toEqual({ exitCode: 2 });
-    expect(s.runDefault).not.toHaveBeenCalled();
+  it('returns 2 when root direct flags have no file path', async () => {
+    await expectUsageOnly(['--resume']);
   });
 
   it('returns 2 when "verify" is called without a path', async () => {
@@ -711,23 +607,19 @@ describe('dispatch', () => {
   });
 
   it('returns 2 when no argv is given', async () => {
-    const s = buildStubs();
-    const cap = captureStderr();
-    const r = await dispatch([], { ...s, stderr: cap.stream });
-    expect(r).toEqual({ exitCode: 2 });
-    expect(cap.text()).toContain('usage:');
-    expect(cap.text()).not.toContain('aharness package init');
-    expect(cap.text()).not.toContain('aharness package build');
-    expect(cap.text()).not.toContain('aharness package verify');
-    expect(cap.text()).toContain('aharness install <source>');
-    expect(cap.text()).toContain('aharness [--ask|--yolo] <file.fsm.ts> [--<flag> <value>]...');
-    expect(cap.text()).toContain(
+    const text = await expectUsageOnly([]);
+    expect(text).not.toContain('aharness package init');
+    expect(text).not.toContain('aharness package build');
+    expect(text).not.toContain('aharness package verify');
+    expect(text).toContain('aharness install <source>');
+    expect(text).not.toContain('aharness [--ask|--yolo] <file.fsm.ts> [--<flag> <value>]...');
+    expect(text).toContain(
       'aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
     );
-    expect(cap.text()).toContain('aharness list');
-    expect(cap.text()).toContain('aharness uninstall <package-name>');
-    expect(cap.text()).toContain('aharness verify <package-name>');
-    expect(cap.text()).not.toContain('[--resume]');
+    expect(text).toContain('aharness list');
+    expect(text).toContain('aharness uninstall <package-name>');
+    expect(text).toContain('aharness verify <package-name>');
+    expect(text).not.toContain('[--resume]');
   });
 
   it('completion dispatcher returns within 600 ms even when the bridge hangs', async () => {
@@ -741,7 +633,6 @@ describe('dispatch', () => {
     const r = await dispatch(['completion'], {
       runVerify: vi.fn(),
       runDoctor: vi.fn(),
-      runDefault: vi.fn(),
       runCompletionInstall: vi.fn(),
       runCompletionUninstall: vi.fn(),
       runCompletionBridge,
@@ -762,63 +653,28 @@ describe('dispatch', () => {
 
     expect(r).toEqual({ exitCode: 0 });
     expect(s.runCompletionBridge).toHaveBeenCalledOnce();
-    expect(s.runDefault).not.toHaveBeenCalled();
     expect(cap.text()).toBe('');
   });
 });
 
-describe('dispatch — input flag passthrough', () => {
-  it('collects unknown --flag <value> tokens into inputArgs', async () => {
-    const runDefault = vi.fn(async () => ({ exitCode: 0 }));
-    await dispatch(['/a/b/c.fsm.ts', '--ideafile-path', 'i.md', '--topic', 'x'], {
-      runVerify: vi.fn(),
-      runDoctor: vi.fn(),
-      runDefault,
-    } as never);
-    expect(runDefault).toHaveBeenCalledWith({
-      fsmPath: '/a/b/c.fsm.ts',
-      inputArgs: ['--ideafile-path', 'i.md', '--topic', 'x'],
-    });
+describe('dispatch — retired direct input passthrough', () => {
+  it('returns usage for root direct unknown --flag <value> tokens', async () => {
+    await expectUsageOnly(['/a/b/c.fsm.ts', '--ideafile-path', 'i.md', '--topic', 'x']);
   });
 
-  it('treats bare boolean-style flags by passing the lone token (the parser decides)', async () => {
-    const runDefault = vi.fn(async () => ({ exitCode: 0 }));
-    await dispatch(['/a.fsm.ts', '--flag'], {
-      runVerify: vi.fn(),
-      runDoctor: vi.fn(),
-      runDefault,
-    } as never);
-    expect(runDefault).toHaveBeenCalledWith({
-      fsmPath: '/a.fsm.ts',
-      inputArgs: ['--flag'],
-    });
+  it('returns usage for root direct bare boolean-style flags', async () => {
+    await expectUsageOnly(['/a.fsm.ts', '--flag']);
   });
 
-  it('does not special-case --approval-policy when an FSM path is present', async () => {
-    const runDefault = vi.fn(async () => ({ exitCode: 0 }));
-    await dispatch(['/a.fsm.ts', '--approval-policy', 'on-request'], {
-      runVerify: vi.fn(),
-      runDoctor: vi.fn(),
-      runDefault,
-    } as never);
-
-    expect(runDefault).toHaveBeenCalledWith({
-      fsmPath: '/a.fsm.ts',
-      inputArgs: ['--approval-policy', 'on-request'],
-    });
+  it('returns usage for root direct --approval-policy with an FSM path', async () => {
+    await expectUsageOnly(['/a.fsm.ts', '--approval-policy', 'on-request']);
   });
 
   it('returns usage for --approval-policy without an FSM path', async () => {
-    const s = buildStubs();
-    const cap = captureStderr();
-    const r = await dispatch(['--approval-policy', 'on-request'], { ...s, stderr: cap.stream });
-
-    expect(r).toEqual({ exitCode: 2 });
-    expect(s.runDefault).not.toHaveBeenCalled();
-    expect(cap.text()).toContain('usage:');
+    await expectUsageOnly(['--approval-policy', 'on-request']);
   });
 
-  it('keeps approvalPolicy reachable as an author input flag', () => {
+  it('does not reserve approval-policy as a framework runtime flag', () => {
     expect(RESERVED_CLI_FLAGS.has('approval-policy')).toBe(false);
   });
 
@@ -826,7 +682,7 @@ describe('dispatch — input flag passthrough', () => {
     expect(RESERVED_CLI_FLAGS.has('ask')).toBe(true);
   });
 
-  it('keeps resume reachable as an author input flag', () => {
+  it('does not reserve resume as a framework runtime flag', () => {
     expect(RESERVED_CLI_FLAGS.has('resume')).toBe(false);
   });
 
@@ -834,17 +690,7 @@ describe('dispatch — input flag passthrough', () => {
     expect(RESERVED_CLI_FLAGS.has('yolo')).toBe(true);
   });
 
-  it('passes --resume combined with any --input flag through to author input parsing', async () => {
-    const runDefault = vi.fn(async () => ({ exitCode: 0 }));
-    const result = await dispatch(['/a.fsm.ts', '--resume', '--topic', 'auth'], {
-      runVerify: vi.fn(),
-      runDoctor: vi.fn(),
-      runDefault,
-    } as never);
-    expect(result.exitCode).toBe(0);
-    expect(runDefault).toHaveBeenCalledWith({
-      fsmPath: '/a.fsm.ts',
-      inputArgs: ['--resume', '--topic', 'auth'],
-    });
+  it('returns usage for root direct --resume combined with any --input flag', async () => {
+    await expectUsageOnly(['/a.fsm.ts', '--resume', '--topic', 'auth']);
   });
 });

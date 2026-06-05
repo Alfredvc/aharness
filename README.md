@@ -89,7 +89,7 @@ and initializes git by default when the target is not already inside a
 repository. Use `--no-install`, `--no-git`, or `--pm <npm|pnpm|yarn|bun>` when
 you need to control those steps.
 
-Run an existing FSM directly:
+Run an existing FSM:
 
 ```bash
 npx aharness verify ./workflow.fsm.ts
@@ -105,7 +105,6 @@ npx aharness run ./workflow.fsm.ts
 - `aharness run ./workflow.fsm.ts` starts a foreground Codex run and opens the
   browser UI for owner input and any approval prompts routed to the user.
 
-`aharness ./workflow.fsm.ts` remains supported as a compatibility form.
 Machine inputs become kebab-case flags, so `fixtureRoot` is passed as
 `--fixture-root`.
 
@@ -177,7 +176,7 @@ From a source checkout:
 ```bash
 pnpm run build
 node packages/core/dist/cli/main.js verify examples/coding-smoke.fsm.ts
-node packages/core/dist/cli/main.js examples/coding-smoke.fsm.ts
+node packages/core/dist/cli/main.js run examples/coding-smoke.fsm.ts
 ```
 
 The demo files are:
@@ -248,10 +247,9 @@ aharness init --dir <path>
 aharness verify <file.fsm.ts>
 aharness visualize <file.fsm.ts>
 aharness run <file.fsm.ts> --help
-aharness [--ask|--yolo] <file.fsm.ts> [--<input-flag> <value>]...
+aharness run [--ask|--yolo] <file.fsm.ts|command> [--<input-flag> <value>]...
 aharness doctor
 aharness install <source>
-aharness run [--ask|--yolo] <file.fsm.ts|command> [--<input-flag> <value>]...
 ```
 
 See [`docs/reference.md`](docs/reference.md) for the full CLI, state options,

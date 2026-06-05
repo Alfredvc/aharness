@@ -81,6 +81,7 @@ export async function runInstalledCli(
     stdout: opts.stdout,
     stderr: opts.stderr,
     inputArgs: opts.inputArgs ?? [],
+    inputUsageCommand: `aharness run ${opts.command}`,
     ...(opts.permissionMode !== undefined ? { permissionMode: opts.permissionMode } : {}),
     verify: () => Promise.resolve({ exitCode: 0 }),
     loadFsmImpl,

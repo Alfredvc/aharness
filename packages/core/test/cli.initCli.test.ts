@@ -86,10 +86,13 @@ describe('runInitCli — file scaffold', () => {
     });
     const pkg = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8')) as {
       name: string;
+      scripts: Record<string, string>;
       dependencies: Record<string, string>;
       devDependencies: Record<string, string>;
     };
     expect(pkg.name).toBe('my-fsm');
+    expect(pkg.scripts['start']).toBe('aharness run ./hello.fsm.ts');
+    expect(pkg.scripts['verify']).toBe('aharness verify ./hello.fsm.ts');
     expect(pkg.dependencies['@aharness/core']).toBe('1.2.3');
     expect(Object.keys(pkg.devDependencies)).not.toContain(retiredVizPackageName);
     // Non-placeholder dep pins survive substitution unchanged (regression

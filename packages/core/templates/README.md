@@ -7,7 +7,7 @@ An aharness FSM scaffolded by `aharness init`.
 ```bash
 <your-pm> install      # already done if you used `aharness init` without --no-install
 <your-pm> verify       # static check the FSM (reachability, schemas, etc.)
-<your-pm> start        # boot the codex trio against hello.fsm.ts
+<your-pm> start        # run the codex trio with `aharness run ./hello.fsm.ts`
 ```
 
 ## Edit

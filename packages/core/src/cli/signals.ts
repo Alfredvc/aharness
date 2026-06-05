@@ -1,5 +1,5 @@
 /**
- * Foreground-CLI signal handlers for `aharness <file>.fsm.ts`.
+ * Foreground-CLI signal handlers for `aharness run <file>.fsm.ts`.
  *
  * Both SIGINT and SIGTERM are routed through the caller's `onSigint`
  * callback — the foreground CLI treats either as "user wants out" and

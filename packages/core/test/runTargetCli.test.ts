@@ -35,6 +35,7 @@ describe('aharness run target dispatch', () => {
         stdout: expect.any(Writable),
         stderr: expect.any(Writable),
         inputArgs: ['--topic', 'auth'],
+        inputUsageCommand: 'aharness run ./workflow.fsm.ts',
         permissionMode: 'ask',
       } satisfies RunCliOpts);
       expect(runInstalledCliImpl).not.toHaveBeenCalled();
@@ -75,7 +76,38 @@ describe('aharness run target dispatch', () => {
     }
   });
 
-  it('lets an existing local file shadow an installed bare command', async () => {
+  it('runs a missing local FSM target through the normal runtime', async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'aharness-run-target-missing-local-'));
+    try {
+      const runCliImpl = vi.fn(async () => ({ exitCode: 0 }));
+      const runInstalledCliImpl = vi.fn(async () => ({ exitCode: 0 }));
+
+      const result = await runTargetCli({
+        target: './missing.fsm.ts',
+        cwd,
+        stdout: captureStream().stream,
+        stderr: captureStream().stream,
+        inputArgs: ['--topic', 'auth'],
+        runCliImpl,
+        runInstalledCliImpl,
+      });
+
+      expect(result).toEqual({ exitCode: 0 });
+      expect(runCliImpl).toHaveBeenCalledWith({
+        fsmPath: './missing.fsm.ts',
+        cwd,
+        stdout: expect.any(Writable),
+        stderr: expect.any(Writable),
+        inputArgs: ['--topic', 'auth'],
+        inputUsageCommand: 'aharness run ./missing.fsm.ts',
+      } satisfies RunCliOpts);
+      expect(runInstalledCliImpl).not.toHaveBeenCalled();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('runs an installed bare command even when a same-named local file exists', async () => {
     const cwd = await mkdtemp(path.join(os.tmpdir(), 'aharness-run-target-shadow-'));
     try {
       await writeFile(path.join(cwd, 'build'), '');
@@ -92,12 +124,42 @@ describe('aharness run target dispatch', () => {
       });
 
       expect(result).toEqual({ exitCode: 0 });
-      expect(runCliImpl).toHaveBeenCalledWith({
-        fsmPath: 'build',
+      expect(runInstalledCliImpl).toHaveBeenCalledWith({
+        command: 'build',
         cwd,
         stdout: expect.any(Writable),
         stderr: expect.any(Writable),
         inputArgs: [],
+      } satisfies RunInstalledCliOptions);
+      expect(runCliImpl).not.toHaveBeenCalled();
+    } finally {
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it('runs a local FSM target when an installed command has the same identity', async () => {
+    const cwd = await mkdtemp(path.join(os.tmpdir(), 'aharness-run-target-local-wins-'));
+    try {
+      const runCliImpl = vi.fn(async () => ({ exitCode: 0 }));
+      const runInstalledCliImpl = vi.fn(async () => ({ exitCode: 0 }));
+
+      const result = await runTargetCli({
+        target: 'build.fsm.ts',
+        cwd,
+        stdout: captureStream().stream,
+        stderr: captureStream().stream,
+        runCliImpl,
+        runInstalledCliImpl,
+      });
+
+      expect(result).toEqual({ exitCode: 0 });
+      expect(runCliImpl).toHaveBeenCalledWith({
+        fsmPath: 'build.fsm.ts',
+        cwd,
+        stdout: expect.any(Writable),
+        stderr: expect.any(Writable),
+        inputArgs: [],
+        inputUsageCommand: 'aharness run build.fsm.ts',
       } satisfies RunCliOpts);
       expect(runInstalledCliImpl).not.toHaveBeenCalled();
     } finally {

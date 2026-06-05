@@ -23,19 +23,19 @@ mechanisms, runs in under five minutes, and keeps owner input short.
 ## Running a demo
 
 ```sh
-aharness examples/<name>.fsm.ts
+aharness run examples/<name>.fsm.ts
 ```
 
 `composed-pipeline` requires a topic flag:
 
 ```sh
-aharness examples/composed-pipeline.fsm.ts --topic auth-rework
+aharness run examples/composed-pipeline.fsm.ts --topic auth-rework
 ```
 
 `approval-policy` has optional flags for input-helper coverage:
 
 ```sh
-aharness --ask examples/approval-policy.fsm.ts --mode strict --plan-path ./PLAN.md --max-auto-approvals 1
+aharness run --ask examples/approval-policy.fsm.ts --mode strict --plan-path ./PLAN.md --max-auto-approvals 1
 ```
 
 The CLI verifies the FSM, starts the app-server and browser UI, and
@@ -247,7 +247,7 @@ child's exact final ids.
 
 ### Walkthrough
 
-1. Run `aharness examples/composed-pipeline.fsm.ts --topic auth-rework`.
+1. Run `aharness run examples/composed-pipeline.fsm.ts --topic auth-rework`.
 2. The parent `router` state submits `ready=true` to enter the child
    `spec` machine, or `ready=false` to loop.
 3. The child writes a one-paragraph spec and submits `accepted=true` or
@@ -275,7 +275,7 @@ signal, submit `effect`, `fsm.passive`, and `fsm.input.*` helpers.
 
 ### Walkthrough
 
-1. Run `aharness --ask examples/approval-policy.fsm.ts` or pass optional flags:
+1. Run `aharness run --ask examples/approval-policy.fsm.ts` or pass optional flags:
    `--mode strict --plan-path ./PLAN.md --max-auto-approvals 1`.
 2. The model writes a short policy report and submits it.
 3. If a Bash approval request happens while the `review` state is active,
@@ -302,7 +302,7 @@ signal, submit `effect`, `fsm.passive`, and `fsm.input.*` helpers.
 ## Authoring more demos
 
 Drop a new entry file `examples/<name>.fsm.ts` directly under
-`examples/`. Run with `aharness examples/<name>.fsm.ts`. The CLI bundles
+`examples/`. Run with `aharness run examples/<name>.fsm.ts`. The CLI bundles
 the FSM via esbuild against the workspace's `@aharness/core` — no
 `package.json`, `tsconfig.json`, or tests required. Multi-file demos
 can split helper `.ts` siblings alongside (e.g.
