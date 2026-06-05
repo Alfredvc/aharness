@@ -56,18 +56,22 @@ start a new run; previous artifacts remain inspectable.
 ## 1. `color-funnel` — onboarding
 
 **File:** `examples/color-funnel.fsm.ts`
-**States:** `pickColor` → `modelPicksFruit` → `confirm` → `finalize`
+**States:** `pickColor` → one of `redFruit` / `greenFruit` / `blueFruit` /
+`yellowFruit` → `confirm` → `finalize`, with optional `retry` back to the
+selected color branch.
 **Mechanism:** the smallest possible end-to-end tour: one owner choice, one
-model-only state, one yes/no gate, one final state.
+model-only state, one yes/no gate, an optional retry loop, and one final state.
 
 ### Walkthrough
 
 1. TUI prompts `Pick a color: 1) red  2) green  3) blue  4) yellow`.
    Reply with a number or color name.
-2. Model emits a fruit suggestion + one-line reason and submits.
+2. The selected color routes to its matching fruit-picking state. Model emits a
+   fruit suggestion + one-line reason and submits.
 3. TUI prompts `Suggested fruit: <X>. Want this one? Reply yes or no`.
-4. **Yes** → final state writes `result.md`. **No** → model picks a
-   different fruit, prompt repeats.
+4. **Yes** → final state writes `result.md`. **No** → `retry` clears the
+   previous fruit/reason and routes back to the same color branch so the model
+   picks a different fruit.
 
 ### What to look for
 
