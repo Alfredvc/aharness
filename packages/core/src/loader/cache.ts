@@ -4,13 +4,15 @@
  * Keyed by content hash of the user's source tree (the file containing
  * `state({ exits: { … } })` calls plus its sibling `.ts` files in the
  * same source directory, recursively, excluding `node_modules`, `dist`,
- * and the cache directory itself) plus the absolute entry file path. The
- * absolute entry salt is required because the serialized sidecar includes
- * absolute skill-origin metadata; without it, identical source trees loaded
- * under one repoRoot could replay another tree's origins. On hit, the loader
- * skips esbuild bundling and `ts-json-schema-generator` extraction; it
- * dynamic-imports the cached `fsm.mjs` and recompiles ajv validators
- * from the `__sidecar` JSON-Schema blob the bundle re-exports.
+ * and the cache directory itself), the absolute entry file path, and the
+ * resolved runtime dependency identity. The absolute entry salt is required
+ * because the serialized sidecar includes absolute skill-origin metadata;
+ * without it, identical source trees loaded under one repoRoot could replay
+ * another tree's origins. The runtime identity salt is required because the
+ * emitted bundle imports aharness and xstate through absolute paths. On hit,
+ * the loader skips esbuild bundling and `ts-json-schema-generator`
+ * extraction; it dynamic-imports the cached `fsm.mjs` and recompiles ajv
+ * validators from the `__sidecar` JSON-Schema blob the bundle re-exports.
  *
  * Compiled ajv validators are not serialised. Recompiling them with
  * `ajv.compile(schema)` per cache hit costs ~hundreds of microseconds for
@@ -39,6 +41,10 @@
  *   - Salts the hash with the loader's own version marker so a future
  *     change to the schema/origin-extraction algorithm invalidates every cache
  *     without having to clear `.aharness/cache/` manually.
+ *   - Includes the resolved aharness/xstate runtime identity because the
+ *     emitted bundle imports those dependencies through absolute paths.
+ *     Source-mode and dist-mode loaders therefore get different direct cache
+ *     entries.
  */
 
 import { createHash } from 'node:crypto';
@@ -49,9 +55,15 @@ import { canonicalJson } from '../internal/canonicalJson.js';
 import type { AvailableSkillRef } from '../state/skills.js';
 import type { SidecarIssue } from './sidecar.js';
 import type { ArgFlagMeta } from './inputSchema.js';
+import { getInstallPaths } from './installPath.js';
 
 /**
  * Bumped when the loader's serialisation shape changes.
+ *
+ * v6 (2026-06-05): salts direct-file cache keys with the resolved
+ *   `@aharness/core` and `xstate` runtime entries, package directories, and
+ *   package versions. Direct bundles externalise those imports as absolute
+ *   paths, so source-mode and dist-mode loaders must not share cache entries.
  *
  * v5 (2026-06-02): adds required `skillOriginManifest` metadata to the
  *   serialized sidecar and salts direct-cache keys with the absolute FSM entry
@@ -187,19 +199,27 @@ export interface SerializedSidecar {
 
 /**
  * Compute a SHA-256 over every `.ts`/`.tsx` file under `sourceRoot`,
- * excluding the directories listed in `SKIP_DIR_NAMES`. The hash is
- * salted with `CACHE_VERSION` (so a loader update invalidates prior caches)
- * and the absolute entry file path (so absolute skill-origin metadata cannot
- * be shared across identical source trees at different locations).
+ * excluding the directories listed in `SKIP_DIR_NAMES`.
+ *
+ * The hash is salted with:
+ *   - `CACHE_VERSION`, so loader behavior changes invalidate prior caches;
+ *   - the absolute entry file path, so absolute skill-origin metadata cannot
+ *     be shared across identical source trees at different locations;
+ *   - the resolved runtime dependency identity, because the compiled bundle
+ *     externalises `@aharness/core` and `xstate` as absolute paths.
  */
 export async function hashSourceTree(sourceRoot: string, entryFile: string): Promise<string> {
   const files: string[] = [];
   await collectFiles(sourceRoot, files);
   files.sort();
 
+  const runtimeIdentity = await directRuntimeCacheIdentity();
+
   const hasher = createHash('sha256');
   hasher.update(`aharness-loader-cache:${CACHE_VERSION}\n`);
   hasher.update(`E:${path.resolve(entryFile)}\n`);
+  hasher.update(canonicalJson({ runtime: runtimeIdentity }));
+  hasher.update('\n');
   for (const file of files) {
     const rel = path.relative(sourceRoot, file);
     const buf = await fs.readFile(file);
@@ -208,6 +228,30 @@ export async function hashSourceTree(sourceRoot: string, entryFile: string): Pro
     hasher.update('\n');
   }
   return hasher.digest('hex');
+}
+
+async function directRuntimeCacheIdentity(): Promise<{
+  readonly aharnessCoreEntry: string;
+  readonly aharnessCorePackageDir: string;
+  readonly aharnessCoreVersion: string | null;
+  readonly xstateEntry: string;
+  readonly xstatePackageDir: string;
+  readonly xstateVersion: string | null;
+}> {
+  const installPaths = await getInstallPaths();
+  const [aharnessCoreVersion, xstateVersion] = await Promise.all([
+    readPackageVersion(installPaths.aharnessCoreSdkPackageDir),
+    readPackageVersion(installPaths.xstatePackageDir),
+  ]);
+
+  return {
+    aharnessCoreEntry: path.resolve(installPaths.aharnessCoreSdkEntry),
+    aharnessCorePackageDir: path.resolve(installPaths.aharnessCoreSdkPackageDir),
+    aharnessCoreVersion,
+    xstateEntry: path.resolve(installPaths.xstateEntry),
+    xstatePackageDir: path.resolve(installPaths.xstatePackageDir),
+    xstateVersion,
+  };
 }
 
 async function collectFiles(dir: string, out: string[]): Promise<void> {

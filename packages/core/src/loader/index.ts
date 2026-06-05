@@ -12,20 +12,19 @@
  *   - later runtime skill-resolution slices (`skillOriginManifest`).
  *
  * Cache semantics: hash all `.ts`/`.tsx` files under `dirname(filePath)`
- * (recursive, skipping `node_modules`/`dist`/`.aharness`/dot-dirs) plus a
- * loader-version salt and the absolute entry file path. The absolute entry
- * salt keeps serialized skill-origin metadata correct for identical source
- * trees loaded under one repoRoot. On hit, dynamic-import the cached `fsm.mjs`;
- * the bundle re-exports a `__sidecar` literal (injected by `compileFsm`'s
- * esbuild banner) which the loader reads back to recompile ajv validators. On
- * miss, run the extractor + esbuild bundler. `noCache: true` skips the read
- * side; the write side always runs so subsequent loads warm up.
+ * (recursive, skipping `node_modules`/`dist`/`.aharness`/dot-dirs), the
+ * absolute entry file path, the loader-version salt, and the resolved runtime
+ * dependency identity for `@aharness/core` and `xstate`. On hit,
+ * dynamic-import the cached `fsm.mjs`; the bundle re-exports a `__sidecar`
+ * literal (injected by `compileFsm`'s esbuild banner) which the loader reads
+ * back to recompile ajv validators. On miss, run the extractor + esbuild
+ * bundler. `noCache: true` skips the read side; the write side always runs so
+ * subsequent loads warm up.
  *
  * Cache location is `<repoRoot>/.aharness/cache/<hash>/`. `repoRoot` is the
- * user's project root (where their `package.json` and `node_modules` sit).
- * The bundled `fsm.mjs` keeps `xstate` and `@aharness/core` as runtime
- * externals; node's upward `node_modules` resolution from the cache
- * directory walks back to `<repoRoot>/node_modules/` and finds them.
+ * user's project root. The bundled `fsm.mjs` externalises `xstate` and
+ * `@aharness/core` as absolute paths resolved from the aharness install, so the
+ * cache key includes those resolved entries and package versions.
  */
 
 import * as path from 'node:path';

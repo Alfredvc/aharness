@@ -307,5 +307,7 @@ the FSM via esbuild against the workspace's `@aharness/core` — no
 `package.json`, `tsconfig.json`, or tests required. Multi-file demos
 can split helper `.ts` siblings alongside (e.g.
 `examples/composed-pipeline.fsm.ts` + `examples/composed-pipeline-child.fsm.ts`);
-the loader cache keys on the entry file's basename in addition to the
-directory tree, so multiple FSMs in the same directory do not collide.
+the loader cache keys on the entry file's basename, the source directory tree,
+and the resolved aharness/xstate runtime identity, so multiple FSMs in the same
+directory do not collide and source-mode cache entries are not reused by the
+built CLI.
