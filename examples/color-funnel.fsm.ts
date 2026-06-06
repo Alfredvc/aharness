@@ -101,49 +101,8 @@ export default fsm.machine({
       question: (data) => `Suggested fruit: ${data.fruit ?? '(none)'}. Want this one?`,
       options: [
         { label: 'Yes', to: 'finalize' },
-        { label: 'No, pick another', to: 'retry' },
+        { label: 'No, pick another', to: 'pickColor' },
       ],
-    }),
-    retry: fsm.state({
-      prompt:
-        'Clear the previous fruit and route back to the appropriate fruit-picking state for the existing color.',
-      on: {
-        submit: fsm.submit<Record<string, never>>({
-          route: [
-            {
-              if: (data) => data.color === 'red',
-              to: 'redFruit',
-              reduce: (draft) => {
-                draft.fruit = null;
-                draft.reason = null;
-              },
-            },
-            {
-              if: (data) => data.color === 'green',
-              to: 'greenFruit',
-              reduce: (draft) => {
-                draft.fruit = null;
-                draft.reason = null;
-              },
-            },
-            {
-              if: (data) => data.color === 'blue',
-              to: 'blueFruit',
-              reduce: (draft) => {
-                draft.fruit = null;
-                draft.reason = null;
-              },
-            },
-            {
-              to: 'yellowFruit',
-              reduce: (draft) => {
-                draft.fruit = null;
-                draft.reason = null;
-              },
-            },
-          ],
-        }),
-      },
     }),
     finalize: fsm.final({
       outcome: 'success',
