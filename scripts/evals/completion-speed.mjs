@@ -2,18 +2,18 @@
 /**
  * Measure aharness shell-completion latency.
  *
- * This intentionally shells out to the real `aharness completion-server`
- * command because that is what the installed tabtab delegate does on every
- * Tab press. Use it before and after completion-path changes:
+ * This intentionally shells out to the real `aharness-completion` binary
+ * because that is what the installed tabtab delegate uses on every Tab press.
+ * Use it before and after completion-path changes:
  *
  *   node scripts/evals/completion-speed.mjs --output /tmp/aharness-completion-before.json
  *   node scripts/evals/completion-speed.mjs --baseline /tmp/aharness-completion-before.json
  *
- * By default it runs the globally resolved `aharness` binary. To measure a
- * local build instead:
+ * By default it runs the globally resolved `aharness-completion` binary. To
+ * measure a local build instead:
  *
  *   pnpm --filter @aharness/core build
- *   node scripts/evals/completion-speed.mjs --command "node packages/core/dist/cli/main.js"
+ *   node scripts/evals/completion-speed.mjs --command "node packages/core/dist/cli/completionMain.js"
  */
 
 import { spawn, spawnSync } from 'node:child_process';
@@ -98,7 +98,7 @@ function usage() {
   node scripts/evals/completion-speed.mjs [options]
 
 options:
-  --command <cmd>       Command used before "completion-server" (default: aharness)
+  --command <cmd>       Completion binary command (default: aharness-completion)
   --iterations <n>      Measured iterations per case (default: ${DEFAULT_ITERATIONS})
   --warmup <n>          Warmup iterations per case, excluded from stats (default: ${DEFAULT_WARMUP})
   --timeout-ms <n>      Per-invocation timeout (default: ${DEFAULT_TIMEOUT_MS})
@@ -118,7 +118,7 @@ examples:
 
 function parseArgs(argv) {
   const opts = {
-    command: process.env.AHARNESS_COMPLETION_COMMAND ?? 'aharness',
+    command: process.env.AHARNESS_COMPLETION_COMMAND ?? 'aharness-completion',
     iterations: DEFAULT_ITERATIONS,
     warmup: DEFAULT_WARMUP,
     timeoutMs: DEFAULT_TIMEOUT_MS,

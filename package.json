@@ -11,6 +11,7 @@
   },
   "scripts": {
     "build": "pnpm run sync:package-readmes && tsc --build && pnpm --dir packages/web-ui build && pnpm --dir packages/core exec node scripts/postBuild.mjs",
+    "link": "env PATH=\"${PNPM_HOME:-$HOME/Library/pnpm}/bin:$PATH\" pnpm add --global ./packages/core",
     "clean": "tsc --build --clean && rimraf packages/core/dist packages/test-support/dist packages/web-ui/dist packages/core/*.tsbuildinfo packages/test-support/*.tsbuildinfo",
     "typecheck": "tsc --noEmit --project tsconfig.lint.json",
     "lint": "oxlint --max-warnings 0",

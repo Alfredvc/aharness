@@ -704,7 +704,7 @@ describe('dispatch', () => {
     await expectUsageOnly(['completion']);
   });
 
-  it('returns usage for completion-server on the main aharness dispatcher', async () => {
+  it('returns usage for hidden completion traffic on the public dispatcher', async () => {
     await expectUsageOnly(['completion-server', '--', 'aharness', 'visualize']);
   });
 });
