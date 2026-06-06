@@ -1,0 +1,21 @@
+{
+  "name": "@scope/installed-e2e",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "@aharness/core": "^0.1.0"
+  },
+  "bundleDependencies": [
+    "@aharness/core"
+  ],
+  "aharness": {
+    "package": {
+      "commands": {
+        "main": {
+          "entry": "fsms/shim.fsm.ts",
+          "description": "Installed e2e shim command"
+        }
+      }
+    }
+  }
+}
