@@ -113,6 +113,11 @@ Never stage or commit files under these local planning and follow-up areas:
 - When running visual Playwright tests that start `aharness run`, pass
   `--no-open` so aharness serves and prints the UI URL without launching a
   separate system browser window.
+- Release prep uses `commit-and-tag-version`; generated `CHANGELOG.md` and
+  GitHub release notes only show visible Conventional Commit types: `feat`,
+  `fix`, `perf`, and `refactor`. `docs`, `chore`, `test`, `style`, `ci`, and
+  `build` are hidden, so use a visible type for user-facing release-note-worthy
+  changes.
 - Treat `examples/workflow-references/` as workflow-opinion material that users
   may encode in FSMs, not as framework policy.
 - On or after 2026-06-12, revisit the temporary `react-doctor@0.2.14` pin and

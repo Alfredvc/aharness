@@ -118,6 +118,12 @@ and package-authoring docs on the same public `@aharness/core` range, commits
 `chore(release): vX.Y.Z`, and tags `vX.Y.Z`. Do not manually edit release
 versions or changelog sections for normal releases.
 
+Generated release notes only show commits whose type is configured as visible in
+`.versionrc.json`: `feat`, `fix`, `perf`, and `refactor`. Commits typed
+`docs`, `chore`, `test`, `style`, `ci`, or `build` are hidden from the
+changelog and GitHub release body. Use a visible type for user-facing changes
+that should appear in release notes.
+
 The normal npm publishing path is `.github/workflows/release.yml`. It runs on
 `v*` tags, checks out the pinned Codex source into the runner temp directory,
 verifies the tag matches the root/package versions, runs
