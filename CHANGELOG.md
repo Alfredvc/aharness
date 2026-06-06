@@ -1,9 +1,17 @@
 # Changelog
 
-All notable user-facing changes for aharness are recorded here.
-`commit-and-tag-version` updates this file from Conventional Commits during
-release prep. The GitHub release workflow extracts the matching version section
-as the release body.
+All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
+
+## [0.1.1](https://github.com/Alfredvc/aharness/compare/v0.1.0...v0.1.1) (2026-06-06)
+
+### Features
+
+- **release:** add changelog generation tooling ([cb78493](https://github.com/Alfredvc/aharness/commit/cb7849375431e83e5382685929379c4fb31aefef))
+- **release:** document changelog visibility rules ([0791e11](https://github.com/Alfredvc/aharness/commit/0791e119dd61ae1386bf2f57b9ed666df2affc12))
+
+### Bug Fixes
+
+- route installed runs through production cli ([83d9cd3](https://github.com/Alfredvc/aharness/commit/83d9cd3e6f92e1cbf80a829279b837c347e99a1f))
 
 ## 0.1.0 - Initial OSS release
 

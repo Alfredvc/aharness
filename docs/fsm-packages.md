@@ -56,7 +56,7 @@ entries:
   "type": "module",
   "files": ["fsms", "skills", "prompts", "README.md", "LICENSE"],
   "dependencies": {
-    "@aharness/core": "^0.1.0"
+    "@aharness/core": "^0.1.1"
   },
   "exports": {
     "./build.fsm.js": "./fsms/build.fsm.ts"
