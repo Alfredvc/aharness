@@ -249,6 +249,7 @@ aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|y
 aharness install <source>
 aharness list
 aharness uninstall <package-name>
+aharness verify <command>
 aharness verify <package-name>
 aharness verify <package-name>/<command-name>
 aharness completion install [--shell bash|zsh|fish]
@@ -489,11 +490,12 @@ trusted installs. The command target is a package name, not a command name or
 bare command alias.
 
 `aharness verify <file.fsm.ts>` still verifies a direct FSM file. Installed
-packages can be checked with `aharness verify <package-name>`, and a single
-installed command can be checked with
-`aharness verify <package-name>/<command-name>`. Installed command warnings are
-printed as diagnostic lines while the successful command summary remains on
-standard output.
+commands can be checked with `aharness verify <command>` when the bare command
+name is unique, or with `aharness verify <package-name>/<command-name>`.
+Installed packages can still be batch-checked with
+`aharness verify <package-name>`. Installed command warnings are printed as
+diagnostic lines while the successful command summary remains on standard
+output.
 
 Installed `run` and installed `verify` recompute the current managed npm
 project lock fingerprint before loading a package command. If the managed tree

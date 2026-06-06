@@ -107,25 +107,73 @@ describe('aharness verify installed packages and commands', () => {
     expect(unscoped).toEqual({ exitCode: 0 });
   });
 
-  it('treats unscoped single-token targets as package names, not bare commands', async () => {
+  it('verifies unique bare installed commands when no package has that name', async () => {
     const snapshot = runtimeSnapshot([
       installRecord('@scope/tools', { build: commandMetadata('build') }),
     ]);
-    const stderr = captureStream();
+    const loadInstalledFsmImpl = vi.fn(async () => makeLoadedFsm());
+    const verifyImpl = vi.fn(() => okVerifyResult());
+    const stdout = captureStream();
+
+    const result = await runVerifyInstalledCli({
+      target: 'build',
+      cwd: '/workspace',
+      stdout: stdout.stream,
+      stderr: captureStream().stream,
+      readSnapshotImpl: async () => ({ ok: true, value: snapshot }),
+      checkLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
+      loadInstalledFsmImpl,
+      verifyImpl,
+    });
+
+    expect(result).toEqual({ exitCode: 0 });
+    expect(loadInstalledFsmImpl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        entryFile: path.join('/store/packages/node_modules/@scope/tools', 'fsms/build.fsm.ts'),
+        commandName: 'build',
+      }),
+    );
+    expect(verifyImpl).toHaveBeenCalledTimes(1);
+    expect(stdout.text()).toContain('verify: ok (@scope/tools/build, 0 warnings)');
+  });
+
+  it('still treats an exact unscoped package match as a package target', async () => {
+    const snapshot = runtimeSnapshot([
+      installRecord('build', {
+        zeta: commandMetadata('zeta'),
+        alpha: commandMetadata('alpha'),
+      }),
+      installRecord('@scope/tools', { build: commandMetadata('build') }),
+    ]);
+    const loadInstalledFsmImpl = vi.fn(async () => makeLoadedFsm());
 
     const result = await runVerifyInstalledCli({
       target: 'build',
       cwd: '/workspace',
       stdout: captureStream().stream,
-      stderr: stderr.stream,
+      stderr: captureStream().stream,
       readSnapshotImpl: async () => ({ ok: true, value: snapshot }),
       checkLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
-      loadInstalledFsmImpl: vi.fn(async () => makeLoadedFsm()),
+      loadInstalledFsmImpl,
       verifyImpl: vi.fn(() => okVerifyResult()),
     });
 
-    expect(result).toEqual({ exitCode: 1 });
-    expect(stderr.text()).toContain("package 'build' is not installed");
+    expect(result).toEqual({ exitCode: 0 });
+    expect(loadInstalledFsmImpl).toHaveBeenCalledTimes(2);
+    expect(loadInstalledFsmImpl).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        entryFile: path.join('/store/packages/node_modules/build', 'fsms/alpha.fsm.ts'),
+        commandName: 'alpha',
+      }),
+    );
+    expect(loadInstalledFsmImpl).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        entryFile: path.join('/store/packages/node_modules/build', 'fsms/zeta.fsm.ts'),
+        commandName: 'zeta',
+      }),
+    );
   });
 
   it('fails before loading when the package lock fingerprint changed', async () => {

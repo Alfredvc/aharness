@@ -137,9 +137,9 @@ Then inspect and run:
 
 ```bash
 aharness list
-aharness verify @scope/tools
+aharness verify build
 aharness verify @scope/tools/build
-aharness run @scope/tools/build --project ./app
+aharness run build --project ./app
 ```
 
 Remove a package by package identity, not by command name:

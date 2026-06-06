@@ -55,31 +55,39 @@ export async function runVerifyInstalledCli(
   }
 
   const parsed = parseCommandIdentity(opts.target);
-  if (parsed.ok && parsed.value.kind === 'qualified') {
-    const command = resolveInstalledCommand(opts.target, snapshot.value);
-    if (!command.ok) {
-      writeInstallStoreDiagnostics(opts.stderr, 'aharness verify failed', command.diagnostics);
-      return { exitCode: 1 };
-    }
-    const fingerprint = await (opts.checkLockFingerprintImpl ?? checkInstalledLockFingerprint)(
-      command.value.install,
-      snapshot.value.paths,
-    );
-    if (!fingerprint.ok) {
-      writeInstallStoreDiagnostics(opts.stderr, 'aharness verify failed', fingerprint.diagnostics);
-      return { exitCode: 1 };
-    }
-    return verifyOneCommand({
-      identity: command.value.identity,
-      install: command.value.install,
-      command: command.value.command,
-      snapshot: snapshot.value,
-      opts,
-    });
+  if (parsed.ok && parsed.value.kind !== 'package') {
+    return verifyCommand(opts.target, snapshot.value, opts);
   }
 
   writeInstallStoreDiagnostics(opts.stderr, 'aharness verify failed', packageResult.diagnostics);
   return { exitCode: 1 };
+}
+
+async function verifyCommand(
+  target: string,
+  snapshot: InstalledRuntimeSnapshot,
+  opts: RunVerifyInstalledCliOptions,
+): Promise<{ readonly exitCode: number }> {
+  const command = resolveInstalledCommand(target, snapshot);
+  if (!command.ok) {
+    writeInstallStoreDiagnostics(opts.stderr, 'aharness verify failed', command.diagnostics);
+    return { exitCode: 1 };
+  }
+  const fingerprint = await (opts.checkLockFingerprintImpl ?? checkInstalledLockFingerprint)(
+    command.value.install,
+    snapshot.paths,
+  );
+  if (!fingerprint.ok) {
+    writeInstallStoreDiagnostics(opts.stderr, 'aharness verify failed', fingerprint.diagnostics);
+    return { exitCode: 1 };
+  }
+  return verifyOneCommand({
+    identity: command.value.identity,
+    install: command.value.install,
+    command: command.value.command,
+    snapshot,
+    opts,
+  });
 }
 
 async function verifyPackage(

@@ -358,6 +358,7 @@ function usage(stderr: NodeJS.WritableStream): number {
       '  aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|yarn|bun>]\n' +
       '  aharness install <source>\n' +
       '  aharness verify <file.fsm.ts>\n' +
+      '  aharness verify <command>\n' +
       '  aharness verify <package-name>\n' +
       '  aharness verify <package-name>/<command-name>\n' +
       '  aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...\n' +

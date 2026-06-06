@@ -694,6 +694,7 @@ describe('dispatch', () => {
     );
     expect(text).toContain('aharness list');
     expect(text).toContain('aharness uninstall <package-name>');
+    expect(text).toContain('aharness verify <command>');
     expect(text).toContain('aharness verify <package-name>');
     expect(text).toContain('aharness view [run-id]');
     expect(text).not.toContain('[--resume]');
