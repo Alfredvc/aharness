@@ -241,7 +241,7 @@ npm install -g @aharness/core
 ```bash
 aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...
 aharness run <file.fsm.ts> --help
-aharness visualize <file.fsm.ts> [--<flag> <value>]...
+aharness visualize <file.fsm.ts|command> [--<flag> <value>]...
 aharness view [run-id]
 aharness verify <file.fsm.ts>
 aharness doctor
@@ -256,7 +256,8 @@ aharness completion uninstall
 ```
 
 Machine inputs become kebab-case flags for
-`aharness run <file.fsm.ts|command>` and `aharness visualize <file.fsm.ts>`.
+`aharness run <file.fsm.ts|command>` and
+`aharness visualize <file.fsm.ts|command>`.
 For example, `fixtureRoot` becomes `--fixture-root`. Default live runs use
 Codex auto-review for eligible approval prompts. `--ask` restores manual
 user/browser review, `--yolo` remains a dangerous bypass that disables
@@ -285,7 +286,10 @@ top-level `aharness --help`, `aharness help`, and arbitrary-position `--help`
 are not part of this slice and return generic usage.
 
 `aharness visualize` does not require runtime input flags; any provided flags
-are checked for name/type validity but are not used to start an actor.
+are checked for name/type validity but are not used to start an actor. It
+accepts local `.fsm.ts` files, unique installed bare command names such as
+`build`, and fully qualified installed command identities such as
+`workflow-package/build`. Package-only installed identities are not FSM targets.
 
 `aharness view [run-id]` opens a foreground, read-only browser session for a
 recorded run under `.aharness/runs`. With no run id, it selects the newest
@@ -330,8 +334,9 @@ their detail lines are printed before the final `verify: ok (...)` summary.
 `aharness doctor` checks the Codex CLI version gate and reports active run health
 from `.aharness/runs`. `aharness visualize` verifies and opens the browser
 graph/details UI in inspection mode without starting Codex, hooks, a thread, or
-the FSM actor. Function-form prompts are shown as source so dynamic state
-instructions remain inspectable.
+the FSM actor. Installed command targets are resolved through the installed
+package lock and verified before the FSM is loaded for inspection. Function-form
+prompts are shown as source so dynamic state instructions remain inspectable.
 
 During live runs, standard output is an operator status stream rather than the
 model transcript. It is limited to the run start line, browser UI availability,

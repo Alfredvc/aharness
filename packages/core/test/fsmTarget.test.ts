@@ -175,6 +175,7 @@ describe('FSM target resolution contracts', () => {
       identity: '@scope/tools/build',
       install,
       command: install.commands['build'],
+      paths: snapshot.paths,
       entryFile: path.join(install.packageRoot, 'dist/build.fsm.js'),
       lockFingerprint: 'verified-lock',
     });
@@ -203,6 +204,7 @@ describe('FSM target resolution contracts', () => {
       identity: '@scope/tools/build',
       install,
       command: install.commands['build'],
+      paths: snapshot.paths,
       entryFile: path.join(install.packageRoot, 'dist/build.fsm.js'),
       lockFingerprint: 'verified-lock',
     });
@@ -225,9 +227,35 @@ describe('FSM target resolution contracts', () => {
       identity: '@scope/tools/deploy',
       install,
       command: install.commands['deploy'],
+      paths: snapshot.paths,
       entryFile: path.join(install.packageRoot, 'fsms/deploy.fsm.ts'),
       lockFingerprint: 'verified-lock',
     });
+  });
+
+  it('exposes trusted snapshot paths from the same snapshot used for fingerprint validation', async () => {
+    const install = installRecord('@scope/tools', {
+      build: commandMetadata('build', 'dist/build.fsm.js'),
+    });
+    const snapshot = runtimeSnapshot([install]);
+    const readSnapshotImpl = vi.fn(async () => ({ ok: true as const, value: snapshot }));
+    let checkedPaths: InstallStorePaths | undefined;
+
+    const result = await resolveFsmTarget('@scope/tools/build', {
+      readSnapshotImpl,
+      checkLockFingerprintImpl: async (_record, paths) => {
+        checkedPaths = paths;
+        return { ok: true, value: 'computed-lock' };
+      },
+    });
+
+    expect(result).toMatchObject({
+      kind: 'installed',
+      paths: snapshot.paths,
+    });
+    expect(result.kind === 'installed' ? result.paths : undefined).toBe(snapshot.paths);
+    expect(checkedPaths).toBe(snapshot.paths);
+    expect(readSnapshotImpl).toHaveBeenCalledTimes(1);
   });
 
   it('passes CLI environment seams to the snapshot reader', async () => {
@@ -521,6 +549,12 @@ describe('FSM target resolution contracts', () => {
       identity: '@scope/tools/build',
       install,
       command,
+      paths: {
+        storeRoot: '/store',
+        managedProjectRoot: '/store/packages',
+        installsPath: '/store/installs.json',
+        commandsPath: '/store/commands.json',
+      },
       entryFile: '/store/tools/dist/build.fsm.js',
       lockFingerprint: 'lock-1',
     };
@@ -530,6 +564,12 @@ describe('FSM target resolution contracts', () => {
       identity: '@scope/tools/build',
       install,
       command,
+      paths: {
+        storeRoot: '/store',
+        managedProjectRoot: '/store/packages',
+        installsPath: '/store/installs.json',
+        commandsPath: '/store/commands.json',
+      },
       entryFile: '/store/tools/dist/build.fsm.js',
       lockFingerprint: 'lock-1',
     });

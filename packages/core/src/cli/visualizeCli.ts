@@ -3,9 +3,9 @@
  * starting Codex, hooks, or an XState actor.
  */
 import { randomBytes } from 'node:crypto';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 
-import { loadFsm } from '../loader/index.js';
+import { loadFsm, loadInstalledFsm, type LoadFsmResult } from '../loader/index.js';
 import { parseInputFlags } from '../loader/inputFlags.js';
 import { fsmHash6 } from '../run.js';
 import { resolveEntryPrompt } from '../runtime/resolvePrompt.js';
@@ -17,16 +17,26 @@ import { startUiServer, type UiRunScopedRouteService, type UiServerHandle } from
 import { extractUiTopology } from '../ui/topology.js';
 import { launchBrowser } from '../ui/browserLauncher.js';
 import type { FsmState, RunMeta, VizNode } from '../ui/events.js';
+import { verify } from '../verify/index.js';
 
+import {
+  resolveFsmTarget,
+  type InstalledFsmTarget,
+  type ResolveFsmTargetOptions,
+} from './fsmTarget.js';
+import { writeInstallStoreDiagnostics } from './installStoreDiagnostics.js';
 import { emitReservedFlagWarnings } from './reservedFlags.js';
 import { runVerifyCli } from './verifyCli.js';
+import { formatVerifyIssue } from './verifyIssueFormat.js';
 
 export interface RunVisualizeCliOpts {
-  readonly fsmPath: string;
+  readonly target: string;
   readonly cwd: string;
   readonly stderr: NodeJS.WritableStream;
   readonly stdout: NodeJS.WritableStream;
   readonly inputArgs?: ReadonlyArray<string>;
+  readonly env?: ResolveFsmTargetOptions['env'];
+  readonly homeDir?: ResolveFsmTargetOptions['homeDir'];
 }
 
 export interface RunVisualizeCliResult {
@@ -36,9 +46,13 @@ export interface RunVisualizeCliResult {
 export interface RunVisualizeCliTestHooks {
   readonly verify?: (o: { fsmPath: string; repoRoot: string }) => Promise<{ exitCode: number }>;
   readonly loadFsmImpl?: typeof loadFsm;
+  readonly loadInstalledFsmImpl?: typeof loadInstalledFsm;
+  readonly verifyImpl?: typeof verify;
   readonly startUiServerImpl?: typeof startUiServer;
   readonly launchBrowserImpl?: typeof launchBrowser;
   readonly waitForExit?: () => Promise<{ readonly exitCode?: number } | null>;
+  readonly readSnapshotImpl?: ResolveFsmTargetOptions['readSnapshotImpl'];
+  readonly checkLockFingerprintImpl?: ResolveFsmTargetOptions['checkLockFingerprintImpl'];
 }
 
 export type RunVisualizeCliForTestOpts = RunVisualizeCliOpts & RunVisualizeCliTestHooks;
@@ -49,6 +63,30 @@ export function runVisualizeCli(o: RunVisualizeCliOpts): Promise<RunVisualizeCli
 
 export async function runVisualizeCliForTest(
   o: RunVisualizeCliForTestOpts,
+): Promise<RunVisualizeCliResult> {
+  const resolved = await resolveFsmTarget(o.target, {
+    ...(o.env !== undefined ? { env: o.env } : {}),
+    ...(o.homeDir !== undefined ? { homeDir: o.homeDir } : {}),
+    ...(o.readSnapshotImpl !== undefined ? { readSnapshotImpl: o.readSnapshotImpl } : {}),
+    ...(o.checkLockFingerprintImpl !== undefined
+      ? { checkLockFingerprintImpl: o.checkLockFingerprintImpl }
+      : {}),
+  });
+
+  if (resolved.kind === 'invalid') {
+    writeInstallStoreDiagnostics(o.stderr, 'aharness visualize failed', resolved.diagnostics);
+    return { exitCode: 1 };
+  }
+
+  if (resolved.kind === 'installed') {
+    return runInstalledVisualizeCliForTest(o, resolved);
+  }
+
+  return runLocalVisualizeCliForTest({ ...o, fsmPath: resolved.target });
+}
+
+async function runLocalVisualizeCliForTest(
+  o: RunVisualizeCliForTestOpts & { readonly fsmPath: string },
 ): Promise<RunVisualizeCliResult> {
   const repoRoot = o.cwd;
   const verify = await (o.verify ?? defaultVerify)({ fsmPath: o.fsmPath, repoRoot });
@@ -64,13 +102,98 @@ export async function runVisualizeCliForTest(
     return { exitCode: 2 };
   }
 
-  emitReservedFlagWarnings(loaded.inputFlags, o.stderr);
+  return runLoadedVisualizeCliForTest({ ...o, repoRoot, fsmAbs, loaded });
+}
+
+async function runInstalledVisualizeCliForTest(
+  o: RunVisualizeCliForTestOpts,
+  target: InstalledFsmTarget,
+): Promise<RunVisualizeCliResult> {
+  const verifyResult = await verifyInstalledVisualizeTarget(o, target);
+  if (verifyResult.exitCode !== 0) return { exitCode: verifyResult.exitCode };
+
+  const loadInstalledFsmFn = o.loadInstalledFsmImpl ?? loadInstalledFsm;
+  let loaded: Awaited<ReturnType<typeof loadInstalledFsmFn>>;
+  try {
+    loaded = await loadInstalledFsmFn(installedLoadOptions(target));
+  } catch (e) {
+    o.stderr.write(`aharness visualize: failed to load FSM: ${(e as Error).message}\n`);
+    return { exitCode: 2 };
+  }
+
+  return runLoadedVisualizeCliForTest({
+    ...o,
+    repoRoot: target.install.packageRoot,
+    fsmAbs: target.entryFile,
+    loaded,
+  });
+}
+
+async function verifyInstalledVisualizeTarget(
+  o: RunVisualizeCliForTestOpts,
+  target: InstalledFsmTarget,
+): Promise<RunVisualizeCliResult> {
+  const loadInstalledFsmFn = o.loadInstalledFsmImpl ?? loadInstalledFsm;
+  const verifyFn = o.verifyImpl ?? verify;
+  let loaded: Awaited<ReturnType<typeof loadInstalledFsmFn>>;
+  try {
+    loaded = await loadInstalledFsmFn(installedLoadOptions(target));
+  } catch (e) {
+    o.stderr.write(`aharness visualize failed:\n`);
+    o.stderr.write(
+      `  - ${target.identity}: [installed-command-load-failed] ${(e as Error).message}\n`,
+    );
+    return { exitCode: 1 };
+  }
+
+  const result = verifyFn(loaded.machine, loaded.sidecar, loaded.issues, {
+    skillEnv: {
+      fsmFileDir: dirname(target.entryFile),
+      repoRoot: target.install.packageRoot,
+    },
+    skillOriginManifest: loaded.skillOriginManifest,
+    sourceLocations: loaded.sourceLocations,
+  });
+  if (result.ok) {
+    for (const issue of result.warnings) {
+      o.stderr.write(`${formatVerifyIssue(issue, { sourceLocations: loaded.sourceLocations })}\n`);
+    }
+    o.stdout.write(`verify: ok (${target.identity}, ${String(result.warnings.length)} warnings)\n`);
+    return { exitCode: 0 };
+  }
+
+  for (const issue of result.issues) {
+    o.stderr.write(`${formatVerifyIssue(issue, { sourceLocations: loaded.sourceLocations })}\n`);
+  }
+  return { exitCode: 1 };
+}
+
+function installedLoadOptions(target: InstalledFsmTarget) {
+  return {
+    entryFile: target.entryFile,
+    packageName: target.install.packageName,
+    commandName: target.command.commandName,
+    packageRoot: target.install.packageRoot,
+    managedProjectRoot: target.paths.managedProjectRoot,
+    storeRoot: target.paths.storeRoot,
+    lockFingerprint: target.lockFingerprint,
+  };
+}
+
+async function runLoadedVisualizeCliForTest(
+  o: RunVisualizeCliForTestOpts & {
+    readonly repoRoot: string;
+    readonly fsmAbs: string;
+    readonly loaded: LoadFsmResult;
+  },
+): Promise<RunVisualizeCliResult> {
+  emitReservedFlagWarnings(o.loaded.inputFlags, o.stderr);
   const inputArgs = o.inputArgs ?? [];
-  if (inputArgs.length > 0 && loaded.inputSchema && loaded.inputFlags) {
+  if (inputArgs.length > 0 && o.loaded.inputSchema && o.loaded.inputFlags) {
     const parsed = parseInputFlags({
       args: inputArgs,
-      schema: optionalizeInputSchema(loaded.inputSchema),
-      flags: loaded.inputFlags,
+      schema: optionalizeInputSchema(o.loaded.inputSchema),
+      flags: o.loaded.inputFlags,
     });
     if (!parsed.ok) {
       o.stderr.write(`aharness visualize: input flags invalid:\n${parsed.errors.join('\n')}\n`);
@@ -84,14 +207,14 @@ export async function runVisualizeCliForTest(
     return { exitCode: 2 };
   }
 
-  const topology = extractUiTopology(loaded.machine, { sidecar: loaded.sidecar });
-  const initialState = initialInspectState(loaded.machine, topology.nodes, topology.initial);
+  const topology = extractUiTopology(o.loaded.machine, { sidecar: o.loaded.sidecar });
+  const initialState = initialInspectState(o.loaded.machine, topology.nodes, topology.initial);
   const runMeta: RunMeta = {
-    runId: `inspect-${fsmHash6(fsmAbs)}`,
+    runId: `inspect-${fsmHash6(o.fsmAbs)}`,
     threadId: '',
-    repoRoot,
-    fsmFile: fsmAbs,
-    fsmHash6: fsmHash6(fsmAbs),
+    repoRoot: o.repoRoot,
+    fsmFile: o.fsmAbs,
+    fsmHash6: fsmHash6(o.fsmAbs),
     codexPin: 'not started',
     startedAt: new Date().toISOString(),
   };

@@ -25,6 +25,7 @@ export interface InstalledFsmTarget {
   readonly identity: string;
   readonly install: TrustedInstallRecord;
   readonly command: TrustedCommandMetadata;
+  readonly paths: InstallStorePaths;
   readonly entryFile: string;
   readonly lockFingerprint: string;
 }
@@ -96,6 +97,7 @@ async function resolveInstalledFsmTarget(
     identity: resolved.value.identity,
     install: resolved.value.install,
     command: resolved.value.command,
+    paths: snapshot.value.paths,
     entryFile: path.join(resolved.value.install.packageRoot, resolved.value.command.entry),
     lockFingerprint: resolved.value.install.lockFingerprint,
   };

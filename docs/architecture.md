@@ -37,9 +37,13 @@ CLI keeps the run-scoped UI routes available for about 10 seconds before
 automatic shutdown when a UI server exists. Signal handling during that grace
 still takes the prompt shutdown path.
 
-For read-only FSM inspection, `aharness visualize <file.fsm.ts>` verifies and
-opens the same graph/details UI without starting Codex, hooks, a thread, or the
-FSM actor.
+For read-only FSM inspection,
+`aharness visualize <file.fsm.ts|command>` accepts local `.fsm.ts` files and
+installed command targets. It verifies the resolved FSM, then opens the same
+graph/details UI without starting Codex, hooks, a thread, or the FSM actor.
+Installed targets can be unique bare command names such as `build` or fully
+qualified command identities such as `workflow-package/build`; package-only
+identities are not FSM targets.
 
 For recorded-run inspection, `aharness view [run-id]` opens a foreground,
 read-only browser session over a canonical `.aharness/runs/<runId>/events.jsonl`

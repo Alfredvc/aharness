@@ -24,7 +24,7 @@ function buildStubs() {
       return { exitCode: 0 };
     }),
     runDoctor: vi.fn(async () => ({ exitCode: 0 })),
-    runVisualize: vi.fn(async (o: { fsmPath: string; inputArgs: ReadonlyArray<string> }) => {
+    runVisualize: vi.fn(async (o: { target: string; inputArgs: ReadonlyArray<string> }) => {
       void o;
       return { exitCode: 0 };
     }),
@@ -138,15 +138,38 @@ describe('dispatch', () => {
     expect(s.runVerifyTarget).not.toHaveBeenCalled();
   });
 
-  it('routes "visualize <file>" to runVisualize with author input flags', async () => {
+  it('routes "visualize <target>" to runVisualize with author input flags', async () => {
     const s = buildStubs();
     const r = await dispatch(['visualize', 'workflow.fsm.ts', '--topic', 'auth', '--dry-run'], s);
 
     expect(r).toEqual({ exitCode: 0 });
     expect(s.runVisualize).toHaveBeenCalledWith({
-      fsmPath: 'workflow.fsm.ts',
+      target: 'workflow.fsm.ts',
       inputArgs: ['--topic', 'auth', '--dry-run'],
     });
+  });
+
+  it('routes installed-looking visualize targets unchanged', async () => {
+    const s = buildStubs();
+
+    await dispatch(['visualize', 'build', '--topic', 'auth'], s);
+    await dispatch(['visualize', '@scope/tools/build', '--dry-run'], s);
+
+    expect(s.runVisualize).toHaveBeenNthCalledWith(1, {
+      target: 'build',
+      inputArgs: ['--topic', 'auth'],
+    });
+    expect(s.runVisualize).toHaveBeenNthCalledWith(2, {
+      target: '@scope/tools/build',
+      inputArgs: ['--dry-run'],
+    });
+  });
+
+  it('prints target-based visualize usage', async () => {
+    const text = await expectUsageOnly(['visualize']);
+
+    expect(text).toContain('aharness visualize <file.fsm.ts|command> [--<flag> <value>]...');
+    expect(text).not.toContain('aharness visualize <file.fsm.ts> [--<flag> <value>]...');
   });
 
   it('returns usage for exact direct local FSM help without routing handlers', async () => {

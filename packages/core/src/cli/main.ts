@@ -14,7 +14,7 @@
  *   - `aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command>` — target execution.
  *   - `aharness list` — installed package command listing.
  *   - `aharness uninstall <package-name>` — npm-backed package removal.
- *   - `aharness visualize <file.fsm.ts>` — browser-only FSM inspection.
+ *   - `aharness visualize <file.fsm.ts|command>` — browser-only FSM inspection.
  *   - `aharness view [run-id]` — browser-only recorded run inspection.
  *
  * The `dispatch` function takes the argv slice and a `Dispatcher` of
@@ -47,7 +47,7 @@ export interface Dispatcher {
   readonly runVerifyTarget: (o: { target: string }) => Promise<{ exitCode: number }>;
   readonly runDoctor: () => Promise<{ exitCode: number }>;
   readonly runVisualize: (o: {
-    fsmPath: string;
+    target: string;
     inputArgs: ReadonlyArray<string>;
   }) => Promise<{ exitCode: number }>;
   readonly runView: (o: { runId?: string }) => Promise<{ exitCode: number }>;
@@ -144,7 +144,7 @@ export async function dispatch(
   }
   if (cmd === 'visualize') {
     if (rest.includes('--help')) return { exitCode: usage(stderr) };
-    const parsed = parseVisualizeFsmPathAndInputArgs(rest);
+    const parsed = parseVisualizeTargetAndInputArgs(rest);
     if (!parsed) return { exitCode: usage(stderr) };
     return d.runVisualize(parsed);
   }
@@ -205,13 +205,13 @@ function isValidViewRunId(runId: string): boolean {
   );
 }
 
-function parseVisualizeFsmPathAndInputArgs(argv: ReadonlyArray<string>): {
-  fsmPath: string;
+function parseVisualizeTargetAndInputArgs(argv: ReadonlyArray<string>): {
+  target: string;
   inputArgs: ReadonlyArray<string>;
 } | null {
   const positional: string[] = [];
   const inputArgs: string[] = [];
-  // Visualize accepts one FSM path plus author-defined `--<flag>` pairs.
+  // Visualize accepts one target plus author-defined `--<flag>` pairs.
   // Runtime run flags remain live-run-only and are rejected here.
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -229,7 +229,7 @@ function parseVisualizeFsmPathAndInputArgs(argv: ReadonlyArray<string>): {
   }
   if (positional.length !== 1) return null;
   return {
-    fsmPath: positional[0]!,
+    target: positional[0]!,
     inputArgs,
   };
 }
@@ -340,7 +340,7 @@ function parseInitArgs(args: ReadonlyArray<string>): {
 function usage(stderr: NodeJS.WritableStream): number {
   stderr.write(
     'usage:\n' +
-      '  aharness visualize <file.fsm.ts> [--<flag> <value>]...\n' +
+      '  aharness visualize <file.fsm.ts|command> [--<flag> <value>]...\n' +
       '  aharness view [run-id]\n' +
       '  aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|yarn|bun>]\n' +
       '  aharness install <source>\n' +
@@ -372,10 +372,10 @@ if (process.argv[1]?.endsWith('main.js')) {
         log: (s) => process.stdout.write(s + '\n'),
         now: () => new Date(),
       }),
-    runVisualize: async ({ fsmPath, inputArgs }) => {
+    runVisualize: async ({ target, inputArgs }) => {
       const { runVisualizeCli } = await import('./visualizeCli.js');
       return runVisualizeCli({
-        fsmPath,
+        target,
         cwd: process.cwd(),
         stderr: process.stderr,
         stdout: process.stdout,
