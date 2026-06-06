@@ -10,7 +10,8 @@ node --version
 ```
 
 Use Node 20 or newer before rerunning `npm install -g @aharness/core`,
-`aharness verify`, or `aharness run <file.fsm.ts>`.
+`aharness verify <file.fsm.ts|command>`, or
+`aharness run <file.fsm.ts|command>`.
 
 ## Codex CLI Is Missing Or Too Old
 
@@ -56,9 +57,10 @@ Run:
 aharness verify ./path/to/workflow.fsm.ts
 ```
 
-The verifier catches invalid FSM shape before Codex starts. It prints each
-blocking error and non-blocking warning as a diagnostic line, with `file:line:`
-when source locations are available. Common causes are:
+The verifier catches invalid FSM shape before Codex starts for local `.fsm.ts`
+files and installed command targets. It prints each blocking error and
+non-blocking warning as a diagnostic line, with `file:line:` when source
+locations are available. Common causes are:
 
 - `on` keys that are neither `fsm.submit(...)`, `fsm.choice(...)`, built-in
   events, nor events declared with `withEvents(...)`.
@@ -72,6 +74,10 @@ when source locations are available. Common causes are:
 Fix verification failures first. Runtime does not start an invalid machine.
 Name-form state skill availability remains a runtime catalog concern, so verify
 checks its shape while startup preflight checks whether Codex can resolve it.
+
+Path-like targets must name an existing `.fsm.ts` file. If a typo or non-FSM
+path is reported as an invalid target, fix the path or use an installed command
+identity instead.
 
 ## CLI Input Flags Do Not Work
 
@@ -96,12 +102,13 @@ managed package project before aharness rejects a package. In that case
 aharness leaves npm-managed files in place, but it does not update
 `installs.json` or `commands.json`, so unverified commands remain unrunnable.
 
-If installed `aharness run <command>`, `aharness run <command> --help`, or
-`aharness verify <command>` reports `installed-lock-fingerprint-mismatch`, the
-managed npm tree no longer matches the verified install record. Installed input
-help uses the same command trust and lock-fingerprint gate as installed run and
-verify, so it fails before reading static input metadata from an untrusted tree.
-Re-run `aharness install <same-source>` to refresh the package, or run
+If installed `aharness run <command>`, `aharness run <command> --help`,
+`aharness verify <command>`, or `aharness visualize <command>` reports
+`installed-lock-fingerprint-mismatch`, the managed npm tree no longer matches the
+verified install record. Installed input help uses the same command trust and
+lock-fingerprint gate, so it fails before reading static input metadata from an
+untrusted tree. Re-run `aharness install <same-source>` to refresh the package,
+or run
 `aharness uninstall <package-name>` before installing a different source for the
 same package name.
 
@@ -111,8 +118,9 @@ a valid `installs.json` after checking recorded lock fingerprints. If
 remove or restore that file before installed commands can be trusted again.
 
 Bare command names work only when exactly one installed package provides that
-command. If aharness reports an ambiguous command, run the fully qualified
-identity shown in the diagnostic, such as:
+command. If aharness reports a missing or ambiguous command, run `aharness list`
+to inspect installed command identities, then run the fully qualified identity
+shown in the diagnostic, such as:
 
 ```bash
 aharness run @scope/tools/build

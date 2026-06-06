@@ -699,9 +699,11 @@ aharness visualize ./workflow.fsm.ts
 Use `run` for a live foreground run:
 
 ```bash
-aharness run [--ask|--yolo] [--no-open] ./workflow.fsm.ts [--<input-flag> <value>]...
+aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<input-flag> <value>]...
 ```
 
+The target can be a local `.fsm.ts` file, a unique bare installed command name,
+or a fully qualified installed command identity such as `@scope/tools/build`.
 `--ask` restores manual user/browser review for approval prompts. `--yolo`
 bypasses approval prompts and grants broad filesystem access; use it only when
 that risk is intentional. `--no-open` serves and prints the browser UI URL

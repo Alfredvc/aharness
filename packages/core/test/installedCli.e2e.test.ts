@@ -133,7 +133,7 @@ if (existsSync(cliPath)) {
     );
 
     it(
-      'verify smoke: generated package verifies by package and qualified command',
+      'verify smoke: generated package rejects package-only verify and verifies qualified command',
       { timeout: commandTimeoutMs * 4 },
       async () => {
         const testEnv = await createCliTestEnvironment();
@@ -147,11 +147,9 @@ if (existsSync(cliPath)) {
           'verify',
           generatedPackage.packageName,
         ]);
-        expect(packageVerifyResult.exitCode, formatCliResult(packageVerifyResult)).toBe(0);
-        expect(packageVerifyResult.stdout).toContain(
-          `verify: ok (${generatedPackage.packageName}/${generatedPackage.commandName}, 0 warnings)`,
-        );
-        expect(packageVerifyResult.stderr).toBe('');
+        expect(packageVerifyResult.exitCode, formatCliResult(packageVerifyResult)).toBe(1);
+        expect(packageVerifyResult.stderr).toContain('command-identity-package-only');
+        expect(packageVerifyResult.stderr).toContain('package-only verification was removed');
 
         const commandVerifyResult = await runBuiltCli(testEnv, [
           'verify',
@@ -200,9 +198,9 @@ if (existsSync(cliPath)) {
           'verify',
           generatedPackage.packageName,
         ]);
-        expect(packageVerifyResult.exitCode, formatCliResult(packageVerifyResult)).toBe(0);
-        expect(packageVerifyResult.stdout).toContain(`verify: ok (${commandIdentity}, 0 warnings)`);
-        expect(packageVerifyResult.stderr).toBe('');
+        expect(packageVerifyResult.exitCode, formatCliResult(packageVerifyResult)).toBe(1);
+        expect(packageVerifyResult.stderr).toContain('command-identity-package-only');
+        expect(packageVerifyResult.stderr).toContain('package-only verification was removed');
 
         const commandVerifyResult = await runBuiltCli(testEnv, ['verify', commandIdentity]);
         expect(commandVerifyResult.exitCode, formatCliResult(commandVerifyResult)).toBe(0);
@@ -266,7 +264,7 @@ if (existsSync(cliPath)) {
         expect(postUninstallVerifyResult.exitCode, formatCliResult(postUninstallVerifyResult)).toBe(
           1,
         );
-        expect(postUninstallVerifyResult.stderr).toContain('installed-package-not-found');
+        expect(postUninstallVerifyResult.stderr).toContain('command-identity-package-only');
       },
     );
 

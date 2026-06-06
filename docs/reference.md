@@ -243,14 +243,12 @@ aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]
 aharness run <file.fsm.ts|command> --help
 aharness visualize <file.fsm.ts|command> [--<flag> <value>]...
 aharness view [run-id]
-aharness verify <file.fsm.ts>
+aharness verify <file.fsm.ts|command>
 aharness doctor
 aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|yarn|bun>]
 aharness install <source>
 aharness list
 aharness uninstall <package-name>
-aharness verify <command>
-aharness verify <package>/<command>
 aharness completion install [--shell bash|zsh|fish]
 aharness completion uninstall
 ```
@@ -284,9 +282,9 @@ commands, then prints the invoked usage form, target information, resolved FSM
 entry file, and declared input flags grouped into required and optional
 sections with each flag's type, default marker, and author-provided
 descriptions. Installed command help uses the same installed command trust and
-lock-fingerprint gate as installed `run`; if the installed package tree no
-longer matches its verified install record, help fails before reading input
-metadata. `visualize`, top-level `aharness --help`, `aharness help`, runtime
+lock-fingerprint gate as installed command execution; if the installed package
+tree no longer matches its verified install record, help fails before reading
+input metadata. `visualize`, top-level `aharness --help`, `aharness help`, runtime
 flags before the target such as `aharness run --ask <target> --help`, and
 arbitrary-position `--help` return generic usage instead of FSM-specific input
 help.
@@ -510,17 +508,18 @@ trusted install record, and regenerates the command index from the remaining
 trusted installs. The command target is a package name, not a command name or
 bare command alias.
 
-`aharness verify <file.fsm.ts>` still verifies a direct FSM file. Installed
-commands can be checked with `aharness verify <command>` when the bare command
-name is unique, or with `aharness verify <package>/<command>`.
-Package names by themselves are not accepted verification targets. Installed
-command warnings are printed as diagnostic lines while the successful command
-summary remains on standard output.
+`aharness verify <file.fsm.ts|command>` verifies local `.fsm.ts` files and
+installed command targets. Installed commands can be unique bare command names
+such as `build` or fully qualified command identities such as
+`@scope/tools/build`. Package names by themselves are not verification targets.
+Installed command warnings are printed as diagnostic lines while the successful
+command summary remains on standard output.
 
-Installed `run` and installed `verify` recompute the current managed npm
-project lock fingerprint before loading a package command. If the managed tree
+Installed `run`, `verify`, `visualize`, input help, sidecar extraction, and
+dynamic input completion recompute the current managed npm project lock
+fingerprint before reading or loading package command files. If the managed tree
 no longer matches the verified install record, reinstall or uninstall the
-package before running or verifying it.
+package before using the installed command.
 
 `commands.json` is a derived index from `installs.json`. If aharness detects a
 missing, malformed, or stale command index after a crash or interrupted trusted

@@ -12,7 +12,8 @@ The file declares states, prompts, typed submit exits, owner-choice gates,
 open-state collaboration, built-in hook events, embedded child machines,
 inputs, skills, and final artifacts.
 
-At runtime, `aharness run <file.fsm.ts>` runs foreground-only:
+At runtime, `aharness run <file.fsm.ts|command>` runs foreground-only for local
+`.fsm.ts` files and installed command targets:
 
 1. It verifies and loads the FSM.
 2. It starts one Codex `app-server` child process.
@@ -37,9 +38,8 @@ CLI keeps the run-scoped UI routes available for about 10 seconds before
 automatic shutdown when a UI server exists. Signal handling during that grace
 still takes the prompt shutdown path.
 
-For read-only FSM inspection,
-`aharness visualize <file.fsm.ts|command>` accepts local `.fsm.ts` files and
-installed command targets. It verifies the resolved FSM, then opens the same
+For read-only FSM inspection, `aharness visualize <file.fsm.ts|command>` uses
+the same target forms. It verifies the resolved FSM, then opens the same
 graph/details UI without starting Codex, hooks, a thread, or the FSM actor.
 Installed targets can be unique bare command names such as `build` or fully
 qualified command identities such as `workflow-package/build`; package-only
@@ -300,8 +300,9 @@ package command FSM can list support skill directories in top-level
 Imported child FSMs carry their own transitive availability declarations.
 
 The installed package tree remains npm-managed. aharness trusts only
-`installs.json` and the derived `commands.json` after command verification, and
-installed `run` / installed `verify` recompute lock fingerprints before loading
-a command. A malformed command index can be regenerated from valid install
+`installs.json` and the derived `commands.json` after command verification.
+Installed run, verify, visualize, sidecar extraction, and input-help or
+input-completion paths recompute lock fingerprints before reading or loading
+command files. A malformed command index can be regenerated from valid install
 records, but malformed install records are not recoverable because they are the
 source of truth.
