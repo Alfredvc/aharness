@@ -159,10 +159,15 @@ export function buildGraphLayoutModel(
     effectiveExpandedEmbedIds.add(id);
   }
 
-  const expandedVisibleHostIds = topology.nodes
-    .map((node) => node.id)
-    .filter((id) => effectiveExpandedEmbedIds.has(id))
-    .filter((id) => isExpandedHostVisible(id, effectiveExpandedEmbedIds, hierarchy, nodesById));
+  const expandedVisibleHostIds: string[] = [];
+  for (const node of topology.nodes) {
+    if (
+      effectiveExpandedEmbedIds.has(node.id) &&
+      isExpandedHostVisible(node.id, effectiveExpandedEmbedIds, hierarchy, nodesById)
+    ) {
+      expandedVisibleHostIds.push(node.id);
+    }
+  }
   const scopeHosts = [null, ...expandedVisibleHostIds];
   const baseScopes = scopeHosts.map((hostId) =>
     buildBaseScope(hostId, topology, nodesById, hierarchy),
@@ -267,10 +272,12 @@ function buildBaseScope(
   hierarchy: ReadonlyMap<string, GraphHierarchyNode>,
 ): GraphLayoutBaseScope {
   const id = hostId ?? ROOT_SCOPE_ID;
-  const directNodeIds = topology.nodes
-    .filter((node) => (hostId === null ? !node.parent : node.parent === hostId))
-    .map((node) => node.id);
-  const visibleNodeIds = directNodeIds.filter((nodeId) => nodesById.has(nodeId));
+  const visibleNodeIds: string[] = [];
+  for (const node of topology.nodes) {
+    if ((hostId === null ? !node.parent : node.parent === hostId) && nodesById.has(node.id)) {
+      visibleNodeIds.push(node.id);
+    }
+  }
   const semanticEntryId =
     hostId === null ? topology.initial : (nodesById.get(hostId)?.entry ?? null);
   const entryNodeId = semanticEntryId
@@ -382,9 +389,13 @@ function buildScope(args: {
     nodesById,
     nodeIndex,
   });
-  const feedbackClassifiedEdges = initialSemanticEdges
-    .map((edge) => classifyFeedback(edge, initialRanking.ranks, nodeIndex, baseScope.nodeIds))
-    .map((edge) => classifyEdgeSemantics(edge, edgeSemantics, nodesById));
+  const feedbackClassifiedEdges = initialSemanticEdges.map((edge) =>
+    classifyEdgeSemantics(
+      classifyFeedback(edge, initialRanking.ranks, nodeIndex, baseScope.nodeIds),
+      edgeSemantics,
+      nodesById,
+    ),
+  );
   const finalEdgeSemantics = {
     ...edgeSemantics,
     sidePathFeedbackEdgeIds: buildSidePathFeedbackEdgeIds(feedbackClassifiedEdges, edgeSemantics),
@@ -401,9 +412,13 @@ function buildScope(args: {
     nodesById,
     nodeIndex,
   });
-  const classifiedEdges = semanticEdges
-    .map((edge) => classifyFeedback(edge, ranking.ranks, nodeIndex, baseScope.nodeIds))
-    .map((edge) => classifyEdgeSemantics(edge, finalEdgeSemantics, nodesById));
+  const classifiedEdges = semanticEdges.map((edge) =>
+    classifyEdgeSemantics(
+      classifyFeedback(edge, ranking.ranks, nodeIndex, baseScope.nodeIds),
+      finalEdgeSemantics,
+      nodesById,
+    ),
+  );
   const nodeGroups = buildNodeGroups({
     nodeIds: baseScope.nodeIds,
     edges: classifiedEdges,
@@ -597,15 +612,25 @@ function buildMainSpine(args: {
       feedbackEdgeIds.push(edge.id);
     }
   }
+  const feedbackEdgeIdSet = new Set(feedbackEdgeIds);
   for (const edge of mainSelfLoops) {
-    if (!feedbackEdgeIds.includes(edge.id)) feedbackEdgeIds.push(edge.id);
+    if (feedbackEdgeIdSet.has(edge.id)) continue;
+    feedbackEdgeIdSet.add(edge.id);
+    feedbackEdgeIds.push(edge.id);
   }
 
-  const sideEdgeIds = edges
-    .filter((edge) => edge.isVisible && !edge.isRankOnly)
-    .filter((edge) => mainNodeSet.has(edge.rankFrom) !== mainNodeSet.has(edge.rankTo))
-    .sort(compareEdges(edgeIndex))
-    .map((edge) => edge.id);
+  const sideEdges: GraphLayoutEdge[] = [];
+  for (const edge of edges) {
+    if (
+      edge.isVisible &&
+      !edge.isRankOnly &&
+      mainNodeSet.has(edge.rankFrom) !== mainNodeSet.has(edge.rankTo)
+    ) {
+      sideEdges.push(edge);
+    }
+  }
+  sideEdges.sort(compareEdges(edgeIndex));
+  const sideEdgeIds = sideEdges.map((edge) => edge.id);
 
   return {
     mainNodeIds: selectedMainNodeIds,
@@ -791,15 +816,16 @@ function rankScope(args: {
     });
   }
 
-  const outgoing = new Set(
-    linearEdges.filter((edge) => terminalReachable.has(edge.rankFrom)).map((edge) => edge.rankFrom),
-  );
+  const outgoing = new Set<string>();
+  for (const edge of linearEdges) {
+    if (terminalReachable.has(edge.rankFrom)) outgoing.add(edge.rankFrom);
+  }
   const localSinkTerminalIds = nodeIds.filter((nodeId) => {
     const node = nodesById.get(nodeId);
     return node?.kind === 'terminal' && terminalReachable.has(nodeId) && !outgoing.has(nodeId);
   });
 
-  const orderedNodeIds = [...nodeIds].sort((a, b) =>
+  const orderedNodeIds = Array.from(nodeIds).sort((a, b) =>
     compareRankedNodes(a, b, entryNodeId, ranks, nodeIndex),
   );
 
@@ -1244,7 +1270,7 @@ function orderScopeNodes(args: {
   nodeIndex: ReadonlyMap<string, number>;
 }): string[] {
   const { nodeIds, entryNodeId, ranks, nodeGroups, nodeIndex } = args;
-  return [...nodeIds].sort((a, b) =>
+  return Array.from(nodeIds).sort((a, b) =>
     compareGroupedNodes(a, b, entryNodeId, ranks, nodeGroups, nodeIndex),
   );
 }

@@ -1,12 +1,12 @@
-import { useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import type { RunCompletionStats } from '../types/events.js';
 import {
   RunCompletionShareCard,
-  buildRunCompletionShareCardProps,
   type RunCompletionShareCardProps,
   type RunCompletionShareCardTimeBucket,
 } from './RunCompletionShareCard.js';
 import {
+  buildRunCompletionShareCardProps,
   copyShareCardPng,
   downloadShareCardPng,
   type ShareCardCopyStatus,
@@ -25,6 +25,25 @@ const compactNumberFormat = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 1,
   notation: 'compact',
 });
+const finalOverviewDialogStyle = {
+  border: 0,
+  margin: 0,
+  maxHeight: 'none',
+  maxWidth: 'none',
+} as const;
+const dialogBackdropButtonStyle = {
+  background: 'transparent',
+  border: 0,
+  cursor: 'default',
+  inset: 0,
+  padding: 0,
+  position: 'fixed',
+  zIndex: 0,
+} as const;
+const dialogContentStyle = {
+  position: 'relative',
+  zIndex: 1,
+} as const;
 
 export function FinalOverviewModal({
   completionStats,
@@ -34,16 +53,40 @@ export function FinalOverviewModal({
 }: FinalOverviewModalProps) {
   const outcome = completionStats?.outcome ?? 'unknown';
   const tone = outcome === 'success' ? 'success' : outcome === 'failure' ? 'failure' : 'partial';
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return undefined;
+
+    if (typeof dialog.showModal === 'function') {
+      try {
+        if (!dialog.open) dialog.showModal();
+      } catch {
+        dialog.setAttribute('open', '');
+      }
+    } else {
+      dialog.setAttribute('open', '');
+    }
+
+    return () => {
+      if (dialog.open && typeof dialog.close === 'function') dialog.close();
+    };
+  }, []);
+
   return (
-    <div className="final-overview-layer" onClick={onClose}>
-      <section
-        className="final-overview-modal"
-        data-outcome={tone}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="final-overview-title"
-        onClick={(event) => event.stopPropagation()}
-      >
+    <dialog
+      ref={dialogRef}
+      className="final-overview-layer"
+      aria-modal="true"
+      aria-labelledby="final-overview-title"
+      style={finalOverviewDialogStyle}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <section className="final-overview-modal" data-outcome={tone} style={dialogContentStyle}>
         <header className="final-overview-head">
           <div>
             <p className="final-overview-eyebrow">Final overview</p>
@@ -61,7 +104,14 @@ export function FinalOverviewModal({
 
         {completionStats ? <StatsBody stats={completionStats} /> : null}
       </section>
-    </div>
+      <button
+        type="button"
+        aria-label="Close final overview"
+        style={dialogBackdropButtonStyle}
+        tabIndex={-1}
+        onClick={onClose}
+      />
+    </dialog>
   );
 }
 
@@ -273,10 +323,10 @@ function ShareExportStatus({
 }) {
   if (!copyStatus && !downloadStatus) return null;
   return (
-    <div className="final-overview-share-status" role="status">
+    <output className="final-overview-share-status">
       {downloadStatus ? <p>{downloadStatusLabel(downloadStatus)}</p> : null}
       {copyStatus ? <p>{copyStatusLabel(copyStatus)}</p> : null}
-    </div>
+    </output>
   );
 }
 

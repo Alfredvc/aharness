@@ -173,6 +173,12 @@
   z-index: 20;
   display: grid;
   place-items: center;
+  box-sizing: border-box;
+  width: 100vw;
+  height: 100vh;
+  max-width: none;
+  max-height: none;
+  overflow: hidden;
   padding: 28px;
   background: rgba(7, 8, 12, 0.78);
 }

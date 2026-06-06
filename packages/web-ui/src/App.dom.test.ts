@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 
-import { createElement } from 'react';
+import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { act } from 'react-dom/test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { AharnessShell } from './App.js';
@@ -185,7 +184,9 @@ describe('AharnessShell final overview interactions', () => {
       container.querySelector<HTMLButtonElement>('.final-overview-close')?.click();
     });
     act(() => {
-      container.querySelector<HTMLDivElement>('.final-overview-layer')?.click();
+      container
+        .querySelector<HTMLButtonElement>('button[aria-label="Close final overview"]')
+        ?.click();
     });
 
     expect(dismissFinalOverview).toHaveBeenCalledTimes(2);

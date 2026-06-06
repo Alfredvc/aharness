@@ -20,35 +20,19 @@ import { deriveActivity, formatElapsed } from '../state/activity';
 import type { Activity } from '../state/activity';
 import { InteractionSlot, OwnerChoiceSlot } from './InteractionSlot';
 import { canAcceptElicitation } from './elicitationActions';
+import {
+  activePanelFollowOutput,
+  activePanelShouldAutoscroll,
+  breadcrumbOf,
+  buildActivePanelTimelineRows,
+  buildNodeDetailRows,
+  buildRunTranscriptRows,
+  leafOf,
+  visitNumber,
+} from './ActivePanelModel';
+import type { ActivePanelTimelineRow, VisitGroup } from './ActivePanelModel';
 
 type Props = { session: UiState & UiActions };
-type VisitGroup = {
-  visitId: string;
-  visit: number;
-  rowCount: number;
-  items: TranscriptDisplayItem[];
-  loadStatus: UiState['rowLoadStatus'][string] | undefined;
-};
-export type ActivePanelTimelineRow =
-  | { kind: 'inspect_empty'; key: string; text: string }
-  | { kind: 'awaiting_codex'; key: string }
-  | { kind: 'empty'; key: string; text: string }
-  | {
-      kind: 'visit_summary';
-      key: string;
-      tone: 'empty' | 'filtered' | 'loading' | 'error';
-      title: string;
-      detail: string;
-    }
-  | {
-      kind: 'visit_header';
-      key: string;
-      visit: number;
-      entry: (UiState['history'][number] & { visitId: string }) | null;
-    }
-  | { kind: 'transcript'; key: string; item: TranscriptDisplayItem }
-  | { kind: 'inline_indicator'; key: string; activity: Activity }
-  | { kind: 'approvals'; key: string };
 
 const activePanelVirtuosoComponents: Components<ActivePanelTimelineRow> = {
   Header: () => <div className="ap-virtual-header" aria-hidden />,
@@ -59,198 +43,15 @@ const activePanelVirtuosoComponents: Components<ActivePanelTimelineRow> = {
   ),
 };
 
-function activePanelFollowOutput(input: { isFollowing: boolean; atBottom: boolean }) {
-  return input.isFollowing && input.atBottom ? 'smooth' : false;
-}
-
-function activePanelShouldAutoscroll(input: { isFollowing: boolean; atBottom: boolean }): boolean {
-  return input.isFollowing && input.atBottom;
-}
-
-export const activePanelFollowOutputForTest = activePanelFollowOutput;
-export const activePanelShouldAutoscrollForTest = activePanelShouldAutoscroll;
-
-function leafOf(path: string): string {
-  return path.split('.').pop() ?? path;
-}
-
-function breadcrumbOf(path: string): string[] {
-  return path.split('.').slice(0, -1);
-}
-
-function visitNumber(visitId: string): number {
-  const raw = visitId.split('#').pop();
-  const parsed = raw === undefined ? Number.NaN : Number(raw);
-  return Number.isFinite(parsed) ? parsed : 1;
-}
-
-function emptyVisitSummary(
-  group: VisitGroup,
-): Extract<ActivePanelTimelineRow, { kind: 'visit_summary' }> {
-  if (group.loadStatus?.loading) {
-    return {
-      kind: 'visit_summary',
-      key: `${group.visitId}:summary`,
-      tone: 'loading',
-      title: 'loading activity',
-      detail: 'fetching rows for this visit',
-    };
-  }
-  if (group.loadStatus?.error) {
-    return {
-      kind: 'visit_summary',
-      key: `${group.visitId}:summary`,
-      tone: 'error',
-      title: 'activity unavailable',
-      detail: 'could not load rows for this visit',
-    };
-  }
-  if (group.rowCount > 0) {
-    return {
-      kind: 'visit_summary',
-      key: `${group.visitId}:summary`,
-      tone: 'filtered',
-      title: 'transition-only visit',
-      detail: 'no model or tool rows recorded for this visit',
-    };
-  }
-  return {
-    kind: 'visit_summary',
-    key: `${group.visitId}:summary`,
-    tone: 'empty',
-    title: 'no activity recorded',
-    detail: 'this visit has no compact rows',
-  };
-}
+const AWAITING_CODEX_STAGES = [
+  { id: 'spawn', label: 'spawning codex app-server', cap: 4 },
+  { id: 'ws', label: 'opening websocket', cap: 6 },
+  { id: 'thread', label: 'thread/start handshake', cap: 8 },
+] as const;
 
 function submitReply(onReply: UiActions['reply'], payload: ReplyPayload) {
   void onReply(payload).catch(() => undefined);
 }
-
-function buildActivePanelTimelineRows(input: {
-  mode: UiState['mode'];
-  displayNode: VizNode | null;
-  turnsLength: number;
-  hasAnyVisibleContent: boolean;
-  groups: VisitGroup[];
-  entryByVisit: Map<string, UiState['history'][number]>;
-  showInlineIndicator: boolean;
-  activity: Activity;
-  showApprovals: boolean;
-}): ActivePanelTimelineRow[] {
-  if (input.mode === 'inspect') {
-    return [
-      {
-        kind: 'inspect_empty',
-        key: 'inspect-empty',
-        text: input.displayNode
-          ? 'static visualization mode; no run transcript'
-          : 'select any state in the graph to inspect its metadata',
-      },
-    ];
-  }
-  const readOnly = isReadOnlyMode(input.mode);
-  const showInlineIndicator = input.showInlineIndicator && !readOnly;
-  const showApprovals = input.showApprovals && !readOnly;
-  const rows: ActivePanelTimelineRow[] = [];
-  if (input.groups.length === 0) {
-    rows.push({
-      kind: 'empty',
-      key: 'empty-current',
-      text: 'activity not loaded yet',
-    });
-  } else {
-    for (const group of input.groups) {
-      rows.push({
-        kind: 'visit_header',
-        key: `${group.visitId}:header`,
-        visit: group.visit,
-        entry: input.entryByVisit.get(group.visitId) ?? null,
-      });
-      const renderableItems = group.items.filter((item) => {
-        // Scoped state views use visit headers for transitions; keep those
-        // rows in the chronological run transcript only.
-        return item.type !== 'state_change';
-      });
-      if (renderableItems.length === 0) {
-        rows.push(emptyVisitSummary(group));
-      } else {
-        for (const item of renderableItems) {
-          rows.push({ kind: 'transcript', key: item.id, item });
-        }
-      }
-    }
-  }
-  if (showInlineIndicator) {
-    rows.push({ kind: 'inline_indicator', key: 'inline-indicator', activity: input.activity });
-  }
-  if (showApprovals) {
-    rows.push({ kind: 'approvals', key: 'approvals' });
-  }
-  return rows;
-}
-
-export const buildActivePanelTimelineRowsForTest = buildActivePanelTimelineRows;
-
-function buildRunTranscriptRows(input: {
-  mode: UiState['mode'];
-  items: TranscriptItem[];
-  devMode: boolean;
-  hasAnyVisibleContent: boolean;
-  turnsLength: number;
-  showInlineIndicator: boolean;
-  activity: Activity;
-  showApprovals: boolean;
-}): ActivePanelTimelineRow[] {
-  if (input.mode === 'inspect') {
-    return [
-      {
-        kind: 'inspect_empty',
-        key: 'inspect-empty',
-        text: 'static visualization mode; no run transcript',
-      },
-    ];
-  }
-  const readOnly = isReadOnlyMode(input.mode);
-  const showInlineIndicator = input.showInlineIndicator && !readOnly;
-  const showApprovals = input.showApprovals && !readOnly;
-  const visible = displayItems(
-    [...input.items].sort((a, b) => {
-      const aSeq = a.seq ?? Number.MAX_SAFE_INTEGER;
-      const bSeq = b.seq ?? Number.MAX_SAFE_INTEGER;
-      if (aSeq !== bSeq) return aSeq - bSeq;
-      return a.id.localeCompare(b.id);
-    }),
-    input.devMode,
-  );
-
-  if (
-    visible.length === 0 &&
-    input.turnsLength === 0 &&
-    !input.hasAnyVisibleContent &&
-    !showApprovals &&
-    !readOnly
-  ) {
-    return [{ kind: 'awaiting_codex', key: 'awaiting-codex' }];
-  }
-
-  const rows: ActivePanelTimelineRow[] =
-    visible.length === 0 && showApprovals
-      ? []
-      : visible.length === 0
-        ? [{ kind: 'empty', key: 'empty-run', text: 'no run activity yet' }]
-        : visible.map((item) => ({ kind: 'transcript' as const, key: item.id, item }));
-
-  if (showInlineIndicator) {
-    rows.push({ kind: 'inline_indicator', key: 'inline-indicator', activity: input.activity });
-  }
-  if (showApprovals) {
-    rows.push({ kind: 'approvals', key: 'approvals' });
-  }
-  return rows;
-}
-
-export const buildRunTranscriptRowsForTest = buildRunTranscriptRows;
 
 export function ActivePanel({ session }: Props) {
   const selectedPath = session.scopedPath;
@@ -306,20 +107,17 @@ export function ActivePanel({ session }: Props) {
   }, [session.history]);
 
   const fsmState = session.state;
-  if (!fsmState) {
-    return (
-      <section className="active-panel">
-        <div className="ap-empty">connecting…</div>
-      </section>
-    );
-  }
-
   const displayLeaf = isRunTranscript ? 'Run transcript' : leafOf(selectedPath);
   const displayPath = isRunTranscript ? null : selectedPath;
   const displayNode = session.topology.nodes.find((node) => node.id === displayPath) ?? null;
   const readOnly = isReadOnlyMode(session.mode);
   const totalVisits = groups.length;
-  const crumbs = displayPath ? breadcrumbOf(displayPath) : [];
+  const crumbs = displayPath
+    ? breadcrumbOf(displayPath).map((label, crumbIndex, labels) => ({
+        label,
+        key: labels.slice(0, crumbIndex + 1).join('.'),
+      }))
+    : [];
 
   const totalApprovals =
     session.pending.fileApprovals.length +
@@ -343,7 +141,7 @@ export function ActivePanel({ session }: Props) {
   const showOpenComposer =
     isRunTranscript &&
     !readOnly &&
-    fsmState.kind === 'stateful' &&
+    fsmState?.kind === 'stateful' &&
     session.posture.open &&
     !session.pending.ownerChoice &&
     !session.pending.ownerInput &&
@@ -399,6 +197,7 @@ export function ActivePanel({ session }: Props) {
       showInlineIndicator,
       activity,
       totalApprovals,
+      readOnly,
     ],
   );
   const initialItemCount = typeof window === 'undefined' ? timelineRows.length : undefined;
@@ -406,6 +205,14 @@ export function ActivePanel({ session }: Props) {
     typeof window !== 'undefined' && isRunTranscript && timelineRows.length > 0
       ? { initialTopMostItemIndex: timelineRows.length - 1 }
       : {};
+
+  if (!fsmState) {
+    return (
+      <section className="active-panel">
+        <div className="ap-empty">connecting…</div>
+      </section>
+    );
+  }
 
   return (
     <section
@@ -425,9 +232,9 @@ export function ActivePanel({ session }: Props) {
         {session.devMode ? <DevDiagnosticsBox diagnostics={session.diagnostics} /> : null}
         {crumbs.length > 0 ? (
           <div className="ap-crumbs">
-            {crumbs.map((c, i) => (
-              <span key={i} className="crumb">
-                {c}
+            {crumbs.map((crumb) => (
+              <span key={crumb.key} className="crumb">
+                {crumb.label}
                 <span className="sep">›</span>
               </span>
             ))}
@@ -480,6 +287,7 @@ export function ActivePanel({ session }: Props) {
         })()}
         {!isRunTranscript ? (
           <button
+            type="button"
             className="ap-unfreeze"
             onClick={() => session.setScope(null)}
             title="Return to the chronological run transcript."
@@ -531,8 +339,6 @@ export function ActivePanel({ session }: Props) {
   );
 }
 
-type DetailRow = { label: string; value: string };
-
 function NodeDetailBox({ node }: { node: VizNode | null }) {
   const rows = node ? buildNodeDetailRows(node) : [];
   return (
@@ -556,87 +362,6 @@ function NodeDetailBox({ node }: { node: VizNode | null }) {
     </section>
   );
 }
-
-function buildNodeDetailRows(node: VizNode): DetailRow[] {
-  const detail = node.detail;
-  if (!detail) return [];
-  const rows: DetailRow[] = [];
-  if (node.kind === 'stateful') {
-    rows.push({ label: 'mode', value: detail.open ? 'open' : 'strict' });
-    rows.push({ label: 'clear on entry', value: detail.clearOnEntry ? 'yes' : 'no' });
-  }
-  if (node.kind === 'choice' && detail.question) {
-    rows.push({ label: 'question', value: detail.question.text });
-  }
-  if (node.kind === 'choice' && detail.options && detail.options.length > 0) {
-    rows.push({ label: 'options', value: detail.options.join('\n') });
-  }
-  if (detail.entryPrompt) {
-    rows.push({ label: 'entry prompt', value: detail.entryPrompt.text });
-  }
-  // Historical topology compatibility: old bootstrap fixtures can still carry
-  // awaitsOwnerText so archived rows explain why the composer was open.
-  if (detail.awaitsOwnerText) {
-    rows.push({ label: 'legacy owner prompt', value: detail.awaitsOwnerText.text });
-  }
-  const lifecycle = [
-    detail.hasOnEntry ? 'onEntry' : null,
-    detail.hasStopGuidance ? 'stopGuidance' : null,
-  ].filter((item): item is string => item !== null);
-  if (lifecycle.length > 0) {
-    rows.push({ label: 'lifecycle', value: lifecycle.join(', ') });
-  }
-  if (detail.skills && detail.skills.length > 0) {
-    rows.push({
-      label: 'skills',
-      value: detail.skills
-        .map((skill) => `${skill.label}${skill.optional ? ' (optional)' : ''}`)
-        .join(', '),
-    });
-  }
-  if (detail.hooks && detail.hooks.length > 0) {
-    rows.push({
-      label: 'hooks',
-      value: detail.hooks
-        .map((hook) => {
-          const matchers =
-            hook.matchers && hook.matchers.length > 0 ? ` (${hook.matchers.join(', ')})` : '';
-          return `${hook.kind} x${hook.count}${matchers}`;
-        })
-        .join(', '),
-    });
-  }
-  if (detail.exits && detail.exits.length > 0) {
-    rows.push({
-      label: 'exits',
-      value: detail.exits
-        .map((exit) => {
-          const targets = exit.targets.join(' | ');
-          const description = exit.description ? `: ${exit.description}` : '';
-          const branches = exit.branchCount ? ` [${exit.branchCount} branches]` : '';
-          return `${exit.name} -> ${targets}${branches}${description}`;
-        })
-        .join('\n'),
-    });
-  }
-  if (detail.outcome) {
-    rows.push({ label: 'outcome', value: detail.outcome });
-  }
-  if (detail.artifacts && detail.artifacts.length > 0) {
-    rows.push({ label: 'artifacts', value: detail.artifacts.join('\n') });
-  }
-  return rows;
-}
-
-export const buildNodeDetailRowsForTest = buildNodeDetailRows;
-
-export const activePanelRowForTest = (item: TranscriptDisplayItem) => (
-  <ActivePanelRow item={item} />
-);
-
-export const toolCallRowForTest = (item: Extract<TranscriptItem, { type: 'tool_call' }>) => (
-  <ToolCallRow item={item} />
-);
 
 function ActivePanelTimelineRowView({
   row,
@@ -884,7 +609,7 @@ function FileApprovalCard({
         req.changes.map((change) => (
           <div className="diff" key={`${change.path}:${change.kind.type}`}>
             <div className="diff-path">{change.path}</div>
-            {renderDiff(change.diff)}
+            <DiffLines patch={change.diff} />
           </div>
         ))
       ) : (
@@ -892,6 +617,7 @@ function FileApprovalCard({
       )}
       <div className="actions">
         <button
+          type="button"
           className="decline"
           onClick={() =>
             submitReply(onReply, { kind: 'approval', requestId: req.id, decision: 'decline' })
@@ -900,6 +626,7 @@ function FileApprovalCard({
           decline {top ? <kbd>D</kbd> : null}
         </button>
         <button
+          type="button"
           className="accept"
           onClick={() =>
             submitReply(onReply, { kind: 'approval', requestId: req.id, decision: 'accept' })
@@ -935,6 +662,7 @@ function CmdApprovalCard({
       </pre>
       <div className="actions">
         <button
+          type="button"
           className="cancel"
           onClick={() =>
             submitReply(onReply, { kind: 'approval', requestId: req.id, decision: 'cancel' })
@@ -944,6 +672,7 @@ function CmdApprovalCard({
           cancel
         </button>
         <button
+          type="button"
           className="decline"
           onClick={() =>
             submitReply(onReply, { kind: 'approval', requestId: req.id, decision: 'decline' })
@@ -952,6 +681,7 @@ function CmdApprovalCard({
           decline {top ? <kbd>D</kbd> : null}
         </button>
         <button
+          type="button"
           className="accept-session"
           onClick={() =>
             submitReply(onReply, {
@@ -965,6 +695,7 @@ function CmdApprovalCard({
           accept · session
         </button>
         <button
+          type="button"
           className="accept"
           onClick={() =>
             submitReply(onReply, { kind: 'approval', requestId: req.id, decision: 'accept' })
@@ -993,6 +724,7 @@ function PermissionApprovalCard({
       {req.reason ? <p className="approval-rationale">"{req.reason}"</p> : null}
       <div className="actions">
         <button
+          type="button"
           className="decline"
           onClick={() =>
             submitReply(onReply, { kind: 'permission', requestId: req.id, decision: 'decline' })
@@ -1001,6 +733,7 @@ function PermissionApprovalCard({
           decline
         </button>
         <button
+          type="button"
           className="accept"
           onClick={() =>
             submitReply(onReply, { kind: 'permission', requestId: req.id, decision: 'accept' })
@@ -1028,6 +761,7 @@ function ElicitationCard({
       </header>
       <div className="actions">
         <button
+          type="button"
           className="cancel"
           onClick={() =>
             submitReply(onReply, { kind: 'elicitation', requestId: req.id, action: 'cancel' })
@@ -1036,6 +770,7 @@ function ElicitationCard({
           cancel
         </button>
         <button
+          type="button"
           className="decline"
           onClick={() =>
             submitReply(onReply, { kind: 'elicitation', requestId: req.id, action: 'decline' })
@@ -1045,6 +780,7 @@ function ElicitationCard({
         </button>
         {canAcceptElicitation(req) ? (
           <button
+            type="button"
             className="accept"
             onClick={() =>
               submitReply(onReply, { kind: 'elicitation', requestId: req.id, action: 'accept' })
@@ -1100,6 +836,7 @@ function OpenStateComposer({ onReply }: { onReply: UiActions['reply'] }) {
       <div className="slot-row">
         <textarea
           ref={ref}
+          aria-label="Message to the model"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={onKey}
@@ -1107,6 +844,7 @@ function OpenStateComposer({ onReply }: { onReply: UiActions['reply'] }) {
           spellCheck={false}
         />
         <button
+          type="button"
           className="slot-send"
           onClick={() => void send()}
           disabled={!value.trim() || submitting}
@@ -1140,19 +878,30 @@ function summarizePermissions(permissions: unknown): string {
   return parts.length > 0 ? parts.join(', ') : 'permission profile';
 }
 
-function renderDiff(patch: string) {
-  return patch.split('\n').map((line, i) => {
-    let cls = '';
-    if (line.startsWith('+++') || line.startsWith('---')) cls = 'meta';
-    else if (line.startsWith('@@')) cls = 'hunk';
-    else if (line.startsWith('+')) cls = 'add';
-    else if (line.startsWith('-')) cls = 'del';
-    return (
-      <div key={i} className={`line ${cls}`}>
-        {line || ' '}
-      </div>
-    );
-  });
+function DiffLines({ patch }: { patch: string }) {
+  const seen = new Map<string, number>();
+  return (
+    <>
+      {patch.split('\n').map((line) => {
+        const occurrence = seen.get(line) ?? 0;
+        seen.set(line, occurrence + 1);
+        const cls = diffLineClass(line);
+        return (
+          <div key={`${line}:${occurrence}`} className={`line ${cls}`}>
+            {line || ' '}
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function diffLineClass(line: string): string {
+  if (line.startsWith('+++') || line.startsWith('---')) return 'meta';
+  if (line.startsWith('@@')) return 'hunk';
+  if (line.startsWith('+')) return 'add';
+  if (line.startsWith('-')) return 'del';
+  return '';
 }
 
 function PostureChip({
@@ -1169,7 +918,7 @@ function PostureChip({
   );
 }
 
-function ActivePanelRow({ item }: { item: TranscriptDisplayItem }) {
+export function ActivePanelRow({ item }: { item: TranscriptDisplayItem }) {
   switch (item.type) {
     case 'exploration_group':
       return <ExplorationGroupRow item={item} />;
@@ -1237,7 +986,11 @@ function ActivePanelRow({ item }: { item: TranscriptDisplayItem }) {
 }
 
 const markdownComponents: MarkdownComponents = {
-  a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
+  a: ({ node: _node, children, ...props }) => (
+    <a {...props} target="_blank" rel="noreferrer">
+      {children}
+    </a>
+  ),
 };
 
 function MarkdownMessage({ text }: { text: string }) {
@@ -1375,8 +1128,11 @@ function TransitionFailureRow({
   );
 }
 
-function ToolCallRow({ item }: { item: Extract<TranscriptItem, { type: 'tool_call' }> }) {
-  const startedRef = useRef<number>(Date.now());
+export function ToolCallRow({ item }: { item: Extract<TranscriptItem, { type: 'tool_call' }> }) {
+  const startedRef = useRef<number | null>(null);
+  if (startedRef.current === null) {
+    startedRef.current = Date.now();
+  }
   const [, setTick] = useState(0);
   const pending = item.status === 'pending';
   useEffect(() => {
@@ -1509,15 +1265,10 @@ function AwaitingCodexPlaceholder() {
     const id = window.setInterval(() => setSecs((n) => n + 1), 1000);
     return () => window.clearInterval(id);
   }, []);
-  const STAGES = [
-    { id: 'spawn', label: 'spawning codex app-server', cap: 4 },
-    { id: 'ws', label: 'opening websocket', cap: 6 },
-    { id: 'thread', label: 'thread/start handshake', cap: 8 },
-  ];
   let activeIdx = -1;
   let cum = 0;
-  for (let i = 0; i < STAGES.length; i++) {
-    cum += STAGES[i].cap;
+  for (let i = 0; i < AWAITING_CODEX_STAGES.length; i++) {
+    cum += AWAITING_CODEX_STAGES[i].cap;
     if (secs < cum) {
       activeIdx = i;
       break;
@@ -1546,7 +1297,7 @@ function AwaitingCodexPlaceholder() {
         model will begin streaming into this panel as soon as it's online.
       </p>
       <ol className="ac-stages">
-        {STAGES.map((stage, i) => {
+        {AWAITING_CODEX_STAGES.map((stage, i) => {
           const status =
             activeIdx === -1 || i < activeIdx ? 'done' : i === activeIdx ? 'active' : 'pending';
           return (
@@ -1572,7 +1323,7 @@ function AwaitingCodexPlaceholder() {
 
 function InlineThinking({ activity }: { activity: Activity }) {
   return (
-    <div className="inline-thinking" data-tone={activity.tone} role="status" aria-live="polite">
+    <output className="inline-thinking" data-tone={activity.tone} aria-live="polite">
       <span className="it-wave" aria-hidden>
         <i style={{ animationDelay: '0ms' }} />
         <i style={{ animationDelay: '120ms' }} />
@@ -1580,7 +1331,7 @@ function InlineThinking({ activity }: { activity: Activity }) {
         <i style={{ animationDelay: '360ms' }} />
       </span>
       <span className="it-label">{activity.label}</span>
-    </div>
+    </output>
   );
 }
 
@@ -1640,7 +1391,12 @@ function ReasoningRow({ item }: { item: Extract<TranscriptItem, { type: 'reasoni
   const [open, setOpen] = useState(false);
   return (
     <article className="msg reasoning-msg">
-      <button className="reasoning-toggle" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+      <button
+        type="button"
+        className="reasoning-toggle"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+      >
         <span className="caret">{open ? '▾' : '▸'}</span>
         <span>model · reasoning</span>
         <span className="ct quiet">{item.text.length} chars</span>

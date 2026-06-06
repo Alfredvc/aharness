@@ -1,17 +1,5 @@
-import type { RunCompletionStats } from '../types/events.js';
-
 export const SHARE_CARD_WIDTH = 1320;
 export const SHARE_CARD_HEIGHT = 2868;
-
-const numberFormat = new Intl.NumberFormat('en-US');
-const compactNumberFormat = new Intl.NumberFormat('en-US', {
-  maximumFractionDigits: 1,
-  notation: 'compact',
-});
-const MAX_BUCKET_ROWS = 5;
-const MAX_TIME_BUCKET_ROWS = 3;
-const MAX_DISPLAY_NAME_LENGTH = 76;
-const MAX_BUCKET_LABEL_LENGTH = 34;
 
 export type RunCompletionShareCardOutcome = 'success' | 'failure';
 
@@ -61,48 +49,6 @@ export type RunCompletionShareCardProps = {
   buckets: ReadonlyArray<RunCompletionShareCardBucket>;
   topTimeBuckets: ReadonlyArray<RunCompletionShareCardTimeBucket>;
 };
-
-export function buildRunCompletionShareCardProps(
-  stats: RunCompletionStats,
-): RunCompletionShareCardProps | null {
-  if (stats.outcome !== 'success' && stats.outcome !== 'failure') return null;
-
-  const durationLabel = formatDuration(stats.duration.elapsedMs);
-  const totalTurnCount = stats.mainTurnCount + stats.subthreadTurnCount;
-  const totalTokens = stats.tokenTotals.totalTokens;
-  const mainTokenPercent = safePercent(stats.tokenTotals.mainTokens, totalTokens);
-  const subthreadTokenPercent = safePercent(stats.tokenTotals.subthreadTokens, totalTokens);
-  const workDeltaLabels = buildWorkDeltaLabels(stats);
-
-  return {
-    fsmDisplayName: truncateDisplay(sanitizeDisplay(stats.fsmDisplayName), MAX_DISPLAY_NAME_LENGTH),
-    outcome: stats.outcome,
-    durationLabel,
-    totalTimeLabel: durationLabel,
-    transitionCountLabel: formatNumber(stats.transitionCount),
-    freshClearCountLabel: formatNumber(stats.freshClearCount),
-    totalTurnCountLabel: formatNumber(totalTurnCount),
-    mainTurnCountLabel: formatNumber(stats.mainTurnCount),
-    subthreadTurnCountLabel: formatNumber(stats.subthreadTurnCount),
-    totalTokenLabel: formatCompactNumber(stats.tokenTotals.totalTokens),
-    mainTokenLabel: formatCompactNumber(stats.tokenTotals.mainTokens),
-    subthreadTokenLabel: formatCompactNumber(stats.tokenTotals.subthreadTokens),
-    cacheHitPercentageLabel: formatPercent(
-      safePercent(stats.tokenTotals.cachedInputTokens, stats.tokenTotals.inputTokens),
-    ),
-    outputTokenLabel: formatCompactNumber(stats.tokenTotals.outputTokens),
-    mainTokenPercent,
-    subthreadTokenPercent,
-    mainTokenPercentageLabel: formatPercent(mainTokenPercent),
-    subthreadTokenPercentageLabel: formatPercent(subthreadTokenPercent),
-    filesChangedLabel: workDeltaLabels.filesChangedLabel,
-    linesChangedLabel: workDeltaLabels.linesChangedLabel,
-    lineDeltaDetailLabel: workDeltaLabels.lineDeltaDetailLabel,
-    workDelta: workDeltaLabels.workDelta,
-    buckets: buildBucketRows(stats),
-    topTimeBuckets: buildTopTimeBuckets(stats),
-  };
-}
 
 export function RunCompletionShareCard(props: RunCompletionShareCardProps) {
   const tone = props.outcome === 'success' ? SHARE_TONES.success : SHARE_TONES.failure;
@@ -609,114 +555,6 @@ function TimeBucketBar({ bucket, y }: { bucket: RunCompletionShareCardTimeBucket
   );
 }
 
-function buildBucketRows(stats: RunCompletionStats): RunCompletionShareCardBucket[] {
-  const visible = stats.stateBuckets.slice(0, MAX_BUCKET_ROWS);
-  const remaining = stats.stateBuckets.slice(MAX_BUCKET_ROWS);
-  const rows = visible.map((bucket) => ({
-    label: truncateDisplay(sanitizeDisplay(bucket.label), MAX_BUCKET_LABEL_LENGTH),
-    durationLabel: formatDuration(bucket.elapsedMs),
-    turnCountLabel: formatNumber(bucket.mainTurnCount + bucket.subthreadTurnCount),
-    tokenTotalLabel: formatNumber(bucket.tokenTotals.totalTokens),
-  }));
-  if (remaining.length > 0) {
-    const other = remaining.reduce(
-      (acc, bucket) => ({
-        elapsedMs: acc.elapsedMs + bucket.elapsedMs,
-        turnCount: acc.turnCount + bucket.mainTurnCount + bucket.subthreadTurnCount,
-        totalTokens: acc.totalTokens + bucket.tokenTotals.totalTokens,
-      }),
-      { elapsedMs: 0, turnCount: 0, totalTokens: 0 },
-    );
-    rows.push({
-      label: 'Other states',
-      durationLabel: formatDuration(other.elapsedMs),
-      turnCountLabel: formatNumber(other.turnCount),
-      tokenTotalLabel: formatNumber(other.totalTokens),
-    });
-  }
-  return rows;
-}
-
-function buildTopTimeBuckets(stats: RunCompletionStats): RunCompletionShareCardTimeBucket[] {
-  const visible = stats.stateBuckets.slice(0, MAX_TIME_BUCKET_ROWS);
-  const remaining = stats.stateBuckets.slice(MAX_TIME_BUCKET_ROWS);
-  const denominator =
-    stats.duration.elapsedMs !== undefined
-      ? stats.duration.elapsedMs
-      : stats.stateBuckets.reduce((total, bucket) => total + bucket.elapsedMs, 0);
-  const rows = visible.map((bucket) => {
-    const percent = safePercent(bucket.elapsedMs, denominator);
-    return {
-      label: truncateDisplay(sanitizeDisplay(bucket.label), MAX_BUCKET_LABEL_LENGTH),
-      durationLabel: formatDuration(bucket.elapsedMs),
-      percent,
-      percentageLabel: formatPercent(percent),
-    };
-  });
-
-  if (remaining.length > 0) {
-    const otherElapsedMs = remaining.reduce((total, bucket) => total + bucket.elapsedMs, 0);
-    const percent = safePercent(otherElapsedMs, denominator);
-    rows.push({
-      label: 'Other states',
-      durationLabel: formatDuration(otherElapsedMs),
-      percent,
-      percentageLabel: formatPercent(percent),
-    });
-  }
-
-  return rows;
-}
-
-function buildWorkDeltaLabels(stats: RunCompletionStats): {
-  filesChangedLabel: string;
-  linesChangedLabel: string;
-  lineDeltaDetailLabel: string;
-  workDelta: RunCompletionShareCardWorkDelta;
-} {
-  if (stats.workDelta.status !== 'available') {
-    const unavailableWorkDelta = {
-      filesChangedLabel: 'N/A',
-      linesAddedLabel: 'N/A',
-      linesDeletedLabel: 'N/A',
-    };
-    return {
-      filesChangedLabel: 'N/A',
-      linesChangedLabel: 'N/A',
-      lineDeltaDetailLabel: 'N/A',
-      workDelta: unavailableWorkDelta,
-    };
-  }
-
-  const linesChanged = stats.workDelta.linesAdded + stats.workDelta.linesDeleted;
-  return {
-    filesChangedLabel: formatNumber(stats.workDelta.filesChanged),
-    linesChangedLabel: formatNumber(linesChanged),
-    lineDeltaDetailLabel: `+${formatNumber(stats.workDelta.linesAdded)} / -${formatNumber(
-      stats.workDelta.linesDeleted,
-    )}`,
-    workDelta: {
-      filesChangedLabel: formatNumber(stats.workDelta.filesChanged),
-      linesAddedLabel: formatNumber(stats.workDelta.linesAdded),
-      linesDeletedLabel: formatNumber(stats.workDelta.linesDeleted),
-    },
-  };
-}
-
-function sanitizeDisplay(value: string): string {
-  return (
-    Array.from(value, (character) => (isControlCharacter(character) ? ' ' : character))
-      .join('')
-      .replace(/\s+/g, ' ')
-      .trim() || 'workflow'
-  );
-}
-
-function isControlCharacter(value: string): boolean {
-  const code = value.charCodeAt(0);
-  return code < 32 || code === 127;
-}
-
 function truncateDisplay(value: string, maxLength: number): string {
   return value.length > maxLength ? `${value.slice(0, maxLength - 1)}...` : value;
 }
@@ -737,39 +575,8 @@ function splitTitleLines(value: string): [string] | [string, string] {
   return second ? [first, second] : [first];
 }
 
-function formatNumber(value: number): string {
-  return numberFormat.format(value);
-}
-
-function formatCompactNumber(value: number): string {
-  const normalized = Math.max(0, value);
-  if (normalized < 1_000_000) return formatNumber(normalized);
-  return compactNumberFormat.format(normalized);
-}
-
-function safePercent(numerator: number, denominator: number): number {
-  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator <= 0) return 0;
-  return Math.max(0, Math.min(100, Math.round((numerator / denominator) * 100)));
-}
-
 function percentWidth(percent: number, width: number): number {
   return Math.max(0, Math.min(width, Math.round((percent / 100) * width)));
-}
-
-function formatPercent(value: number): string {
-  return `${value}%`;
-}
-
-function formatDuration(elapsedMs: number | undefined): string {
-  if (elapsedMs === undefined) return 'N/A';
-  const totalSeconds = Math.max(0, Math.round(elapsedMs / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes === 0) return `${seconds}s`;
-  const hours = Math.floor(minutes / 60);
-  const restMinutes = minutes % 60;
-  if (hours === 0) return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
-  return `${hours}h ${restMinutes.toString().padStart(2, '0')}m`;
 }
 
 type ShareCardTone = {

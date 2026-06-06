@@ -291,7 +291,10 @@ function buildElkGraph(
 
   const nodeById = new Map<string, ElkNode>();
   const edgeContainerById = new Map<string, string>();
-  const expandedHostIds = new Set(model.scopes.map((scope) => scope.hostId).filter(isString));
+  const expandedHostIds = new Set<string>();
+  for (const scope of model.scopes) {
+    if (isString(scope.hostId)) expandedHostIds.add(scope.hostId);
+  }
   const hasExpandedCompound = expandedHostIds.size > 0;
 
   const rootScope = scopesById.get(ROOT_SCOPE_ID);
@@ -603,7 +606,10 @@ function normalizeLayout(
   const outputEdges = new Map<string, ElkEdge>();
   const containerOffsetById = new Map<string, ElkPoint>([[ROOT_SCOPE_ID, { x: 0, y: 0 }]]);
   const scopeIdByNode = scopeIdByNodeId(model);
-  const childScopeIds = new Set(model.scopes.map((scope) => scope.hostId).filter(isString));
+  const childScopeIds = new Set<string>();
+  for (const scope of model.scopes) {
+    if (isString(scope.hostId)) childScopeIds.add(scope.hostId);
+  }
 
   function visitNode(node: ElkNode, parentOffset: ElkPoint, parentScopeId: string) {
     const abs = {

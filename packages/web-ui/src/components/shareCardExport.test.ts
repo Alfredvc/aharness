@@ -6,10 +6,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   RunCompletionShareCard,
-  buildRunCompletionShareCardProps,
   type RunCompletionShareCardProps,
 } from './RunCompletionShareCard.js';
 import {
+  buildRunCompletionShareCardProps,
   buildShareCardFilename,
   copyShareCardPng,
   downloadShareCardPng,

@@ -8,8 +8,8 @@ import {
   RunCompletionShareCard,
   SHARE_CARD_HEIGHT,
   SHARE_CARD_WIDTH,
-  buildRunCompletionShareCardProps,
 } from './RunCompletionShareCard.js';
+import { buildRunCompletionShareCardProps } from './shareCardExport.js';
 import type { RunCompletionStats } from '../types/events.js';
 
 const forbidden = [

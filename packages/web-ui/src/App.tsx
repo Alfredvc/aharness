@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { isReadOnlyMode, readBootToken, useAharnessSession, type UiState } from './state/store';
 import { Graph } from './components/Graph';
 import { ActivePanel } from './components/ActivePanel';
@@ -14,6 +14,27 @@ type ShellStatus = {
 };
 
 type ShellSession = ReturnType<typeof useAharnessSession>;
+
+const overlayDialogStyle = {
+  border: 0,
+  margin: 0,
+  maxHeight: 'none',
+  maxWidth: 'none',
+  padding: 0,
+} as const;
+const dialogBackdropButtonStyle = {
+  background: 'transparent',
+  border: 0,
+  cursor: 'default',
+  inset: 0,
+  padding: 0,
+  position: 'fixed',
+  zIndex: 0,
+} as const;
+const dialogContentStyle = {
+  position: 'relative',
+  zIndex: 1,
+} as const;
 
 function terminalOutcome(session: UiState): 'success' | 'failure' | null {
   const completionOutcome = session.completionStats?.outcome;
@@ -190,6 +211,7 @@ function TopHeader({
         {posture.isTerminal ? (
           <button
             className="top-btn"
+            type="button"
             onClick={session.openFinalOverview}
             title="Open final run summary"
           >
@@ -198,12 +220,13 @@ function TopHeader({
         ) : null}
         <button
           className={`top-btn ${devMode ? 'on' : ''}`}
+          type="button"
           onClick={toggleDevMode}
           title="Show protocol rows, state markers, lifecycle rows, and framework notes."
         >
           dev <kbd>V</kbd>
         </button>
-        <button className="top-btn" onClick={onHelp} title="Keyboard shortcuts">
+        <button className="top-btn" type="button" onClick={onHelp} title="Keyboard shortcuts">
           ? help
         </button>
       </div>
@@ -221,12 +244,42 @@ function ConnectionBanner() {
 }
 
 function HelpOverlay({ onClose }: { onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement | null>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return undefined;
+
+    if (typeof dialog.showModal === 'function') {
+      try {
+        if (!dialog.open) dialog.showModal();
+      } catch {
+        dialog.setAttribute('open', '');
+      }
+    } else {
+      dialog.setAttribute('open', '');
+    }
+
+    return () => {
+      if (dialog.open && typeof dialog.close === 'function') dialog.close();
+    };
+  }, []);
+
   return (
-    <div className="help-overlay" onClick={onClose}>
-      <div className="help-card" onClick={(e) => e.stopPropagation()}>
+    <dialog
+      ref={dialogRef}
+      className="help-overlay"
+      aria-label="Keyboard shortcuts"
+      style={overlayDialogStyle}
+      onCancel={(event) => {
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <section className="help-card" style={dialogContentStyle}>
         <header className="help-head">
           <span>shortcuts</span>
-          <button onClick={onClose} className="x">
+          <button type="button" onClick={onClose} className="x">
             ×
           </button>
         </header>
@@ -261,7 +314,14 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
           <dd>nav choice list</dd>
         </dl>
         <footer className="help-foot quiet">click anywhere to close</footer>
-      </div>
-    </div>
+      </section>
+      <button
+        type="button"
+        aria-label="Close shortcuts"
+        style={dialogBackdropButtonStyle}
+        tabIndex={-1}
+        onClick={onClose}
+      />
+    </dialog>
   );
 }

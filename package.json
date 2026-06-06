@@ -23,7 +23,8 @@
     "check:no-stale-stateless-contracts": "node scripts/check-no-stale-stateless-contracts.mjs",
     "verify": "pnpm run format:check && pnpm run lint && pnpm run check:no-workflow-terms && pnpm run check:no-stale-stateless-contracts && pnpm run typecheck && pnpm --dir packages/web-ui run typecheck && pnpm --dir packages/core run verify:codex-bump && pnpm run build && pnpm run test",
     "verify:release": "node scripts/verify-release-workflows.mjs && node scripts/verify-release-manifests.mjs --release-gate",
-    "prepare": "husky"
+    "prepare": "husky",
+    "doctor": "npx react-doctor@latest"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs,jsx}": [
@@ -43,6 +44,7 @@
     "oxlint": "^1.64.0",
     "oxlint-tsgolint": "^0.22.1",
     "prettier": "^3.8.3",
+    "react-doctor": "^0.4.0",
     "rimraf": "^6.0.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.5"

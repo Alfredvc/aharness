@@ -6,7 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Topology } from '../types/topology.js';
 import { resolveFixture } from '../fixtures/registry.js';
-import { formatNodeLabelForTest, graphInternalsForTest } from './Graph.js';
+import { EmbedToggleControl } from './GraphEmbedToggleControl.js';
+import { formatNodeLabelForTest, graphInternalsForTest } from './GraphInternals.js';
+import { GraphLegend } from './GraphLegend.js';
 import type { GraphElkLayout, LaidOutEdge, LaidOutNode } from './graphElk.js';
 import { buildGraphLayoutModel } from './graphLayoutModel.js';
 import {
@@ -20,7 +22,6 @@ import {
 } from './graphInteraction.js';
 
 const {
-  EmbedToggleControl,
   buildEdgeLabelRenderItems,
   classifyFiredEdge,
   createGraphZoomBehavior,
@@ -38,7 +39,6 @@ const {
   focusableEdgesForNodeFocus,
   firedEdgeIdsForLastTransition,
   graphTransformAttribute,
-  GraphLegend,
   handleEmbedToggleClick,
   nodeClassName,
   paintOrderedEdges,

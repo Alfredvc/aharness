@@ -4,7 +4,7 @@ import { act, createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { toolCallRowForTest } from './ActivePanel.js';
+import { ToolCallRow } from './ActivePanel.js';
 import type { TranscriptItem } from '../state/store.js';
 
 const pendingTool: Extract<TranscriptItem, { type: 'tool_call' }> = {
@@ -16,6 +16,10 @@ const pendingTool: Extract<TranscriptItem, { type: 'tool_call' }> = {
   reserved: false,
   stateVisitId: 'workflow.collect#1',
 };
+
+function toolCallRowForTest(item: Extract<TranscriptItem, { type: 'tool_call' }>) {
+  return createElement(ToolCallRow, { item });
+}
 
 afterEach(() => {
   vi.restoreAllMocks();

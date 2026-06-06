@@ -138,11 +138,11 @@ const LEGEND_DEFINITIONS: Record<string, LegendItem> = {
   },
 };
 
-export function focusableEdgeFromLaidOutEdge(edge: FocusableEdgeInput): FocusableEdge {
+function focusableEdgeFromLaidOutEdge(edge: FocusableEdgeInput): FocusableEdge {
   return toFocusableEdge(edge, 'elk-edge');
 }
 
-export function focusableEdgeFromSelfLoop(edge: FocusableEdgeInput): FocusableEdge {
+function focusableEdgeFromSelfLoop(edge: FocusableEdgeInput): FocusableEdge {
   return toFocusableEdge(edge, 'self-loop');
 }
 

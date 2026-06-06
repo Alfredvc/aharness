@@ -5,17 +5,20 @@ import { describe, expect, it } from 'vitest';
 
 import {
   activePanelFollowOutputForTest,
-  activePanelRowForTest,
   activePanelShouldAutoscrollForTest,
   buildActivePanelTimelineRowsForTest,
   buildRunTranscriptRowsForTest,
   buildNodeDetailRowsForTest,
-  ActivePanel,
-} from './ActivePanel.js';
+} from './ActivePanelModel.js';
+import { ActivePanel, ActivePanelRow } from './ActivePanel.js';
 import { canAcceptElicitation } from './elicitationActions.js';
-import type { UiState, UiActions } from '../state/store.js';
+import type { UiState, UiActions, TranscriptDisplayItem } from '../state/store.js';
 
 type TestSession = UiState & UiActions;
+
+function activePanelRowForTest(item: TranscriptDisplayItem) {
+  return createElement(ActivePanelRow, { item });
+}
 
 function baseSession(overrides: Partial<TestSession> = {}): TestSession {
   return {

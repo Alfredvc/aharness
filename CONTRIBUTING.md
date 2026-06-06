@@ -57,12 +57,14 @@ staged JavaScript and TypeScript files. The oxlint command uses
 `--no-error-on-unmatched-pattern` so staged files intentionally ignored by the
 root oxlint config do not fail the commit with a no-files-found error.
 
-## Codex Edit Hook
+## Codex Edit Hooks
 
-The repo-local Codex config includes a check-only `PostToolUse` hook for file
-edits. After Codex applies a patch through the edit/write tool path, the hook
-runs `pnpm exec oxlint --max-warnings 0` against touched JavaScript and
-TypeScript files and reports lint failures back to Codex without modifying files.
+The repo-local Codex config includes check-only `PostToolUse` hooks for file
+edits. After Codex applies a patch through the edit/write tool path, the hooks
+run `pnpm exec oxlint --max-warnings 0` against touched JavaScript and
+TypeScript files, and `react-doctor --verbose --diff --blocking warning
+--no-score` against the current diff. Both hooks report failures back to Codex
+without modifying files.
 
 Codex requires changed repo-local command hooks to be reviewed before they run.
 When Codex reports that hooks need review, open `/hooks` in the CLI and trust the

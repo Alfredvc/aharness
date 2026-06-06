@@ -360,10 +360,10 @@ describe('AharnessShell run stats chrome', () => {
     );
 
     expect(terminalHtml).toContain('>summary<');
-    expect(terminalHtml).toContain('role="dialog"');
+    expect(terminalHtml).toContain('<dialog');
     expect(activeHtml).not.toContain('>summary<');
-    expect(activeHtml).not.toContain('role="dialog"');
+    expect(activeHtml).not.toContain('<dialog');
     expect(dismissedHtml).toContain('>summary<');
-    expect(dismissedHtml).not.toContain('role="dialog"');
+    expect(dismissedHtml).not.toContain('<dialog');
   });
 });

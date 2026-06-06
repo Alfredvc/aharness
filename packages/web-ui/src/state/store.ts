@@ -51,9 +51,6 @@ const SUBMIT_TOOLS = new Set<string>([
   'mcp:aharness_fsm/submit',
 ]);
 
-// Tools the UI hides from the default transcript view: request_user_input is
-// codex's built-in owner-input tool whose ServerRequest is rendered separately.
-export const RESERVED_TOOLS = new Set<string>([...SUBMIT_TOOLS, 'request_user_input']);
 const DIAGNOSTIC_LIMIT = 100;
 const UNKNOWN_ROW_DIAGNOSTIC_LIMIT = 25;
 const RUN_LEVEL_VISIT_ID = '__run';
@@ -63,6 +60,8 @@ function isSubmitToolName(name: string): boolean {
 }
 
 export function isReservedToolName(name: string): boolean {
+  // request_user_input is codex's built-in owner-input tool whose ServerRequest
+  // is rendered separately.
   return name === 'request_user_input' || isSubmitToolName(name);
 }
 
@@ -1202,7 +1201,8 @@ function mergeTranscriptItems(
     byKey.set(item.id, nextItem);
     recordEventIds(item.id, item);
   }
-  return [...byKey.values()].sort((a, b) => {
+  const merged = Array.from(byKey.values());
+  return merged.sort((a, b) => {
     const aSeq = a.seq ?? Number.MAX_SAFE_INTEGER;
     const bSeq = b.seq ?? Number.MAX_SAFE_INTEGER;
     if (aSeq !== bSeq) return aSeq - bSeq;
@@ -2308,23 +2308,23 @@ export function displayItems(items: TranscriptItem[], devMode: boolean): Transcr
 
 function foldToolResults(items: ReadonlyArray<TranscriptItem>): TranscriptItem[] {
   const folded: TranscriptItem[] = [];
+  const unresolvedCallIndexById = new Map<string, number>();
+  const pushFolded = (item: TranscriptItem) => {
+    if (item.type === 'tool_call' && item.resultId === undefined) {
+      unresolvedCallIndexById.set(item.id, folded.length);
+    }
+    folded.push(item);
+  };
+
   for (const item of items) {
     if (item.type !== 'tool_result') {
-      folded.push(item);
+      pushFolded(item);
       continue;
     }
 
     const idSuffix = ':output';
     const outputCallId = item.id.endsWith(idSuffix) ? item.id.slice(0, -idSuffix.length) : null;
-    let callIdx =
-      outputCallId === null
-        ? -1
-        : folded.findIndex(
-            (candidate) =>
-              candidate.type === 'tool_call' &&
-              candidate.id === outputCallId &&
-              candidate.resultId === undefined,
-          );
+    let callIdx = outputCallId === null ? -1 : (unresolvedCallIndexById.get(outputCallId) ?? -1);
 
     if (callIdx < 0) {
       for (let i = folded.length - 1; i >= 0; i--) {
@@ -2341,11 +2341,12 @@ function foldToolResults(items: ReadonlyArray<TranscriptItem>): TranscriptItem[]
     }
 
     if (callIdx < 0) {
-      folded.push(item);
+      pushFolded(item);
       continue;
     }
 
     const prev = folded[callIdx] as Extract<TranscriptItem, { type: 'tool_call' }>;
+    unresolvedCallIndexById.delete(prev.id);
     folded[callIdx] = {
       ...prev,
       status: item.ok ? 'completed' : 'failed',

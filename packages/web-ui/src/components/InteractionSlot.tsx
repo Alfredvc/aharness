@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import type { OwnerChoiceRequest, OwnerInputRequest } from '../types/events';
 import type { UiActions } from '../state/store';
 
@@ -12,6 +12,8 @@ type OwnerChoiceProps = {
   reply: UiActions['reply'];
 };
 
+const EMPTY_CHOICES: readonly string[] = [];
+
 export function InteractionSlot({ req, reply }: Props) {
   const flavor = pickFlavor(req);
   if (flavor === 'choice') return <ChoiceSlot req={req} reply={reply} />;
@@ -20,44 +22,47 @@ export function InteractionSlot({ req, reply }: Props) {
 }
 
 export function OwnerChoiceSlot({ req, reply }: OwnerChoiceProps) {
+  return <OwnerChoiceSlotBody key={req.requestId} req={req} reply={reply} />;
+}
+
+function OwnerChoiceSlotBody({ req, reply }: OwnerChoiceProps) {
   const [cursor, setCursor] = useState(0);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submittingRef = useRef(false);
   const options = req.options;
 
-  useEffect(() => {
-    setCursor(0);
-    submittingRef.current = false;
-    setSubmitting(false);
-    setError(null);
-  }, [req.requestId]);
+  const commit = useCallback(
+    async (label: string) => {
+      if (submittingRef.current) return;
+      submittingRef.current = true;
+      setSubmitting(true);
+      setError(null);
+      try {
+        await reply({
+          kind: 'owner-choice',
+          state: req.state,
+          visitCount: req.visitCount,
+          label,
+        });
+      } catch {
+        setError('choice failed; selection retained');
+      } finally {
+        submittingRef.current = false;
+        setSubmitting(false);
+      }
+    },
+    [reply, req.state, req.visitCount],
+  );
 
-  async function commit(label: string) {
-    if (submittingRef.current) return;
-    submittingRef.current = true;
-    setSubmitting(true);
-    setError(null);
-    try {
-      await reply({
-        kind: 'owner-choice',
-        state: req.state,
-        visitCount: req.visitCount,
-        label,
-      });
-    } catch {
-      setError('choice failed; selection retained');
-    } finally {
-      submittingRef.current = false;
-      setSubmitting(false);
-    }
-  }
-
-  function pick(i: number) {
-    if (submittingRef.current) return;
-    if (i < 0 || i >= options.length) return;
-    void commit(options[i]?.label ?? '');
-  }
+  const pick = useCallback(
+    (i: number) => {
+      if (submittingRef.current) return;
+      if (i < 0 || i >= options.length) return;
+      void commit(options[i]?.label ?? '');
+    },
+    [commit, options],
+  );
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -81,7 +86,7 @@ export function OwnerChoiceSlot({ req, reply }: OwnerChoiceProps) {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cursor, options, req.requestId]);
+  }, [cursor, options.length, pick]);
 
   return (
     <div
@@ -93,12 +98,14 @@ export function OwnerChoiceSlot({ req, reply }: OwnerChoiceProps) {
         <span className="label">framework choice</span>
       </div>
       <div className="slot-q">{req.question}</div>
-      <ul className="choices">
+      <div className="choices">
         {options.map((option, i) => (
-          <li
+          <button
             key={option.label}
+            type="button"
             className={`choice ${i === cursor ? 'on' : ''}`}
             aria-disabled={submitting}
+            disabled={submitting}
             onMouseEnter={() => {
               if (!submittingRef.current) setCursor(i);
             }}
@@ -106,9 +113,9 @@ export function OwnerChoiceSlot({ req, reply }: OwnerChoiceProps) {
           >
             <span className="num">{i + 1}</span>
             <span className="text">{option.label}</span>
-          </li>
+          </button>
         ))}
-      </ul>
+      </div>
       {error ? <div className="slot-error">{error}</div> : null}
       <div className="slot-hint">
         <kbd>↑</kbd>/<kbd>↓</kbd> nav · <kbd>↵</kbd> confirm · <kbd>1</kbd>–
@@ -128,6 +135,10 @@ function pickFlavor(req: OwnerInputRequest): 'free' | 'choice' | 'multi' {
 /* ─────────────────────────────────────────────────────── free text */
 
 function FreeTextSlot({ req, reply }: Props) {
+  return <FreeTextSlotBody key={req.id} req={req} reply={reply} />;
+}
+
+function FreeTextSlotBody({ req, reply }: Props) {
   const q = req.questions[0];
   const [value, setValue] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -135,12 +146,9 @@ function FreeTextSlot({ req, reply }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    setValue('');
-    setError(null);
-    setSubmitting(false);
     const t = setTimeout(() => ref.current?.focus(), 220);
     return () => clearTimeout(t);
-  }, [req.id]);
+  }, []);
 
   async function send() {
     if (!q || !value.trim() || submitting) return;
@@ -178,6 +186,7 @@ function FreeTextSlot({ req, reply }: Props) {
       <div className="slot-row">
         <textarea
           ref={ref}
+          aria-label="Owner reply"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={onKey}
@@ -185,6 +194,7 @@ function FreeTextSlot({ req, reply }: Props) {
           spellCheck={false}
         />
         <button
+          type="button"
           className="slot-send"
           onClick={() => void send()}
           disabled={!value.trim() || submitting}
@@ -202,68 +212,113 @@ function FreeTextSlot({ req, reply }: Props) {
 
 /* ─────────────────────────────────────────────────────── owner-input choice */
 
+type ChoiceSlotState = {
+  cursor: number;
+  otherText: string;
+  otherActive: boolean;
+  submitting: boolean;
+  error: string | null;
+};
+
+type ChoiceSlotAction =
+  | { type: 'setCursor'; cursor: number }
+  | { type: 'moveCursor'; delta: -1 | 1; maxIndex: number }
+  | { type: 'setOtherText'; value: string }
+  | { type: 'setOtherActive'; active: boolean }
+  | { type: 'startSubmitting' }
+  | { type: 'submitSuccess' }
+  | { type: 'submitFailure' };
+
+const choiceSlotInitialState: ChoiceSlotState = {
+  cursor: 0,
+  otherText: '',
+  otherActive: false,
+  submitting: false,
+  error: null,
+};
+
+function choiceSlotReducer(state: ChoiceSlotState, action: ChoiceSlotAction): ChoiceSlotState {
+  switch (action.type) {
+    case 'setCursor':
+      return { ...state, cursor: action.cursor };
+    case 'moveCursor':
+      return {
+        ...state,
+        cursor: Math.max(0, Math.min(action.maxIndex, state.cursor + action.delta)),
+      };
+    case 'setOtherText':
+      return { ...state, otherText: action.value };
+    case 'setOtherActive':
+      return { ...state, otherActive: action.active };
+    case 'startSubmitting':
+      return { ...state, submitting: true, error: null };
+    case 'submitSuccess':
+      return { ...state, submitting: false, otherText: '' };
+    case 'submitFailure':
+      return { ...state, submitting: false, error: 'reply failed; input retained' };
+  }
+}
+
 function ChoiceSlot({ req, reply }: Props) {
+  return <ChoiceSlotBody key={req.id} req={req} reply={reply} />;
+}
+
+function ChoiceSlotBody({ req, reply }: Props) {
   const q = req.questions[0];
-  const choices = q?.choices ?? [];
-  const [cursor, setCursor] = useState(0);
-  const [otherText, setOtherText] = useState('');
-  const [otherActive, setOtherActive] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const questionId = q?.id;
+  const isOther = q?.isOther ?? false;
+  const choices = q?.choices ?? EMPTY_CHOICES;
+  const [state, dispatch] = useReducer(choiceSlotReducer, choiceSlotInitialState);
+  const { cursor, otherText, otherActive, submitting, error } = state;
   const otherRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    setCursor(0);
-    setOtherText('');
-    setOtherActive(false);
-    setSubmitting(false);
-    setError(null);
-  }, [req.id]);
+  const commit = useCallback(
+    async (value: string) => {
+      if (!questionId || submitting) return;
+      dispatch({ type: 'startSubmitting' });
+      try {
+        await reply({
+          kind: 'owner-input',
+          requestId: req.id,
+          answers: { [questionId]: value },
+        });
+        dispatch({ type: 'submitSuccess' });
+      } catch {
+        dispatch({ type: 'submitFailure' });
+      }
+    },
+    [questionId, reply, req.id, submitting],
+  );
 
-  async function commit(value: string) {
-    if (!q || submitting) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      await reply({
-        kind: 'owner-input',
-        requestId: req.id,
-        answers: { [q.id]: value },
-      });
-      setOtherText('');
-    } catch {
-      setError('reply failed; input retained');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  function pick(i: number) {
-    if (i < 0 || i >= choices.length) return;
-    const v = choices[i];
-    if (q?.isOther && v === '__other__') {
-      setOtherActive(true);
-      setTimeout(() => otherRef.current?.focus(), 50);
-      return;
-    }
-    void commit(v);
-  }
+  const pick = useCallback(
+    (i: number) => {
+      if (i < 0 || i >= choices.length) return;
+      const v = choices[i];
+      if (isOther && v === '__other__') {
+        dispatch({ type: 'setOtherActive', active: true });
+        setTimeout(() => otherRef.current?.focus(), 50);
+        return;
+      }
+      void commit(v);
+    },
+    [choices, commit, isOther, otherRef],
+  );
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (otherActive) {
         if (e.key === 'Escape') {
           e.preventDefault();
-          setOtherActive(false);
+          dispatch({ type: 'setOtherActive', active: false });
         }
         return;
       }
       if (e.key === 'ArrowDown' || e.key === 'j') {
         e.preventDefault();
-        setCursor((c) => Math.min(choices.length - 1, c + 1));
+        dispatch({ type: 'moveCursor', delta: 1, maxIndex: choices.length - 1 });
       } else if (e.key === 'ArrowUp' || e.key === 'k') {
         e.preventDefault();
-        setCursor((c) => Math.max(0, c - 1));
+        dispatch({ type: 'moveCursor', delta: -1, maxIndex: choices.length - 1 });
       } else if (e.key === 'Enter') {
         e.preventDefault();
         pick(cursor);
@@ -277,7 +332,7 @@ function ChoiceSlot({ req, reply }: Props) {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [cursor, choices, otherActive, req.id]);
+  }, [choices.length, cursor, otherActive, pick]);
 
   return (
     <div className="slot slot-choice">
@@ -286,36 +341,39 @@ function ChoiceSlot({ req, reply }: Props) {
         <span className="label">awaits owner — choose one</span>
       </div>
       <div className="slot-q">{q?.question ?? ''}</div>
-      <ul className="choices">
+      <div className="choices">
         {choices.map((c, i) => {
-          const isOtherSentinel = q?.isOther && c === '__other__';
+          const isOtherSentinel = isOther && c === '__other__';
           return (
-            <li
-              key={i}
+            <button
+              key={c}
+              type="button"
               className={`choice ${i === cursor ? 'on' : ''}`}
-              onMouseEnter={() => setCursor(i)}
+              onMouseEnter={() => dispatch({ type: 'setCursor', cursor: i })}
               onClick={() => pick(i)}
             >
               <span className="num">{i + 1}</span>
               <span className="text">{isOtherSentinel ? 'other…' : c}</span>
-            </li>
+            </button>
           );
         })}
-      </ul>
+      </div>
       {otherActive ? (
         <div className="slot-row">
           <input
             ref={otherRef}
+            aria-label="Custom answer"
             value={otherText}
-            onChange={(e) => setOtherText(e.target.value)}
+            onChange={(e) => dispatch({ type: 'setOtherText', value: e.target.value })}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && otherText.trim()) void commit(otherText.trim());
-              if (e.key === 'Escape') setOtherActive(false);
+              if (e.key === 'Escape') dispatch({ type: 'setOtherActive', active: false });
             }}
             placeholder="custom answer…"
             disabled={submitting}
           />
           <button
+            type="button"
             className="slot-send"
             onClick={() => otherText.trim() && void commit(otherText.trim())}
             disabled={!otherText.trim() || submitting}
@@ -336,6 +394,10 @@ function ChoiceSlot({ req, reply }: Props) {
 /* ─────────────────────────────────────────────────────── multi */
 
 function MultiQuestionSlot({ req, reply }: Props) {
+  return <MultiQuestionSlotBody key={req.id} req={req} reply={reply} />;
+}
+
+function MultiQuestionSlotBody({ req, reply }: Props) {
   const [values, setValues] = useState<Record<string, string>>(() =>
     Object.fromEntries(req.questions.map((q) => [q.id, ''])),
   );
@@ -344,12 +406,9 @@ function MultiQuestionSlot({ req, reply }: Props) {
   const firstRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setValues(Object.fromEntries(req.questions.map((q) => [q.id, ''])));
-    setSubmitting(false);
-    setError(null);
     const t = setTimeout(() => firstRef.current?.focus(), 220);
     return () => clearTimeout(t);
-  }, [req.id]);
+  }, []);
 
   function set(id: string, v: string) {
     setValues((m) => ({ ...m, [id]: v }));
@@ -382,7 +441,7 @@ function MultiQuestionSlot({ req, reply }: Props) {
   }
 
   return (
-    <div className="slot slot-multi" onKeyDown={onKey}>
+    <div className="slot slot-multi">
       <div className="slot-head">
         <span className="dot" aria-hidden />
         <span className="label">awaits owner — {req.questions.length} questions</span>
@@ -399,6 +458,7 @@ function MultiQuestionSlot({ req, reply }: Props) {
               type={q.isSecret ? 'password' : 'text'}
               value={values[q.id] ?? ''}
               onChange={(e) => set(q.id, e.target.value)}
+              onKeyDown={onKey}
               placeholder=""
               autoComplete={q.isSecret ? 'new-password' : 'off'}
               disabled={submitting}
@@ -408,6 +468,7 @@ function MultiQuestionSlot({ req, reply }: Props) {
       </div>
       <div className="slot-row">
         <button
+          type="button"
           className="slot-send"
           onClick={() => void send()}
           disabled={!allFilled || submitting}

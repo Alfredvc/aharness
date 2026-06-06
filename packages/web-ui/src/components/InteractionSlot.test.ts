@@ -1,9 +1,8 @@
 // @vitest-environment jsdom
 
-import { createElement } from 'react';
+import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { act } from 'react-dom/test-utils';
 import { describe, expect, it } from 'vitest';
 
 import { InteractionSlot, OwnerChoiceSlot } from './InteractionSlot.js';

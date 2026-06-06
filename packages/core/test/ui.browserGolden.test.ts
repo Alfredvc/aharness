@@ -354,7 +354,9 @@ function createStaticRunScopedService(options: {
 }
 
 function referencedAssetPaths(html: string): string[] {
-  return [...html.matchAll(/(?:src|href)="\.\/(assets\/[^"]+)"/g)].map((match) => match[1] ?? '');
+  return [...html.matchAll(/(?:src|href)="\.\/(assets\/[^"]+)"/g)]
+    .map((match) => match[1] ?? '')
+    .filter((asset) => asset.endsWith('.js') || asset.endsWith('.css'));
 }
 
 async function fetchText(url: string): Promise<{ response: Response; body: string }> {
