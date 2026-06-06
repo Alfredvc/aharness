@@ -203,7 +203,7 @@ describe('AharnessShell final overview interactions', () => {
     expect(dismissFinalOverview).toHaveBeenCalledTimes(1);
   });
 
-  it('opens the share-card preview from terminal success stats', () => {
+  it('shows direct summary image export controls from terminal success stats', () => {
     const container = render(
       baseSession({
         completionStats: completionStats(),
@@ -217,15 +217,12 @@ describe('AharnessShell final overview interactions', () => {
       }),
     );
 
-    const shareButton = Array.from(container.querySelectorAll('button')).find(
-      (button) => button.textContent === 'Share',
-    );
-    act(() => {
-      shareButton?.click();
-    });
-
-    expect(container.querySelector('.final-overview-share-card svg')).not.toBeNull();
-    expect(container.textContent).toContain('Download PNG');
-    expect(container.textContent).toContain('Copy PNG');
+    expect(container.querySelector('.final-overview-share-card-source svg')).not.toBeNull();
+    expect(container.querySelector('.final-overview-share-card-frame')).toBeNull();
+    expect(container.querySelector('button[aria-label="Download summary image"]')).not.toBeNull();
+    expect(
+      container.querySelector('button[aria-label="Copy summary image to clipboard"]'),
+    ).not.toBeNull();
+    expect(container.textContent).not.toContain('Summary image');
   });
 });

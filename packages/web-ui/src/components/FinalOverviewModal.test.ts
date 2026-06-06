@@ -69,6 +69,16 @@ function renderStatic(props: {
   );
 }
 
+function renderStaticHost(props: {
+  completionStats: RunCompletionStats | null;
+  loading?: boolean;
+  error?: string | null;
+}): HTMLDivElement {
+  const container = document.createElement('div');
+  container.innerHTML = renderStatic(props);
+  return container;
+}
+
 function renderInteractive(props: {
   completionStats: RunCompletionStats | null;
   loading?: boolean;
@@ -91,11 +101,9 @@ function renderInteractive(props: {
   return host;
 }
 
-function buttonByText(container: HTMLElement, text: string): HTMLButtonElement {
-  const button = Array.from(container.querySelectorAll('button')).find(
-    (candidate) => candidate.textContent === text,
-  );
-  if (!button) throw new Error(`button not found: ${text}`);
+function buttonByLabel(container: HTMLElement, label: string): HTMLButtonElement {
+  const button = container.querySelector(`button[aria-label="${label}"]`);
+  if (!(button instanceof HTMLButtonElement)) throw new Error(`button not found: ${label}`);
   return button;
 }
 
@@ -107,6 +115,7 @@ afterEach(() => {
   host?.remove();
   host = null;
   document.body.innerHTML = '';
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -121,34 +130,107 @@ describe('FinalOverviewModal', () => {
   it('renders success stats and available work delta', () => {
     const html = renderStatic({ completionStats: stats() });
 
-    expect(html).toContain('workflow completed');
+    expect(html).toContain('workflow');
     expect(html).toContain('1m 05s');
     expect(html).toContain('1,234');
     expect(html).toContain('Token burn');
     expect(html).toContain('Cache hit');
-    expect(html).toContain('Committed Work');
-    expect(html).toContain('17 lines changed');
-    expect(html).toContain('Where the time went');
+    expect(html).toContain('Input');
+    expect(html).toContain('Cached input');
+    expect(html).toContain('Reasoning');
+    expect(html).toContain('17 lines');
+    expect(html).toContain('Time by state');
+    expect(html).toContain('Tokens by state');
+    expect(html).toContain('State activity');
+    expect(html).toContain('FSM topology');
     expect(html).toContain('12');
     expect(html).toContain('collect');
     expect(html).toContain('Transitions');
     expect(html).toContain('Turns');
-    expect(html).toContain('Lines changed');
     expect(html).toContain('+12 / -5');
     expect(html).not.toContain('Main tokens');
     expect(html).not.toContain('Subthread tokens');
+    expect(html).not.toContain('Display-safe terminal FSM run summary');
+  });
+
+  it('sorts the tokens by state card by total tokens', () => {
+    const container = renderStaticHost({
+      completionStats: stats({
+        stateBuckets: [
+          {
+            id: 'workflow.long',
+            label: 'longTimeLowTokens',
+            elapsedMs: 50_000,
+            eventCount: 2,
+            transitionCount: 1,
+            mainTurnCount: 1,
+            subthreadTurnCount: 0,
+            tokenTotals: {
+              totalTokens: 100,
+              inputTokens: 40,
+              cachedInputTokens: 10,
+              outputTokens: 60,
+              reasoningOutputTokens: 20,
+            },
+          },
+          {
+            id: 'workflow.short',
+            label: 'shortTimeHighTokens',
+            elapsedMs: 5_000,
+            eventCount: 2,
+            transitionCount: 1,
+            mainTurnCount: 1,
+            subthreadTurnCount: 0,
+            tokenTotals: {
+              totalTokens: 900,
+              inputTokens: 300,
+              cachedInputTokens: 100,
+              outputTokens: 600,
+              reasoningOutputTokens: 120,
+            },
+          },
+          {
+            id: 'workflow.middle',
+            label: 'middleTokens',
+            elapsedMs: 10_000,
+            eventCount: 2,
+            transitionCount: 1,
+            mainTurnCount: 1,
+            subthreadTurnCount: 0,
+            tokenTotals: {
+              totalTokens: 500,
+              inputTokens: 200,
+              cachedInputTokens: 40,
+              outputTokens: 300,
+              reasoningOutputTokens: 80,
+            },
+          },
+        ],
+      }),
+    });
+    const tokenPanel = Array.from(container.querySelectorAll('.final-overview-state-panel')).find(
+      (panel) => panel.textContent?.includes('Tokens by state'),
+    );
+
+    expect(
+      Array.from(tokenPanel?.querySelectorAll('.final-overview-state-row b') ?? []).map(
+        (label) => label.textContent,
+      ),
+    ).toEqual(['shortTimeHighTokens', 'middleTokens', 'longTimeLowTokens']);
   });
 
   it('renders share controls for failure but not unknown outcomes', () => {
     const failureHtml = renderStatic({ completionStats: stats({ outcome: 'failure' }) });
     const unknownHtml = renderStatic({ completionStats: stats({ outcome: 'unknown' }) });
 
-    expect(failureHtml).toContain('workflow failed');
-    expect(failureHtml).toContain('Share Card');
-    expect(failureHtml).toContain('Share');
-    expect(unknownHtml).toContain('workflow summary');
+    expect(failureHtml).toContain('workflow');
+    expect(failureHtml).toContain('Terminal failure');
+    expect(failureHtml).toContain('aria-label="Download summary image"');
+    expect(failureHtml).toContain('aria-label="Copy summary image to clipboard"');
+    expect(failureHtml).not.toContain('Summary image');
+    expect(unknownHtml).toContain('workflow');
     expect(unknownHtml).toContain('Partial terminal summary');
-    expect(unknownHtml).not.toMatch(/download|copy png|share/i);
+    expect(unknownHtml).not.toMatch(/download summary image|copy summary image|share/i);
   });
 
   it('does not render share controls without shareable stats', () => {
@@ -165,7 +247,7 @@ describe('FinalOverviewModal', () => {
     });
 
     expect(html).toContain('N/A');
-    expect(html).toContain('Committed work delta was unavailable from recorded git facts');
+    expect(html).toContain('work delta unavailable');
   });
 
   it('does not render low-disclosure forbidden fields', () => {
@@ -176,17 +258,14 @@ describe('FinalOverviewModal', () => {
     );
   });
 
-  it('opens an intentional poster preview with export actions only for shareable SVG stats', () => {
+  it('renders direct summary image export actions only for shareable SVG stats', () => {
     const success = renderInteractive({ completionStats: stats() });
 
-    act(() => {
-      buttonByText(success, 'Share').click();
-    });
-
-    expect(success.querySelector('.final-overview-share-card-frame')).not.toBeNull();
-    expect(success.querySelector('.final-overview-share-card svg')).not.toBeNull();
-    expect(success.textContent).toContain('Download PNG');
-    expect(success.textContent).toContain('Copy PNG');
+    expect(success.querySelector('.final-overview-share-card-frame')).toBeNull();
+    expect(success.querySelector('.final-overview-share-card-source svg')).not.toBeNull();
+    expect(buttonByLabel(success, 'Download summary image')).not.toBeNull();
+    expect(buttonByLabel(success, 'Copy summary image to clipboard')).not.toBeNull();
+    expect(success.textContent).not.toContain('Summary image');
 
     act(() => {
       root?.unmount();
@@ -196,8 +275,12 @@ describe('FinalOverviewModal', () => {
 
     const unknown = renderInteractive({ completionStats: stats({ outcome: 'unknown' }) });
 
-    expect(unknown.querySelector('.final-overview-share-card svg')).toBeNull();
-    expect(unknown.textContent).not.toMatch(/Download PNG|Copy PNG|Share Card/);
+    expect(unknown.querySelector('.final-overview-share-card-source svg')).toBeNull();
+    expect(unknown.querySelector('button[aria-label="Download summary image"]')).toBeNull();
+    expect(
+      unknown.querySelector('button[aria-label="Copy summary image to clipboard"]'),
+    ).toBeNull();
+    expect(unknown.textContent).not.toContain('Summary image');
   });
 
   it('keeps the modal open and reports distinct copy failure status', async () => {
@@ -205,17 +288,57 @@ describe('FinalOverviewModal', () => {
     const onClose = vi.fn();
     const container = renderInteractive({ completionStats: stats(), onClose });
 
-    act(() => {
-      buttonByText(container, 'Share').click();
-    });
     await act(async () => {
-      buttonByText(container, 'Copy PNG').click();
+      buttonByLabel(container, 'Copy summary image to clipboard').click();
       await Promise.resolve();
       await Promise.resolve();
     });
 
     expect(onClose).not.toHaveBeenCalled();
     expect(container.querySelector('.final-overview-modal')).not.toBeNull();
-    expect(container.textContent).toContain('Copy PNG unsupported in this browser.');
+    expect(container.textContent).toContain('Copy Summary Image unsupported in this browser.');
+  });
+
+  it('shows a copied toast after the share icon copies the summary image', async () => {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({
+      drawImage: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback) => {
+      callback(new Blob(['png'], { type: 'image/png' }));
+    });
+    vi.stubGlobal(
+      'Image',
+      class {
+        onload: (() => void) | null = null;
+        set src(_value: string) {
+          this.onload?.();
+        }
+      },
+    );
+    vi.stubGlobal('URL', {
+      createObjectURL: () => 'blob:summary-image',
+      revokeObjectURL: vi.fn(),
+    });
+    vi.stubGlobal('navigator', {
+      clipboard: {
+        write: vi.fn().mockResolvedValue(undefined),
+      },
+    });
+    vi.stubGlobal(
+      'ClipboardItem',
+      class {
+        constructor(_items: Record<string, Blob>) {}
+      },
+    );
+    const container = renderInteractive({ completionStats: stats() });
+
+    await act(async () => {
+      buttonByLabel(container, 'Copy summary image to clipboard').click();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain('summary copied to clipboard');
   });
 });

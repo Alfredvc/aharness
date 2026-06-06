@@ -108,8 +108,9 @@ describe('RunCompletionShareCard', () => {
     expect(successHtml).toContain(`height="${SHARE_CARD_HEIGHT}"`);
     expect(successHtml).toContain(`viewBox="0 0 ${SHARE_CARD_WIDTH} ${SHARE_CARD_HEIGHT}"`);
     expect(successHtml).toContain('xmlns="http://www.w3.org/2000/svg"');
-    expect(successHtml).toContain('Run completed');
-    expect(failureHtml).toContain('Run failed');
+    expect(successHtml).toContain('RUN COMPLETE');
+    expect(failureHtml).toContain('RUN FAILED');
+    expect(successHtml).not.toContain('Run completed');
     expect(successHtml).toContain('font-family');
     expect(successHtml).not.toContain('class=');
   });
@@ -133,59 +134,37 @@ describe('RunCompletionShareCard', () => {
     expect(props.lineDeltaDetailLabel).toBe('N/A');
     expect(props.topTimeBuckets.at(-1)).toEqual(expect.objectContaining({ label: 'Other states' }));
 
-    requiredElement(svg, 'defs linearGradient#share-card-bg');
-    requiredElement(svg, 'defs linearGradient#share-card-token-burn');
-    requiredElement(svg, 'defs linearGradient#share-card-time-bars');
-    requiredElement(svg, 'defs pattern#share-card-grid');
-    requiredElement(svg, 'defs filter#share-card-glow');
-    requiredElement(svg, 'rect[fill="url(#share-card-bg)"]');
-    requiredElement(svg, 'rect[fill="url(#share-card-grid)"]');
+    const posterText = svg.textContent ?? '';
+    expect(posterText).toContain('TERMINAL STATE');
+    expect(posterText).toContain(props.totalTimeLabel);
+    expect(posterText).toContain('TOKEN BURN');
+    expect(posterText).toContain(props.totalTokenLabel);
+    expect(posterText).toContain('TRANSITIONS');
+    expect(posterText).toContain('TURNS');
+    expect(posterText).toContain('CHANGES');
+    expect(posterText).toContain('Time by state');
+    expect(posterText).toContain(props.topTimeBuckets.at(-1)?.label);
+    expect(posterText).not.toContain('Main');
+    expect(posterText).not.toContain('Subthreads');
+    requiredElement(svg, '#share-card-token-burn-bar');
 
-    const timePanel = requiredElement(svg, 'g[transform="translate(96 704)"]');
-    expect(timePanel.textContent).toContain(props.totalTimeLabel);
-    requiredElement(timePanel, 'rect[width="682"][height="420"]');
-
-    requiredElement(svg, 'g[transform="translate(826 704)"] circle[stroke-dasharray]');
-
-    const tokenPanel = requiredElement(svg, 'g[transform="translate(96 1190)"]');
-    expect(tokenPanel.textContent).toContain(props.totalTokenLabel);
-    requiredElement(tokenPanel, '#share-card-token-main-bar');
-    requiredElement(tokenPanel, '#share-card-token-subthread-bar');
-
-    const statTiles = requiredElement(svg, 'g[transform="translate(96 1700)"]');
-    expect(statTiles.querySelectorAll('g[transform]')).toHaveLength(4);
-
-    const timeBucketRows = requiredElement(
-      svg,
-      'g[transform="translate(96 2288)"]',
-    ).querySelectorAll('g[transform^="translate(42 "]');
-    expect(timeBucketRows).toHaveLength(props.topTimeBuckets.length);
-    expect(timeBucketRows.item(timeBucketRows.length - 1).textContent).toContain(
-      props.topTimeBuckets.at(-1)?.label,
-    );
-
-    const footerStatus = requiredElement(svg, 'text[text-anchor="end"]');
+    const footerStatus = requiredElement(svg, 'text[text-anchor="middle"]');
+    expect(footerStatus.textContent).toContain('Run with npmjs.com/package/@aharness/core');
     expect(footerStatus.textContent).not.toContain(unavailableReason);
     expect(footerStatus.textContent).not.toContain(props.lineDeltaDetailLabel);
+    expect(render(statsValue)).not.toContain('Display-safe poster');
   });
 
-  it('uses distinct success and failure tones with the same poster layout', () => {
+  it('renders success and failure outcome labels in the same poster shape', () => {
     const successSvg = renderSvg(stats({ outcome: 'success' }));
     const failureSvg = renderSvg(stats({ outcome: 'failure' }));
-    const successRing = requiredElement(
-      successSvg,
-      'g[transform="translate(826 704)"] circle[stroke-dasharray]',
-    );
-    const failureRing = requiredElement(
-      failureSvg,
-      'g[transform="translate(826 704)"] circle[stroke-dasharray]',
-    );
 
-    expect(successRing.getAttribute('stroke')).not.toBe(failureRing.getAttribute('stroke'));
-    expect(successRing.getAttribute('stroke-dasharray')).toBe('100 0');
-    expect(failureRing.getAttribute('stroke-dasharray')).toBe('72 28');
-    requiredElement(successSvg, 'g[transform="translate(96 1190)"] #share-card-token-main-bar');
-    requiredElement(failureSvg, 'g[transform="translate(96 1190)"] #share-card-token-main-bar');
+    expect(successSvg.textContent).toContain('RUN COMPLETE');
+    expect(successSvg.textContent).toContain('DONE');
+    expect(failureSvg.textContent).toContain('RUN FAILED');
+    expect(failureSvg.textContent).toContain('HALT');
+    requiredElement(successSvg, '#share-card-token-burn-bar');
+    requiredElement(failureSvg, '#share-card-token-burn-bar');
   });
 
   it('builds derived poster metric labels from display-safe completion stats', () => {
@@ -278,7 +257,7 @@ describe('RunCompletionShareCard', () => {
     ]);
   });
 
-  it('renders token burn as derived main and subthread split bar segments', () => {
+  it('renders token burn as a single public aggregate bar without thread split copy', () => {
     const html = render(
       stats({
         tokenTotals: {
@@ -294,14 +273,9 @@ describe('RunCompletionShareCard', () => {
       }),
     );
 
-    expect(html).toContain('Main 25%');
-    expect(html).toContain('Subthreads 50%');
-    expect(html).toContain(
-      'id="share-card-token-main-bar" width="150" height="32" fill="url(#share-card-token-burn)"',
-    );
-    expect(html).toContain(
-      'id="share-card-token-subthread-bar" x="150" width="300" height="32" fill="#60a5fa"',
-    );
+    expect(html).not.toContain('Main 25%');
+    expect(html).not.toContain('Subthreads 50%');
+    expect(html).toContain('id="share-card-token-burn-bar"');
   });
 
   it('guards poster metric percentages against zero denominators and unavailable work deltas', () => {

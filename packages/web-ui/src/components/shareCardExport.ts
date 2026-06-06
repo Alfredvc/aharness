@@ -224,7 +224,7 @@ function buildBucketRows(stats: RunCompletionStats): RunCompletionShareCardBucke
   const visible = stats.stateBuckets.slice(0, MAX_BUCKET_ROWS);
   const remaining = stats.stateBuckets.slice(MAX_BUCKET_ROWS);
   const rows = visible.map((bucket) => ({
-    label: truncateDisplay(sanitizeDisplay(bucket.label), MAX_BUCKET_LABEL_LENGTH),
+    label: truncateDisplay(displayBucketLabel(bucket.label), MAX_BUCKET_LABEL_LENGTH),
     durationLabel: formatDuration(bucket.elapsedMs),
     turnCountLabel: formatNumber(bucket.mainTurnCount + bucket.subthreadTurnCount),
     tokenTotalLabel: formatNumber(bucket.tokenTotals.totalTokens),
@@ -258,7 +258,7 @@ function buildTopTimeBuckets(stats: RunCompletionStats): RunCompletionShareCardT
   const rows = visible.map((bucket) => {
     const percent = safePercent(bucket.elapsedMs, denominator);
     return {
-      label: truncateDisplay(sanitizeDisplay(bucket.label), MAX_BUCKET_LABEL_LENGTH),
+      label: truncateDisplay(displayBucketLabel(bucket.label), MAX_BUCKET_LABEL_LENGTH),
       durationLabel: formatDuration(bucket.elapsedMs),
       percent,
       percentageLabel: formatPercent(percent),
@@ -321,6 +321,13 @@ function sanitizeDisplay(value: string): string {
       .replace(/\s+/g, ' ')
       .trim() || 'workflow'
   );
+}
+
+function displayBucketLabel(value: string): string {
+  const sanitized = sanitizeDisplay(value);
+  const slashLeaf = sanitized.split('/').at(-1) ?? sanitized;
+  const dotLeaf = slashLeaf.split('.').at(-1) ?? slashLeaf;
+  return dotLeaf || sanitized;
 }
 
 function isControlCharacter(value: string): boolean {

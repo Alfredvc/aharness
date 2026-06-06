@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
+import { Download, Share2 } from 'lucide-react';
 import type { RunCompletionStats } from '../types/events.js';
 import {
   RunCompletionShareCard,
@@ -54,6 +55,10 @@ export function FinalOverviewModal({
   const outcome = completionStats?.outcome ?? 'unknown';
   const tone = outcome === 'success' ? 'success' : outcome === 'failure' ? 'failure' : 'partial';
   const dialogRef = useRef<HTMLDialogElement | null>(null);
+  const shareProps = completionStats ? buildRunCompletionShareCardProps(completionStats) : null;
+  const [exporting, setExporting] = useState<'copy' | 'download' | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -74,6 +79,29 @@ export function FinalOverviewModal({
     };
   }, []);
 
+  useEffect(() => {
+    if (!toastMessage) return undefined;
+    const timeout = window.setTimeout(() => setToastMessage(null), 2400);
+    return () => window.clearTimeout(timeout);
+  }, [toastMessage]);
+
+  const handleDownloadSummary = () => {
+    const svg = svgRef.current;
+    if (!svg || !shareProps) return;
+    setExporting('download');
+    void downloadShareCardPng(svg, shareProps)
+      .then((status) => setToastMessage(downloadStatusLabel(status)))
+      .finally(() => setExporting(null));
+  };
+  const handleCopySummary = () => {
+    const svg = svgRef.current;
+    if (!svg || !shareProps) return;
+    setExporting('copy');
+    void copyShareCardPng(svg)
+      .then((status) => setToastMessage(copyStatusLabel(status)))
+      .finally(() => setExporting(null));
+  };
+
   return (
     <dialog
       ref={dialogRef}
@@ -88,21 +116,47 @@ export function FinalOverviewModal({
     >
       <section className="final-overview-modal" data-outcome={tone} style={dialogContentStyle}>
         <header className="final-overview-head">
-          <div>
+          <div className="final-overview-head-title">
             <p className="final-overview-eyebrow">Final overview</p>
             <h2 id="final-overview-title">{titleForStats(completionStats, loading)}</h2>
           </div>
-          <button className="final-overview-close" type="button" onClick={onClose}>
-            Close
-          </button>
+          <div className="final-overview-head-actions">
+            {shareProps ? (
+              <>
+                <IconButton
+                  label="Download summary image"
+                  disabled={exporting !== null}
+                  onClick={handleDownloadSummary}
+                >
+                  <Download aria-hidden="true" size={17} strokeWidth={2.4} />
+                </IconButton>
+                <IconButton
+                  label="Copy summary image to clipboard"
+                  disabled={exporting !== null}
+                  onClick={handleCopySummary}
+                >
+                  <Share2 aria-hidden="true" size={17} strokeWidth={2.4} />
+                </IconButton>
+              </>
+            ) : null}
+            <button className="final-overview-close" type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
         </header>
+        {shareProps ? <RunCompletionShareCardRef props={shareProps} svgRef={svgRef} /> : null}
+        {toastMessage ? (
+          <output className="final-overview-toast" aria-live="polite">
+            {toastMessage}
+          </output>
+        ) : null}
 
         {error ? <p className="final-overview-error">{error}</p> : null}
         {loading && completionStats === null ? (
           <div className="final-overview-loading">Loading exact summary...</div>
         ) : null}
 
-        {completionStats ? <StatsBody stats={completionStats} /> : null}
+        {completionStats ? <StatsBody shareProps={shareProps} stats={completionStats} /> : null}
       </section>
       <button
         type="button"
@@ -115,85 +169,14 @@ export function FinalOverviewModal({
   );
 }
 
-function StatsBody({ stats }: { stats: RunCompletionStats }) {
-  const shareProps = buildRunCompletionShareCardProps(stats);
+function StatsBody({
+  shareProps,
+  stats,
+}: {
+  shareProps: RunCompletionShareCardProps | null;
+  stats: RunCompletionStats;
+}) {
   const dashboard = buildDashboardDisplay(stats, shareProps);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [copyStatus, setCopyStatus] = useState<ShareCardCopyStatus | null>(null);
-  const [downloadStatus, setDownloadStatus] = useState<ShareCardDownloadStatus | null>(null);
-  const [exporting, setExporting] = useState<'download' | 'copy' | null>(null);
-  const svgRef = useRef<SVGSVGElement | null>(null);
-
-  const shareSection = shareProps ? (
-    <section className="final-overview-section final-overview-share-section">
-      <div className="final-overview-share-row">
-        <h3>Share Card</h3>
-        <div className="final-overview-share-row-actions">
-          <button
-            className="final-overview-action"
-            type="button"
-            onClick={() => {
-              setPreviewOpen((open) => !open);
-              setCopyStatus(null);
-              setDownloadStatus(null);
-            }}
-          >
-            {previewOpen ? 'Hide preview' : 'Share'}
-          </button>
-          {previewOpen ? (
-            <>
-              <button
-                className="final-overview-action"
-                type="button"
-                disabled={exporting !== null}
-                onClick={() => {
-                  const svg = svgRef.current;
-                  if (!svg) return;
-                  setExporting('download');
-                  void downloadShareCardPng(svg, shareProps)
-                    .then(setDownloadStatus)
-                    .finally(() => setExporting(null));
-                }}
-              >
-                {exporting === 'download' ? 'Downloading...' : 'Download PNG'}
-              </button>
-              <button
-                className="final-overview-action"
-                type="button"
-                disabled={exporting !== null}
-                onClick={() => {
-                  const svg = svgRef.current;
-                  if (!svg) return;
-                  setExporting('copy');
-                  void copyShareCardPng(svg)
-                    .then(setCopyStatus)
-                    .finally(() => setExporting(null));
-                }}
-              >
-                {exporting === 'copy' ? 'Copying...' : 'Copy PNG'}
-              </button>
-            </>
-          ) : null}
-        </div>
-      </div>
-      {previewOpen ? (
-        <div className="final-overview-share-preview">
-          <div className="final-overview-share-card-frame">
-            <RunCompletionShareCardRef props={shareProps} svgRef={svgRef} />
-          </div>
-          <ShareExportStatus copyStatus={copyStatus} downloadStatus={downloadStatus} />
-        </div>
-      ) : null}
-    </section>
-  ) : null;
-
-  if (previewOpen && shareSection) {
-    return (
-      <div className="final-overview-body" data-view="share-preview">
-        {shareSection}
-      </div>
-    );
-  }
 
   return (
     <div className="final-overview-body">
@@ -201,108 +184,117 @@ function StatsBody({ stats }: { stats: RunCompletionStats }) {
         <p className="final-overview-note">Partial terminal summary from available run events.</p>
       ) : null}
 
-      <section className="final-overview-dashboard-hero" aria-label="Run completion dashboard">
-        <div className="final-overview-title-block">
-          <span className="final-overview-outcome-pill" data-outcome={dashboard.tone}>
-            {dashboard.statusLabel}
-          </span>
-          <h3>{stats.fsmDisplayName}</h3>
-          <p>Display-safe terminal FSM run summary.</p>
-        </div>
-        <div className="final-overview-time-card">
-          <span>Total time</span>
-          <strong>{dashboard.totalTimeLabel}</strong>
-          <p>{dashboard.totalTurnCountLabel} turns across main and subthreads</p>
-          <small>
-            {dashboard.transitionCountLabel} transitions / {dashboard.freshClearCountLabel} fresh
-            clears
-          </small>
-        </div>
-        <div className="final-overview-status-card">
-          <div className="final-overview-status-ring" data-outcome={dashboard.tone}>
-            <strong>{dashboard.statusValue}</strong>
-            <span>{dashboard.statusLabel}</span>
-          </div>
-          <p>{dashboard.statusDetail}</p>
-        </div>
-      </section>
-
-      {shareSection}
-
-      <section className="final-overview-token-panel" aria-label="Token burn">
-        <div className="final-overview-token-primary">
-          <span>Token burn</span>
-          <strong>{dashboard.totalTokenLabel}</strong>
-          <p>total tokens</p>
-        </div>
-        <div className="final-overview-token-side">
-          <div>
-            <span>Output</span>
-            <strong>{dashboard.outputTokenLabel}</strong>
-          </div>
-          <div>
-            <span>Cache hit</span>
-            <strong>{dashboard.cacheHitPercentageLabel}</strong>
-          </div>
-        </div>
-        <div className="final-overview-token-split">
-          <div className="final-overview-token-track" aria-hidden="true">
-            <span style={{ width: `${dashboard.mainTokenPercent}%` }} />
-            <span style={{ width: `${dashboard.subthreadTokenPercent}%` }} />
-          </div>
-          <div className="final-overview-token-legend">
-            <span>Main {dashboard.mainTokenPercentageLabel}</span>
-            <span>Subthreads {dashboard.subthreadTokenPercentageLabel}</span>
-          </div>
-        </div>
-      </section>
-
-      <section className="final-overview-tile-grid" aria-label="Run summary tiles">
-        <DashboardTile
+      <section className="final-overview-outcome-grid" aria-label="Run outcome">
+        <OutcomeCell
+          label="Terminal state"
+          value={dashboard.statusValue}
+          detail={dashboard.statusDetail}
+          tone={dashboard.tone}
+        />
+        <OutcomeCell
+          label="Total time"
+          value={dashboard.totalTimeLabel}
+          detail={dashboard.timeDetailLabel}
+        />
+        <OutcomeCell
+          label="Turns"
+          value={dashboard.totalTurnCountLabel}
+          detail={dashboard.turnDetailLabel}
+        />
+        <OutcomeCell
           label="Transitions"
           value={dashboard.transitionCountLabel}
           detail={`${dashboard.freshClearCountLabel} fresh clears`}
-          accent="teal"
         />
-        <DashboardTile
-          label="Turns"
-          value={dashboard.totalTurnCountLabel}
-          detail={`${dashboard.mainTurnCountLabel} main / ${dashboard.subthreadTurnCountLabel} subthreads`}
-          accent="blue"
-        />
-        <DashboardTile
-          label="Committed Work"
+        <OutcomeCell
+          label="Changes"
           value={dashboard.filesChangedLabel}
-          detail={
-            stats.workDelta.status === 'available'
-              ? `${dashboard.linesChangedLabel} lines changed (${dashboard.lineDeltaDetailLabel})`
-              : 'Committed work delta was unavailable from recorded git facts.'
-          }
-          accent="amber"
-        />
-        <DashboardTile
-          label="Lines changed"
-          value={dashboard.linesChangedLabel}
-          detail={
-            stats.workDelta.status === 'available'
-              ? dashboard.lineDeltaDetailLabel
-              : 'N/A from recorded git facts'
-          }
-          accent="rose"
+          detail={dashboard.changeDetailLabel}
         />
       </section>
 
-      <section className="final-overview-section">
-        <h3>Where the time went</h3>
-        <div className="final-overview-time-bars" aria-label="Where the time went">
-          {dashboard.topTimeBuckets.length > 0 ? (
-            dashboard.topTimeBuckets.map((bucket, index) => (
-              <TimeBucketRow bucket={bucket} key={`${bucket.label}-${index}`} />
-            ))
-          ) : (
-            <p>No state buckets were available in the recorded run events.</p>
-          )}
+      <section className="final-overview-token-panel" aria-label="Token burn">
+        <div className="final-overview-panel-head">
+          <h3>Token burn</h3>
+          <span>Cache hit {dashboard.cacheHitPercentageLabel}</span>
         </div>
+        <div className="final-overview-token-content">
+          <div className="final-overview-token-primary">
+            <strong>{dashboard.totalTokenLabel}</strong>
+            <p>
+              {dashboard.mainTokenLabel} main / {dashboard.subthreadTokenLabel} subthread
+            </p>
+          </div>
+          <div className="final-overview-token-breakdown">
+            <div className="final-overview-token-metric-row">
+              <TokenMetric label="Input" value={dashboard.inputTokenLabel} />
+              <TokenMetric label="Cached input" value={dashboard.cachedInputTokenLabel} />
+              <TokenMetric label="Output" value={dashboard.outputTokenLabel} />
+              <TokenMetric label="Reasoning" value={dashboard.reasoningTokenLabel} />
+            </div>
+            <div className="final-overview-token-split">
+              <div className="final-overview-token-track" aria-hidden="true">
+                <span style={{ width: `${dashboard.mainTokenPercent}%` }} />
+                <span style={{ width: `${dashboard.subthreadTokenPercent}%` }} />
+              </div>
+              <div className="final-overview-token-legend">
+                <span>
+                  <i aria-hidden="true" />
+                  Main {dashboard.mainTokenPercentageLabel}
+                </span>
+                <span>
+                  <i aria-hidden="true" />
+                  Subthreads {dashboard.subthreadTokenPercentageLabel}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div className="final-overview-state-grid">
+        <StateBucketPanel
+          title="Time by state"
+          eyebrow="top buckets"
+          rows={dashboard.stateBuckets}
+          metric="time"
+        />
+        <StateBucketPanel
+          title="Tokens by state"
+          eyebrow="total tokens"
+          rows={dashboard.tokenStateBuckets}
+          metric="tokens"
+        />
+      </div>
+
+      <section className="final-overview-activity-panel" aria-label="State activity">
+        <div className="final-overview-panel-head">
+          <h3>State activity</h3>
+          <span>events / transitions / turns</span>
+        </div>
+        <div className="final-overview-activity-table">
+          <div className="final-overview-activity-row">
+            <span>State</span>
+            <span>Events</span>
+            <span>Transitions</span>
+            <span>Turns</span>
+          </div>
+          {dashboard.stateBuckets.map((bucket) => (
+            <div className="final-overview-activity-row" key={`activity-${bucket.label}`}>
+              <b>{bucket.label}</b>
+              <strong>{bucket.eventCountLabel}</strong>
+              <strong>{bucket.transitionCountLabel}</strong>
+              <strong>{bucket.turnCountLabel}</strong>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="final-overview-detail-grid" aria-label="Run details">
+        <DetailCell label="Started" value={dashboard.startedAtLabel} />
+        <DetailCell label="Ended" value={dashboard.endedAtLabel} />
+        <DetailCell label="Bucket source" value={dashboard.bucketSourceLabel} />
+        <DetailCell label="Work delta" value={dashboard.lineDeltaDetailLabel} />
       </section>
     </div>
   );
@@ -320,57 +312,67 @@ function RunCompletionShareCardRef({
       ref={(node) => {
         svgRef.current = node?.querySelector('svg') ?? null;
       }}
-      className="final-overview-share-card"
-      aria-label="Share-card preview"
+      className="final-overview-share-card-source"
+      aria-hidden="true"
+      hidden
     >
       <RunCompletionShareCard {...props} />
     </div>
   );
 }
 
-function ShareExportStatus({
-  copyStatus,
-  downloadStatus,
-}: {
-  copyStatus: ShareCardCopyStatus | null;
-  downloadStatus: ShareCardDownloadStatus | null;
-}) {
-  if (!copyStatus && !downloadStatus) return null;
-  return (
-    <output className="final-overview-share-status">
-      {downloadStatus ? <p>{downloadStatusLabel(downloadStatus)}</p> : null}
-      {copyStatus ? <p>{copyStatusLabel(copyStatus)}</p> : null}
-    </output>
-  );
-}
-
 function downloadStatusLabel(status: ShareCardDownloadStatus): string {
-  if (status.ok) return 'Download PNG ready.';
-  if (status.kind === 'encoding-failed') return 'Download PNG failed while encoding.';
-  return 'Download PNG failed because the image dimensions changed.';
+  if (status.ok) return 'Summary image download ready.';
+  if (status.kind === 'encoding-failed') return 'Summary image download failed while encoding.';
+  return 'Summary image download failed because the image dimensions changed.';
 }
 
 function copyStatusLabel(status: ShareCardCopyStatus): string {
-  if (status.ok) return 'Copy PNG complete.';
-  if (status.kind === 'unsupported') return 'Copy PNG unsupported in this browser.';
-  if (status.kind === 'permission-denied') return 'Copy PNG denied by the browser.';
-  if (status.kind === 'encoding-failed') return 'Copy PNG failed while encoding.';
-  return 'Copy PNG failed because the image dimensions changed.';
+  if (status.ok) return 'summary copied to clipboard';
+  if (status.kind === 'unsupported') return 'Copy Summary Image unsupported in this browser.';
+  if (status.kind === 'permission-denied') return 'Copy Summary Image denied by the browser.';
+  if (status.kind === 'encoding-failed') return 'Copy Summary Image failed while encoding.';
+  return 'Copy Summary Image failed because the image dimensions changed.';
 }
 
-function DashboardTile({
+function IconButton({
+  children,
+  disabled,
+  label,
+  onClick,
+}: {
+  children: ReactNode;
+  disabled: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-label={label}
+      className="final-overview-icon-button"
+      disabled={disabled}
+      title={label}
+      type="button"
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+function OutcomeCell({
   label,
   value,
   detail,
-  accent,
+  tone,
 }: {
   label: string;
   value: string;
   detail: string;
-  accent: 'amber' | 'blue' | 'rose' | 'teal';
+  tone?: 'failure' | 'partial' | 'success';
 }) {
   return (
-    <div className="final-overview-dashboard-tile" data-accent={accent}>
+    <div className="final-overview-outcome-cell" data-tone={tone}>
       <span>{label}</span>
       <strong>{value}</strong>
       <p>{detail}</p>
@@ -378,27 +380,81 @@ function DashboardTile({
   );
 }
 
-function TimeBucketRow({ bucket }: { bucket: RunCompletionShareCardTimeBucket }) {
+function TokenMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="final-overview-time-bar-row">
-      <div>
-        <strong>{bucket.label}</strong>
-        <span>
-          {bucket.percentageLabel} / {bucket.durationLabel}
-        </span>
+    <div className="final-overview-token-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function StateBucketPanel({
+  title,
+  eyebrow,
+  rows,
+  metric,
+}: {
+  title: string;
+  eyebrow: string;
+  rows: ReadonlyArray<FinalOverviewStateBucketDisplay>;
+  metric: 'time' | 'tokens';
+}) {
+  return (
+    <section className="final-overview-state-panel" data-metric={metric}>
+      <div className="final-overview-panel-head">
+        <h3>{title}</h3>
+        <span>{eyebrow}</span>
       </div>
-      <div className="final-overview-time-bar-track" aria-hidden="true">
-        <span style={{ width: `${bucket.percent}%` }} />
+      <div className="final-overview-state-list">
+        {rows.length > 0 ? (
+          rows.map((bucket) => (
+            <StateBucketRow bucket={bucket} key={`${metric}-${bucket.label}`} metric={metric} />
+          ))
+        ) : (
+          <p>No state buckets were available in the recorded run events.</p>
+        )}
       </div>
+    </section>
+  );
+}
+
+function StateBucketRow({
+  bucket,
+  metric,
+}: {
+  bucket: FinalOverviewStateBucketDisplay;
+  metric: 'time' | 'tokens';
+}) {
+  const percent = metric === 'time' ? bucket.timePercent : bucket.tokenPercent;
+  const label =
+    metric === 'time'
+      ? `${bucket.percentageLabel} / ${bucket.durationLabel}`
+      : bucket.tokenTotalLabel;
+
+  return (
+    <div className="final-overview-state-row">
+      <b>{bucket.label}</b>
+      <div className="final-overview-state-track" aria-hidden="true">
+        <span style={{ width: `${percent}%` }} />
+      </div>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function DetailCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="final-overview-detail-cell">
+      <span>{label}</span>
+      <strong>{value}</strong>
     </div>
   );
 }
 
 function titleForStats(stats: RunCompletionStats | null, loading: boolean): string {
   if (stats === null) return loading ? 'Loading summary' : 'Summary unavailable';
-  if (stats.outcome === 'success') return `${stats.fsmDisplayName} completed`;
-  if (stats.outcome === 'failure') return `${stats.fsmDisplayName} failed`;
-  return `${stats.fsmDisplayName} summary`;
+  return stats.fsmDisplayName;
 }
 
 function formatNumber(value: number): string {
@@ -429,11 +485,16 @@ type FinalOverviewDashboardDisplay = {
   statusValue: string;
   statusDetail: string;
   totalTimeLabel: string;
+  timeDetailLabel: string;
   totalTurnCountLabel: string;
+  turnDetailLabel: string;
   transitionCountLabel: string;
   freshClearCountLabel: string;
   totalTokenLabel: string;
+  inputTokenLabel: string;
+  cachedInputTokenLabel: string;
   outputTokenLabel: string;
+  reasoningTokenLabel: string;
   cacheHitPercentageLabel: string;
   mainTokenLabel: string;
   subthreadTokenLabel: string;
@@ -446,7 +507,21 @@ type FinalOverviewDashboardDisplay = {
   filesChangedLabel: string;
   linesChangedLabel: string;
   lineDeltaDetailLabel: string;
-  topTimeBuckets: ReadonlyArray<RunCompletionShareCardTimeBucket>;
+  changeDetailLabel: string;
+  bucketSourceLabel: string;
+  startedAtLabel: string;
+  endedAtLabel: string;
+  stateBuckets: ReadonlyArray<FinalOverviewStateBucketDisplay>;
+  tokenStateBuckets: ReadonlyArray<FinalOverviewStateBucketDisplay>;
+};
+
+type FinalOverviewStateBucketDisplay = RunCompletionShareCardTimeBucket & {
+  timePercent: number;
+  tokenPercent: number;
+  tokenTotalLabel: string;
+  eventCountLabel: string;
+  transitionCountLabel: string;
+  turnCountLabel: string;
 };
 
 function buildDashboardDisplay(
@@ -454,15 +529,26 @@ function buildDashboardDisplay(
   shareProps: RunCompletionShareCardProps | null,
 ): FinalOverviewDashboardDisplay {
   const status = statusForOutcome(stats.outcome);
+  const stateBuckets = buildStateBucketDisplay(stats, 'time');
+  const tokenStateBuckets = buildStateBucketDisplay(stats, 'tokens');
+  const timeDetailLabel = buildTimeDetailLabel(stateBuckets);
+  const turnDetailLabel = buildTurnDetailLabel(stats);
+  const timestampLabels = buildTimestampLabels(stats);
+  const bucketSourceLabel = stats.topologyStatus === 'available' ? 'FSM topology' : 'Event buckets';
   if (shareProps) {
     return {
       ...status,
       totalTimeLabel: shareProps.totalTimeLabel,
+      timeDetailLabel,
       totalTurnCountLabel: shareProps.totalTurnCountLabel,
+      turnDetailLabel,
       transitionCountLabel: shareProps.transitionCountLabel,
       freshClearCountLabel: shareProps.freshClearCountLabel,
       totalTokenLabel: shareProps.totalTokenLabel,
+      inputTokenLabel: formatCompactNumber(stats.tokenTotals.inputTokens),
+      cachedInputTokenLabel: formatCompactNumber(stats.tokenTotals.cachedInputTokens),
       outputTokenLabel: shareProps.outputTokenLabel,
+      reasoningTokenLabel: formatCompactNumber(stats.tokenTotals.reasoningOutputTokens),
       cacheHitPercentageLabel: shareProps.cacheHitPercentageLabel,
       mainTokenLabel: shareProps.mainTokenLabel,
       subthreadTokenLabel: shareProps.subthreadTokenLabel,
@@ -475,7 +561,11 @@ function buildDashboardDisplay(
       filesChangedLabel: shareProps.filesChangedLabel,
       linesChangedLabel: shareProps.linesChangedLabel,
       lineDeltaDetailLabel: shareProps.lineDeltaDetailLabel,
-      topTimeBuckets: shareProps.topTimeBuckets,
+      changeDetailLabel: buildChangeDetailLabel(stats, shareProps.linesChangedLabel),
+      bucketSourceLabel,
+      ...timestampLabels,
+      stateBuckets,
+      tokenStateBuckets,
     };
   }
 
@@ -487,11 +577,16 @@ function buildDashboardDisplay(
   return {
     ...status,
     totalTimeLabel: formatDuration(stats.duration.elapsedMs),
+    timeDetailLabel,
     totalTurnCountLabel: formatNumber(stats.mainTurnCount + stats.subthreadTurnCount),
+    turnDetailLabel,
     transitionCountLabel: formatNumber(stats.transitionCount),
     freshClearCountLabel: formatNumber(stats.freshClearCount),
     totalTokenLabel: formatCompactNumber(totalTokens),
+    inputTokenLabel: formatCompactNumber(stats.tokenTotals.inputTokens),
+    cachedInputTokenLabel: formatCompactNumber(stats.tokenTotals.cachedInputTokens),
     outputTokenLabel: formatCompactNumber(stats.tokenTotals.outputTokens),
+    reasoningTokenLabel: formatCompactNumber(stats.tokenTotals.reasoningOutputTokens),
     cacheHitPercentageLabel: formatPercent(
       safePercent(stats.tokenTotals.cachedInputTokens, stats.tokenTotals.inputTokens),
     ),
@@ -504,7 +599,11 @@ function buildDashboardDisplay(
     mainTurnCountLabel: formatNumber(stats.mainTurnCount),
     subthreadTurnCountLabel: formatNumber(stats.subthreadTurnCount),
     ...workDelta,
-    topTimeBuckets: buildFallbackTimeBuckets(stats),
+    changeDetailLabel: buildChangeDetailLabel(stats, workDelta.linesChangedLabel),
+    bucketSourceLabel,
+    ...timestampLabels,
+    stateBuckets,
+    tokenStateBuckets,
   };
 }
 
@@ -515,8 +614,8 @@ function statusForOutcome(
     return {
       tone: 'success',
       statusLabel: 'Run completed',
-      statusValue: '100%',
-      statusDetail: 'Reached a terminal success state.',
+      statusValue: 'DONE',
+      statusDetail: 'Terminal success',
     };
   }
   if (outcome === 'failure') {
@@ -524,14 +623,14 @@ function statusForOutcome(
       tone: 'failure',
       statusLabel: 'Run failed',
       statusValue: 'HALT',
-      statusDetail: 'Reached a terminal failure state.',
+      statusDetail: 'Terminal failure',
     };
   }
   return {
     tone: 'partial',
     statusLabel: 'Partial summary',
     statusValue: 'N/A',
-    statusDetail: 'Terminal evidence was incomplete, so sharing is disabled.',
+    statusDetail: 'Incomplete terminal evidence',
   };
 }
 
@@ -559,35 +658,119 @@ function buildFallbackWorkDeltaLabels(
   };
 }
 
-function buildFallbackTimeBuckets(stats: RunCompletionStats): RunCompletionShareCardTimeBucket[] {
-  const visible = stats.stateBuckets.slice(0, 3);
-  const remaining = stats.stateBuckets.slice(3);
-  const denominator =
+function buildStateBucketDisplay(
+  stats: RunCompletionStats,
+  sortBy: 'time' | 'tokens',
+): FinalOverviewStateBucketDisplay[] {
+  const sortedBuckets = Array.from(stats.stateBuckets);
+  sortedBuckets.sort((left, right) => {
+    const leftValue = sortBy === 'time' ? left.elapsedMs : left.tokenTotals.totalTokens;
+    const rightValue = sortBy === 'time' ? right.elapsedMs : right.tokenTotals.totalTokens;
+    return rightValue - leftValue;
+  });
+  const visible = sortedBuckets.slice(0, 3);
+  const remaining = sortedBuckets.slice(3);
+  const timeDenominator =
     stats.duration.elapsedMs !== undefined
       ? stats.duration.elapsedMs
       : stats.stateBuckets.reduce((total, bucket) => total + bucket.elapsedMs, 0);
-  const rows = visible.map((bucket) => {
-    const percent = safePercent(bucket.elapsedMs, denominator);
-    return {
-      label: bucket.label,
-      durationLabel: formatDuration(bucket.elapsedMs),
-      percent,
-      percentageLabel: formatPercent(percent),
-    };
-  });
+  const tokenDenominator = stats.stateBuckets.reduce(
+    (total, bucket) => total + bucket.tokenTotals.totalTokens,
+    0,
+  );
+  const rows = visible.map((bucket) =>
+    buildStateBucketRow(bucket, timeDenominator, tokenDenominator),
+  );
 
   if (remaining.length > 0) {
-    const elapsedMs = remaining.reduce((total, bucket) => total + bucket.elapsedMs, 0);
-    const percent = safePercent(elapsedMs, denominator);
+    const other = remaining.reduce(
+      (acc, bucket) => ({
+        elapsedMs: acc.elapsedMs + bucket.elapsedMs,
+        eventCount: acc.eventCount + bucket.eventCount,
+        transitionCount: acc.transitionCount + bucket.transitionCount,
+        turnCount: acc.turnCount + bucket.mainTurnCount + bucket.subthreadTurnCount,
+        totalTokens: acc.totalTokens + bucket.tokenTotals.totalTokens,
+      }),
+      { elapsedMs: 0, eventCount: 0, transitionCount: 0, totalTokens: 0, turnCount: 0 },
+    );
+    const timePercent = safePercent(other.elapsedMs, timeDenominator);
+    const tokenPercent = safePercent(other.totalTokens, tokenDenominator);
     rows.push({
       label: 'Other states',
-      durationLabel: formatDuration(elapsedMs),
-      percent,
-      percentageLabel: formatPercent(percent),
+      durationLabel: formatDuration(other.elapsedMs),
+      percent: timePercent,
+      percentageLabel: formatPercent(timePercent),
+      timePercent,
+      tokenPercent,
+      tokenTotalLabel: formatCompactNumber(other.totalTokens),
+      eventCountLabel: formatNumber(other.eventCount),
+      transitionCountLabel: formatNumber(other.transitionCount),
+      turnCountLabel: formatNumber(other.turnCount),
     });
   }
 
   return rows;
+}
+
+function buildStateBucketRow(
+  bucket: RunCompletionStats['stateBuckets'][number],
+  timeDenominator: number,
+  tokenDenominator: number,
+): FinalOverviewStateBucketDisplay {
+  const timePercent = safePercent(bucket.elapsedMs, timeDenominator);
+  const tokenPercent = safePercent(bucket.tokenTotals.totalTokens, tokenDenominator);
+  return {
+    label: displayBucketLabel(bucket.label),
+    durationLabel: formatDuration(bucket.elapsedMs),
+    percent: timePercent,
+    percentageLabel: formatPercent(timePercent),
+    timePercent,
+    tokenPercent,
+    tokenTotalLabel: formatCompactNumber(bucket.tokenTotals.totalTokens),
+    eventCountLabel: formatNumber(bucket.eventCount),
+    transitionCountLabel: formatNumber(bucket.transitionCount),
+    turnCountLabel: formatNumber(bucket.mainTurnCount + bucket.subthreadTurnCount),
+  };
+}
+
+function displayBucketLabel(value: string): string {
+  const slashLeaf = value.split('/').at(-1) ?? value;
+  const dotLeaf = slashLeaf.split('.').at(-1) ?? slashLeaf;
+  return dotLeaf || value;
+}
+
+function buildTimeDetailLabel(rows: ReadonlyArray<FinalOverviewStateBucketDisplay>): string {
+  const top = rows[0];
+  if (!top) return 'No state timing';
+  return `${top.durationLabel} in ${top.label}`;
+}
+
+function buildTurnDetailLabel(stats: RunCompletionStats): string {
+  if (stats.subthreadTurnCount === 0) return 'main thread only';
+  return `${formatNumber(stats.mainTurnCount)} main / ${formatNumber(
+    stats.subthreadTurnCount,
+  )} subthread`;
+}
+
+function buildChangeDetailLabel(stats: RunCompletionStats, linesChangedLabel: string): string {
+  if (stats.workDelta.status !== 'available') return 'work delta unavailable';
+  return `${linesChangedLabel} lines`;
+}
+
+function buildTimestampLabels(
+  stats: RunCompletionStats,
+): Pick<FinalOverviewDashboardDisplay, 'endedAtLabel' | 'startedAtLabel'> {
+  return {
+    startedAtLabel: formatTimestamp(stats.duration.startedAt),
+    endedAtLabel: formatTimestamp(stats.duration.endedAt),
+  };
+}
+
+function formatTimestamp(value: string | undefined): string {
+  if (!value) return 'N/A';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'N/A';
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
 function safePercent(numerator: number, denominator: number): number {
