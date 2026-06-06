@@ -29,6 +29,10 @@ if (release) {
   if (!release.includes('tags: ["v*"]') && !release.includes("tags: ['v*']")) {
     checks.push(`${releasePath} must trigger on v* tags`);
   }
+  expectIncludes(releasePath, release, 'PINNED_CODEX_COMMIT');
+  expectIncludes(releasePath, release, 'https://github.com/openai/codex.git');
+  expectIncludes(releasePath, release, 'CODEX_CHECKOUT');
+  expectIncludes(releasePath, release, 'GITHUB_ENV');
   expectIncludes(releasePath, release, 'pnpm run verify:release');
   expectIncludes(releasePath, release, 'packages/core');
   expectIncludes(releasePath, release, 'packages/test-support');

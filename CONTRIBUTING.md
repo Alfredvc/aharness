@@ -102,10 +102,11 @@ workflow context snapshots.
 ## Publishing
 
 The normal npm release path is `.github/workflows/release.yml`. It runs on
-`v*` tags, verifies the tag matches the root/package versions, runs
-`pnpm run verify:release`, packs `@aharness/core` and
-`@aharness/test-support`, publishes those tarballs to npm with provenance, and
-creates a GitHub release from `CHANGELOG.md`.
+`v*` tags, checks out the pinned Codex source into the runner temp directory,
+verifies the tag matches the root/package versions, runs
+`pnpm run verify:release` with `CODEX_CHECKOUT` set, packs `@aharness/core`
+and `@aharness/test-support`, publishes those tarballs to npm with provenance,
+and creates a GitHub release from `CHANGELOG.md`.
 
 The workflow expects the npm secret `NPM_TOKEN` to be available to GitHub
 Actions. The release jobs request `id-token: write` so npm provenance can be

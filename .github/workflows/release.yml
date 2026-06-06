@@ -19,6 +19,24 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
+      - name: Checkout pinned Codex source
+        run: |
+          commit=$(node - <<'NODE'
+          const { readFileSync } = require('node:fs');
+          const source = readFileSync('packages/core/scripts/verify-codex-bump.ts', 'utf8');
+          const match = source.match(/export const PINNED_CODEX_COMMIT = '([0-9a-f]{40})';/);
+          if (!match) {
+            console.error('Could not find PINNED_CODEX_COMMIT in verify-codex-bump.ts');
+            process.exit(1);
+          }
+          console.log(match[1]);
+          NODE
+          )
+          git init "$RUNNER_TEMP/codex"
+          git -C "$RUNNER_TEMP/codex" remote add origin https://github.com/openai/codex.git
+          git -C "$RUNNER_TEMP/codex" fetch --depth=1 origin "$commit"
+          git -C "$RUNNER_TEMP/codex" checkout --detach FETCH_HEAD
+          printf 'CODEX_CHECKOUT=%s\n' "$RUNNER_TEMP/codex" >> "$GITHUB_ENV"
       - name: Verify tag and package versions
         run: |
           node - <<'NODE'
