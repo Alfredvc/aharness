@@ -4,11 +4,18 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  aharness-monorepo: 'link:'
+
 packageExtensionsChecksum: sha256-3nV49uBEac3q+zkWcT5mQmXdzu9qLJFvtNP82iMArP0=
 
 importers:
 
   .:
+    dependencies:
+      aharness-monorepo:
+        specifier: 'link:'
+        version: 'link:'
     devDependencies:
       '@oxlint/migrate':
         specifier: ^1.64.0

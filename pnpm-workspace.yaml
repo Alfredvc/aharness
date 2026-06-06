@@ -7,3 +7,5 @@ packageExtensions:
 allowBuilds:
   esbuild: true
   msgpackr-extract: false
+overrides:
+  aharness-monorepo: 'link:'
