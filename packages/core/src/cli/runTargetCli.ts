@@ -1,6 +1,8 @@
 import type { RunCliOpts, RunCliResult, RunPermissionMode } from './runCli.js';
 import { runLocalFsmInputHelp } from './inputHelpCli.js';
 import type { RunInstalledCliOptions } from './runInstalledCli.js';
+import { resolveFsmTarget, type ResolveFsmTargetOptions } from './fsmTarget.js';
+import { writeInstallStoreDiagnostics } from './installStoreDiagnostics.js';
 
 export interface RunTargetCliOptions {
   readonly target: string;
@@ -10,6 +12,10 @@ export interface RunTargetCliOptions {
   readonly inputArgs?: ReadonlyArray<string>;
   readonly permissionMode?: RunPermissionMode;
   readonly noOpen?: boolean;
+  readonly env?: ResolveFsmTargetOptions['env'];
+  readonly homeDir?: ResolveFsmTargetOptions['homeDir'];
+  readonly readSnapshotImpl?: ResolveFsmTargetOptions['readSnapshotImpl'];
+  readonly checkLockFingerprintImpl?: ResolveFsmTargetOptions['checkLockFingerprintImpl'];
   readonly runCliImpl?: (opts: RunCliOpts) => Promise<RunCliResult>;
   readonly runInstalledCliImpl?: (
     opts: RunInstalledCliOptions,
@@ -28,15 +34,29 @@ export async function runTargetCli(
   opts: RunTargetCliOptions,
 ): Promise<{ readonly exitCode: number }> {
   const inputArgs = opts.inputArgs ?? [];
-  if (isLocalRunTarget(opts.target)) {
+  const resolved = await resolveFsmTarget(opts.target, {
+    ...(opts.env !== undefined ? { env: opts.env } : {}),
+    ...(opts.homeDir !== undefined ? { homeDir: opts.homeDir } : {}),
+    ...(opts.readSnapshotImpl !== undefined ? { readSnapshotImpl: opts.readSnapshotImpl } : {}),
+    ...(opts.checkLockFingerprintImpl !== undefined
+      ? { checkLockFingerprintImpl: opts.checkLockFingerprintImpl }
+      : {}),
+  });
+
+  if (resolved.kind === 'invalid') {
+    writeInstallStoreDiagnostics(opts.stderr, 'aharness run failed', resolved.diagnostics);
+    return { exitCode: 1 };
+  }
+
+  if (resolved.kind === 'local') {
     const runCliImpl = opts.runCliImpl ?? (await import('./runCli.js')).runCli;
     return runCliImpl({
-      fsmPath: opts.target,
+      fsmPath: resolved.target,
       cwd: opts.cwd,
       stdout: opts.stdout,
       stderr: opts.stderr,
       inputArgs,
-      inputUsageCommand: `aharness run ${opts.target}`,
+      inputUsageCommand: `aharness run ${resolved.target}`,
       ...(opts.permissionMode !== undefined ? { permissionMode: opts.permissionMode } : {}),
       ...(opts.noOpen ? { noOpen: true } : {}),
     });
@@ -50,6 +70,8 @@ export async function runTargetCli(
     stdout: opts.stdout,
     stderr: opts.stderr,
     inputArgs,
+    ...(opts.env !== undefined ? { env: opts.env } : {}),
+    ...(opts.homeDir !== undefined ? { homeDir: opts.homeDir } : {}),
     ...(opts.permissionMode !== undefined ? { permissionMode: opts.permissionMode } : {}),
     ...(opts.noOpen ? { noOpen: true } : {}),
   });

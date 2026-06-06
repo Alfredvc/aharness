@@ -213,9 +213,9 @@ bundled skill declarations, and every declared FSM before writing trusted
 command records. Installs may run npm lifecycle scripts, so install packages
 from sources you trust. Unverified commands are not runnable.
 
-Installed commands can be run or verified by full name, or by bare command name
-when there is no collision. Verifying a package name still checks every command
-in that package:
+Installed commands can be run or verified by fully qualified command identity,
+or by bare command name when there is no collision. Package names by themselves
+are not accepted verification targets:
 
 ```bash
 aharness run workflow-package/build

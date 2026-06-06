@@ -8,6 +8,13 @@ import { describe, expect, it, vi } from 'vitest';
 import { runTargetCli, runTargetHelpCli } from '../src/cli/runTargetCli.js';
 import type { RunCliOpts } from '../src/cli/runCli.js';
 import type { RunInstalledCliOptions } from '../src/cli/runInstalledCli.js';
+import type {
+  InstalledRuntimeSnapshot,
+  TrustedCommandIndexEntry,
+  TrustedCommandsFile,
+  TrustedInstallRecord,
+  TrustedInstallsFile,
+} from '../src/installStore/index.js';
 
 describe('aharness run target dispatch', () => {
   it('runs an existing local FSM file through the normal runtime', async () => {
@@ -51,6 +58,7 @@ describe('aharness run target dispatch', () => {
     try {
       const runCliImpl = vi.fn(async () => ({ exitCode: 0 }));
       const runInstalledCliImpl = vi.fn(async () => ({ exitCode: 0 }));
+      const resolverSeams = installedResolverSeams('@scope/tools', ['build']);
 
       const result = await runTargetCli({
         target: '@scope/tools/build',
@@ -60,6 +68,7 @@ describe('aharness run target dispatch', () => {
         inputArgs: ['--topic', 'auth'],
         permissionMode: 'yolo',
         noOpen: true,
+        ...resolverSeams,
         runCliImpl,
         runInstalledCliImpl,
       });
@@ -75,6 +84,8 @@ describe('aharness run target dispatch', () => {
         noOpen: true,
       } satisfies RunInstalledCliOptions);
       expect(runCliImpl).not.toHaveBeenCalled();
+      expect(resolverSeams.readSnapshotImpl).toHaveBeenCalledTimes(1);
+      expect(resolverSeams.checkLockFingerprintImpl).toHaveBeenCalledTimes(1);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -117,12 +128,14 @@ describe('aharness run target dispatch', () => {
       await writeFile(path.join(cwd, 'build'), '');
       const runCliImpl = vi.fn(async () => ({ exitCode: 0 }));
       const runInstalledCliImpl = vi.fn(async () => ({ exitCode: 0 }));
+      const resolverSeams = installedResolverSeams('@scope/tools', ['build']);
 
       const result = await runTargetCli({
         target: 'build',
         cwd,
         stdout: captureStream().stream,
         stderr: captureStream().stream,
+        ...resolverSeams,
         runCliImpl,
         runInstalledCliImpl,
       });
@@ -136,6 +149,8 @@ describe('aharness run target dispatch', () => {
         inputArgs: [],
       } satisfies RunInstalledCliOptions);
       expect(runCliImpl).not.toHaveBeenCalled();
+      expect(resolverSeams.readSnapshotImpl).toHaveBeenCalledTimes(1);
+      expect(resolverSeams.checkLockFingerprintImpl).toHaveBeenCalledTimes(1);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -146,12 +161,16 @@ describe('aharness run target dispatch', () => {
     try {
       const runCliImpl = vi.fn(async () => ({ exitCode: 0 }));
       const runInstalledCliImpl = vi.fn(async () => ({ exitCode: 0 }));
+      const readSnapshotImpl = vi.fn();
+      const checkLockFingerprintImpl = vi.fn();
 
       const result = await runTargetCli({
         target: 'build.fsm.ts',
         cwd,
         stdout: captureStream().stream,
         stderr: captureStream().stream,
+        readSnapshotImpl,
+        checkLockFingerprintImpl,
         runCliImpl,
         runInstalledCliImpl,
       });
@@ -166,6 +185,8 @@ describe('aharness run target dispatch', () => {
         inputUsageCommand: 'aharness run build.fsm.ts',
       } satisfies RunCliOpts);
       expect(runInstalledCliImpl).not.toHaveBeenCalled();
+      expect(readSnapshotImpl).not.toHaveBeenCalled();
+      expect(checkLockFingerprintImpl).not.toHaveBeenCalled();
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
@@ -177,6 +198,7 @@ describe('aharness run target dispatch', () => {
       await writeFile(path.join(cwd, 'other.fsm.ts'), '');
       const runCliImpl = vi.fn(async () => ({ exitCode: 0 }));
       const runInstalledCliImpl = vi.fn(async () => ({ exitCode: 0 }));
+      const resolverSeams = installedResolverSeams('@scope/tools', ['build']);
 
       const result = await runTargetCli({
         target: 'build',
@@ -184,6 +206,7 @@ describe('aharness run target dispatch', () => {
         stdout: captureStream().stream,
         stderr: captureStream().stream,
         inputArgs: ['--spec', './other.fsm.ts'],
+        ...resolverSeams,
         runCliImpl,
         runInstalledCliImpl,
       });
@@ -197,9 +220,68 @@ describe('aharness run target dispatch', () => {
         inputArgs: ['--spec', './other.fsm.ts'],
       } satisfies RunInstalledCliOptions);
       expect(runCliImpl).not.toHaveBeenCalled();
+      expect(resolverSeams.readSnapshotImpl).toHaveBeenCalledTimes(1);
+      expect(resolverSeams.checkLockFingerprintImpl).toHaveBeenCalledTimes(1);
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
+  });
+
+  it('fails explicit relative non-FSM targets before local or installed execution', async () => {
+    const runCliImpl = vi.fn(async () => ({ exitCode: 0 }));
+    const runInstalledCliImpl = vi.fn(async () => ({ exitCode: 0 }));
+    const readSnapshotImpl = vi.fn();
+    const checkLockFingerprintImpl = vi.fn();
+    const stderr = captureStream();
+
+    const result = await runTargetCli({
+      target: './workflow',
+      cwd: process.cwd(),
+      stdout: captureStream().stream,
+      stderr: stderr.stream,
+      readSnapshotImpl,
+      checkLockFingerprintImpl,
+      runCliImpl,
+      runInstalledCliImpl,
+    });
+
+    expect(result).toEqual({ exitCode: 1 });
+    expect(stderr.text()).toContain('aharness run failed:');
+    expect(stderr.text()).toContain('[fsm-target-invalid-local]');
+    expect(stderr.text()).toContain("local FSM target './workflow' must end in .fsm.ts");
+    expect(readSnapshotImpl).not.toHaveBeenCalled();
+    expect(checkLockFingerprintImpl).not.toHaveBeenCalled();
+    expect(runCliImpl).not.toHaveBeenCalled();
+    expect(runInstalledCliImpl).not.toHaveBeenCalled();
+  });
+
+  it('fails absolute non-FSM targets before local or installed execution', async () => {
+    const target = path.join(path.parse(process.cwd()).root, 'workflow');
+    const runCliImpl = vi.fn(async () => ({ exitCode: 0 }));
+    const runInstalledCliImpl = vi.fn(async () => ({ exitCode: 0 }));
+    const readSnapshotImpl = vi.fn();
+    const checkLockFingerprintImpl = vi.fn();
+    const stderr = captureStream();
+
+    const result = await runTargetCli({
+      target,
+      cwd: process.cwd(),
+      stdout: captureStream().stream,
+      stderr: stderr.stream,
+      readSnapshotImpl,
+      checkLockFingerprintImpl,
+      runCliImpl,
+      runInstalledCliImpl,
+    });
+
+    expect(result).toEqual({ exitCode: 1 });
+    expect(stderr.text()).toContain('aharness run failed:');
+    expect(stderr.text()).toContain('[fsm-target-invalid-local]');
+    expect(stderr.text()).toContain(`local FSM target '${target}' must end in .fsm.ts`);
+    expect(readSnapshotImpl).not.toHaveBeenCalled();
+    expect(checkLockFingerprintImpl).not.toHaveBeenCalled();
+    expect(runCliImpl).not.toHaveBeenCalled();
+    expect(runInstalledCliImpl).not.toHaveBeenCalled();
   });
 });
 
@@ -266,4 +348,92 @@ function captureStream(): { stream: NodeJS.WritableStream; text: () => string } 
     },
   });
   return { stream, text: () => chunks.join('') };
+}
+
+function installedResolverSeams(packageName: string, commands: readonly string[]) {
+  const snapshot = runtimeSnapshot([installRecord(packageName, commands)]);
+  return {
+    readSnapshotImpl: vi.fn(async () => ({ ok: true as const, value: snapshot })),
+    checkLockFingerprintImpl: vi.fn(async () => ({
+      ok: true as const,
+      value: 'computed-lock',
+    })),
+  };
+}
+
+function runtimeSnapshot(records: readonly TrustedInstallRecord[]): InstalledRuntimeSnapshot {
+  const installs: Record<string, TrustedInstallRecord> = {};
+  const commands: Record<string, TrustedCommandIndexEntry> = {};
+  for (const record of records) {
+    installs[record.packageName] = record;
+    for (const command of Object.values(record.commands)) {
+      commands[`${record.packageName}/${command.commandName}`] = {
+        packageName: record.packageName,
+        commandName: command.commandName,
+        entry: command.entry,
+        packageRoot: record.packageRoot,
+        ...(record.packageVersion !== undefined ? { packageVersion: record.packageVersion } : {}),
+        lockFingerprint: record.lockFingerprint,
+        ...(command.description !== undefined ? { description: command.description } : {}),
+      };
+    }
+  }
+
+  return {
+    paths: {
+      storeRoot: '/store',
+      managedProjectRoot: '/store/packages',
+      installsPath: '/store/installs.json',
+      commandsPath: '/store/commands.json',
+    },
+    installs: installsFile({ installs }),
+    commands: commandsFile({ commands }),
+  };
+}
+
+function installsFile(
+  opts: {
+    readonly generation?: string;
+    readonly installs?: Record<string, TrustedInstallRecord>;
+  } = {},
+): TrustedInstallsFile {
+  return {
+    schemaVersion: 1,
+    generation: opts.generation ?? 'gen-1',
+    installs: opts.installs ?? {},
+  };
+}
+
+function commandsFile(
+  opts: {
+    readonly generation?: string;
+    readonly commands?: Record<string, TrustedCommandIndexEntry>;
+  } = {},
+): TrustedCommandsFile {
+  return {
+    schemaVersion: 1,
+    generation: opts.generation ?? 'gen-1',
+    commands: opts.commands ?? {},
+  };
+}
+
+function installRecord(packageName: string, commandNames: readonly string[]): TrustedInstallRecord {
+  return {
+    packageName,
+    dependencyKey: packageName,
+    requestedSpec: `${packageName}@latest`,
+    packageRoot: `/store/packages/node_modules/${packageName}`,
+    packageVersion: '1.2.3',
+    sourceIntentKey: `registry:${packageName}`,
+    lockFingerprint: 'verified-lock',
+    commands: Object.fromEntries(
+      commandNames.map((commandName) => [
+        commandName,
+        {
+          commandName,
+          entry: `fsms/${commandName}.fsm.ts`,
+        },
+      ]),
+    ),
+  };
 }

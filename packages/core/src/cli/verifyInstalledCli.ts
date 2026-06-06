@@ -2,10 +2,8 @@ import * as path from 'node:path';
 
 import {
   checkInstalledLockFingerprint,
-  parseCommandIdentity,
   readInstalledRuntimeSnapshot,
   resolveInstalledCommand,
-  resolveInstalledPackage,
   type InstalledRuntimeSnapshot,
   type InstallStorePaths,
   type InstallStoreResult,
@@ -49,18 +47,7 @@ export async function runVerifyInstalledCli(
     return { exitCode: 1 };
   }
 
-  const packageResult = resolveInstalledPackage(opts.target, snapshot.value);
-  if (packageResult.ok) {
-    return verifyPackage(packageResult.value.install, snapshot.value, opts);
-  }
-
-  const parsed = parseCommandIdentity(opts.target);
-  if (parsed.ok && parsed.value.kind !== 'package') {
-    return verifyCommand(opts.target, snapshot.value, opts);
-  }
-
-  writeInstallStoreDiagnostics(opts.stderr, 'aharness verify failed', packageResult.diagnostics);
-  return { exitCode: 1 };
+  return verifyCommand(opts.target, snapshot.value, opts);
 }
 
 async function verifyCommand(
@@ -88,37 +75,6 @@ async function verifyCommand(
     snapshot,
     opts,
   });
-}
-
-async function verifyPackage(
-  install: TrustedInstallRecord,
-  snapshot: InstalledRuntimeSnapshot,
-  opts: RunVerifyInstalledCliOptions,
-): Promise<{ readonly exitCode: number }> {
-  const fingerprint = await (opts.checkLockFingerprintImpl ?? checkInstalledLockFingerprint)(
-    install,
-    snapshot.paths,
-  );
-  if (!fingerprint.ok) {
-    writeInstallStoreDiagnostics(opts.stderr, 'aharness verify failed', fingerprint.diagnostics);
-    return { exitCode: 1 };
-  }
-
-  let exitCode = 0;
-  const commands = Object.values(install.commands).sort((a, b) =>
-    a.commandName.localeCompare(b.commandName),
-  );
-  for (const command of commands) {
-    const result = await verifyOneCommand({
-      identity: `${install.packageName}/${command.commandName}`,
-      install,
-      command,
-      snapshot,
-      opts,
-    });
-    if (result.exitCode !== 0) exitCode = 1;
-  }
-  return { exitCode };
 }
 
 async function verifyOneCommand(args: {

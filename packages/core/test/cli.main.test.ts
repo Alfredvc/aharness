@@ -19,8 +19,8 @@ import type { RunPermissionMode } from '../src/cli/runCli.js';
 
 function buildStubs() {
   return {
-    runVerify: vi.fn(async ({ fsmPath }: { fsmPath: string }) => {
-      void fsmPath;
+    runVerifyTarget: vi.fn(async (o: { target: string }) => {
+      void o;
       return { exitCode: 0 };
     }),
     runDoctor: vi.fn(async () => ({ exitCode: 0 })),
@@ -74,10 +74,6 @@ function buildStubs() {
       return { exitCode: 0 };
     }),
     runListInstalled: vi.fn(async () => ({ exitCode: 0 })),
-    runVerifyInstalled: vi.fn(async (o: { target: string }) => {
-      void o;
-      return { exitCode: 0 };
-    }),
     runUninstall: vi.fn(async (o: { packageName: string }) => {
       void o;
       return { exitCode: 0 };
@@ -99,7 +95,7 @@ function captureStderr(): { stream: NodeJS.WritableStream; text: () => string } 
 }
 
 function expectNoHandlersCalled(s: DispatcherStubs): void {
-  expect(s.runVerify).not.toHaveBeenCalled();
+  expect(s.runVerifyTarget).not.toHaveBeenCalled();
   expect(s.runDoctor).not.toHaveBeenCalled();
   expect(s.runVisualize).not.toHaveBeenCalled();
   expect(s.runView).not.toHaveBeenCalled();
@@ -110,7 +106,6 @@ function expectNoHandlersCalled(s: DispatcherStubs): void {
   expect(s.runTarget).not.toHaveBeenCalled();
   expect(s.runTargetInputHelp).not.toHaveBeenCalled();
   expect(s.runListInstalled).not.toHaveBeenCalled();
-  expect(s.runVerifyInstalled).not.toHaveBeenCalled();
   expect(s.runUninstall).not.toHaveBeenCalled();
 }
 
@@ -128,11 +123,11 @@ async function expectUsageOnly(argv: ReadonlyArray<string>): Promise<string> {
 }
 
 describe('dispatch', () => {
-  it('routes "verify <file>" to runVerify with the path', async () => {
+  it('routes "verify <target>" to target verification with the target token', async () => {
     const s = buildStubs();
     const r = await dispatch(['verify', 'foo.fsm.ts'], s);
     expect(r).toEqual({ exitCode: 0 });
-    expect(s.runVerify).toHaveBeenCalledWith({ fsmPath: 'foo.fsm.ts' });
+    expect(s.runVerifyTarget).toHaveBeenCalledWith({ target: 'foo.fsm.ts' });
     expect(s.runDoctor).not.toHaveBeenCalled();
   });
 
@@ -140,7 +135,7 @@ describe('dispatch', () => {
     const s = buildStubs();
     await dispatch(['doctor'], s);
     expect(s.runDoctor).toHaveBeenCalledTimes(1);
-    expect(s.runVerify).not.toHaveBeenCalled();
+    expect(s.runVerifyTarget).not.toHaveBeenCalled();
   });
 
   it('routes "visualize <file>" to runVisualize with author input flags', async () => {
@@ -553,20 +548,24 @@ describe('dispatch', () => {
     }
   });
 
-  it('routes installed verify overloads while preserving direct file verify syntax', async () => {
+  it('routes verify targets through the unified target handler', async () => {
     const s = buildStubs();
 
     await dispatch(['verify', 'workflow.fsm.ts'], s);
     await dispatch(['verify', './workflows/main.fsm.ts'], s);
+    await dispatch(['verify', 'build'], s);
     await dispatch(['verify', '@scope/tools'], s);
     await dispatch(['verify', '@scope/tools/build'], s);
     await dispatch(['verify', 'tools/build'], s);
 
-    expect(s.runVerify).toHaveBeenNthCalledWith(1, { fsmPath: 'workflow.fsm.ts' });
-    expect(s.runVerify).toHaveBeenNthCalledWith(2, { fsmPath: './workflows/main.fsm.ts' });
-    expect(s.runVerifyInstalled).toHaveBeenNthCalledWith(1, { target: '@scope/tools' });
-    expect(s.runVerifyInstalled).toHaveBeenNthCalledWith(2, { target: '@scope/tools/build' });
-    expect(s.runVerifyInstalled).toHaveBeenNthCalledWith(3, { target: 'tools/build' });
+    expect(s.runVerifyTarget).toHaveBeenNthCalledWith(1, { target: 'workflow.fsm.ts' });
+    expect(s.runVerifyTarget).toHaveBeenNthCalledWith(2, {
+      target: './workflows/main.fsm.ts',
+    });
+    expect(s.runVerifyTarget).toHaveBeenNthCalledWith(3, { target: 'build' });
+    expect(s.runVerifyTarget).toHaveBeenNthCalledWith(4, { target: '@scope/tools' });
+    expect(s.runVerifyTarget).toHaveBeenNthCalledWith(5, { target: '@scope/tools/build' });
+    expect(s.runVerifyTarget).toHaveBeenNthCalledWith(6, { target: 'tools/build' });
   });
 
   it('returns usage for explicit run/list/verify-like root direct invocations', async () => {
@@ -678,7 +677,7 @@ describe('dispatch', () => {
     const cap = captureStderr();
     const r = await dispatch(['verify'], { ...s, stderr: cap.stream });
     expect(r).toEqual({ exitCode: 2 });
-    expect(s.runVerify).not.toHaveBeenCalled();
+    expect(s.runVerifyTarget).not.toHaveBeenCalled();
     expect(cap.text()).toContain('usage:');
   });
 
@@ -695,7 +694,8 @@ describe('dispatch', () => {
     expect(text).toContain('aharness list');
     expect(text).toContain('aharness uninstall <package-name>');
     expect(text).toContain('aharness verify <command>');
-    expect(text).toContain('aharness verify <package-name>');
+    expect(text).toContain('aharness verify <package>/<command>');
+    expect(text).not.toContain('aharness verify <package-name>');
     expect(text).toContain('aharness view [run-id]');
     expect(text).not.toContain('[--resume]');
   });

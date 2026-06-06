@@ -115,6 +115,11 @@ identity shown in the diagnostic, such as:
 aharness run @scope/tools/build
 ```
 
+Installed verification is command-only. If verifying a package name reports
+`command-identity-package-only`, specify a fully qualified command such as
+`aharness verify @scope/tools/build`, or use a unique bare command name such as
+`aharness verify build`.
+
 ## Approval Or Owner Input Is Stuck
 
 aharness runs foreground-only and serves a loopback browser UI for owner input

@@ -9,7 +9,7 @@ import { runListInstalledCli } from '../src/cli/listInstalledCli.js';
 import { runInstalledCli } from '../src/cli/runInstalledCli.js';
 import type { RunCliForTestOpts } from '../src/cli/runCli.js';
 import { runUninstallCli } from '../src/cli/uninstallCli.js';
-import { runVerifyInstalledCli } from '../src/cli/verifyInstalledCli.js';
+import { runVerifyTargetCli } from '../src/cli/verifyTargetCli.js';
 import {
   installPackageFromSource,
   type InstallNpmRunner,
@@ -70,24 +70,22 @@ describe('installed package public install-to-run integration', () => {
       expect(listStdout.text()).toContain('@scope/command-package 1.0.0');
       expect(listStdout.text()).toContain('  main  Installed loader command');
 
-      const verifyPackageStdout = captureStream();
-      const verifyPackageStderr = captureStream();
-      const verifiedPackage = await runVerifyInstalledCli({
+      const verifyPackageOnlyStderr = captureStream();
+      const rejectedPackageOnlyVerify = await runVerifyTargetCli({
         target: '@scope/command-package',
         cwd: targetWorkspace,
-        stdout: verifyPackageStdout.stream,
-        stderr: verifyPackageStderr.stream,
+        stdout: captureStream().stream,
+        stderr: verifyPackageOnlyStderr.stream,
         env: { AHARNESS_HOME: storeRoot },
       });
-      expect(verifiedPackage).toEqual({ exitCode: 0 });
-      expect(verifyPackageStderr.text()).toBe('');
-      expect(verifyPackageStdout.text()).toContain(
-        'verify: ok (@scope/command-package/main, 0 warnings)',
-      );
+      expect(rejectedPackageOnlyVerify).toEqual({ exitCode: 1 });
+      expect(verifyPackageOnlyStderr.text()).toContain('aharness verify failed:');
+      expect(verifyPackageOnlyStderr.text()).toContain('command-identity-package-only');
+      expect(verifyPackageOnlyStderr.text()).toContain('package-only verification was removed');
 
       const verifyCommandStdout = captureStream();
       const verifyCommandStderr = captureStream();
-      const verifiedCommand = await runVerifyInstalledCli({
+      const verifiedCommand = await runVerifyTargetCli({
         target: '@scope/command-package/main',
         cwd: targetWorkspace,
         stdout: verifyCommandStdout.stream,
@@ -197,7 +195,7 @@ describe('installed package public install-to-run integration', () => {
       expect(afterUninstallRunStderr.text()).toContain('command-not-found');
 
       const afterUninstallVerifyStderr = captureStream();
-      const afterUninstallVerify = await runVerifyInstalledCli({
+      const afterUninstallVerify = await runVerifyTargetCli({
         target: '@scope/command-package',
         cwd: targetWorkspace,
         stdout: captureStream().stream,
@@ -205,7 +203,7 @@ describe('installed package public install-to-run integration', () => {
         env: { AHARNESS_HOME: storeRoot },
       });
       expect(afterUninstallVerify).toEqual({ exitCode: 1 });
-      expect(afterUninstallVerifyStderr.text()).toContain('installed-package-not-found');
+      expect(afterUninstallVerifyStderr.text()).toContain('command-identity-package-only');
     } finally {
       await rm(cwd, { recursive: true, force: true });
       await rm(storeRoot, { recursive: true, force: true });

@@ -19,8 +19,8 @@ import {
 import type { LoadFsmResult } from '../src/loader/index.js';
 import type { VerifyResult } from '../src/verify/index.js';
 
-describe('aharness verify installed packages and commands', () => {
-  it('verifies every command in an installed package sorted by command name', async () => {
+describe('aharness verify installed commands', () => {
+  it('rejects package-only installed targets without loading or verifying', async () => {
     const snapshot = runtimeSnapshot([
       installRecord('@scope/tools', {
         zeta: commandMetadata('zeta'),
@@ -29,50 +29,26 @@ describe('aharness verify installed packages and commands', () => {
     ]);
     const loadInstalledFsmImpl = vi.fn(async () => makeLoadedFsm());
     const verifyImpl = vi.fn(() => okVerifyResult());
-    const stdout = captureStream();
+    const stderr = captureStream();
 
     const result = await runVerifyInstalledCli({
       target: '@scope/tools',
       cwd: '/workspace',
-      stdout: stdout.stream,
-      stderr: captureStream().stream,
+      stdout: captureStream().stream,
+      stderr: stderr.stream,
       readSnapshotImpl: async () => ({ ok: true, value: snapshot }),
       checkLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
       loadInstalledFsmImpl,
       verifyImpl,
     });
 
-    expect(result).toEqual({ exitCode: 0 });
-    expect(loadInstalledFsmImpl).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        entryFile: path.join('/store/packages/node_modules/@scope/tools', 'fsms/alpha.fsm.ts'),
-        commandName: 'alpha',
-      }),
-    );
-    expect(loadInstalledFsmImpl).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        entryFile: path.join('/store/packages/node_modules/@scope/tools', 'fsms/zeta.fsm.ts'),
-        commandName: 'zeta',
-      }),
-    );
-    expect(verifyImpl).toHaveBeenCalledTimes(2);
-    expect(verifyImpl).toHaveBeenNthCalledWith(
-      1,
-      expect.anything(),
-      expect.anything(),
-      expect.anything(),
-      expect.objectContaining({
-        skillOriginManifest: expect.objectContaining({
-          rootSourceDir: '/store/packages/node_modules/@scope/tools/fsms',
-        }),
-      }),
-    );
-    expect(stdout.text().split('\n').filter(Boolean)).toEqual([
-      'verify: ok (@scope/tools/alpha, 0 warnings)',
-      'verify: ok (@scope/tools/zeta, 0 warnings)',
-    ]);
+    expect(result).toEqual({ exitCode: 1 });
+    expect(stderr.text()).toContain('aharness verify failed:');
+    expect(stderr.text()).toContain('command-identity-package-only');
+    expect(stderr.text()).toContain("'@scope/tools' identifies a package, not a command");
+    expect(stderr.text()).not.toContain('package-only verification was removed');
+    expect(loadInstalledFsmImpl).not.toHaveBeenCalled();
+    expect(verifyImpl).not.toHaveBeenCalled();
   });
 
   it('verifies scoped and unscoped qualified installed commands', async () => {
@@ -137,7 +113,7 @@ describe('aharness verify installed packages and commands', () => {
     expect(stdout.text()).toContain('verify: ok (@scope/tools/build, 0 warnings)');
   });
 
-  it('still treats an exact unscoped package match as a package target', async () => {
+  it('resolves a unique bare command instead of giving package precedence to an exact unscoped package match', async () => {
     const snapshot = runtimeSnapshot([
       installRecord('build', {
         zeta: commandMetadata('zeta'),
@@ -159,19 +135,12 @@ describe('aharness verify installed packages and commands', () => {
     });
 
     expect(result).toEqual({ exitCode: 0 });
-    expect(loadInstalledFsmImpl).toHaveBeenCalledTimes(2);
-    expect(loadInstalledFsmImpl).toHaveBeenNthCalledWith(
-      1,
+    expect(loadInstalledFsmImpl).toHaveBeenCalledTimes(1);
+    expect(loadInstalledFsmImpl).toHaveBeenCalledWith(
       expect.objectContaining({
-        entryFile: path.join('/store/packages/node_modules/build', 'fsms/alpha.fsm.ts'),
-        commandName: 'alpha',
-      }),
-    );
-    expect(loadInstalledFsmImpl).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        entryFile: path.join('/store/packages/node_modules/build', 'fsms/zeta.fsm.ts'),
-        commandName: 'zeta',
+        entryFile: path.join('/store/packages/node_modules/@scope/tools', 'fsms/build.fsm.ts'),
+        packageName: '@scope/tools',
+        commandName: 'build',
       }),
     );
   });

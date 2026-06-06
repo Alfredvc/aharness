@@ -29,7 +29,6 @@
  */
 import { isAbsolute } from 'node:path';
 
-import { runVerifyCli } from './verifyCli.js';
 import { runDoctorCli } from './doctorCli.js';
 import type { RunPermissionMode } from './runCli.js';
 import { runCompletionInstall, runCompletionUninstall } from './completion.js';
@@ -37,7 +36,7 @@ import { runInitCli } from './initCli.js';
 import { runInstallCli } from './installCli.js';
 import { runTargetCli, runTargetHelpCli } from './runTargetCli.js';
 import { runListInstalledCli } from './listInstalledCli.js';
-import { runVerifyInstalledCli } from './verifyInstalledCli.js';
+import { runVerifyTargetCli } from './verifyTargetCli.js';
 import { runUninstallCli } from './uninstallCli.js';
 
 export interface DispatchResult {
@@ -45,7 +44,7 @@ export interface DispatchResult {
 }
 
 export interface Dispatcher {
-  readonly runVerify: (o: { fsmPath: string }) => Promise<{ exitCode: number }>;
+  readonly runVerifyTarget: (o: { target: string }) => Promise<{ exitCode: number }>;
   readonly runDoctor: () => Promise<{ exitCode: number }>;
   readonly runVisualize: (o: {
     fsmPath: string;
@@ -74,7 +73,6 @@ export interface Dispatcher {
   }) => Promise<{ exitCode: number }>;
   readonly runTargetInputHelp: (o: { target: string }) => Promise<{ exitCode: number }>;
   readonly runListInstalled: (o: Record<string, never>) => Promise<{ exitCode: number }>;
-  readonly runVerifyInstalled: (o: { target: string }) => Promise<{ exitCode: number }>;
   readonly runUninstall: (o: { packageName: string }) => Promise<{ exitCode: number }>;
   /** Sink for usage/error text. Tests inject a buffer; production uses stderr. */
   readonly stderr?: NodeJS.WritableStream;
@@ -94,9 +92,7 @@ export async function dispatch(
   }
   if (cmd === 'verify') {
     if (rest.length !== 1 || !rest[0]) return { exitCode: usage(stderr) };
-    const target = rest[0];
-    if (isDirectVerifyTarget(target)) return d.runVerify({ fsmPath: target });
-    return d.runVerifyInstalled({ target });
+    return d.runVerifyTarget({ target: rest[0] });
   }
   if (cmd === 'doctor') {
     return d.runDoctor();
@@ -173,15 +169,6 @@ function parseInstallSource(args: ReadonlyArray<string>): string | null {
   const source = args[0]!;
   if (source.length === 0 || source.startsWith('-')) return null;
   return source;
-}
-
-function isDirectVerifyTarget(target: string): boolean {
-  return (
-    target.endsWith('.fsm.ts') ||
-    target.startsWith('./') ||
-    target.startsWith('../') ||
-    isAbsolute(target)
-  );
 }
 
 function isKnownSubcommand(cmd: string | undefined): boolean {
@@ -359,8 +346,7 @@ function usage(stderr: NodeJS.WritableStream): number {
       '  aharness install <source>\n' +
       '  aharness verify <file.fsm.ts>\n' +
       '  aharness verify <command>\n' +
-      '  aharness verify <package-name>\n' +
-      '  aharness verify <package-name>/<command-name>\n' +
+      '  aharness verify <package>/<command>\n' +
       '  aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...\n' +
       '  aharness list\n' +
       '  aharness uninstall <package-name>\n' +
@@ -374,8 +360,13 @@ function usage(stderr: NodeJS.WritableStream): number {
 // Production wiring. Only runs when this module is the entrypoint.
 if (process.argv[1]?.endsWith('main.js')) {
   void dispatch(process.argv.slice(2), {
-    runVerify: ({ fsmPath }) =>
-      runVerifyCli({ fsmPath, log: (s) => process.stderr.write(s + '\n') }),
+    runVerifyTarget: ({ target }) =>
+      runVerifyTargetCli({
+        target,
+        cwd: process.cwd(),
+        stdout: process.stdout,
+        stderr: process.stderr,
+      }),
     runDoctor: () =>
       runDoctorCli({
         log: (s) => process.stdout.write(s + '\n'),
@@ -441,13 +432,6 @@ if (process.argv[1]?.endsWith('main.js')) {
       }),
     runListInstalled: () =>
       runListInstalledCli({
-        cwd: process.cwd(),
-        stdout: process.stdout,
-        stderr: process.stderr,
-      }),
-    runVerifyInstalled: ({ target }) =>
-      runVerifyInstalledCli({
-        target,
         cwd: process.cwd(),
         stdout: process.stdout,
         stderr: process.stderr,
