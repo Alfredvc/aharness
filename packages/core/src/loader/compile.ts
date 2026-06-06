@@ -183,8 +183,8 @@ function externalisePlugin(installPaths: InstallPaths): Plugin {
           // the resolved file URL is given as an absolute file path.
           return { path: path.join(installPaths.xstatePackageDir, subPath), external: true };
         }
-        // Bare package specifier — use the entry resolved via
-        // `import.meta.resolve` (honours `exports`/`main`).
+        // Bare package specifier - use the install entry resolved via
+        // native package semantics (honours `exports`/`main`).
         const entry =
           pkg === 'xstate' ? installPaths.xstateEntry : installPaths.aharnessCoreSdkEntry;
         return { path: entry, external: true };
