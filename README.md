@@ -106,6 +106,18 @@ The Codeflow package also ships process skills for preparing the roadmap:
 [`Alfredvc/codeflow`](https://github.com/Alfredvc/codeflow) repository for docs
 and more information.
 
+## Contents
+
+- [Writing Workflows](#writing-workflows)
+- [Installing FSM Packages](#installing-fsm-packages)
+- [Try The Demo](#try-the-demo)
+- [How It Works](#how-it-works)
+- [When To Use It](#when-to-use-it)
+- [Common Commands](#common-commands)
+- [Packages](#packages)
+- [Documentation](#documentation)
+- [FAQ](#faq)
+
 ## Writing Workflows
 
 Author workflows with the bundled aharness FSM authoring skill, not from a
@@ -333,6 +345,25 @@ behavior, `--ask`, `--yolo`, and `--no-open`.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md), [`CHANGELOG.md`](CHANGELOG.md), and
   [`SECURITY.md`](SECURITY.md) cover project maintenance, release notes, and
   vulnerability reporting.
+
+## FAQ
+
+- __How is this different from Claude Code Dynamic Workflows__: Both try to solve the same issue: agents lack determinism. The approach is different. Dynamic workflows are generated on the fly by Claude Code itself. Aharness FSMs are long-lived workflows that are iterated on and improved over time. Aharness also supports single-use FSMs, but that is not the main use case.
+
+- __Why Codex__: This project was originally based on Claude Code, but Claude Code is closed source and changes often. That made it difficult to develop aharness while keeping up with upstream changes. Codex is open source, and its app-server split makes building on top of it much easier.
+
+- __When should I use aharness instead of a normal Codex session__: Use aharness when the process matters enough to enforce states, approvals, typed evidence, recovery paths, and terminal outcomes. For tiny one-shot edits or fully owner-steered sessions, a normal Codex session is usually simpler.
+
+- __Does aharness replace Codex__: No. Codex still does the language, code, and tool work. Aharness owns the workflow boundary around that work: active states, valid exits, schema validation, owner choices, approval routing, hooks, transitions, and durable run evidence.
+
+- __Will you ever support Claude Code or PI__: It depends on traction. This is currently an experiment, and it is already useful to me in its current form.
+
+- __Can I run many FSMs simultaneously from one single UI__: Not yet. This also depends on traction. The long-term idea is to support `aharness submit X` together with a daemon that executes FSMs in the background. All UI <-> aharness communication is HTTP-based, so a local daemon could talk to a remote UI, or vice versa.
+
+- __Can I share workflows with a team__: Yes. Workflows can be shipped as npm packages with aharness command metadata, bundled skills, and package-relative assets. Install packages only from sources you trust, because npm lifecycle scripts may run during `aharness install`.
+
+- __Do I have to hand-write FSMs__: No. The intended authoring path is to use the bundled aharness FSM authoring skill with Codex, then use the docs as API reference when you need exact details.
+
 
 ## License
 
