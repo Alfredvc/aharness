@@ -78,10 +78,127 @@ describe('runCompletionUninstall', () => {
     vi.mocked(tabtab.uninstall).mockRestore();
   });
 
-  it('forwards default {name} to tabtab.uninstall', async () => {
-    const result = await runCompletionUninstall({});
-    expect(result.exitCode).toBe(0);
-    expect(tabtab.uninstall).toHaveBeenCalledWith({ name: 'aharness' });
+  it('removes aharness tabtab files while ignoring shells that were never installed', async () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-completion-uninstall-'));
+    const oldHome = process.env.HOME;
+    try {
+      process.env.HOME = tmpHome;
+      const zshTabtabDir = path.join(tmpHome, '.config', 'tabtab', 'zsh');
+      fs.mkdirSync(zshTabtabDir, { recursive: true });
+      fs.writeFileSync(path.join(zshTabtabDir, 'aharness.zsh'), '# aharness completion\n');
+      fs.writeFileSync(path.join(zshTabtabDir, 'ccairgap.zsh'), '# ccairgap completion\n');
+      fs.writeFileSync(
+        path.join(zshTabtabDir, '__tabtab.zsh'),
+        [
+          '',
+          '# tabtab source for ccairgap package',
+          '# uninstall by removing these lines',
+          '[[ -f ~/.config/tabtab/zsh/ccairgap.zsh ]] && . ~/.config/tabtab/zsh/ccairgap.zsh || true',
+          '',
+          '# tabtab source for aharness package',
+          '# uninstall by removing these lines',
+          '[[ -f ~/.config/tabtab/zsh/aharness.zsh ]] && . ~/.config/tabtab/zsh/aharness.zsh || true',
+          '',
+        ].join('\n'),
+      );
+      fs.writeFileSync(
+        path.join(tmpHome, '.zshrc'),
+        [
+          '# existing zsh config',
+          '# tabtab source for packages',
+          '# uninstall by removing these lines',
+          '[[ -f ~/.config/tabtab/zsh/__tabtab.zsh ]] && . ~/.config/tabtab/zsh/__tabtab.zsh || true',
+          '',
+        ].join('\n'),
+      );
+
+      const result = await runCompletionUninstall({});
+
+      expect(result.exitCode).toBe(0);
+      expect(tabtab.uninstall).not.toHaveBeenCalled();
+      expect(fs.existsSync(path.join(tmpHome, '.config', 'tabtab', 'bash'))).toBe(false);
+      expect(fs.existsSync(path.join(zshTabtabDir, 'aharness.zsh'))).toBe(false);
+      expect(fs.readFileSync(path.join(zshTabtabDir, '__tabtab.zsh'), 'utf8')).toContain(
+        'ccairgap',
+      );
+      expect(fs.readFileSync(path.join(zshTabtabDir, '__tabtab.zsh'), 'utf8')).not.toContain(
+        'aharness',
+      );
+      expect(fs.readFileSync(path.join(tmpHome, '.zshrc'), 'utf8')).toContain('__tabtab.zsh');
+    } finally {
+      if (oldHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = oldHome;
+      }
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  it('removes the shell rc tabtab source when aharness was the last package', async () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-completion-uninstall-'));
+    const oldHome = process.env.HOME;
+    try {
+      process.env.HOME = tmpHome;
+      const zshTabtabDir = path.join(tmpHome, '.config', 'tabtab', 'zsh');
+      fs.mkdirSync(zshTabtabDir, { recursive: true });
+      fs.writeFileSync(path.join(zshTabtabDir, 'aharness.zsh'), '# aharness completion\n');
+      fs.writeFileSync(
+        path.join(zshTabtabDir, '__tabtab.zsh'),
+        [
+          '',
+          '# tabtab source for aharness package',
+          '# uninstall by removing these lines',
+          '[[ -f ~/.config/tabtab/zsh/aharness.zsh ]] && . ~/.config/tabtab/zsh/aharness.zsh || true',
+          '',
+        ].join('\n'),
+      );
+      fs.writeFileSync(
+        path.join(tmpHome, '.zshrc'),
+        [
+          '# existing zsh config',
+          '# tabtab source for packages',
+          '# uninstall by removing these lines',
+          '[[ -f ~/.config/tabtab/zsh/__tabtab.zsh ]] && . ~/.config/tabtab/zsh/__tabtab.zsh || true',
+          'export OTHER=value',
+          '',
+        ].join('\n'),
+      );
+
+      const result = await runCompletionUninstall({});
+
+      expect(result.exitCode).toBe(0);
+      expect(fs.existsSync(path.join(zshTabtabDir, 'aharness.zsh'))).toBe(false);
+      expect(fs.readFileSync(path.join(zshTabtabDir, '__tabtab.zsh'), 'utf8').trim()).toBe('');
+      expect(fs.readFileSync(path.join(tmpHome, '.zshrc'), 'utf8')).not.toContain('__tabtab.zsh');
+      expect(fs.readFileSync(path.join(tmpHome, '.zshrc'), 'utf8')).toContain('export OTHER=value');
+    } finally {
+      if (oldHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = oldHome;
+      }
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  it('treats already-missing completion files as uninstalled', async () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-completion-uninstall-'));
+    const oldHome = process.env.HOME;
+    try {
+      process.env.HOME = tmpHome;
+      const result = await runCompletionUninstall({});
+
+      expect(result.exitCode).toBe(0);
+      expect(tabtab.uninstall).not.toHaveBeenCalled();
+    } finally {
+      if (oldHome === undefined) {
+        delete process.env.HOME;
+      } else {
+        process.env.HOME = oldHome;
+      }
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
   });
 });
 
