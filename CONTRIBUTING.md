@@ -7,7 +7,8 @@ Thanks for contributing to aharness. This repository is a TypeScript monorepo fo
 
 Prerequisites:
 
-- Node.js `>=20`
+- Node.js `>=22.13` for repository development. Published aharness packages
+  support Node.js `>=20`.
 - pnpm `11.5.2`, matching the root `packageManager`
 - Codex CLI `>=0.136.0` for runtime work and Codex compatibility checks
 
