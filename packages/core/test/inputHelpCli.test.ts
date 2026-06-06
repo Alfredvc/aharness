@@ -2,7 +2,11 @@ import { resolve } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { describe, expect, it, vi } from 'vitest';
 
-import { formatLocalFsmInputHelp, runLocalFsmInputHelpForTest } from '../src/cli/inputHelpCli.js';
+import {
+  formatLocalFsmInputHelp,
+  runFsmInputHelpForTest,
+  runLocalFsmInputHelpForTest,
+} from '../src/cli/inputHelpCli.js';
 import type { extractSchemaSidecar } from '../src/loader/sidecar.js';
 
 function makeWritableBuffer(): {
@@ -335,6 +339,64 @@ describe('runLocalFsmInputHelpForTest', () => {
     expect(stdout.text()).toBe('');
     expect(stderr.text()).toBe(
       'aharness: failed to read FSM input metadata: missing inputFlags metadata\n',
+    );
+  });
+});
+
+describe('runFsmInputHelpForTest', () => {
+  it('passes package resolution to sidecar extraction and renders installed target help', async () => {
+    const stdout = makeWritableBuffer();
+    const stderr = makeWritableBuffer();
+    const packageResolution = {
+      packageRoot: '/store/packages/@scope/tools',
+      managedProjectRoot: '/store/managed-project',
+    };
+    const extractSchemaSidecarImpl = vi.fn<typeof extractSchemaSidecar>(async () => ({
+      sidecar: {},
+      issues: [],
+      inputSchema: {
+        type: 'object',
+        properties: {
+          topic: { type: 'string' },
+          dryRun: { type: 'boolean' },
+        },
+        required: ['topic'],
+        additionalProperties: false,
+      },
+      inputFlags: {
+        topic: { description: 'Project topic' },
+        dryRun: { description: 'Skip writes', default: false },
+      },
+    }));
+
+    const result = await runFsmInputHelpForTest({
+      target: '@scope/tools/build',
+      filePath: '/store/packages/@scope/tools/src/build.fsm.ts',
+      usage: 'aharness run @scope/tools/build --help',
+      stdout: stdout.sink,
+      stderr: stderr.sink,
+      packageResolution,
+      extractSchemaSidecarImpl,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(extractSchemaSidecarImpl).toHaveBeenCalledWith({
+      filePath: '/store/packages/@scope/tools/src/build.fsm.ts',
+      packageResolution,
+    });
+    expect(stderr.text()).toBe('');
+    expect(stdout.text()).toBe(
+      [
+        'Usage: aharness run @scope/tools/build --help',
+        'Target: @scope/tools/build',
+        'FSM: /store/packages/@scope/tools/src/build.fsm.ts',
+        '',
+        'Required input flags:',
+        '  --topic <string> (string) - Project topic',
+        'Optional input flags:',
+        '  --dry-run (boolean, default: false) - Skip writes',
+        '',
+      ].join('\n'),
     );
   });
 });

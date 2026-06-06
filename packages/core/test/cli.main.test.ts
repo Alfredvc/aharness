@@ -329,6 +329,15 @@ describe('dispatch', () => {
     expect(s.runTarget).not.toHaveBeenCalled();
   });
 
+  it('routes exact installed-looking run-target help before normal run routing', async () => {
+    const s = buildStubs();
+    const r = await dispatch(['run', '@scope/tools/build', '--help'], s);
+
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runTargetInputHelp).toHaveBeenCalledWith({ target: '@scope/tools/build' });
+    expect(s.runTarget).not.toHaveBeenCalled();
+  });
+
   it('routes "run --ask <target>" with ask mode and clean input args', async () => {
     const s = buildStubs();
     const r = await dispatch(['run', '--ask', './workflow.fsm.ts', '--topic', 'auth'], s);
@@ -401,6 +410,9 @@ describe('dispatch', () => {
       ['run', '--ask', './workflow.fsm.ts', '--help'],
       ['run', './workflow.fsm.ts', '--topic', 'auth', '--help'],
       ['run', './workflow.fsm.ts', '--help', '--topic', 'auth'],
+      ['run', '--ask', '@scope/tools/build', '--help'],
+      ['run', '@scope/tools/build', '--topic', 'auth', '--help'],
+      ['run', '@scope/tools/build', '--help', '--topic', 'auth'],
     ];
 
     for (const argv of cases) {

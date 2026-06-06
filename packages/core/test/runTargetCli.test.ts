@@ -292,13 +292,19 @@ describe('aharness run target help dispatch', () => {
       const stdout = captureStream();
       const stderr = captureStream();
       const runLocalFsmInputHelpImpl = vi.fn(async () => ({ exitCode: 0 }));
+      const runFsmInputHelpImpl = vi.fn(async () => ({ exitCode: 0 }));
+      const readSnapshotImpl = vi.fn();
+      const checkLockFingerprintImpl = vi.fn();
 
       const result = await runTargetHelpCli({
         target: './missing.fsm.ts',
         cwd,
         stdout: stdout.stream,
         stderr: stderr.stream,
+        readSnapshotImpl,
+        checkLockFingerprintImpl,
         runLocalFsmInputHelpImpl,
+        runFsmInputHelpImpl,
       });
 
       expect(result).toEqual({ exitCode: 0 });
@@ -309,33 +315,178 @@ describe('aharness run target help dispatch', () => {
         stdout: stdout.stream,
         stderr: stderr.stream,
       });
+      expect(readSnapshotImpl).not.toHaveBeenCalled();
+      expect(checkLockFingerprintImpl).not.toHaveBeenCalled();
+      expect(runFsmInputHelpImpl).not.toHaveBeenCalled();
       expect(stderr.text()).toBe('');
     } finally {
       await rm(cwd, { recursive: true, force: true });
     }
   });
 
-  it('returns generic usage for installed-command-shaped help targets', async () => {
-    const cases = ['build', '@scope/tools/build'];
+  it('routes installed bare command help through resolved input help', async () => {
+    const stdout = captureStream();
+    const stderr = captureStream();
+    const runLocalFsmInputHelpImpl = vi.fn(async () => ({ exitCode: 0 }));
+    const runFsmInputHelpImpl = vi.fn(async () => ({ exitCode: 0 }));
+    const resolverSeams = installedResolverSeams('@scope/tools', ['build']);
 
-    for (const target of cases) {
-      const stdout = captureStream();
-      const stderr = captureStream();
-      const runLocalFsmInputHelpImpl = vi.fn(async () => ({ exitCode: 0 }));
+    const result = await runTargetHelpCli({
+      target: 'build',
+      cwd: process.cwd(),
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      ...resolverSeams,
+      runLocalFsmInputHelpImpl,
+      runFsmInputHelpImpl,
+    });
 
-      const result = await runTargetHelpCli({
-        target,
-        cwd: process.cwd(),
-        stdout: stdout.stream,
-        stderr: stderr.stream,
-        runLocalFsmInputHelpImpl,
-      });
+    expect(result).toEqual({ exitCode: 0 });
+    expect(runFsmInputHelpImpl).toHaveBeenCalledWith({
+      target: 'build',
+      filePath: '/store/packages/node_modules/@scope/tools/fsms/build.fsm.ts',
+      usage: 'aharness run build --help',
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      packageResolution: {
+        packageRoot: '/store/packages/node_modules/@scope/tools',
+        managedProjectRoot: '/store/packages',
+      },
+    });
+    expect(runLocalFsmInputHelpImpl).not.toHaveBeenCalled();
+    expect(resolverSeams.readSnapshotImpl).toHaveBeenCalledTimes(1);
+    expect(resolverSeams.checkLockFingerprintImpl).toHaveBeenCalledTimes(1);
+    expect(stdout.text()).toBe('');
+    expect(stderr.text()).toBe('');
+  });
 
-      expect(result).toEqual({ exitCode: 2 });
-      expect(runLocalFsmInputHelpImpl).not.toHaveBeenCalled();
-      expect(stdout.text()).toBe('');
-      expect(stderr.text()).toContain('usage:');
-    }
+  it('routes installed qualified command help through resolved input help', async () => {
+    const stdout = captureStream();
+    const stderr = captureStream();
+    const runFsmInputHelpImpl = vi.fn(async () => ({ exitCode: 0 }));
+    const resolverSeams = installedResolverSeams('@scope/tools', ['build']);
+
+    const result = await runTargetHelpCli({
+      target: '@scope/tools/build',
+      cwd: process.cwd(),
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      ...resolverSeams,
+      runFsmInputHelpImpl,
+    });
+
+    expect(result).toEqual({ exitCode: 0 });
+    expect(runFsmInputHelpImpl).toHaveBeenCalledWith({
+      target: '@scope/tools/build',
+      filePath: '/store/packages/node_modules/@scope/tools/fsms/build.fsm.ts',
+      usage: 'aharness run @scope/tools/build --help',
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      packageResolution: {
+        packageRoot: '/store/packages/node_modules/@scope/tools',
+        managedProjectRoot: '/store/packages',
+      },
+    });
+    expect(resolverSeams.readSnapshotImpl).toHaveBeenCalledTimes(1);
+    expect(resolverSeams.checkLockFingerprintImpl).toHaveBeenCalledTimes(1);
+    expect(stderr.text()).toBe('');
+  });
+
+  it('fails installed help before input extraction when lock fingerprint validation fails', async () => {
+    const stdout = captureStream();
+    const stderr = captureStream();
+    const runLocalFsmInputHelpImpl = vi.fn(async () => ({ exitCode: 0 }));
+    const runFsmInputHelpImpl = vi.fn(async () => ({ exitCode: 0 }));
+    const snapshot = runtimeSnapshot([installRecord('@scope/tools', ['build'])]);
+    const readSnapshotImpl = vi.fn(async () => ({ ok: true as const, value: snapshot }));
+    const checkLockFingerprintImpl = vi.fn(async () => ({
+      ok: false as const,
+      diagnostics: [
+        {
+          code: 'installed-lock-fingerprint-mismatch',
+          field: 'lockFingerprint',
+          message: 'installed package lock fingerprint changed',
+        },
+      ],
+    }));
+
+    const result = await runTargetHelpCli({
+      target: '@scope/tools/build',
+      cwd: process.cwd(),
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      readSnapshotImpl,
+      checkLockFingerprintImpl,
+      runLocalFsmInputHelpImpl,
+      runFsmInputHelpImpl,
+    });
+
+    expect(result).toEqual({ exitCode: 1 });
+    expect(stderr.text()).toContain('aharness run failed:');
+    expect(stderr.text()).toContain('[installed-lock-fingerprint-mismatch]');
+    expect(stdout.text()).toBe('');
+    expect(readSnapshotImpl).toHaveBeenCalledTimes(1);
+    expect(checkLockFingerprintImpl).toHaveBeenCalledTimes(1);
+    expect(runLocalFsmInputHelpImpl).not.toHaveBeenCalled();
+    expect(runFsmInputHelpImpl).not.toHaveBeenCalled();
+  });
+
+  it('fails invalid local help targets with resolver diagnostics before input extraction', async () => {
+    const stdout = captureStream();
+    const stderr = captureStream();
+    const readSnapshotImpl = vi.fn();
+    const checkLockFingerprintImpl = vi.fn();
+    const runLocalFsmInputHelpImpl = vi.fn(async () => ({ exitCode: 0 }));
+    const runFsmInputHelpImpl = vi.fn(async () => ({ exitCode: 0 }));
+
+    const result = await runTargetHelpCli({
+      target: './workflow',
+      cwd: process.cwd(),
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      readSnapshotImpl,
+      checkLockFingerprintImpl,
+      runLocalFsmInputHelpImpl,
+      runFsmInputHelpImpl,
+    });
+
+    expect(result).toEqual({ exitCode: 1 });
+    expect(stderr.text()).toContain('aharness run failed:');
+    expect(stderr.text()).toContain('[fsm-target-invalid-local]');
+    expect(stderr.text()).toContain("local FSM target './workflow' must end in .fsm.ts");
+    expect(stdout.text()).toBe('');
+    expect(readSnapshotImpl).not.toHaveBeenCalled();
+    expect(checkLockFingerprintImpl).not.toHaveBeenCalled();
+    expect(runLocalFsmInputHelpImpl).not.toHaveBeenCalled();
+    expect(runFsmInputHelpImpl).not.toHaveBeenCalled();
+  });
+
+  it('keeps package-only help diagnostics from the installed resolver', async () => {
+    const stdout = captureStream();
+    const stderr = captureStream();
+    const runLocalFsmInputHelpImpl = vi.fn(async () => ({ exitCode: 0 }));
+    const runFsmInputHelpImpl = vi.fn(async () => ({ exitCode: 0 }));
+    const resolverSeams = installedResolverSeams('@scope/tools', ['build']);
+
+    const result = await runTargetHelpCli({
+      target: '@scope/tools',
+      cwd: process.cwd(),
+      stdout: stdout.stream,
+      stderr: stderr.stream,
+      ...resolverSeams,
+      runLocalFsmInputHelpImpl,
+      runFsmInputHelpImpl,
+    });
+
+    expect(result).toEqual({ exitCode: 1 });
+    expect(stderr.text()).toContain('aharness run failed:');
+    expect(stderr.text()).toContain('[command-identity-package-only]');
+    expect(stderr.text()).toContain("'@scope/tools' identifies a package, not a command");
+    expect(stdout.text()).toBe('');
+    expect(resolverSeams.readSnapshotImpl).toHaveBeenCalledTimes(1);
+    expect(resolverSeams.checkLockFingerprintImpl).not.toHaveBeenCalled();
+    expect(runLocalFsmInputHelpImpl).not.toHaveBeenCalled();
+    expect(runFsmInputHelpImpl).not.toHaveBeenCalled();
   });
 });
 

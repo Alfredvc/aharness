@@ -269,7 +269,10 @@ Runtime flags go before the target. FSM input flags go after it:
 aharness run --ask ./workflow.fsm.ts --fixture-root ./fixture
 ```
 
-Use `aharness run ./workflow.fsm.ts --help` to inspect local FSM input help.
+Use `aharness run <file.fsm.ts|command> --help` to inspect FSM input help for
+local FSM files and installed commands. That help form is exact: runtime flags
+such as `--ask`, `--yolo`, and `--no-open` still go before the target for real
+runs, but they are not accepted in the input-help command shape.
 
 ## Choosing State Mechanisms
 

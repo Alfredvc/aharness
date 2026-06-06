@@ -240,7 +240,7 @@ npm install -g @aharness/core
 
 ```bash
 aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...
-aharness run <file.fsm.ts> --help
+aharness run <file.fsm.ts|command> --help
 aharness visualize <file.fsm.ts|command> [--<flag> <value>]...
 aharness view [run-id]
 aharness verify <file.fsm.ts>
@@ -272,18 +272,24 @@ target:
 aharness run --ask ./workflow.fsm.ts --fixture-root ./fixture
 ```
 
-Local FSM input help is available only through:
+FSM input help is available only through the exact `run <target> --help`
+shape:
 
 ```bash
-aharness run ./workflow.fsm.ts --help
+aharness run <file.fsm.ts|command> --help
 ```
 
-These commands read declared machine inputs statically and print the invoked
-usage form, target path information, and declared input flags grouped into
-required and optional sections with each flag's type, default marker, and
-author-provided descriptions. Help for installed commands, `visualize`,
-top-level `aharness --help`, `aharness help`, and arbitrary-position `--help`
-are not part of this slice and return generic usage.
+This reads declared machine inputs statically for local FSM files and installed
+commands, then prints the invoked usage form, target information, resolved FSM
+entry file, and declared input flags grouped into required and optional
+sections with each flag's type, default marker, and author-provided
+descriptions. Installed command help uses the same installed command trust and
+lock-fingerprint gate as installed `run`; if the installed package tree no
+longer matches its verified install record, help fails before reading input
+metadata. `visualize`, top-level `aharness --help`, `aharness help`, runtime
+flags before the target such as `aharness run --ask <target> --help`, and
+arbitrary-position `--help` return generic usage instead of FSM-specific input
+help.
 
 `aharness visualize` does not require runtime input flags; any provided flags
 are checked for name/type validity but are not used to start an actor. It

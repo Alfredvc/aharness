@@ -314,7 +314,7 @@ belong in your FSMs, examples, or installable FSM packages.
 aharness init --dir <path>
 aharness verify <file.fsm.ts>
 aharness visualize <file.fsm.ts|command>
-aharness run <file.fsm.ts> --help
+aharness run <file.fsm.ts|command> --help
 aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<input-flag> <value>]...
 aharness view [run-id]
 aharness doctor

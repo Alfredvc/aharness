@@ -3,9 +3,23 @@ import type { JSONSchema7, JSONSchema7Definition } from 'json-schema';
 
 import { camelToKebab } from '../loader/inputFlags.js';
 import type { ArgFlagMeta } from '../loader/inputSchema.js';
+import type { PackageResolutionContext } from '../loader/packageResolution.js';
 import { extractSchemaSidecar } from '../loader/sidecar.js';
 
 type ExtractSchemaSidecar = typeof extractSchemaSidecar;
+
+interface FsmInputHelpOptions {
+  readonly target: string;
+  readonly filePath: string;
+  readonly usage: string;
+  readonly stdout: NodeJS.WritableStream;
+  readonly stderr: NodeJS.WritableStream;
+  readonly packageResolution?: PackageResolutionContext;
+}
+
+interface FsmInputHelpTestOptions extends FsmInputHelpOptions {
+  readonly extractSchemaSidecarImpl?: ExtractSchemaSidecar;
+}
 
 interface LocalFsmInputHelpOptions {
   readonly cwd: string;
@@ -19,7 +33,7 @@ interface LocalFsmInputHelpTestOptions extends LocalFsmInputHelpOptions {
   readonly extractSchemaSidecarImpl?: ExtractSchemaSidecar;
 }
 
-interface FormatLocalFsmInputHelpOptions {
+interface FormatFsmInputHelpOptions {
   readonly usage: string;
   readonly target: string;
   readonly filePath: string;
@@ -37,7 +51,7 @@ interface InputFieldHelp {
   readonly description: string | undefined;
 }
 
-export function formatLocalFsmInputHelp(opts: FormatLocalFsmInputHelpOptions): string {
+export function formatFsmInputHelp(opts: FormatFsmInputHelpOptions): string {
   const lines = [`Usage: ${opts.usage}`, `Target: ${opts.target}`, `FSM: ${opts.filePath}`, ''];
   const fields = describeInputFields(opts.inputSchema, opts.inputFlags);
 
@@ -60,6 +74,38 @@ export function formatLocalFsmInputHelp(opts: FormatLocalFsmInputHelpOptions): s
   return lines.join('\n');
 }
 
+export const formatLocalFsmInputHelp = formatFsmInputHelp;
+
+export async function runFsmInputHelp(opts: FsmInputHelpOptions): Promise<{
+  readonly exitCode: number;
+}> {
+  return runFsmInputHelpForTest(opts);
+}
+
+export async function runFsmInputHelpForTest(
+  opts: FsmInputHelpTestOptions,
+): Promise<{ readonly exitCode: number }> {
+  const extractSchemaSidecarImpl = opts.extractSchemaSidecarImpl ?? extractSchemaSidecar;
+  try {
+    const extraction = await extractSchemaSidecarImpl({
+      filePath: opts.filePath,
+      ...(opts.packageResolution ? { packageResolution: opts.packageResolution } : {}),
+    });
+    const text = formatFsmInputHelp({
+      usage: opts.usage,
+      target: opts.target,
+      filePath: opts.filePath,
+      inputSchema: extraction.inputSchema,
+      inputFlags: extraction.inputFlags,
+    });
+    opts.stdout.write(text);
+    return { exitCode: 0 };
+  } catch (err) {
+    opts.stderr.write(`aharness: failed to read FSM input metadata: ${errorMessage(err)}\n`);
+    return { exitCode: 1 };
+  }
+}
+
 export async function runLocalFsmInputHelp(opts: LocalFsmInputHelpOptions): Promise<{
   readonly exitCode: number;
 }> {
@@ -70,22 +116,16 @@ export async function runLocalFsmInputHelpForTest(
   opts: LocalFsmInputHelpTestOptions,
 ): Promise<{ readonly exitCode: number }> {
   const filePath = resolve(opts.cwd, opts.target);
-  const extractSchemaSidecarImpl = opts.extractSchemaSidecarImpl ?? extractSchemaSidecar;
-  try {
-    const extraction = await extractSchemaSidecarImpl({ filePath });
-    const text = formatLocalFsmInputHelp({
-      usage: opts.usage,
-      target: opts.target,
-      filePath,
-      inputSchema: extraction.inputSchema,
-      inputFlags: extraction.inputFlags,
-    });
-    opts.stdout.write(text);
-    return { exitCode: 0 };
-  } catch (err) {
-    opts.stderr.write(`aharness: failed to read FSM input metadata: ${errorMessage(err)}\n`);
-    return { exitCode: 1 };
-  }
+  return runFsmInputHelpForTest({
+    target: opts.target,
+    usage: opts.usage,
+    stdout: opts.stdout,
+    stderr: opts.stderr,
+    filePath,
+    ...(opts.extractSchemaSidecarImpl
+      ? { extractSchemaSidecarImpl: opts.extractSchemaSidecarImpl }
+      : {}),
+  });
 }
 
 function describeInputFields(

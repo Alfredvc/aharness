@@ -1,5 +1,5 @@
 import type { RunCliOpts, RunCliResult, RunPermissionMode } from './runCli.js';
-import { runLocalFsmInputHelp } from './inputHelpCli.js';
+import { runFsmInputHelp, runLocalFsmInputHelp } from './inputHelpCli.js';
 import type { RunInstalledCliOptions } from './runInstalledCli.js';
 import { resolveFsmTarget, type ResolveFsmTargetOptions } from './fsmTarget.js';
 import { writeInstallStoreDiagnostics } from './installStoreDiagnostics.js';
@@ -27,7 +27,12 @@ export interface RunTargetHelpCliOptions {
   readonly cwd: string;
   readonly stdout: NodeJS.WritableStream;
   readonly stderr: NodeJS.WritableStream;
+  readonly env?: ResolveFsmTargetOptions['env'];
+  readonly homeDir?: ResolveFsmTargetOptions['homeDir'];
+  readonly readSnapshotImpl?: ResolveFsmTargetOptions['readSnapshotImpl'];
+  readonly checkLockFingerprintImpl?: ResolveFsmTargetOptions['checkLockFingerprintImpl'];
   readonly runLocalFsmInputHelpImpl?: typeof runLocalFsmInputHelp;
+  readonly runFsmInputHelpImpl?: typeof runFsmInputHelp;
 }
 
 export async function runTargetCli(
@@ -80,28 +85,41 @@ export async function runTargetCli(
 export async function runTargetHelpCli(
   opts: RunTargetHelpCliOptions,
 ): Promise<{ readonly exitCode: number }> {
-  if (!isLocalRunTarget(opts.target)) {
-    return { exitCode: runTargetHelpUsage(opts.stderr) };
+  const resolved = await resolveFsmTarget(opts.target, {
+    ...(opts.env !== undefined ? { env: opts.env } : {}),
+    ...(opts.homeDir !== undefined ? { homeDir: opts.homeDir } : {}),
+    ...(opts.readSnapshotImpl !== undefined ? { readSnapshotImpl: opts.readSnapshotImpl } : {}),
+    ...(opts.checkLockFingerprintImpl !== undefined
+      ? { checkLockFingerprintImpl: opts.checkLockFingerprintImpl }
+      : {}),
+  });
+
+  if (resolved.kind === 'invalid') {
+    writeInstallStoreDiagnostics(opts.stderr, 'aharness run failed', resolved.diagnostics);
+    return { exitCode: 1 };
   }
 
-  const runLocalFsmInputHelpImpl = opts.runLocalFsmInputHelpImpl ?? runLocalFsmInputHelp;
-  return runLocalFsmInputHelpImpl({
-    cwd: opts.cwd,
+  if (resolved.kind === 'local') {
+    const runLocalFsmInputHelpImpl = opts.runLocalFsmInputHelpImpl ?? runLocalFsmInputHelp;
+    return runLocalFsmInputHelpImpl({
+      cwd: opts.cwd,
+      target: resolved.target,
+      usage: `aharness run ${opts.target} --help`,
+      stdout: opts.stdout,
+      stderr: opts.stderr,
+    });
+  }
+
+  const runFsmInputHelpImpl = opts.runFsmInputHelpImpl ?? runFsmInputHelp;
+  return runFsmInputHelpImpl({
     target: opts.target,
+    filePath: resolved.entryFile,
     usage: `aharness run ${opts.target} --help`,
     stdout: opts.stdout,
     stderr: opts.stderr,
+    packageResolution: {
+      packageRoot: resolved.install.packageRoot,
+      managedProjectRoot: resolved.paths.managedProjectRoot,
+    },
   });
-}
-
-function isLocalRunTarget(target: string): boolean {
-  return target.endsWith('.fsm.ts') && !target.startsWith('-');
-}
-
-function runTargetHelpUsage(stderr: NodeJS.WritableStream): number {
-  stderr.write(
-    'usage:\n' +
-      '  aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...\n',
-  );
-  return 2;
 }

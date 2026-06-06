@@ -96,11 +96,14 @@ managed package project before aharness rejects a package. In that case
 aharness leaves npm-managed files in place, but it does not update
 `installs.json` or `commands.json`, so unverified commands remain unrunnable.
 
-If `aharness run` or installed `aharness verify` reports
-`installed-lock-fingerprint-mismatch`, the managed npm tree no longer matches
-the verified install record. Re-run `aharness install <same-source>` to refresh
-the package, or run `aharness uninstall <package-name>` before installing a
-different source for the same package name.
+If installed `aharness run <command>`, `aharness run <command> --help`, or
+`aharness verify <command>` reports `installed-lock-fingerprint-mismatch`, the
+managed npm tree no longer matches the verified install record. Installed input
+help uses the same command trust and lock-fingerprint gate as installed run and
+verify, so it fails before reading static input metadata from an untrusted tree.
+Re-run `aharness install <same-source>` to refresh the package, or run
+`aharness uninstall <package-name>` before installing a different source for the
+same package name.
 
 If `commands.json` is missing, stale, or malformed, aharness regenerates it from
 a valid `installs.json` after checking recorded lock fingerprints. If
