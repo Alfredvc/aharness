@@ -115,6 +115,9 @@ Never stage or commit files under these local planning and follow-up areas:
   separate system browser window.
 - Treat `examples/workflow-references/` as workflow-opinion material that users
   may encode in FSMs, not as framework policy.
+- On or after 2026-06-12, revisit the temporary `react-doctor@0.2.14` pin and
+  try bumping the repo back to `react-doctor@0.4.0` under the global 7-day pnpm
+  release-age policy.
 - For runtime architecture questions, inspect `packages/core/src/runtime`,
   `packages/core/src/transport`, `packages/core/src/protocol`,
   `packages/core/src/runEvents`, and `docs/architecture.md` before changing code.
