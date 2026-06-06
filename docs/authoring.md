@@ -274,6 +274,16 @@ local FSM files and installed commands. That help form is exact: runtime flags
 such as `--ask`, `--yolo`, and `--no-open` still go before the target for real
 runs, but they are not accepted in the input-help command shape.
 
+Shell completion follows the same FSM target grammar for `run`, `verify`, and
+`visualize`: local directories, existing `.fsm.ts` files, unique bare installed
+commands, and fully qualified installed command identities can complete as
+targets. Input flag and value completion applies only after resolved `run` and
+`visualize` targets, including installed targets. `verify` completes targets
+but does not complete FSM input flags or values. Dynamic input completion
+callbacks can execute FSM code at Tab time; installed target input completion
+checks the installed lock fingerprint before reading installed input metadata
+or running dynamic callbacks.
+
 ## Choosing State Mechanisms
 
 ### Canonical Primitives

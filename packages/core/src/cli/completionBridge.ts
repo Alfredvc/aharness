@@ -82,7 +82,7 @@ export interface CompletionBridgeOpts {
  */
 const FILE_ENUMERATE_CAP = 1000;
 const TABTAB_FILE_COMPLETION_SENTINEL = '__tabtab_complete_files__';
-const FILE_PATH_SUBCOMMANDS = new Set(['verify', 'visualize']);
+const FSM_TARGET_SUBCOMMANDS = new Set(['verify', 'visualize']);
 
 interface InputCompletionMetadata {
   readonly schema: JSONSchema7;
@@ -108,8 +108,7 @@ type CompletionInputTarget =
 
 type CompletionContext =
   | { readonly kind: 'root'; readonly partial: string }
-  | { readonly kind: 'run-target'; readonly partial: string }
-  | { readonly kind: 'native-file-target' }
+  | { readonly kind: 'fsm-target'; readonly subcommand: string; readonly partial: string }
   | {
       readonly kind: 'post-target-input';
       readonly target: CompletionInputTarget;
@@ -145,13 +144,13 @@ export async function runCompletionBridge(
       }
       return { exitCode: 0 };
     }
-    if (context.kind === 'run-target') {
+    if (context.kind === 'fsm-target') {
       const suggestions = new Set<string>();
-      for (const candidate of enumerateLocalRunTargets(context.partial, opts.cwd)) {
+      for (const candidate of enumerateLocalFsmTargets(context.partial, opts.cwd)) {
         suggestions.add(candidate);
       }
       const snapshot = await readInstalledCompletionSnapshot({ env: opts.env });
-      for (const candidate of buildInstalledCommandSuggestions(
+      for (const candidate of buildInstalledTargetSuggestions(
         snapshot,
         context.partial,
         opts.cwd,
@@ -159,12 +158,6 @@ export async function runCompletionBridge(
         suggestions.add(candidate);
       }
       for (const suggestion of suggestions) opts.stdout.write(`${suggestion}\n`);
-      return { exitCode: 0 };
-    }
-    if (context.kind === 'native-file-target') {
-      if (!parsed.last.startsWith('--')) {
-        emitNativeFileCompletion(opts.stdout);
-      }
       return { exitCode: 0 };
     }
     if (context.kind === 'other-subcommand') {
@@ -246,9 +239,9 @@ async function deriveCompletionContext(
     if (runTarget) return runTarget;
   }
 
-  if (FILE_PATH_SUBCOMMANDS.has(firstToken)) {
-    const fileTarget = deriveFilePathSubcommandCompletionContext(tokens, last, cwd);
-    if (fileTarget) return fileTarget;
+  if (FSM_TARGET_SUBCOMMANDS.has(firstToken)) {
+    const fsmTarget = await deriveFsmTargetSubcommandCompletionContext(tokens, last, cwd, env);
+    if (fsmTarget) return fsmTarget;
   }
 
   if (
@@ -263,28 +256,28 @@ async function deriveCompletionContext(
   return { kind: 'other-subcommand' };
 }
 
-function deriveFilePathSubcommandCompletionContext(
+async function deriveFsmTargetSubcommandCompletionContext(
   tokens: ReadonlyArray<string>,
   last: string,
   cwd: string,
-): CompletionContext | null {
-  const subcommand = tokens[1];
+  env: NodeJS.ProcessEnv,
+): Promise<CompletionContext | null> {
+  const subcommand = tokens[1]!;
   const targetToken = tokens[2];
   if (!targetToken) {
-    return last === '' ? { kind: 'native-file-target' } : null;
+    return last === '' ? { kind: 'fsm-target', subcommand, partial: '' } : null;
   }
   if (targetToken.startsWith('--')) return null;
 
   const cursorIsOnTarget = tokens.length === 3 && last === targetToken && last !== '';
   if (cursorIsOnTarget) {
-    const target = resolveLocalInputTarget(targetToken, cwd);
-    return target ? { kind: 'other-subcommand' } : { kind: 'native-file-target' };
+    return { kind: 'fsm-target', subcommand, partial: targetToken };
   }
 
   if (subcommand === 'visualize') {
     const inputArgs = tokens.slice(3);
     if (!isValidInputCompletionTail(inputArgs)) return null;
-    const target = resolveLocalInputTarget(targetToken, cwd);
+    const target = await resolveCompletionInputTarget({ targetToken, cwd, env });
     if (target) return { kind: 'post-target-input', target, inputArgs };
   }
 
@@ -320,7 +313,7 @@ async function deriveRunTargetCompletionContext(
   }
 
   if (targetIndex === afterRun.length) {
-    return last === '' ? { kind: 'run-target', partial: '' } : null;
+    return last === '' ? { kind: 'fsm-target', subcommand: 'run', partial: '' } : null;
   }
 
   const targetToken = afterRun[targetIndex]!;
@@ -328,14 +321,16 @@ async function deriveRunTargetCompletionContext(
 
   const cursorIsOnTarget =
     targetIndex === afterRun.length - 1 && last === targetToken && last !== '';
-  if (cursorIsOnTarget) return { kind: 'run-target', partial: targetToken };
+  if (cursorIsOnTarget) return { kind: 'fsm-target', subcommand: 'run', partial: targetToken };
 
   const inputArgs = afterRun.slice(targetIndex + 1);
   if (!isValidInputCompletionTail(inputArgs)) return null;
 
   const target = await resolveCompletionInputTarget({ targetToken, cwd, env });
   if (target) return { kind: 'post-target-input', target, inputArgs };
-  if (targetIndex === afterRun.length - 1) return { kind: 'run-target', partial: targetToken };
+  if (targetIndex === afterRun.length - 1) {
+    return { kind: 'fsm-target', subcommand: 'run', partial: targetToken };
+  }
   return null;
 }
 
@@ -363,7 +358,7 @@ async function resolveCompletionInputTarget(args: {
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
 }): Promise<CompletionInputTarget | null> {
-  if (isLocalRunTarget(args.targetToken)) {
+  if (isLocalFsmTarget(args.targetToken)) {
     return { kind: 'local', filePath: path.resolve(args.cwd, args.targetToken) };
   }
 
@@ -387,19 +382,8 @@ async function resolveCompletionInputTarget(args: {
   };
 }
 
-function isLocalRunTarget(target: string): boolean {
+function isLocalFsmTarget(target: string): boolean {
   return target.endsWith('.fsm.ts') && !target.startsWith('-');
-}
-
-function resolveLocalInputTarget(token: string, cwd: string): CompletionInputTarget | null {
-  if (!token.endsWith('.ts')) return null;
-  const abs = path.resolve(cwd, token);
-  try {
-    if (!fs.statSync(abs).isFile()) return null;
-  } catch {
-    return null;
-  }
-  return { kind: 'local', filePath: abs };
 }
 
 function isPathLikeToken(token: string): boolean {
@@ -415,8 +399,8 @@ function emitNativeFileCompletion(stdout: NodeJS.WritableStream): void {
   stdout.write(`${TABTAB_FILE_COMPLETION_SENTINEL}\n`);
 }
 
-function enumerateLocalRunTargets(partial: string, cwd: string): readonly string[] {
-  const { dirPart, displayDir, prefix } = splitRunTargetPartial(partial);
+function enumerateLocalFsmTargets(partial: string, cwd: string): readonly string[] {
+  const { dirPart, displayDir, prefix } = splitFsmTargetPartial(partial);
   const absDir = path.resolve(cwd, dirPart);
   const out: string[] = [];
   try {
@@ -435,7 +419,7 @@ function enumerateLocalRunTargets(partial: string, cwd: string): readonly string
   return out.sort((a, b) => a.localeCompare(b));
 }
 
-function splitRunTargetPartial(partial: string): {
+function splitFsmTargetPartial(partial: string): {
   readonly dirPart: string;
   readonly displayDir: string;
   readonly prefix: string;
@@ -461,20 +445,23 @@ interface InstalledSuggestion {
   readonly commandName: string;
 }
 
-function buildInstalledCommandSuggestions(
+function buildInstalledTargetSuggestions(
   snapshot: InstalledRuntimeSnapshot,
   partial: string,
   cwd: string,
 ): readonly string[] {
   const commands = snapshot.commands.commands;
   const bareCounts = new Map<string, number>();
-  for (const entry of Object.values(commands)) {
+  const targetEntries = Object.entries(commands).filter(
+    ([identity, entry]) => !isPackageOnlyInstalledIdentity(identity, entry),
+  );
+  for (const [, entry] of targetEntries) {
     bareCounts.set(entry.commandName, (bareCounts.get(entry.commandName) ?? 0) + 1);
   }
 
   const bare: InstalledSuggestion[] = [];
   const qualified: InstalledSuggestion[] = [];
-  for (const [identity, entry] of Object.entries(commands)) {
+  for (const [identity, entry] of targetEntries) {
     if ((bareCounts.get(entry.commandName) ?? 0) === 1) {
       bare.push(formatInstalledSuggestion(entry.commandName, entry));
     }
@@ -485,10 +472,17 @@ function buildInstalledCommandSuggestions(
     .filter((suggestion) => matchesInstalledPartial(suggestion, partial))
     .filter(
       (suggestion) =>
-        !hasLocalRunTargetCollision(cwd, suggestion.value) &&
-        !hasLocalRunTargetCollision(cwd, suggestion.commandName),
+        !hasLocalFsmTargetCollision(cwd, suggestion.value) &&
+        !hasLocalFsmTargetCollision(cwd, suggestion.commandName),
     )
     .map((suggestion) => suggestion.output);
+}
+
+function isPackageOnlyInstalledIdentity(
+  identity: string,
+  entry: TrustedCommandIndexEntry,
+): boolean {
+  return identity === entry.packageName;
 }
 
 function formatInstalledSuggestion(
@@ -510,8 +504,8 @@ function byValue(a: InstalledSuggestion, b: InstalledSuggestion): number {
   return a.value.localeCompare(b.value);
 }
 
-function hasLocalRunTargetCollision(cwd: string, target: string): boolean {
-  if (!isLocalRunTarget(target)) return false;
+function hasLocalFsmTargetCollision(cwd: string, target: string): boolean {
+  if (!isLocalFsmTarget(target)) return false;
   try {
     return fs.statSync(path.resolve(cwd, target)).isFile();
   } catch {

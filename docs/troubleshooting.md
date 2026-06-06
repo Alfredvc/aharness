@@ -123,6 +123,29 @@ Installed verification is command-only. If verifying a package name reports
 `aharness verify @scope/tools/build`, or use a unique bare command name such as
 `aharness verify build`.
 
+## Installed Completion Suggestions Are Missing
+
+Target completion for `aharness run`, `aharness verify`, and
+`aharness visualize` reads only trusted completion records. If installed command
+targets do not appear, run `aharness list` to confirm the package and command
+are installed, then reinstall the same source if the trusted records are stale
+or missing.
+
+Bare command names are suggested only when exactly one installed package
+provides that command. If multiple packages provide `build`, type the fully
+qualified identity such as `@scope/tools/build`; completion omits the ambiguous
+bare name. Package-only identities are not FSM targets, so type a command
+identity such as `@scope/tools/build` instead of only `@scope/tools`.
+
+Input flag and value completion is available after resolved `run` and
+`visualize` targets, including installed targets. `verify` completes targets
+only and intentionally shows no FSM input flags or values after the target.
+Installed input completion is lock-gated before aharness reads installed input
+metadata or runs dynamic completion callbacks. If installed input completion
+stops after package files changed, reinstall the same source or uninstall and
+install the package again so the recorded lock fingerprint matches the managed
+npm tree.
+
 ## Approval Or Owner Input Is Stuck
 
 aharness runs foreground-only and serves a loopback browser UI for owner input
