@@ -75,9 +75,9 @@ function finalRoundComplete(data: Readonly<Data>): boolean {
   return data.qInRound + 1 >= QUESTIONS_PER_ROUND && data.round >= TOTAL_ROUNDS;
 }
 
-function nextAfterAnswer(data: Readonly<Data>): 'finalize' | 'pickGenreFresh' | 'askQuestion' {
+function nextAfterAnswer(data: Readonly<Data>): 'finalize' | 'freshRound' | 'askQuestion' {
   if (finalRoundComplete(data)) return 'finalize';
-  if (data.qInRound + 1 >= QUESTIONS_PER_ROUND) return 'pickGenreFresh';
+  if (data.qInRound + 1 >= QUESTIONS_PER_ROUND) return 'freshRound';
   return 'askQuestion';
 }
 
@@ -109,6 +109,16 @@ export default fsm.machine({
         { label: 'Science', to: 'genreScience' },
         { label: 'History', to: 'genreHistory' },
       ],
+    }),
+    freshRound: fsm.state({
+      clearOnEntry: true,
+      prompt:
+        'This state starts a fresh model thread between trivia rounds. Acknowledge the fresh context in one short sentence, then submit.',
+      on: {
+        submit: fsm.submit<Record<string, never>>({
+          to: 'pickGenreFresh',
+        }),
+      },
     }),
     genreMovies: fsm.state({
       prompt: 'Record the selected genre as movies and submit.',
@@ -178,8 +188,8 @@ export default fsm.machine({
               reduce: (draft) => recordAnswer(draft, 'A'),
             },
             {
-              if: (data) => nextAfterAnswer(data) === 'pickGenreFresh',
-              to: 'pickGenreFresh',
+              if: (data) => nextAfterAnswer(data) === 'freshRound',
+              to: 'freshRound',
               reduce: (draft) => recordAnswer(draft, 'A'),
             },
             { to: 'askQuestion', reduce: (draft) => recordAnswer(draft, 'A') },
@@ -198,8 +208,8 @@ export default fsm.machine({
               reduce: (draft) => recordAnswer(draft, 'B'),
             },
             {
-              if: (data) => nextAfterAnswer(data) === 'pickGenreFresh',
-              to: 'pickGenreFresh',
+              if: (data) => nextAfterAnswer(data) === 'freshRound',
+              to: 'freshRound',
               reduce: (draft) => recordAnswer(draft, 'B'),
             },
             { to: 'askQuestion', reduce: (draft) => recordAnswer(draft, 'B') },
@@ -218,8 +228,8 @@ export default fsm.machine({
               reduce: (draft) => recordAnswer(draft, 'C'),
             },
             {
-              if: (data) => nextAfterAnswer(data) === 'pickGenreFresh',
-              to: 'pickGenreFresh',
+              if: (data) => nextAfterAnswer(data) === 'freshRound',
+              to: 'freshRound',
               reduce: (draft) => recordAnswer(draft, 'C'),
             },
             { to: 'askQuestion', reduce: (draft) => recordAnswer(draft, 'C') },
@@ -238,8 +248,8 @@ export default fsm.machine({
               reduce: (draft) => recordAnswer(draft, 'D'),
             },
             {
-              if: (data) => nextAfterAnswer(data) === 'pickGenreFresh',
-              to: 'pickGenreFresh',
+              if: (data) => nextAfterAnswer(data) === 'freshRound',
+              to: 'freshRound',
               reduce: (draft) => recordAnswer(draft, 'D'),
             },
             { to: 'askQuestion', reduce: (draft) => recordAnswer(draft, 'D') },

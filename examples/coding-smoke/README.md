@@ -33,8 +33,8 @@ The final artifact is written to the run directory as
 
 ## What To Look For
 
-- The model cannot enter implementation until the approval state receives an
-  owner reply and submits `approved=true`.
+- The model cannot enter implementation until the owner selects the authored
+  `Approve` choice.
 - The test gate requires structured evidence: command, pass/fail status, and an
   output summary.
 - A failed test routes through `repair` before another test attempt.

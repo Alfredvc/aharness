@@ -14,8 +14,8 @@ mechanisms, runs in under five minutes, and keeps owner input short.
 | [`color-funnel`](#1-color-funnel--onboarding)                       | `fsm.choice` + typed `fsm.submit` + branching + final artifact | 2 picks     |
 | [`ops-clear-demo`](#2-ops-clear-demo--minimal-fresh-clear-smoke)    | **`clearOnEntry` smoke test** — fastest path to verify         | 2 words     |
 | [`trivia-rounds`](#3-trivia-rounds--clearonentry-context-wipe)      | **`clearOnEntry` fresh thread** with FSM state retained        | 12 picks    |
-| [`adventure`](#4-adventure--multi-exit-branching)                   | `fsm.submit({ route })` branching + success/failure finals     | 2 picks     |
-| [`await-checkpoints`](#5-await-checkpoints--owner-choice-gates)     | `fsm.choice` owner checkpoint gates                            | 3 yes/no    |
+| [`adventure`](#4-adventure--multi-exit-branching)                   | `fsm.choice` branching + success/failure finals                | 2 picks     |
+| [`await-checkpoints`](#5-await-checkpoints--owner-choice-gates)     | `fsm.choice` owner checkpoint gates                            | 3 proceeds  |
 | [`pirate-roast`](#6-pirate-roast--skill-loading)                    | `fsm.skill.path` - sibling `SKILL.md` file injected as persona | 1 sentence  |
 | [`composed-pipeline`](#7-composed-pipeline--composition-and-inputs) | `fsm.embed` + typed `fsm.input.*` root CLI flags               | none        |
 | [`approval-policy`](#8-approval-policy--hooks-events-and-passive)   | built-in hook events + `withEvents` + `effect` + `fsm.passive` | none        |
@@ -109,10 +109,11 @@ Two states, two short typed replies, one fresh model thread between them.
 ## 3. `trivia-rounds` — `clearOnEntry` context wipe
 
 **File:** `examples/trivia-rounds.fsm.ts`
-**States:** `pickGenre` / `pickGenreFresh` ⇄ `askQuestion` (loop ×3) → `finalize`
-**Mechanism:** **`clearOnEntry: true`** on `pickGenreFresh` from round 2
-onwards. The FSM stays live, while the runtime replaces the model
-thread so the next round starts without previous conversation context.
+**States:** `pickGenre` / `pickGenreFresh` ⇄ `askQuestion` (loop ×3), with
+`freshRound` between rounds, then `finalize`
+**Mechanism:** **`clearOnEntry: true`** on `freshRound` from round 2 onwards.
+The FSM stays live, while the runtime replaces the model thread so the next
+round starts without previous conversation context.
 
 ### Walkthrough
 
@@ -122,11 +123,10 @@ For each of 3 rounds:
 science  3) history`. Reply with a number or genre name.
 2. Three multi-choice questions in a row — each prompts `Your answer?
 Reply with A, B, C, or D`.
-3. After question 3, control transitions to `pickGenreFresh`; on entry,
-   the runtime fresh-clears the thread. The model's first words in the
-   new thread are something
+3. After question 3, control transitions to `freshRound`; on entry, the runtime
+   fresh-clears the thread. The model's first words in the new thread are something
    like _"I don't have memory of any earlier rounds — let's start
-   fresh."_ That is the wipe.
+   fresh."_ Then control moves to `pickGenreFresh` for the next genre pick.
 
 After 3 rounds: the final state writes `scoreboard.md` with per-round score
 breakdown.
@@ -145,10 +145,9 @@ breakdown.
 
 **File:** `examples/adventure.fsm.ts`
 **States:** `entrance` → (`forest` | `cave` | `river`) → (`victory` | `defeat`)
-**Mechanism:** every branching state uses `fsm.submit({ route })` with two
-or three branches. The verifier proves all six branch outcomes
-can reach one of the two terminals and the unguarded catch-all is total
-before any model call.
+**Mechanism:** every owner branch is an authored `fsm.choice(...)`. The verifier
+proves all option targets can reach one of the two terminals before any model
+call.
 
 ### Walkthrough
 
@@ -177,23 +176,22 @@ before any model call.
 **File:** `examples/await-checkpoints.fsm.ts`
 **States:** `lintCheck` → `testsCheck` → `buildCheck` → `done`
 **Mechanism:** each checkpoint is an authored `fsm.choice(...)` gate. The
-framework parks the run on deterministic yes/no option labels, and the owner
-choice records the stage result before moving to the next checkpoint.
+framework parks the run on a deterministic proceed label before moving to the
+next checkpoint.
 
 ### Walkthrough
 
 1. TUI: the lint checkpoint asks `Lint passed — proceed to tests?`.
-2. Choose yes or no; either label records the checkpoint result and moves to
-   the tests checkpoint.
+2. Choose `Proceed to tests`; reaching the gate records the lint result and
+   moves to the tests checkpoint.
 3. Repeat for tests and build.
-4. Terminal writes `deploy-log.md` with a 3-row table of stages and your
-   choices.
+4. Terminal writes `deploy-log.md` with a 3-row table of accepted stages.
 
 ### What to look for
 
 - The `events.jsonl` shows three owner-choice transitions with authored option
   labels, not model submits.
-- The owner reply is deterministic because the available labels are authored in
+- The owner choice is deterministic because the available labels are authored in
   the FSM and shown in topology.
 - Use an open state when the workflow needs owner-paced free text before a
   later typed submit. Model-originated `request_user_input` remains available
