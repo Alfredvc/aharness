@@ -459,7 +459,8 @@ describe('runCompletionBridge — run target completion', () => {
   it('includes local .fsm.ts files and directories after run', async () => {
     const lines = await captureBridge('aharness run ', { cwd });
     expect(lines).toContain('alpha.fsm.ts');
-    expect(lines).toContain('nested');
+    expect(lines).toContain('nested/');
+    expect(lines).not.toContain('nested');
     expect(lines).not.toContain('alpha.txt');
   });
 

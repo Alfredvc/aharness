@@ -426,7 +426,7 @@ function enumerateLocalRunTargets(partial: string, cwd: string): readonly string
       if (!dirent.name.startsWith(prefix)) continue;
       if (!dirent.isDirectory() && !dirent.isFile()) continue;
       if (dirent.isFile() && !dirent.name.endsWith('.fsm.ts')) continue;
-      out.push(`${displayDir}${dirent.name}`);
+      out.push(`${displayDir}${dirent.name}${dirent.isDirectory() ? '/' : ''}`);
       if (++matched >= FILE_ENUMERATE_CAP) break;
     }
   } catch {
