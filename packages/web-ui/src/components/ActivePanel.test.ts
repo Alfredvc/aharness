@@ -554,11 +554,31 @@ describe('ActivePanel timeline rows', () => {
       mode: 'view',
       items: [
         {
+          id: 'state-change-1',
+          type: 'state_change',
+          from: 'workflow.collect',
+          to: 'workflow.review',
+          cause: 'submit',
+          stateVisitId: 'workflow.review#1',
+          seq: 1,
+        },
+        {
           id: 'msg-1',
           type: 'agent_message',
           text: 'recorded message',
           streaming: false,
           stateVisitId: 'workflow.collect#2',
+          seq: 2,
+        },
+        {
+          id: 'lifecycle-1',
+          type: 'compact_status',
+          category: 'lifecycle',
+          label: 'run',
+          status: 'started',
+          summary: 'run started',
+          stateVisitId: 'workflow.collect#2',
+          seq: 3,
         },
       ],
       devMode: false,
@@ -569,7 +589,12 @@ describe('ActivePanel timeline rows', () => {
       showApprovals: true,
     });
 
-    expect(rows.map((row) => row.kind)).toEqual(['transcript']);
+    expect(rows.map((row) => row.kind)).toEqual(['transcript', 'transcript', 'transcript']);
+    expect(rows.map((row) => (row.kind === 'transcript' ? row.item.id : row.kind))).toEqual([
+      'state-change-1',
+      'msg-1',
+      'lifecycle-1',
+    ]);
   });
 
   it('uses a passive empty transcript row in view mode before rows load', () => {
@@ -587,12 +612,12 @@ describe('ActivePanel timeline rows', () => {
     expect(rows).toEqual([{ kind: 'empty', key: 'empty-run', text: 'no run activity yet' }]);
   });
 
-  it('keeps state transitions inspectable in dev mode while appending tail rows', () => {
+  it('keeps state transitions inspectable by default while appending tail rows', () => {
     const rows = buildRunTranscriptRowsForTest({
       mode: 'run',
       turnsLength: 1,
       hasAnyVisibleContent: true,
-      devMode: true,
+      devMode: false,
       items: [
         {
           id: 'state-change-1',
@@ -638,7 +663,7 @@ describe('ActivePanel timeline rows', () => {
     );
   });
 
-  it('renders pending owner input without protocol transcript rows by default', () => {
+  it('renders pending owner input with workflow timeline rows by default', () => {
     const html = renderActivePanel(
       baseSession({
         posture: {
@@ -688,7 +713,7 @@ describe('ActivePanel timeline rows', () => {
             id: 'owner-request-row',
             type: 'compact_status',
             category: 'request',
-            label: 'owner input request plumbing',
+            label: 'owner input request',
             status: 'pending',
             summary: 'pending one owner question',
             stateVisitId: 'workflow.ownerApproval#1',
@@ -697,7 +722,7 @@ describe('ActivePanel timeline rows', () => {
             id: 'owner-reply-submitted',
             type: 'compact_status',
             category: 'reply',
-            label: 'owner input reply plumbing',
+            label: 'owner input reply',
             status: 'submitted',
             summary: 'owner reply submitted',
             stateVisitId: 'workflow.ownerApproval#1',
@@ -706,9 +731,27 @@ describe('ActivePanel timeline rows', () => {
             id: 'owner-reply-accepted',
             type: 'compact_status',
             category: 'reply',
-            label: 'owner input reply accepted plumbing',
+            label: 'owner input accepted',
             status: 'accepted',
             summary: 'owner reply accepted',
+            stateVisitId: 'workflow.ownerApproval#1',
+          },
+          {
+            id: 'approval-request-row',
+            type: 'compact_status',
+            category: 'request',
+            label: 'command approval',
+            status: 'pending',
+            summary: 'approval requested for pnpm test',
+            stateVisitId: 'workflow.ownerApproval#1',
+          },
+          {
+            id: 'approval-reply-accepted',
+            type: 'compact_status',
+            category: 'reply',
+            label: 'approval',
+            status: 'accepted',
+            summary: 'approval accepted for pnpm test',
             stateVisitId: 'workflow.ownerApproval#1',
           },
         ],
@@ -717,10 +760,16 @@ describe('ActivePanel timeline rows', () => {
 
     expect(html).toContain('Here is the plan.');
     expect(html).toContain('Approve this plan?');
-    expect(html).not.toContain('owner input request plumbing');
-    expect(html).not.toContain('owner input reply plumbing');
-    expect(html).not.toContain('owner input reply accepted plumbing');
-    expect(html).not.toContain('workflow.ownerApproval');
+    expect(html).toContain('ownerApproval');
+    expect(html).toContain('owner input request');
+    expect(html).toContain('pending one owner question');
+    expect(html).toContain('owner input reply');
+    expect(html).toContain('owner reply submitted');
+    expect(html).toContain('owner input accepted');
+    expect(html).toContain('owner reply accepted');
+    expect(html).toContain('command approval');
+    expect(html).toContain('approval requested for pnpm test');
+    expect(html).toContain('approval accepted for pnpm test');
   });
 
   it('renders framework owner choices before owner-input prompts', () => {

@@ -642,16 +642,16 @@ describe('headless production store helpers', () => {
     expect(visibleItems(items, false)).toEqual(items);
   });
 
-  it('keeps generic request and reply protocol rows hidden by default', () => {
+  it('shows workflow request and reply rows while hiding reserved protocol rows by default', () => {
     const items: TranscriptItem[] = [
       {
         id: 'request-1',
         stateVisitId: 'workflow.pick#1',
         type: 'compact_status',
         category: 'request',
-        label: 'request',
+        label: 'command approval',
         status: 'pending',
-        summary: 'protocol request',
+        summary: 'approve command',
       },
       {
         id: 'reply-1',
@@ -660,12 +660,42 @@ describe('headless production store helpers', () => {
         category: 'reply',
         label: 'owner input',
         status: 'accepted',
-        summary: 'protocol reply',
+        summary: 'owner reply accepted',
+      },
+      {
+        id: 'request-internal-1',
+        stateVisitId: 'workflow.pick#1',
+        type: 'compact_status',
+        category: 'request',
+        label: 'request protocol',
+        status: 'pending',
+        summary: 'internal protocol request',
+        reserved: true,
+      },
+      {
+        id: 'reply-internal-1',
+        stateVisitId: 'workflow.pick#1',
+        type: 'compact_status',
+        category: 'reply',
+        label: 'reply protocol',
+        status: 'accepted',
+        summary: 'internal protocol reply',
+        reserved: true,
       },
     ];
 
-    expect(visibleItems(items, false)).toEqual([]);
-    expect(visibleItems(items, true)).toEqual(items);
+    expect(visibleItems(items, false).map((item) => item.id)).toEqual(['request-1', 'reply-1']);
+    expect(visibleItems(items, true).map((item) => item.id)).toEqual([
+      'request-1',
+      'reply-1',
+      'request-internal-1',
+      'reply-internal-1',
+    ]);
+    const isReservedCompactRow = (item: TranscriptItem) =>
+      item.type === 'compact_status' && item.reserved === true;
+
+    expect(hasVisibleContent(items.filter((item) => !isReservedCompactRow(item)))).toBe(true);
+    expect(hasVisibleContent(items.filter(isReservedCompactRow))).toBe(false);
   });
 
   it('formats aggregate run stats with explicit zero values and omitted missing fields', () => {
@@ -1396,6 +1426,59 @@ describe('headless production store helpers', () => {
     expect(visibleItems(state.transcript, true)).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: 'internal-tool' })]),
     );
+  });
+
+  it('marks internal compact request and reply rows reserved and hides them outside dev mode', () => {
+    const state = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      recentRows: [
+        row({
+          id: 'internal-request-row',
+          eventId: 'run-1:30',
+          seq: 30,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'request',
+          label: 'owner input protocol',
+          status: 'pending',
+          summary: 'internal owner-input request',
+          data: { internal: true },
+        }),
+        row({
+          id: 'internal-reply-row',
+          eventId: 'run-1:31',
+          seq: 31,
+          stateVisitId: 'workflow.collect#2',
+          kind: 'reply',
+          label: 'owner input protocol',
+          status: 'accepted',
+          summary: 'internal owner-input reply',
+          data: { internal: true },
+        }),
+      ],
+    });
+
+    expect(state.transcript).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'internal-request-row',
+          type: 'compact_status',
+          category: 'request',
+          reserved: true,
+        }),
+        expect.objectContaining({
+          id: 'internal-reply-row',
+          type: 'compact_status',
+          category: 'reply',
+          reserved: true,
+        }),
+      ]),
+    );
+    expect(visibleItems(state.transcript, false).map((item) => item.id)).toEqual([]);
+    expect(visibleItems(state.transcript, true).map((item) => item.id)).toEqual([
+      'internal-request-row',
+      'internal-reply-row',
+    ]);
+    expect(hasVisibleContent(state.transcript)).toBe(false);
   });
 
   it('normalizes current compact message labels and suppresses empty message envelopes', () => {
@@ -2689,7 +2772,7 @@ describe('headless production store helpers', () => {
     expect(deriveActivity(withCall).kind).not.toBe('streaming.message');
   });
 
-  it('keeps protocol timeline markers out of default rows while preserving dev inspection', () => {
+  it('shows workflow timeline rows by default while keeping internal rows dev-only', () => {
     const items: ReturnType<typeof hydrateFromSnapshot>['transcript'] = [
       {
         id: 'orientation-user-1',
@@ -2748,6 +2831,26 @@ describe('headless production store helpers', () => {
         stateVisitId: 'workflow.collect#2',
       },
       {
+        id: 'request-internal-1',
+        type: 'compact_status',
+        category: 'request',
+        label: 'owner input request plumbing',
+        status: 'pending',
+        summary: 'internal owner-input request',
+        reserved: true,
+        stateVisitId: 'workflow.collect#2',
+      },
+      {
+        id: 'reply-internal-1',
+        type: 'compact_status',
+        category: 'reply',
+        label: 'owner input reply plumbing',
+        status: 'accepted',
+        summary: 'internal owner reply accepted',
+        reserved: true,
+        stateVisitId: 'workflow.collect#2',
+      },
+      {
         id: 'diagnostic-1',
         type: 'compact_status',
         category: 'diagnostic',
@@ -2764,8 +2867,20 @@ describe('headless production store helpers', () => {
         stateVisitId: 'workflow.collect#2',
       },
     ];
+    const rowById = new Map(items.map((item) => [item.id, item]));
+    const item = (id: string): TranscriptItem => {
+      const found = rowById.get(id);
+      expect(found).toBeDefined();
+      return found as TranscriptItem;
+    };
 
-    expect(visibleItems(items, false).map((item) => item.id)).toEqual(['diagnostic-1']);
+    expect(visibleItems(items, false).map((item) => item.id)).toEqual([
+      'state-change-1',
+      'request-1',
+      'reply-1',
+      'lifecycle-1',
+      'diagnostic-1',
+    ]);
     expect(visibleItems(items, true).map((item) => item.id)).toEqual([
       'framework-info-1',
       'framework-orientation-1',
@@ -2773,10 +2888,23 @@ describe('headless production store helpers', () => {
       'request-1',
       'reply-1',
       'lifecycle-1',
+      'request-internal-1',
+      'reply-internal-1',
       'diagnostic-1',
     ]);
-    expect(hasVisibleContent([items[3], items[4], items[5], items[6]])).toBe(false);
-    expect(hasVisibleContent([items[7]])).toBe(true);
+    expect(hasVisibleContent([item('state-change-1')])).toBe(true);
+    expect(hasVisibleContent([item('request-1')])).toBe(true);
+    expect(hasVisibleContent([item('reply-1')])).toBe(true);
+    expect(hasVisibleContent([item('lifecycle-1')])).toBe(true);
+    expect(
+      hasVisibleContent([
+        item('orientation-user-1'),
+        item('request-internal-1'),
+        item('reply-internal-1'),
+        item('reasoning-empty-1'),
+      ]),
+    ).toBe(false);
+    expect(hasVisibleContent([item('diagnostic-1')])).toBe(true);
   });
 
   it('hides runtime orientation user messages and empty reasoning rows from default transcript rows', () => {

@@ -2366,13 +2366,6 @@ function isVisibleTranscriptItem(i: TranscriptItem): boolean {
   if (i.type === 'compact_status' && i.category === 'reply' && i.label === 'owner choice') {
     return true;
   }
-  if (
-    i.type === 'compact_status' &&
-    (i.category === 'request' || i.category === 'reply' || i.category === 'lifecycle')
-  ) {
-    return false;
-  }
-  if (i.type === 'state_change') return false;
   if (i.type === 'user_message' && i.synthetic) return false;
   if (i.type === 'framework_note' && (i.variant === 'orientation' || i.variant === 'info')) {
     return false;
@@ -2546,8 +2539,8 @@ function explorationGroupFromChildren(
 /**
  * True when the transcript contains no user-facing content yet — used by
  * activity heuristics to detect "codex hasn't streamed anything visible".
- * Counts orientation notes, state markers, request/reply/lifecycle rows, and
- * reserved/internal tool plumbing as invisible for the default transcript.
+ * Counts orientation notes, always-hidden rows, and reserved/internal protocol
+ * plumbing as invisible for the default transcript.
  */
 export function hasVisibleContent(items: TranscriptItem[]): boolean {
   for (const i of items) {

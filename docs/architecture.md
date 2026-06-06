@@ -59,9 +59,12 @@ The browser run UI defaults to a chronological compact transcript for the whole
 run, focused on model/owner messages, tool summaries, failed tool output,
 diagnostics, transition failures, summary-only file-change activity, and live
 interaction cards. File-change transcript rows show compact status/path/count
-summaries and never expose diff bodies. State markers,
-request/reply protocol rows, lifecycle rows, and successful tool output stay out
-of the default transcript and are available through dev mode when needed.
+summaries and never expose diff bodies. Default visibility follows
+[`run-event-visibility.md`](./run-event-visibility.md): workflow-visible
+lifecycle rows, chronological state changes, and request/reply summaries can
+appear in normal live and recorded view transcripts, while reserved/internal
+protocol plumbing stays filtered outside dev mode. Successful tool output
+remains dev-only.
 Terminal or aggregate-completed runs continue to display completed/failed shell
 status when the foreground SSE stream closes, so stream loss does not mask a
 known terminal outcome.
@@ -221,10 +224,12 @@ bootstrap `run` metadata and normalized event, row, and SSE fields are otherwise
 unchanged by this terminal-summary surface: event pages and SSE continue to omit
 `raw` payloads rather than applying new normalized-field redaction. Raw evidence
 remains in `events.jsonl`. Live transcripts render a default summary from
-API-safe compact rows, while dev mode can inspect additional
-protocol/state/lifecycle rows and successful tool output. Owner-choice
-selections remain visible in the default transcript as operator-flow rows, while
-generic request/reply protocol rows stay hidden unless dev mode is enabled.
+API-safe compact rows according to the event visibility policy, while dev mode
+can inspect reserved/internal protocol rows and successful tool output.
+Workflow-visible owner-choice, owner-input, approval, permission, and
+elicitation request/reply summaries remain visible in the default transcript
+when compact rows provide user-facing summaries; reserved/internal protocol
+plumbing stays hidden unless dev mode is enabled.
 Terminal final-overview auto-open waits for local `completionStats`; automatic
 summary fetch failures stay off-screen so a foreground UI shutdown cannot cover
 a successful terminal transcript with a failed modal.

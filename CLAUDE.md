@@ -33,6 +33,8 @@ plans unless the task explicitly asks for historical context.
 - `docs/reference.md` — public SDK and CLI reference.
 - `docs/architecture.md` — runtime shape, browser UI, run artifacts, package
   boundaries.
+- `docs/run-event-visibility.md` — ground truth for browser event/transcript
+  visibility policy.
 - `docs/troubleshooting.md` — common runtime and install failures.
 - `packages/core/SUPPORTED_CODEX.md` — Codex CLI compatibility gate.
 
@@ -63,6 +65,10 @@ plans unless the task explicitly asks for historical context.
   best-effort basis using recorded `repoRoot`/`fsmFile` metadata when present,
   warns and continues with empty topology on failure, and has the same
   import-time trust boundary as `verify` and `run`.
+- `docs/run-event-visibility.md` is the ground truth for event/transcript
+  visibility decisions. Any event/transcript visibility policy change must
+  update that document in the same workflow, and policy-content changes to that
+  document require explicit user acceptance before implementation or commit.
 
 ## Files to avoid editing
 
