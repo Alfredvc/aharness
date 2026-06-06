@@ -2,8 +2,10 @@
 
 SDK and `aharness` CLI binary for aharness FSMs.
 
+Install the CLI globally:
+
 ```sh
-npm install --save-dev @aharness/core
+npm install -g @aharness/core
 ```
 
 aharness is the middle layer between advisory skills/prompts and a custom coding

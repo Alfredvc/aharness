@@ -38,6 +38,16 @@ plans unless the task explicitly asks for historical context.
 - `docs/troubleshooting.md` — common runtime and install failures.
 - `packages/core/SUPPORTED_CODEX.md` — Codex CLI compatibility gate.
 
+## Local skills
+
+- Installed skills cannot rely on this repository's docs being present. Any
+  repo-owned skill that teaches aharness behavior must be self-contained through
+  its `SKILL.md` and bundled `references/` files.
+- When public aharness docs change behavior, public API, commands, package
+  facts, runtime semantics, or user-facing workflows, update affected
+  repo-owned skills in the same workflow. Do not leave installed-skill guidance
+  depending on external repo docs or stale copied facts.
+
 ## Hard boundaries
 
 - Mechanisms belong in the framework; workflow opinions belong in user FSMs,

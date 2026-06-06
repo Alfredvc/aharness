@@ -76,7 +76,7 @@ For UI visualization work against an existing run log, use the public recorded
 run viewer:
 
 ```bash
-pnpm exec aharness view <run-id>
+aharness view <run-id>
 ```
 
 Omit the run id to open the newest `.aharness/runs/<runId>/events.jsonl` by run

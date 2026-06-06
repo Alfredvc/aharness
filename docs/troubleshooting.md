@@ -9,8 +9,8 @@ fail with syntax or engine errors, check:
 node --version
 ```
 
-Use Node 20 or newer before rerunning `npm install`, `npx aharness verify`, or
-`npx aharness run <file.fsm.ts>`.
+Use Node 20 or newer before rerunning `npm install -g @aharness/core`,
+`aharness verify`, or `aharness run <file.fsm.ts>`.
 
 ## Codex CLI Is Missing Or Too Old
 
@@ -22,7 +22,7 @@ Check the environment with:
 
 ```bash
 codex --version
-npx aharness doctor
+aharness doctor
 ```
 
 If `aharness doctor` reports that `codex` is not on `PATH`, install or expose
@@ -53,7 +53,7 @@ configuration, then rerun the FSM.
 Run:
 
 ```bash
-npx aharness verify ./path/to/workflow.fsm.ts
+aharness verify ./path/to/workflow.fsm.ts
 ```
 
 The verifier catches invalid FSM shape before Codex starts. It prints each
@@ -79,7 +79,7 @@ Machine input fields become kebab-case flags. For example, `fixtureRoot` is
 passed as:
 
 ```bash
-npx aharness run ./workflow.fsm.ts --fixture-root ./examples/coding-smoke/fixture
+aharness run ./workflow.fsm.ts --fixture-root ./examples/coding-smoke/fixture
 ```
 
 Every flag value must be a separate token and values may not start with `--`.

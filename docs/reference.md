@@ -232,6 +232,12 @@ Built-in event keys are reserved:
 
 ## CLI
 
+Install the CLI globally:
+
+```bash
+npm install -g @aharness/core
+```
+
 ```bash
 aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...
 aharness run <file.fsm.ts> --help
