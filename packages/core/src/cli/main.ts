@@ -10,10 +10,6 @@
  *     shell-completion setup via `@pnpm/tabtab`.
  *   - `aharness completion uninstall` — removes the tabtab-installed
  *     completion script(s).
- *   - `aharness completion-server` — per-Tab bridge invoked by the
- *     shell-side delegate script that tabtab installs. Bounded by a 500 ms
- *     watchdog so a stuck import never hangs the user's shell. Bare
- *     `aharness completion` remains a compatibility alias for the bridge.
  *   - `aharness install <source>` — npm-backed installed package mutation.
  *   - `aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command>` — target execution.
  *   - `aharness list` — installed package command listing.
@@ -37,7 +33,6 @@ import { runVerifyCli } from './verifyCli.js';
 import { runDoctorCli } from './doctorCli.js';
 import type { RunPermissionMode } from './runCli.js';
 import { runCompletionInstall, runCompletionUninstall } from './completion.js';
-import { runCompletionBridge } from './completionBridge.js';
 import { runInitCli } from './initCli.js';
 import { runInstallCli } from './installCli.js';
 import { runTargetCli, runTargetHelpCli } from './runTargetCli.js';
@@ -63,11 +58,6 @@ export interface Dispatcher {
     shell?: 'bash' | 'zsh' | 'fish';
   }) => Promise<{ exitCode: number }>;
   readonly runCompletionUninstall: (o: { name?: string }) => Promise<{ exitCode: number }>;
-  readonly runCompletionBridge: (o: {
-    env: NodeJS.ProcessEnv;
-    cwd: string;
-    stdout: NodeJS.WritableStream;
-  }) => Promise<{ exitCode: number }>;
   readonly runInit: (o: {
     dir: string;
     force: boolean;
@@ -111,9 +101,6 @@ export async function dispatch(
   if (cmd === 'doctor') {
     return d.runDoctor();
   }
-  if (cmd === 'completion-server') {
-    return runCompletionBridgeWithWatchdog(d);
-  }
   if (cmd === 'completion') {
     const sub = rest[0];
     if (sub === 'install') {
@@ -124,9 +111,6 @@ export async function dispatch(
       return d.runCompletionInstall(shell ? { shell } : {});
     }
     if (sub === 'uninstall') return d.runCompletionUninstall({});
-    if (sub === undefined) {
-      return runCompletionBridgeWithWatchdog(d);
-    }
     return { exitCode: usage(stderr) };
   }
   if (cmd === 'init') {
@@ -204,7 +188,6 @@ function isKnownSubcommand(cmd: string | undefined): boolean {
   return (
     cmd === 'verify' ||
     cmd === 'doctor' ||
-    cmd === 'completion-server' ||
     cmd === 'completion' ||
     cmd === 'init' ||
     cmd === 'install' ||
@@ -233,20 +216,6 @@ function isValidViewRunId(runId: string): boolean {
     !runId.includes('\\') &&
     !isAbsolute(runId)
   );
-}
-
-async function runCompletionBridgeWithWatchdog(d: Dispatcher): Promise<{ exitCode: number }> {
-  // Per-Tab bridge — wrap in a 500 ms watchdog at the dispatcher level.
-  // process.exit lives at the binary's `.then` handler, NOT inside
-  // runCompletionBridge — putting `process.exit` in the bridge would
-  // kill the test runner when the bridge is unit-tested.
-  const WATCHDOG_MS = 500;
-  return Promise.race([
-    d.runCompletionBridge({ env: process.env, cwd: process.cwd(), stdout: process.stdout }),
-    new Promise<{ exitCode: number }>((resolve) =>
-      setTimeout(() => resolve({ exitCode: 0 }), WATCHDOG_MS),
-    ),
-  ]);
 }
 
 function parseVisualizeFsmPathAndInputArgs(argv: ReadonlyArray<string>): {
@@ -432,7 +401,6 @@ if (process.argv[1]?.endsWith('main.js')) {
     },
     runCompletionInstall: (o) => runCompletionInstall(o),
     runCompletionUninstall: (o) => runCompletionUninstall(o),
-    runCompletionBridge: (o) => runCompletionBridge(o),
     runInit: ({ dir, force, git, install, pm }) =>
       runInitCli({
         dir,

@@ -33,6 +33,7 @@ import {
   type TrustedCommandIndexEntry,
   type TrustedInstallRecord,
 } from '../src/installStore/index.js';
+import { cachePathsFor, hashSourceTree, type SerializedSidecar } from '../src/loader/cache.js';
 
 vi.mock('@pnpm/tabtab', { spy: true });
 
@@ -47,14 +48,17 @@ describe('runCompletionInstall', () => {
   it('forwards default {name, completer} to tabtab.install', async () => {
     const result = await runCompletionInstall({});
     expect(result.exitCode).toBe(0);
-    expect(tabtab.install).toHaveBeenCalledWith({ name: 'aharness', completer: 'aharness' });
+    expect(tabtab.install).toHaveBeenCalledWith({
+      name: 'aharness',
+      completer: 'aharness-completion',
+    });
   });
 
   it('forwards {shell} when provided', async () => {
     await runCompletionInstall({ shell: 'bash' });
     expect(tabtab.install).toHaveBeenCalledWith({
       name: 'aharness',
-      completer: 'aharness',
+      completer: 'aharness-completion',
       shell: 'bash',
     });
   });
@@ -83,6 +87,17 @@ describe('runCompletionUninstall', () => {
 
 const fixture = path.resolve(__dirname, 'fixtures/args/typed-input.fsm.ts');
 const booleanFixture = path.resolve(__dirname, 'fixtures/args/boolean-input.fsm.ts');
+
+describe('completionBridge module graph', () => {
+  it('does not import the broad install-store barrel', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../src/cli/completionBridge.ts'),
+      'utf8',
+    );
+
+    expect(source).not.toMatch(/from ['"]\.\.\/installStore\/index\.js['"]/);
+  });
+});
 
 function makeEnv(line: string, point?: number): NodeJS.ProcessEnv {
   const p = point ?? line.length;
@@ -660,6 +675,48 @@ describe('runCompletionBridge — flag-name completion', () => {
     expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
   });
 
+  it('serves local static flags from a warm loader cache without sidecar extraction', async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-cached-completion-cwd-'));
+    try {
+      const entry = path.join(cwd, 'workflow.fsm.ts');
+      fs.writeFileSync(entry, '// intentionally not an extractable FSM\n');
+
+      const hash = await hashSourceTree(cwd, entry);
+      const cachePaths = cachePathsFor(cwd, hash);
+      fs.mkdirSync(cachePaths.cacheDir, { recursive: true });
+      const sidecar: SerializedSidecar = {
+        schemas: {},
+        issues: [],
+        skillOriginManifest: {
+          rootSourceDir: cwd,
+          sourceDirPrefixes: [],
+          availableSkills: [],
+        },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            choice: { type: 'string' },
+            topic: { type: 'string' },
+          },
+        },
+        inputFlags: {
+          choice: { description: 'Choice', completion: { values: ['alpha', 'beta'] } },
+          topic: { description: 'Topic' },
+        },
+      };
+      fs.writeFileSync(
+        cachePaths.modulePath,
+        `export const __sidecar = ${JSON.stringify(sidecar)};\nthrow new Error('cache bundle should not be imported for static completion');\n`,
+      );
+
+      const lines = await captureBridge('aharness run workflow.fsm.ts --', { cwd });
+      const names = lines.map((l) => l.split(':')[0]).sort();
+      expect(names).toEqual(['--choice', '--topic']);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
+  });
+
   it('hides used flags after their value token', async () => {
     const lines = await captureBridge(`aharness run ${fixture} --topic auth --`);
     const names = lines.map((l) => l.split(':')[0]).sort();
@@ -941,6 +998,60 @@ describe('runCompletionBridge — dynamic value completion', () => {
     const lines = await captureBridge(`aharness run ${dynamicFixture} --project a`);
     const names = lines.map((l) => l.split(':')[0]);
     expect(names).toEqual(['alpha']);
+  });
+
+  it('serves local dynamic completion from a warm loader cache when available', async () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aharness-cached-dynamic-completion-cwd-'));
+    try {
+      const entry = path.join(cwd, 'workflow.fsm.ts');
+      fs.writeFileSync(entry, '// intentionally not an extractable FSM\n');
+
+      const hash = await hashSourceTree(cwd, entry);
+      const cachePaths = cachePathsFor(cwd, hash);
+      fs.mkdirSync(cachePaths.cacheDir, { recursive: true });
+      const sidecar: SerializedSidecar = {
+        schemas: {},
+        issues: [],
+        skillOriginManifest: {
+          rootSourceDir: cwd,
+          sourceDirPrefixes: [],
+          availableSkills: [],
+        },
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project: { type: 'string' },
+          },
+        },
+        inputFlags: {
+          project: { description: 'Project', completion: { dynamic: true } },
+        },
+      };
+      fs.writeFileSync(
+        cachePaths.modulePath,
+        `
+export const __sidecar = ${JSON.stringify(sidecar)};
+export default {
+  config: {
+    input: {
+      project: {
+        meta: {
+          completion: {
+            dynamic: (partial) => ['alpha', 'beta'].filter((value) => value.startsWith(partial)),
+          },
+        },
+      },
+    },
+  },
+};
+`,
+      );
+
+      const lines = await captureBridge('aharness run workflow.fsm.ts --project a', { cwd });
+      expect(lines).toEqual(['alpha']);
+    } finally {
+      fs.rmSync(cwd, { recursive: true, force: true });
+    }
   });
 
   it('emits no dynamic value completion for retired direct FSM target forms', async () => {

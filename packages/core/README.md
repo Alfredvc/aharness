@@ -1,6 +1,7 @@
 # @aharness/core
 
-SDK and `aharness` CLI binary for aharness FSMs.
+SDK, `aharness` CLI binary, and `aharness-completion` shell-completion helper
+binary for aharness FSMs.
 
 Install the CLI globally:
 

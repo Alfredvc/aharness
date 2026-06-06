@@ -313,15 +313,15 @@ recorded runs whose FSM source you are willing to execute at import time.
 
 `aharness completion install` delegates to `@pnpm/tabtab` and writes the
 shell-side completion delegate for bash, zsh, or fish. That delegate invokes
-the hidden `aharness completion-server` bridge on every Tab press; bare
-`aharness completion` is kept as a compatibility alias for the same bridge. At
-the root, completion lists top-level subcommands only; local FSM targets are
-completed after `aharness run`. `aharness run` completes local directories,
-local `.fsm.ts` files, and installed command identities. After a target
-resolves, completion suggests that FSM's input flags and supported flag values.
-Machine input completion is schema-aware for boolean flags, static value sets,
-file and directory values, and dynamic completion callbacks declared by the FSM.
-Already-used input flags are hidden after their values are consumed.
+the hidden `aharness-completion completion-server` bridge on every Tab press so
+completion avoids loading the full CLI dispatcher. At the root, completion lists
+top-level subcommands only; local FSM targets are completed after `aharness run`.
+`aharness run` completes local directories, local `.fsm.ts` files, and installed
+command identities. After a target resolves, completion suggests that FSM's
+input flags and supported flag values. Machine input completion is schema-aware
+for boolean flags, static value sets, file and directory values, and dynamic
+completion callbacks declared by the FSM. Already-used input flags are hidden
+after their values are consumed.
 
 `aharness verify` checks an FSM without starting a run. Verification issues are
 printed as `[error]` or `[warning]` lines, prefixed with `file:line:` when the

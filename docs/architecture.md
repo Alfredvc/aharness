@@ -278,7 +278,8 @@ when the referenced FSM source is trusted enough to import.
 
 ## Package Boundaries
 
-`@aharness/core` provides the authoring SDK and the `aharness` CLI binary.
+`@aharness/core` provides the authoring SDK, the `aharness` CLI binary, and the
+`aharness-completion` shell-completion helper binary.
 `@aharness/test-support` provides integration-test fixtures and app-server test
 utilities. It has a regular dependency on `@aharness/core`; it is not a peer
 dependency.

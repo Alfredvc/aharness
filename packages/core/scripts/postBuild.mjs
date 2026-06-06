@@ -7,6 +7,7 @@ mkdirSync('dist/codexHome', { recursive: true });
 copyFileSync('src/codexHome/hookClient.cjs', 'dist/codexHome/hookClient.cjs');
 chmodSync('dist/codexHome/hookClient.cjs', 0o755);
 chmodSync('dist/cli/main.js', 0o755);
+chmodSync('dist/cli/completionMain.js', 0o755);
 
 // Copy raw scaffold templates into dist so the published package can find
 // them via dist/templates/. Keeps src/ free of non-TS files.

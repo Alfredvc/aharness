@@ -23,7 +23,8 @@
     }
   },
   "bin": {
-    "aharness": "./dist/cli/main.js"
+    "aharness": "./dist/cli/main.js",
+    "aharness-completion": "./dist/cli/completionMain.js"
   },
   "files": [
     "dist",

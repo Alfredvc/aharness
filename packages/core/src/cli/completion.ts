@@ -9,9 +9,8 @@
  * which does NOT rewrite `.js` import specifiers. Static internal imports
  * from this file would crash that subprocess at module-resolve time.
  *
- * The per-Tab bridge lives in `cli/completionBridge.ts` and uses static
- * imports of `loader/sidecar.ts` and `loader/inputFlags.ts` — that file
- * is never loaded by the install/uninstall subprocess test.
+ * New installs point at the lightweight `aharness-completion` binary so the
+ * per-Tab bridge avoids the full `aharness` dispatcher module graph.
  *
  * Silent-error policy: install/uninstall return exit 1 on failure so
  * users get a diagnostic for their one-time setup. The bridge file
@@ -29,7 +28,7 @@ export async function runCompletionInstall(
   opts: CompletionInstallOpts,
 ): Promise<{ exitCode: number }> {
   const name = opts.name ?? 'aharness';
-  const completer = opts.completer ?? 'aharness';
+  const completer = opts.completer ?? 'aharness-completion';
   try {
     const args: { name: string; completer: string; shell?: 'bash' | 'zsh' | 'fish' } = {
       name,

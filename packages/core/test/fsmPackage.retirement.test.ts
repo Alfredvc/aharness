@@ -11,7 +11,7 @@ const corePackageJsonPath = path.resolve(
 );
 
 describe('generated package execution retirement', () => {
-  it('@aharness/core publishes only the aharness binary and no package runner export', async () => {
+  it('@aharness/core publishes only framework-owned binaries and no package runner export', async () => {
     const packageJson = JSON.parse(await readFile(corePackageJsonPath, 'utf8')) as {
       bin?: unknown;
       exports?: Record<string, unknown>;
@@ -19,6 +19,7 @@ describe('generated package execution retirement', () => {
 
     expect(packageJson.bin).toEqual({
       aharness: './dist/cli/main.js',
+      'aharness-completion': './dist/cli/completionMain.js',
     });
     expect(packageJson.exports).toBeDefined();
     expect(packageJson.exports).not.toHaveProperty('./package-runner');

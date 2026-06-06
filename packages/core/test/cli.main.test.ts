@@ -42,12 +42,6 @@ function buildStubs() {
       void o;
       return { exitCode: 0 };
     }),
-    runCompletionBridge: vi.fn(
-      async (o: { env: NodeJS.ProcessEnv; cwd: string; stdout: NodeJS.WritableStream }) => {
-        void o;
-        return { exitCode: 0 };
-      },
-    ),
     runInit: vi.fn(
       async (o: {
         dir: string;
@@ -111,7 +105,6 @@ function expectNoHandlersCalled(s: DispatcherStubs): void {
   expect(s.runView).not.toHaveBeenCalled();
   expect(s.runCompletionInstall).not.toHaveBeenCalled();
   expect(s.runCompletionUninstall).not.toHaveBeenCalled();
-  expect(s.runCompletionBridge).not.toHaveBeenCalled();
   expect(s.runInit).not.toHaveBeenCalled();
   expect(s.runInstall).not.toHaveBeenCalled();
   expect(s.runTarget).not.toHaveBeenCalled();
@@ -706,38 +699,12 @@ describe('dispatch', () => {
     expect(text).not.toContain('[--resume]');
   });
 
-  it('completion dispatcher returns within 600 ms even when the bridge hangs', async () => {
-    // The 500 ms watchdog wired in `dispatch` (cli/main.ts) must bound the
-    // bridge's wall time so a stuck import or a hanging dynamic-completion
-    // callback (Task 21) cannot wedge the user's shell on Tab. Inject a
-    // never-resolving bridge stub and assert dispatch returns under the
-    // 600 ms guard with exit 0 (silent-error policy).
-    const runCompletionBridge = vi.fn(() => new Promise<{ exitCode: number }>(() => {}));
-    const start = Date.now();
-    const r = await dispatch(['completion'], {
-      runVerify: vi.fn(),
-      runDoctor: vi.fn(),
-      runCompletionInstall: vi.fn(),
-      runCompletionUninstall: vi.fn(),
-      runCompletionBridge,
-    } as never);
-    const elapsed = Date.now() - start;
-    expect(r).toEqual({ exitCode: 0 });
-    expect(elapsed).toBeLessThan(600);
-    expect(runCompletionBridge).toHaveBeenCalledOnce();
+  it('returns usage for bare completion without install or uninstall', async () => {
+    await expectUsageOnly(['completion']);
   });
 
-  it('routes tabtab completion-server invocations to the completion bridge', async () => {
-    const s = buildStubs();
-    const cap = captureStderr();
-    const r = await dispatch(['completion-server', '--', 'aharness', 'visualize'], {
-      ...s,
-      stderr: cap.stream,
-    });
-
-    expect(r).toEqual({ exitCode: 0 });
-    expect(s.runCompletionBridge).toHaveBeenCalledOnce();
-    expect(cap.text()).toBe('');
+  it('returns usage for completion-server on the main aharness dispatcher', async () => {
+    await expectUsageOnly(['completion-server', '--', 'aharness', 'visualize']);
   });
 });
 

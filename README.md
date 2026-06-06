@@ -324,8 +324,8 @@ behavior, `--ask`, `--yolo`, and `--no-open`.
 
 ## Packages
 
-- [`@aharness/core`](packages/core/README.md) provides the SDK and `aharness`
-  CLI binary.
+- [`@aharness/core`](packages/core/README.md) provides the SDK, the `aharness`
+  CLI binary, and the `aharness-completion` shell-completion helper binary.
 - [`@aharness/test-support`](packages/test-support/README.md) provides
   integration-test fixtures for aharness runs.
 - `packages/web-ui` is the private React/Vite browser UI bundled into the core

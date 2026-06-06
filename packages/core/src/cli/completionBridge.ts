@@ -21,21 +21,23 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import * as tabtab from '@pnpm/tabtab';
 import type { JSONSchema7 } from 'json-schema';
 import { parse as shellParse } from 'shell-quote';
-import { extractSchemaSidecar } from '../loader/sidecar.js';
 import { camelToKebab } from '../loader/inputFlags.js';
 import type { ArgFlagMeta, StaticCompletionKind } from '../loader/inputSchema.js';
-import { loadFsm, loadInstalledFsm } from '../loader/index.js';
+import { cachePathsFor, hashSourceTree, readSerializedSidecarFromModule } from '../loader/cache.js';
+import type { extractSchemaSidecar } from '../loader/sidecar.js';
 import type { ArgSentinel } from '../state/args.js';
+import { ROOT_SUBCOMMANDS } from './completionCommands.js';
+import { readInstalledCompletionSnapshot } from '../installStore/completionSnapshot.js';
 import {
   checkInstalledLockFingerprint,
-  readInstalledCompletionSnapshot,
   resolveInstalledCommand,
   type InstalledRuntimeSnapshot,
-  type TrustedCommandIndexEntry,
-} from '../installStore/index.js';
+} from '../installStore/runtime.js';
+import type { TrustedCommandIndexEntry } from '../installStore/types.js';
 
 /**
  * Reachable shape of `machine.config.input` after `loadFsm()` returns. Phase 3
@@ -81,24 +83,13 @@ export interface CompletionBridgeOpts {
 const FILE_ENUMERATE_CAP = 1000;
 const TABTAB_FILE_COMPLETION_SENTINEL = '__tabtab_complete_files__';
 const FILE_PATH_SUBCOMMANDS = new Set(['verify', 'visualize']);
-const ROOT_SUBCOMMANDS = [
-  'completion',
-  'doctor',
-  'init',
-  'install',
-  'list',
-  'run',
-  'uninstall',
-  'verify',
-  'view',
-  'visualize',
-] as const;
 
 interface InputCompletionMetadata {
   readonly schema: JSONSchema7;
   readonly flags: Record<string, ArgFlagMeta>;
   readonly fieldTypes: ReadonlyMap<string, string | undefined>;
   readonly fieldsByKebab: ReadonlyMap<string, string>;
+  readonly cachedModulePath?: string;
 }
 
 type CompletionInputTarget =
@@ -180,7 +171,7 @@ export async function runCompletionBridge(
       return { exitCode: 0 };
     }
 
-    const metadata = await extractInputCompletionMetadataForTarget(context.target);
+    const metadata = await extractInputCompletionMetadataForTarget(context.target, opts.cwd);
     const tail = classifyInputTail(metadata, context.inputArgs, parsed.last);
 
     if (tail.kind === 'value') {
@@ -530,13 +521,17 @@ function hasLocalRunTargetCollision(cwd: string, target: string): boolean {
 
 async function extractInputCompletionMetadataForTarget(
   target: CompletionInputTarget,
+  cwd: string,
 ): Promise<InputCompletionMetadata> {
   if (target.kind === 'local') {
-    const extraction = await extractSchemaSidecar({ filePath: target.filePath });
+    const cached = await readLocalCachedInputCompletionMetadata(target.filePath, cwd);
+    if (cached) return cached;
+
+    const extraction = await extractSchemaSidecarForCompletion({ filePath: target.filePath });
     return buildInputCompletionMetadata(extraction.inputSchema, extraction.inputFlags);
   }
 
-  const extraction = await extractSchemaSidecar({
+  const extraction = await extractSchemaSidecarForCompletion({
     filePath: target.entryFile,
     packageResolution: {
       packageRoot: target.packageRoot,
@@ -546,9 +541,46 @@ async function extractInputCompletionMetadataForTarget(
   return buildInputCompletionMetadata(extraction.inputSchema, extraction.inputFlags);
 }
 
+type ExtractSchemaSidecarOptions = Parameters<typeof extractSchemaSidecar>[0];
+
+async function extractSchemaSidecarForCompletion(
+  opts: ExtractSchemaSidecarOptions,
+): ReturnType<typeof extractSchemaSidecar> {
+  const { extractSchemaSidecar } = await import('../loader/sidecar.js');
+  return extractSchemaSidecar(opts);
+}
+
+async function readLocalCachedInputCompletionMetadata(
+  filePath: string,
+  cwd: string,
+): Promise<InputCompletionMetadata | null> {
+  const hash = await hashSourceTree(path.dirname(filePath), filePath);
+  for (const repoRoot of completionCacheRepoRoots(cwd)) {
+    const cachePaths = cachePathsFor(repoRoot, hash);
+    const cached = await readSerializedSidecarFromModule(cachePaths.modulePath);
+    if (!cached?.inputSchema) continue;
+    try {
+      return buildInputCompletionMetadata(cached.inputSchema, cached.inputFlags, {
+        cachedModulePath: cachePaths.modulePath,
+      });
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function completionCacheRepoRoots(cwd: string): readonly string[] {
+  const roots = [cwd];
+  const packageRoot = findRepoRoot(cwd);
+  if (packageRoot && path.resolve(packageRoot) !== path.resolve(cwd)) roots.push(packageRoot);
+  return roots;
+}
+
 function buildInputCompletionMetadata(
   schema: JSONSchema7 | undefined,
   flags: Record<string, ArgFlagMeta> | undefined,
+  source?: { readonly cachedModulePath: string },
 ): InputCompletionMetadata {
   if (!schema || !flags) {
     throw new Error('input completion metadata unavailable');
@@ -560,7 +592,13 @@ function buildInputCompletionMetadata(
     fieldTypes.set(field, typeof fieldSchema.type === 'string' ? fieldSchema.type : undefined);
     fieldsByKebab.set(camelToKebab(field), field);
   }
-  return { schema, flags, fieldTypes, fieldsByKebab };
+  return {
+    schema,
+    flags,
+    fieldTypes,
+    fieldsByKebab,
+    ...(source ? { cachedModulePath: source.cachedModulePath } : {}),
+  };
 }
 
 function classifyInputTail(
@@ -686,24 +724,8 @@ async function emitValueCompletion(
     // live function reference (the JSON sidecar only persists the
     // sentinel). Silent-error policy: any failure on the load path or
     // inside the user-supplied callback emits nothing.
-    let loaded;
-    try {
-      loaded =
-        target.kind === 'local'
-          ? await loadFsm({ filePath: target.filePath, repoRoot: findRepoRoot(cwd) ?? cwd })
-          : await loadInstalledFsm({
-              entryFile: target.entryFile,
-              packageName: target.packageName,
-              commandName: target.commandName,
-              packageRoot: target.packageRoot,
-              managedProjectRoot: target.managedProjectRoot,
-              storeRoot: target.storeRoot,
-              lockFingerprint: target.lockFingerprint,
-            });
-    } catch {
-      return;
-    }
-    const machine = loaded.machine as unknown as LoadedConfig;
+    const machine = await loadDynamicCompletionMachine(metadata, target, cwd);
+    if (!machine) return;
     const field = metadata.fieldsByKebab.get(kebabFlag.replace(/^--/, ''));
     if (!field) return;
     const sentinel = machine.config.input?.[field];
@@ -728,6 +750,66 @@ async function emitValueCompletion(
     }
     return;
   }
+}
+
+async function loadDynamicCompletionMachine(
+  metadata: InputCompletionMetadata,
+  target: CompletionInputTarget,
+  cwd: string,
+): Promise<LoadedConfig | null> {
+  if (target.kind === 'local' && metadata.cachedModulePath) {
+    const cached = await importCachedCompletionMachine(metadata.cachedModulePath);
+    if (cached) return cached;
+  }
+
+  try {
+    if (target.kind === 'local') {
+      const { loadFsm } = await import('../loader/index.js');
+      const loaded = await loadFsm({
+        filePath: target.filePath,
+        repoRoot: findRepoRoot(cwd) ?? cwd,
+      });
+      return loaded.machine as unknown as LoadedConfig;
+    }
+
+    const { loadInstalledFsm } = await import('../loader/index.js');
+    const loaded = await loadInstalledFsm({
+      entryFile: target.entryFile,
+      packageName: target.packageName,
+      commandName: target.commandName,
+      packageRoot: target.packageRoot,
+      managedProjectRoot: target.managedProjectRoot,
+      storeRoot: target.storeRoot,
+      lockFingerprint: target.lockFingerprint,
+    });
+    return loaded.machine as unknown as LoadedConfig;
+  } catch {
+    return null;
+  }
+}
+
+async function importCachedCompletionMachine(modulePath: string): Promise<LoadedConfig | null> {
+  try {
+    const mod = (await import(pathToFileURL(modulePath).href)) as {
+      readonly default?: unknown;
+      readonly machine?: unknown;
+    };
+    const candidate = mod.default ?? mod.machine;
+    if (!isLoadedConfig(candidate)) return null;
+    return candidate;
+  } catch {
+    return null;
+  }
+}
+
+function isLoadedConfig(value: unknown): value is LoadedConfig {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'config' in value &&
+    typeof (value as { readonly config?: unknown }).config === 'object' &&
+    (value as { readonly config?: unknown }).config !== null
+  );
 }
 
 /**

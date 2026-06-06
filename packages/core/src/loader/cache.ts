@@ -76,7 +76,8 @@ import { getInstallPaths } from './installPath.js';
  *
  * v3 (2026-05-08): adds optional `inputSchema` + `inputFlags` fields for
  *   `arg<T>()` / `input` declarations on the root machine config. Phase 4's
- *   `aharness completion-server` bridge consumes these for shell completion.
+ *   `aharness-completion completion-server` bridge consumes these for shell
+ *   completion.
  *
  *   The `inputFlags` value persists `{dynamic: true}` as a sentinel for
  *   `completion: {dynamic: <fn>}` — the function reference is not
@@ -287,6 +288,38 @@ export function cachePathsFor(repoRoot: string, hash: string): CachePaths {
   };
 }
 
+const SIDECAR_EXPORT_PREFIX = 'export const __sidecar = ';
+
+/**
+ * Read the embedded `__sidecar` literal from a cached bundle without importing
+ * that bundle. Static completion uses this path so a warm cache can provide
+ * `inputSchema` / `inputFlags` without executing user top-level module code.
+ */
+export async function readSerializedSidecarFromModule(
+  modulePath: string,
+): Promise<SerializedSidecar | null> {
+  let source: string;
+  try {
+    source = await fs.readFile(modulePath, 'utf8');
+  } catch {
+    return null;
+  }
+
+  const prefixIndex = source.indexOf(SIDECAR_EXPORT_PREFIX);
+  if (prefixIndex < 0) return null;
+
+  const valueStart = skipJsonWhitespace(source, prefixIndex + SIDECAR_EXPORT_PREFIX.length);
+  const valueEnd = findJsonValueEnd(source, valueStart);
+  if (valueEnd === null) return null;
+
+  try {
+    const parsed = JSON.parse(source.slice(valueStart, valueEnd)) as unknown;
+    return isSerializedSidecar(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 export function installedCachePathsFor(managedProjectRoot: string, hash: string): CachePaths {
   const cacheRoot = path.join(managedProjectRoot, '.aharness', 'cache', 'installed');
   const cacheDir = path.join(cacheRoot, hash);
@@ -362,6 +395,52 @@ function relativeOrAbsolute(root: string, filePath: string): string {
   if (relative.length === 0) return '.';
   if (!relative.startsWith('..') && !path.isAbsolute(relative)) return relative;
   return path.resolve(filePath);
+}
+
+function skipJsonWhitespace(source: string, start: number): number {
+  let i = start;
+  while (i < source.length && /\s/.test(source[i]!)) i++;
+  return i;
+}
+
+function findJsonValueEnd(source: string, start: number): number | null {
+  const first = source[start];
+  if (first !== '{' && first !== '[') return null;
+
+  const stack: string[] = [];
+  let inString = false;
+  let escaped = false;
+  for (let i = start; i < source.length; i++) {
+    const ch = source[i]!;
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch === '\\') {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === '{') {
+      stack.push('}');
+      continue;
+    }
+    if (ch === '[') {
+      stack.push(']');
+      continue;
+    }
+    if (ch === '}' || ch === ']') {
+      if (stack.pop() !== ch) return null;
+      if (stack.length === 0) return i + 1;
+    }
+  }
+  return null;
 }
 
 /**
