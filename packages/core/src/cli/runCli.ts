@@ -30,10 +30,11 @@
  *      kickoff message.
  *  14. Block on terminal-reached or SIGINT/SIGTERM.
  *
- * Test seam: `runCliForTest` accepts injectable factories for verify,
- * the version gate, `loadFsm`, app-server spawn, and the auth precheck.
  * Production callers go through the public `runCli`, which forwards
- * with hooks unset and the defaults wired to the real implementations.
+ * with production browser defaults and only the documented runtime
+ * overrides. `runCliForTest` uses the same runtime body with additional
+ * test-only hooks for external boundaries such as the version gate,
+ * app-server spawn, WebSocket connection, and auth precheck.
  */
 import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
@@ -308,11 +309,31 @@ export interface RunCliResult {
 }
 
 /**
- * Production entrypoint. Forwards to `runCliForTest` with production
- * defaults; unset external-boundary hooks inside `runCliForTest` still
- * wire each step to its real implementation.
+ * Production-supported runtime overrides for trusted wrappers that need to
+ * adapt the source of an FSM without duplicating the run boot sequence.
  */
-export function runCli(o: RunCliOpts): Promise<RunCliResult> {
+export interface RunCliRuntimeOverrides {
+  /**
+   * Override direct FSM verification when the caller has already established
+   * source trust, such as an installed command validated against its lock.
+   */
+  readonly verify?: (o: { fsmPath: string; repoRoot: string }) => Promise<{ exitCode: number }>;
+  /**
+   * Load an FSM through an alternate trusted source while preserving the
+   * production run lifecycle.
+   */
+  readonly loadFsmImpl?: typeof loadFsm;
+}
+
+export type RunCliRuntimeOpts = RunCliOpts & RunCliRuntimeOverrides;
+
+/**
+ * Production entrypoint. Forwards to `runCliForTest` with production
+ * defaults and any production-supported runtime overrides; unset
+ * external-boundary hooks inside `runCliForTest` still wire each step to
+ * its real implementation.
+ */
+export function runCli(o: RunCliRuntimeOpts): Promise<RunCliResult> {
   return runCliForTest({
     ...o,
     launchBrowserImpl: launchBrowser,
@@ -324,17 +345,16 @@ export function runCli(o: RunCliOpts): Promise<RunCliResult> {
 // Test seam.
 // ---------------------------------------------------------------------------
 
-export interface RunCliTestHooks {
-  readonly verify?: (o: { fsmPath: string; repoRoot: string }) => Promise<{ exitCode: number }>;
+/**
+ * Test-facing hook set. It extends the production runtime override contract
+ * so existing tests can reuse those fields; fields declared below are
+ * test-only external-boundary seams.
+ */
+export interface RunCliTestHooks extends RunCliRuntimeOverrides {
   readonly versionGate?: () => Promise<VersionGateResult>;
   readonly spawnAppServer?: (opts: SpawnAppServerOptions) => Promise<AppServerHandle>;
   /** Test seam: override the auth.json existence check. */
   readonly authJsonExists?: () => boolean;
-  /**
-   * Test seam: substitute the FSM loader so a stub fsm file can bypass
-   * esbuild compilation. Production callers leave this unset.
-   */
-  readonly loadFsmImpl?: typeof loadFsm;
   /**
    * Test seam: substitute the WS connector. Lets a test simulate the
    * codex-side replay race (CF-22) without standing up an actual
@@ -415,13 +435,13 @@ export interface RunCliTestHooks {
   readonly _testReadPendingOwnerInputRequestCount?: (read: () => number) => void;
 }
 
-export type RunCliForTestOpts = RunCliOpts & RunCliTestHooks;
+export type RunCliForTestOpts = RunCliRuntimeOpts & RunCliTestHooks;
 
 /**
  * Test-facing entrypoint. Identical body to `runCli`; the only
- * difference is the input type carries the `RunCliTestHooks` fields,
- * letting tests stub each external boundary without touching the
- * `node:child_process` surface or the real `codex` binary.
+ * difference is the input type carries the production runtime overrides
+ * plus `RunCliTestHooks`, letting tests stub external boundaries without
+ * touching the `node:child_process` surface or the real `codex` binary.
  */
 export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult> {
   installTerminalRestore();

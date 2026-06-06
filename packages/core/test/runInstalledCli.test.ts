@@ -5,7 +5,7 @@ import { Writable } from 'node:stream';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { runCliForTest, type RunCliForTestOpts } from '../src/cli/runCli.js';
+import { runCliForTest, type RunCliRuntimeOpts } from '../src/cli/runCli.js';
 import { runInstalledCli } from '../src/cli/runInstalledCli.js';
 import {
   computeLockFingerprint,
@@ -28,8 +28,8 @@ describe('aharness run installed commands', () => {
     ]);
     const loaded = makeLoadedFsm();
     const loadInstalledFsmImpl = vi.fn(async () => loaded);
-    const runtimeCalls: RunCliForTestOpts[] = [];
-    const runCliImpl = vi.fn(async (opts: RunCliForTestOpts) => {
+    const runtimeCalls: RunCliRuntimeOpts[] = [];
+    const runCliImpl = vi.fn(async (opts: RunCliRuntimeOpts) => {
       runtimeCalls.push(opts);
       await opts.verify?.({ fsmPath: opts.fsmPath, repoRoot: opts.cwd });
       await opts.loadFsmImpl?.({ filePath: opts.fsmPath, repoRoot: opts.cwd });
@@ -74,6 +74,73 @@ describe('aharness run installed commands', () => {
       lockFingerprint: 'verified-lock',
     });
     expect(stdout.text()).toBe('');
+  });
+
+  it('defaults installed commands to production runCli instead of runCliForTest', async () => {
+    const snapshot = runtimeSnapshot([
+      installRecord('@scope/tools', {
+        build: commandMetadata('build'),
+      }),
+    ]);
+    const loaded = makeLoadedFsm();
+    const loadInstalledFsmImpl = vi.fn(async () => loaded);
+    const runCli = vi.fn(async (opts: RunCliRuntimeOpts) => {
+      await opts.verify?.({ fsmPath: opts.fsmPath, repoRoot: opts.cwd });
+      await opts.loadFsmImpl?.({ filePath: opts.fsmPath, repoRoot: opts.cwd });
+      return { exitCode: 0 };
+    });
+    const runCliForTestMock = vi.fn(async () => {
+      throw new Error('installed commands must default to production runCli');
+    });
+
+    vi.resetModules();
+    vi.doMock('../src/cli/runCli.js', () => ({
+      runCli,
+      runCliForTest: runCliForTestMock,
+    }));
+
+    try {
+      const { runInstalledCli: isolatedRunInstalledCli } =
+        await import('../src/cli/runInstalledCli.js');
+
+      const result = await isolatedRunInstalledCli({
+        command: '@scope/tools/build',
+        cwd: '/workspace',
+        stdout: captureStream().stream,
+        stderr: captureStream().stream,
+        inputArgs: ['--topic', 'auth'],
+        permissionMode: 'ask',
+        noOpen: true,
+        readSnapshotImpl: async () => ({ ok: true, value: snapshot }),
+        checkLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
+        loadInstalledFsmImpl,
+      });
+
+      expect(result).toEqual({ exitCode: 0 });
+      expect(runCli).toHaveBeenCalledTimes(1);
+      expect(runCliForTestMock).not.toHaveBeenCalled();
+      expect(runCli.mock.calls[0]?.[0]).toMatchObject({
+        fsmPath: path.join('/store/packages/node_modules/@scope/tools', 'fsms/build.fsm.ts'),
+        runTargetLabel: '@scope/tools/build',
+        cwd: '/workspace',
+        inputArgs: ['--topic', 'auth'],
+        inputUsageCommand: 'aharness run @scope/tools/build',
+        permissionMode: 'ask',
+        noOpen: true,
+      });
+      expect(loadInstalledFsmImpl).toHaveBeenCalledWith({
+        entryFile: path.join('/store/packages/node_modules/@scope/tools', 'fsms/build.fsm.ts'),
+        packageName: '@scope/tools',
+        commandName: 'build',
+        packageRoot: '/store/packages/node_modules/@scope/tools',
+        managedProjectRoot: '/store/packages',
+        storeRoot: '/store',
+        lockFingerprint: 'verified-lock',
+      });
+    } finally {
+      vi.doUnmock('../src/cli/runCli.js');
+      vi.resetModules();
+    }
   });
 
   it('uses the installed command invocation in required input flag examples', async () => {
@@ -126,8 +193,8 @@ describe('aharness run installed commands', () => {
         build: commandMetadata('build'),
       }),
     ]);
-    const runtimeCalls: RunCliForTestOpts[] = [];
-    const runCliImpl = vi.fn(async (opts: RunCliForTestOpts) => {
+    const runtimeCalls: RunCliRuntimeOpts[] = [];
+    const runCliImpl = vi.fn(async (opts: RunCliRuntimeOpts) => {
       runtimeCalls.push(opts);
       return { exitCode: 0 };
     });
@@ -287,7 +354,7 @@ describe('aharness run installed commands', () => {
     try {
       const paths = await writeRealTrustedStore(storeRoot, { commands: 'malformed' });
       const loadInstalledFsmImpl = vi.fn(async () => makeLoadedFsm());
-      const runCliImpl = vi.fn(async (opts: RunCliForTestOpts) => {
+      const runCliImpl = vi.fn(async (opts: RunCliRuntimeOpts) => {
         await opts.loadFsmImpl?.({ filePath: opts.fsmPath, repoRoot: opts.cwd });
         return { exitCode: 0 };
       });

@@ -12,7 +12,12 @@ import {
 import { loadInstalledFsm } from '../loader/index.js';
 
 import { writeInstallStoreDiagnostics } from './installStoreDiagnostics.js';
-import { runCliForTest, type RunCliForTestOpts, type RunPermissionMode } from './runCli.js';
+import {
+  runCli,
+  type RunCliResult,
+  type RunCliRuntimeOpts,
+  type RunPermissionMode,
+} from './runCli.js';
 
 export interface RunInstalledCliOptions {
   readonly command: string;
@@ -30,7 +35,7 @@ export interface RunInstalledCliOptions {
     paths: InstallStorePaths,
   ) => Promise<InstallStoreResult<string>>;
   readonly loadInstalledFsmImpl?: typeof loadInstalledFsm;
-  readonly runCliImpl?: (opts: RunCliForTestOpts) => Promise<{ readonly exitCode: number }>;
+  readonly runCliImpl?: (opts: RunCliRuntimeOpts) => Promise<RunCliResult>;
 }
 
 export async function runInstalledCli(
@@ -63,9 +68,9 @@ export async function runInstalledCli(
   }
 
   const loadInstalledFsmImpl = opts.loadInstalledFsmImpl ?? loadInstalledFsm;
-  const runCliImpl = opts.runCliImpl ?? runCliForTest;
+  const runCliImpl = opts.runCliImpl ?? runCli;
   const entryFile = path.join(resolved.value.install.packageRoot, resolved.value.command.entry);
-  const loadFsmImpl: RunCliForTestOpts['loadFsmImpl'] = async () =>
+  const loadFsmImpl: RunCliRuntimeOpts['loadFsmImpl'] = async () =>
     loadInstalledFsmImpl({
       entryFile,
       packageName: resolved.value.install.packageName,

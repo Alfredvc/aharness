@@ -175,6 +175,23 @@
       }
     },
     {
+      "files": ["packages/core/src/cli/**/*.{ts,tsx,mts,cts}"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["./*", "../*"],
+                "importNames": ["runCliForTest", "RunCliForTestOpts", "RunCliTestHooks"],
+                "message": "Production code must use production-named runtime APIs rather than test seams."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": ["packages/web-ui/**/*.{ts,tsx}"],
       "rules": {
         "no-unused-vars": [
