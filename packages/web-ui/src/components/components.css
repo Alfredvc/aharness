@@ -261,6 +261,10 @@
   padding: 22px 26px 26px;
 }
 
+.final-overview-body[data-view='share-preview'] {
+  justify-items: center;
+}
+
 .final-overview-loading,
 .final-overview-error,
 .final-overview-note {
@@ -291,12 +295,25 @@
   gap: 12px;
 }
 
+.final-overview-share-section {
+  width: 100%;
+}
+
+.final-overview-body[data-view='share-preview'] .final-overview-share-section {
+  width: min(100%, 560px);
+}
+
 .final-overview-section h3 {
   margin: 0;
   color: #fff7ed;
   font-size: 18px;
   font-weight: 800;
   letter-spacing: 0;
+}
+
+.final-overview-share-row h3 {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .final-overview-dashboard-hero {
@@ -643,12 +660,18 @@
 }
 
 .final-overview-share-row,
-.final-overview-share-actions {
+.final-overview-share-actions,
+.final-overview-share-row-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
   min-width: 0;
+}
+
+.final-overview-share-row-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .final-overview-action {
@@ -679,30 +702,49 @@
 
 .final-overview-share-preview {
   display: grid;
-  gap: 12px;
-  padding: 14px;
-  background: linear-gradient(180deg, rgba(7, 19, 31, 0.92), rgba(15, 34, 52, 0.86)), #07131f;
+  width: min(100%, 430px);
+  justify-self: center;
+  justify-items: center;
+  gap: 14px;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .final-overview-share-card-frame {
   display: grid;
+  width: min(100%, 340px);
+  max-width: 100%;
+  max-height: clamp(390px, calc(100vh - 350px), 760px);
+  justify-self: center;
   justify-items: center;
-  overflow: visible;
-  padding: 16px;
-  border: 1px solid #284258;
+  align-items: start;
+  overflow: auto;
+  padding: 18px;
+  border: 1px solid rgba(142, 164, 187, 0.34);
   border-radius: var(--r-sm);
-  background: #06101b;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 18%), #050d16;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.04) inset,
+    0 22px 54px rgba(0, 0, 0, 0.34);
 }
 
 .final-overview-share-card {
-  width: min(100%, 460px);
+  display: grid;
+  width: min(100%, 300px);
   margin: 0 auto;
+  filter: drop-shadow(0 18px 28px rgba(0, 0, 0, 0.38));
 }
 
 .final-overview-share-card svg {
   display: block;
   width: 100%;
   height: auto;
+}
+
+.final-overview-share-actions {
+  width: min(100%, 366px);
 }
 
 .final-overview-share-status {
@@ -760,7 +802,8 @@
   }
 
   .final-overview-share-row,
-  .final-overview-share-actions {
+  .final-overview-share-actions,
+  .final-overview-share-row-actions {
     align-items: stretch;
     flex-direction: column;
   }

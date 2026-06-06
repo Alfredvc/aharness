@@ -110,15 +110,42 @@ export function RunCompletionShareCard(props: RunCompletionShareCardProps) {
       <rect width="1320" height="2868" fill="url(#share-card-grid)" opacity="0.34" />
       <path d="M0 0 H1320 V620 C920 548 472 656 0 516 Z" fill="#102237" opacity="0.82" />
       <path d="M0 2300 C346 2206 668 2308 1320 2154 V2868 H0 Z" fill="#07131f" opacity="0.78" />
-      <circle
-        cx="1062"
-        cy="356"
-        r="220"
-        fill={tone.aura}
-        opacity="0.36"
-        filter="url(#share-card-glow)"
-      />
-      <circle cx="212" cy="2298" r="164" fill="#f59e0b" opacity="0.08" />
+      <g opacity="0.78">
+        <circle
+          cx="1072"
+          cy="338"
+          r="138"
+          fill={tone.aura}
+          opacity="0.1"
+          filter="url(#share-card-glow)"
+        />
+        <circle
+          cx="1072"
+          cy="338"
+          r="120"
+          fill="none"
+          stroke={tone.accent}
+          strokeWidth="3"
+          opacity="0.34"
+        />
+        <path
+          d="M1072 218 A120 120 0 0 1 1192 338"
+          fill="none"
+          stroke="#fff7ed"
+          strokeLinecap="round"
+          strokeWidth="6"
+          opacity="0.16"
+        />
+        <path
+          d="M966 338 H1038 M1106 338 H1178 M1072 232 V298 M1072 378 V444"
+          fill="none"
+          stroke={tone.accent}
+          strokeLinecap="round"
+          strokeWidth="4"
+          opacity="0.28"
+        />
+        <circle cx="1072" cy="338" r="20" fill={tone.accent} opacity="0.38" />
+      </g>
 
       <g transform="translate(96 104)">
         <text
@@ -348,20 +375,29 @@ function RingIndicator({
   const dash = outcome === 'success' ? '100 0' : '72 28';
   return (
     <g>
-      <circle cx="199" cy="202" r="132" fill="#07131f" stroke="#1f3347" strokeWidth="34" />
+      <circle cx="199" cy="202" r="136" fill="#07131f" stroke="#1f3347" strokeWidth="2" />
+      <circle cx="199" cy="202" r="108" fill="none" stroke="#1f3347" strokeWidth="22" />
       <circle
         cx="199"
         cy="202"
-        r="132"
+        r="108"
         fill="none"
         stroke={tone.accent}
-        strokeWidth="34"
+        strokeWidth="22"
         strokeDasharray={dash}
         pathLength="100"
-        strokeLinecap="round"
+        strokeLinecap={outcome === 'success' ? 'butt' : 'round'}
         transform="rotate(-90 199 202)"
       />
-      <circle cx="199" cy="202" r="84" fill="#0f2234" />
+      <circle
+        cx="199"
+        cy="202"
+        r="72"
+        fill="#0f2234"
+        stroke={tone.accent}
+        strokeWidth="2"
+        opacity="0.84"
+      />
       <text
         x="199"
         y="192"

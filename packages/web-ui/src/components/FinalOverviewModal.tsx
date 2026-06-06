@@ -124,6 +124,77 @@ function StatsBody({ stats }: { stats: RunCompletionStats }) {
   const [exporting, setExporting] = useState<'download' | 'copy' | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
+  const shareSection = shareProps ? (
+    <section className="final-overview-section final-overview-share-section">
+      <div className="final-overview-share-row">
+        <h3>Share Card</h3>
+        <div className="final-overview-share-row-actions">
+          <button
+            className="final-overview-action"
+            type="button"
+            onClick={() => {
+              setPreviewOpen((open) => !open);
+              setCopyStatus(null);
+              setDownloadStatus(null);
+            }}
+          >
+            {previewOpen ? 'Hide preview' : 'Share'}
+          </button>
+          {previewOpen ? (
+            <>
+              <button
+                className="final-overview-action"
+                type="button"
+                disabled={exporting !== null}
+                onClick={() => {
+                  const svg = svgRef.current;
+                  if (!svg) return;
+                  setExporting('download');
+                  void downloadShareCardPng(svg, shareProps)
+                    .then(setDownloadStatus)
+                    .finally(() => setExporting(null));
+                }}
+              >
+                {exporting === 'download' ? 'Downloading...' : 'Download PNG'}
+              </button>
+              <button
+                className="final-overview-action"
+                type="button"
+                disabled={exporting !== null}
+                onClick={() => {
+                  const svg = svgRef.current;
+                  if (!svg) return;
+                  setExporting('copy');
+                  void copyShareCardPng(svg)
+                    .then(setCopyStatus)
+                    .finally(() => setExporting(null));
+                }}
+              >
+                {exporting === 'copy' ? 'Copying...' : 'Copy PNG'}
+              </button>
+            </>
+          ) : null}
+        </div>
+      </div>
+      {previewOpen ? (
+        <div className="final-overview-share-preview">
+          <div className="final-overview-share-card-frame">
+            <RunCompletionShareCardRef props={shareProps} svgRef={svgRef} />
+          </div>
+          <ShareExportStatus copyStatus={copyStatus} downloadStatus={downloadStatus} />
+        </div>
+      ) : null}
+    </section>
+  ) : null;
+
+  if (previewOpen && shareSection) {
+    return (
+      <div className="final-overview-body" data-view="share-preview">
+        {shareSection}
+      </div>
+    );
+  }
+
   return (
     <div className="final-overview-body">
       {stats.outcome === 'unknown' ? (
@@ -156,64 +227,7 @@ function StatsBody({ stats }: { stats: RunCompletionStats }) {
         </div>
       </section>
 
-      {shareProps ? (
-        <section className="final-overview-section">
-          <div className="final-overview-share-row">
-            <h3>Share Card</h3>
-            <button
-              className="final-overview-action"
-              type="button"
-              onClick={() => {
-                setPreviewOpen((open) => !open);
-                setCopyStatus(null);
-                setDownloadStatus(null);
-              }}
-            >
-              {previewOpen ? 'Hide preview' : 'Share'}
-            </button>
-          </div>
-          {previewOpen ? (
-            <div className="final-overview-share-preview">
-              <div className="final-overview-share-card-frame">
-                <RunCompletionShareCardRef props={shareProps} svgRef={svgRef} />
-              </div>
-              <div className="final-overview-share-actions">
-                <button
-                  className="final-overview-action"
-                  type="button"
-                  disabled={exporting !== null}
-                  onClick={() => {
-                    const svg = svgRef.current;
-                    if (!svg) return;
-                    setExporting('download');
-                    void downloadShareCardPng(svg, shareProps)
-                      .then(setDownloadStatus)
-                      .finally(() => setExporting(null));
-                  }}
-                >
-                  {exporting === 'download' ? 'Downloading...' : 'Download PNG'}
-                </button>
-                <button
-                  className="final-overview-action"
-                  type="button"
-                  disabled={exporting !== null}
-                  onClick={() => {
-                    const svg = svgRef.current;
-                    if (!svg) return;
-                    setExporting('copy');
-                    void copyShareCardPng(svg)
-                      .then(setCopyStatus)
-                      .finally(() => setExporting(null));
-                  }}
-                >
-                  {exporting === 'copy' ? 'Copying...' : 'Copy PNG'}
-                </button>
-              </div>
-              <ShareExportStatus copyStatus={copyStatus} downloadStatus={downloadStatus} />
-            </div>
-          ) : null}
-        </section>
-      ) : null}
+      {shareSection}
 
       <section className="final-overview-token-panel" aria-label="Token burn">
         <div className="final-overview-token-primary">
