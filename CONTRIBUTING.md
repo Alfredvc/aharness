@@ -101,12 +101,29 @@ workflow context snapshots.
 
 ## Publishing
 
-The normal npm release path is `.github/workflows/release.yml`. It runs on
+Release prep is local-driven and uses Conventional Commits plus
+`commit-and-tag-version`:
+
+```bash
+pnpm run release:preview -- --release-as 0.1.1
+pnpm run release -- --release-as 0.1.1
+git push --follow-tags origin main
+```
+
+Use `pnpm run release` without `--release-as` when the Conventional Commit
+history should determine the SemVer bump. The release command runs
+`pnpm run verify`, updates `CHANGELOG.md`, bumps the root package version,
+keeps `@aharness/core`, `@aharness/test-support`, scaffolded package templates,
+and package-authoring docs on the same public `@aharness/core` range, commits
+`chore(release): vX.Y.Z`, and tags `vX.Y.Z`. Do not manually edit release
+versions or changelog sections for normal releases.
+
+The normal npm publishing path is `.github/workflows/release.yml`. It runs on
 `v*` tags, checks out the pinned Codex source into the runner temp directory,
 verifies the tag matches the root/package versions, runs
 `pnpm run verify:release` with `CODEX_CHECKOUT` set, packs `@aharness/core`
 and `@aharness/test-support`, publishes those tarballs to npm with provenance,
-and creates a GitHub release from `CHANGELOG.md`.
+and creates a GitHub release from the matching `CHANGELOG.md` section.
 
 The workflow expects the npm secret `NPM_TOKEN` to be available to GitHub
 Actions. The release jobs request `id-token: write` so npm provenance can be

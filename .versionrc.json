@@ -1,0 +1,36 @@
+{
+  "types": [
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug Fixes" },
+    { "type": "perf", "section": "Performance" },
+    { "type": "refactor", "section": "Refactors" },
+    { "type": "docs", "hidden": true },
+    { "type": "chore", "hidden": true },
+    { "type": "test", "hidden": true },
+    { "type": "style", "hidden": true },
+    { "type": "ci", "hidden": true },
+    { "type": "build", "hidden": true }
+  ],
+  "packageFiles": [{ "filename": "package.json", "type": "json" }],
+  "bumpFiles": [
+    { "filename": "package.json", "type": "json" },
+    { "filename": "packages/core/package.json", "type": "json" },
+    { "filename": "packages/test-support/package.json", "type": "json" },
+    {
+      "filename": "packages/core/templates/package.json.tmpl",
+      "updater": "./scripts/aharness-core-range-updater.cjs"
+    },
+    {
+      "filename": "docs/fsm-packages.md",
+      "updater": "./scripts/aharness-core-range-updater.cjs"
+    },
+    {
+      "filename": "skills/aharness-fsm-authoring/references/fsm-packages.md",
+      "updater": "./scripts/aharness-core-range-updater.cjs"
+    }
+  ],
+  "releaseCommitMessageFormat": "chore(release): {{currentTag}}",
+  "commitUrlFormat": "https://github.com/Alfredvc/aharness/commit/{{hash}}",
+  "compareUrlFormat": "https://github.com/Alfredvc/aharness/compare/{{previousTag}}...{{currentTag}}",
+  "issueUrlFormat": "https://github.com/Alfredvc/aharness/issues/{{id}}"
+}

@@ -4,9 +4,9 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  AHARNESS_CORE_RANGE_FILES,
   PUBLISHABLE_PACKAGES,
   ROOT,
-  SCAFFOLD_VERSION_FILES,
   isRealSemver,
   packageJsonPath,
   readJson,
@@ -43,7 +43,7 @@ for (const packageDir of PUBLISHABLE_PACKAGES) {
   writeJson(path, pkg);
 }
 
-for (const relativePath of SCAFFOLD_VERSION_FILES) {
+for (const relativePath of AHARNESS_CORE_RANGE_FILES) {
   const path = join(ROOT, relativePath);
   const body = readFileSync(path, 'utf8')
     .replace(/"__AHARNESS_VERSION__"/g, `"^${version}"`)

@@ -20,7 +20,10 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "release": "pnpm run verify && commit-and-tag-version",
+    "release:preview": "commit-and-tag-version --dry-run",
     "sync:package-readmes": "node scripts/sync-package-readmes.mjs",
+    "sync:release-versions": "node scripts/sync-release-versions.mjs",
     "check:package-readmes": "node scripts/sync-package-readmes.mjs --check",
     "check:no-workflow-terms": "node scripts/check-no-workflow-terms.mjs",
     "check:no-stale-stateless-contracts": "node scripts/check-no-stale-stateless-contracts.mjs",
@@ -41,6 +44,7 @@
   "devDependencies": {
     "@oxlint/migrate": "^1.64.0",
     "@types/node": "^25.6.0",
+    "commit-and-tag-version": "^12.7.3",
     "husky": "^9.1.7",
     "jsdom": "^29.1.1",
     "lint-staged": "^16.4.0",

@@ -156,6 +156,9 @@ describe('release manifest readiness', () => {
   it('root verify wires UI typecheck and Codex drift checks', () => {
     const scripts = readPackageScripts('.');
 
+    expect(scripts.release).toBe('pnpm run verify && commit-and-tag-version');
+    expect(scripts['release:preview']).toBe('commit-and-tag-version --dry-run');
+    expect(scripts['sync:release-versions']).toBe('node scripts/sync-release-versions.mjs');
     expect(scripts['sync:package-readmes']).toBe('node scripts/sync-package-readmes.mjs');
     expect(scripts['check:package-readmes']).toBe('node scripts/sync-package-readmes.mjs --check');
     expect(scripts.verify).toContain('pnpm run check:package-readmes');
@@ -163,6 +166,49 @@ describe('release manifest readiness', () => {
     expect(scripts.verify).toContain('packages/core run verify:codex-bump');
     expect(scripts.build).not.toContain(`${retiredVizPackageDir} build`);
     expect(scripts['verify:release']).toContain('scripts/verify-release-manifests.mjs');
+  });
+
+  it('release generator bumps package versions and public core dependency ranges', () => {
+    const pkg = readPackageJson('.');
+    const versionrc = JSON.parse(readFileSync(join(root, '.versionrc.json'), 'utf8')) as {
+      readonly bumpFiles: readonly (
+        | string
+        | { readonly filename?: string; readonly updater?: string; readonly type?: string }
+      )[];
+      readonly commitUrlFormat: string;
+      readonly compareUrlFormat: string;
+      readonly releaseCommitMessageFormat: string;
+    };
+    const bumpFiles = versionrc.bumpFiles.map((entry) =>
+      typeof entry === 'string' ? entry : entry.filename,
+    );
+
+    expect(pkg.devDependencies).toHaveProperty('commit-and-tag-version');
+    expect(versionrc.releaseCommitMessageFormat).toBe('chore(release): {{currentTag}}');
+    expect(versionrc.commitUrlFormat).toBe('https://github.com/Alfredvc/aharness/commit/{{hash}}');
+    expect(versionrc.compareUrlFormat).toBe(
+      'https://github.com/Alfredvc/aharness/compare/{{previousTag}}...{{currentTag}}',
+    );
+    expect(bumpFiles).toEqual(
+      expect.arrayContaining([
+        'package.json',
+        'packages/core/package.json',
+        'packages/test-support/package.json',
+        'packages/core/templates/package.json.tmpl',
+        'docs/fsm-packages.md',
+        'skills/aharness-fsm-authoring/references/fsm-packages.md',
+      ]),
+    );
+    for (const entry of versionrc.bumpFiles) {
+      if (
+        typeof entry !== 'string' &&
+        ['packages/core/templates/package.json.tmpl', 'docs/fsm-packages.md'].includes(
+          entry.filename ?? '',
+        )
+      ) {
+        expect(entry.updater).toBe('./scripts/aharness-core-range-updater.cjs');
+      }
+    }
   });
 
   it('build scripts regenerate package READMEs before packaging artifacts', () => {
