@@ -1,2 +1,9 @@
 packages:
   - 'packages/*'
+packageExtensions:
+  oxlint-plugin-react-doctor@0.2.14:
+    dependencies:
+      oxc-parser: 0.133.0
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: false

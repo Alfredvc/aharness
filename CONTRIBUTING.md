@@ -62,7 +62,7 @@ root oxlint config do not fail the commit with a no-files-found error.
 The repo-local Codex config includes check-only `PostToolUse` hooks for file
 edits. After Codex applies a patch through the edit/write tool path, the hooks
 run `pnpm exec oxlint --max-warnings 0` against touched JavaScript and
-TypeScript files, and `react-doctor --verbose --diff --blocking warning
+TypeScript files, and `react-doctor --verbose --diff --blocking=warning
 --no-score` against the current diff. Both hooks report failures back to Codex
 without modifying files.
 
