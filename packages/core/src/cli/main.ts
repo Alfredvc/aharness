@@ -366,6 +366,7 @@ if (process.argv[1]?.endsWith('main.js')) {
         cwd: process.cwd(),
         stdout: process.stdout,
         stderr: process.stderr,
+        env: process.env,
       }),
     runDoctor: () =>
       runDoctorCli({

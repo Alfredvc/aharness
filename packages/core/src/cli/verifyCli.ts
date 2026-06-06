@@ -39,6 +39,8 @@ export interface RunVerifyCliOpts {
    * tmpdir so the cache does not pollute the workspace.
    */
   readonly repoRoot?: string;
+  /** Environment used for CI-sensitive verifier behavior. */
+  readonly env?: Readonly<Record<string, string | undefined>>;
   /** Sink for status / issue lines. Tests pass `vi.fn()` to capture output. */
   readonly log: (line: string) => void;
   /** Test seam for state-level model catalog verification. */
@@ -84,18 +86,20 @@ export async function runVerifyCli(opts: RunVerifyCliOpts): Promise<RunVerifyCli
     for (const issue of result.warnings) {
       opts.log(formatVerifyIssue(issue, { sourceLocations: loaded.sourceLocations }));
     }
-    const catalogIssues = await verifyStateModelCatalog({
-      machine: loaded.machine,
-      defaultCwd: repoRoot,
-      providerFactory:
-        opts.modelCatalogProviderFactory ??
-        (async () => opts.modelCatalogProvider ?? createCodexConfigModelProvider()),
-    });
-    if (catalogIssues.length > 0) {
-      for (const issue of catalogIssues) {
-        opts.log(formatVerifyIssue(issue, { sourceLocations: loaded.sourceLocations }));
+    if (!isCiEnvironment(opts.env)) {
+      const catalogIssues = await verifyStateModelCatalog({
+        machine: loaded.machine,
+        defaultCwd: repoRoot,
+        providerFactory:
+          opts.modelCatalogProviderFactory ??
+          (async () => opts.modelCatalogProvider ?? createCodexConfigModelProvider()),
+      });
+      if (catalogIssues.length > 0) {
+        for (const issue of catalogIssues) {
+          opts.log(formatVerifyIssue(issue, { sourceLocations: loaded.sourceLocations }));
+        }
+        return { exitCode: 1 };
       }
-      return { exitCode: 1 };
     }
     const warningCount = result.warnings.length;
     opts.log(`verify: ok (${String(warningCount)} warnings)`);
@@ -105,4 +109,9 @@ export async function runVerifyCli(opts: RunVerifyCliOpts): Promise<RunVerifyCli
     opts.log(formatVerifyIssue(issue, { sourceLocations: loaded.sourceLocations }));
   }
   return { exitCode: 1 };
+}
+
+function isCiEnvironment(env: Readonly<Record<string, string | undefined>> | undefined): boolean {
+  const ci = env?.['CI'];
+  return ci !== undefined && ci !== '' && ci !== '0' && ci.toLowerCase() !== 'false';
 }

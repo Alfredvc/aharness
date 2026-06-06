@@ -45,6 +45,27 @@ describe('aharness verify target dispatch', () => {
     expect(checkLockFingerprintImpl).not.toHaveBeenCalled();
   });
 
+  it('passes environment through to local FSM verification', async () => {
+    const runVerifyCliImpl = vi.fn(async () => ({ exitCode: 0 as const }));
+
+    const result = await runVerifyTargetCli({
+      target: './workflow.fsm.ts',
+      cwd: '/workspace',
+      stdout: captureStream().stream,
+      stderr: captureStream().stream,
+      env: { CI: 'true' },
+      runVerifyCliImpl,
+    });
+
+    expect(result).toEqual({ exitCode: 0 });
+    expect(runVerifyCliImpl).toHaveBeenCalledWith({
+      fsmPath: './workflow.fsm.ts',
+      repoRoot: '/workspace',
+      env: { CI: 'true' },
+      log: expect.any(Function),
+    } satisfies RunVerifyCliOpts);
+  });
+
   it('verifies unique bare installed commands through command-only installed verification', async () => {
     const resolverSeams = installedResolverSeams('@scope/tools', ['build']);
     const runVerifyCliImpl = vi.fn(async () => ({ exitCode: 0 as const }));

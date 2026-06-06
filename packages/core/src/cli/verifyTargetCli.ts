@@ -48,6 +48,7 @@ export async function runVerifyTargetCli(
     return runVerifyCliImpl({
       fsmPath: resolved.target,
       repoRoot: opts.cwd,
+      ...(opts.env !== undefined ? { env: opts.env } : {}),
       log: (line) => opts.stderr.write(`${line}\n`),
     });
   }

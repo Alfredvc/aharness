@@ -523,7 +523,9 @@ A clear state without `model` uses Codex's user-configured default model and
 effort for that working directory; a clear state with `model` applies those
 explicit settings to the fresh thread. See
 [`reference.md`](./reference.md#state-options) for exact validation rules and
-Codex catalog behavior.
+Codex catalog behavior. In CI, `aharness verify` skips the Codex-backed model
+catalog check so static FSM validation can run without Codex; live runs still
+validate runtime Codex configuration when they start.
 
 ### State Skills
 

@@ -145,6 +145,25 @@ describe('runVerifyCli', () => {
     await fs.rm(dirname(fsmPath), { recursive: true, force: true });
   });
 
+  it('skips Codex model catalog checks in CI', async () => {
+    const fsmPath = await writeStateModelFixture(`{ name: 'missing-model', effort: 'xhigh' }`);
+    const providerFactory = vi.fn(async () => {
+      throw new Error('Codex should not start in CI');
+    });
+    const log = vi.fn();
+    const r = await runVerifyCli({
+      fsmPath,
+      repoRoot,
+      log,
+      env: { CI: 'true' },
+      modelCatalogProviderFactory: providerFactory,
+    });
+    expect(r.exitCode).toBe(0);
+    expect(providerFactory).not.toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith('verify: ok (0 warnings)');
+    await fs.rm(dirname(fsmPath), { recursive: true, force: true });
+  });
+
   it('returns a verifier issue when the catalog provider cannot start', async () => {
     const fsmPath = await writeStateModelFixture(`{ name: 'gpt-5.1-codex' }`);
     const log = vi.fn();

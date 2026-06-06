@@ -74,6 +74,10 @@ locations are available. Common causes are:
 Fix verification failures first. Runtime does not start an invalid machine.
 Name-form state skill availability remains a runtime catalog concern, so verify
 checks its shape while startup preflight checks whether Codex can resolve it.
+When `CI` is set to a truthy value, `aharness verify` also skips the
+Codex-backed model catalog probe for explicit state `model.name` declarations.
+Use a non-CI environment to check that declared model names and efforts are
+available in the installed Codex model catalog.
 
 Path-like targets must name an existing `.fsm.ts` file. If a typo or non-FSM
 path is reported as an invalid target, fix the path or use an installed command

@@ -321,6 +321,11 @@ aharness doctor
 aharness install <source>
 ```
 
+When the standard `CI` environment variable is set to a truthy value,
+`aharness verify` skips Codex-backed model catalog validation so structural FSM
+verification can run in environments without a Codex app-server. All other
+static verifier checks still run.
+
 See [`docs/reference.md`](docs/reference.md) for the full CLI, state options,
 hooks, installable package commands, completions, default Codex auto-review
 behavior, `--ask`, `--yolo`, and `--no-open`.

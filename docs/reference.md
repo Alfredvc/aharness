@@ -120,7 +120,11 @@ targetedImplementation: fsm.state({
 ```
 
 `model.name` and static `model.effort` values are validated where possible against
-Codex `model/list` and `model/list({ includeHidden: true })`.
+Codex `model/list` and `model/list({ includeHidden: true })`. During
+`aharness verify`, this Codex-backed catalog check is skipped when the standard
+`CI` environment variable is set to a truthy value. That CI mode keeps structural
+FSM verification runnable without Codex, but it does not prove explicit model
+names or effort values are available in the target Codex installation.
 
 Sticky behavior:
 
@@ -349,6 +353,10 @@ values are consumed.
 printed as `[error]` or `[warning]` lines, prefixed with `file:line:` when the
 loader can identify the source location. Warnings do not block verification, but
 their detail lines are printed before the final `verify: ok (...)` summary.
+When `CI` is set to a truthy value, `verify` does not start the Codex-backed
+model catalog probe for state-level `model.name` declarations, so the command can
+run in CI without Codex. The FSM loader and all non-Codex static checks still
+run.
 `aharness doctor` checks the Codex CLI version gate and reports active run health
 from `.aharness/runs`. `aharness visualize` verifies and opens the browser
 graph/details UI in inspection mode without starting Codex, hooks, a thread, or
