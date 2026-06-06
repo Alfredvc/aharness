@@ -9,6 +9,7 @@ export interface RunTargetCliOptions {
   readonly stderr: NodeJS.WritableStream;
   readonly inputArgs?: ReadonlyArray<string>;
   readonly permissionMode?: RunPermissionMode;
+  readonly noOpen?: boolean;
   readonly runCliImpl?: (opts: RunCliOpts) => Promise<RunCliResult>;
   readonly runInstalledCliImpl?: (
     opts: RunInstalledCliOptions,
@@ -37,6 +38,7 @@ export async function runTargetCli(
       inputArgs,
       inputUsageCommand: `aharness run ${opts.target}`,
       ...(opts.permissionMode !== undefined ? { permissionMode: opts.permissionMode } : {}),
+      ...(opts.noOpen ? { noOpen: true } : {}),
     });
   }
 
@@ -49,6 +51,7 @@ export async function runTargetCli(
     stderr: opts.stderr,
     inputArgs,
     ...(opts.permissionMode !== undefined ? { permissionMode: opts.permissionMode } : {}),
+    ...(opts.noOpen ? { noOpen: true } : {}),
   });
 }
 
@@ -75,7 +78,8 @@ function isLocalRunTarget(target: string): boolean {
 
 function runTargetHelpUsage(stderr: NodeJS.WritableStream): number {
   stderr.write(
-    'usage:\n' + '  aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...\n',
+    'usage:\n' +
+      '  aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...\n',
   );
   return 2;
 }

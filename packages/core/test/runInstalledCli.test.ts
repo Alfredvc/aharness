@@ -45,6 +45,7 @@ describe('aharness run installed commands', () => {
       stderr: stderr.stream,
       inputArgs: ['--topic', 'auth'],
       permissionMode: 'ask',
+      noOpen: true,
       readSnapshotImpl: async () => ({ ok: true, value: snapshot }),
       checkLockFingerprintImpl: async () => ({ ok: true, value: 'verified-lock' }),
       loadInstalledFsmImpl,
@@ -61,6 +62,7 @@ describe('aharness run installed commands', () => {
       inputArgs: ['--topic', 'auth'],
       inputUsageCommand: 'aharness run @scope/tools/build',
       permissionMode: 'ask',
+      noOpen: true,
     });
     expect(loadInstalledFsmImpl).toHaveBeenCalledWith({
       entryFile: path.join('/store/packages/node_modules/@scope/tools', 'fsms/build.fsm.ts'),

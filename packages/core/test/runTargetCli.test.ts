@@ -24,6 +24,7 @@ describe('aharness run target dispatch', () => {
         stderr: captureStream().stream,
         inputArgs: ['--topic', 'auth'],
         permissionMode: 'ask',
+        noOpen: true,
         runCliImpl,
         runInstalledCliImpl,
       });
@@ -37,6 +38,7 @@ describe('aharness run target dispatch', () => {
         inputArgs: ['--topic', 'auth'],
         inputUsageCommand: 'aharness run ./workflow.fsm.ts',
         permissionMode: 'ask',
+        noOpen: true,
       } satisfies RunCliOpts);
       expect(runInstalledCliImpl).not.toHaveBeenCalled();
     } finally {
@@ -57,6 +59,7 @@ describe('aharness run target dispatch', () => {
         stderr: captureStream().stream,
         inputArgs: ['--topic', 'auth'],
         permissionMode: 'yolo',
+        noOpen: true,
         runCliImpl,
         runInstalledCliImpl,
       });
@@ -69,6 +72,7 @@ describe('aharness run target dispatch', () => {
         stderr: expect.any(Writable),
         inputArgs: ['--topic', 'auth'],
         permissionMode: 'yolo',
+        noOpen: true,
       } satisfies RunInstalledCliOptions);
       expect(runCliImpl).not.toHaveBeenCalled();
     } finally {

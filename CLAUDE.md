@@ -100,6 +100,9 @@ Never stage or commit files under these local planning and follow-up areas:
   package facts, or user-facing workflows change.
 - Never add FSM tests. When changing FSM behavior, verify with `aharness verify`
   and direct inspection instead of adding or extending FSM test files.
+- When running visual Playwright tests that start `aharness run`, pass
+  `--no-open` so aharness serves and prints the UI URL without launching a
+  separate system browser window.
 - Treat `examples/workflow-references/` as workflow-opinion material that users
   may encode in FSMs, not as framework policy.
 - For runtime architecture questions, inspect `packages/core/src/runtime`,

@@ -5892,6 +5892,45 @@ describe('runCliForTest — pre-spawn gates', () => {
     ]);
   });
 
+  it('case 19b: noOpen suppresses browser launch while keeping the UI URL available', async () => {
+    const fsmPath = makeFsmFile(repoRoot, 'browser-no-open.fsm.ts');
+    const stdoutBuf: string[] = [];
+    const stdoutSink = {
+      write(chunk: string | Uint8Array): boolean {
+        stdoutBuf.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
+        return true;
+      },
+    } as unknown as NodeJS.WritableStream;
+    const launchBrowserImpl = vi.fn(() => ({ ok: true as const }));
+    const closeUiServer = vi.fn(async () => undefined);
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        startUiServerImpl: async () => ({
+          url: 'http://127.0.0.1:45678',
+          close: closeUiServer,
+        }),
+        launchBrowserImpl,
+        spawnAppServer: (async () => {
+          throw new Error('stop after UI server');
+        }) as unknown as RunCliTestHooks['spawnAppServer'],
+      },
+    });
+    opts.noOpen = true;
+    opts.stdout = stdoutSink;
+    opts.stderr = stderrSink;
+
+    const r = await runCliForTest(opts);
+
+    expect(r.exitCode).toBe(1);
+    expect(stdoutBuf.join('')).toMatch(
+      /aharness: browser UI available at http:\/\/127\.0\.0\.1:45678\/\?token=[^&\s]+&runId=[^&\s]+/,
+    );
+    expect(launchBrowserImpl).not.toHaveBeenCalled();
+    expect(closeUiServer).toHaveBeenCalledOnce();
+  });
+
   it('case 20: launcher failure warns but the CLI continues booting', async () => {
     const fsmPath = makeFsmFile(repoRoot, 'browser-launch-failure.fsm.ts');
     const threadId = 'thread-browser-launch-failure';

@@ -21,6 +21,7 @@ export interface RunInstalledCliOptions {
   readonly stderr: NodeJS.WritableStream;
   readonly inputArgs?: ReadonlyArray<string>;
   readonly permissionMode?: RunPermissionMode;
+  readonly noOpen?: boolean;
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly homeDir?: string;
   readonly readSnapshotImpl?: () => Promise<InstallStoreResult<InstalledRuntimeSnapshot>>;
@@ -84,6 +85,7 @@ export async function runInstalledCli(
     inputArgs: opts.inputArgs ?? [],
     inputUsageCommand: `aharness run ${opts.command}`,
     ...(opts.permissionMode !== undefined ? { permissionMode: opts.permissionMode } : {}),
+    ...(opts.noOpen ? { noOpen: true } : {}),
     verify: () => Promise.resolve({ exitCode: 0 }),
     loadFsmImpl,
   });

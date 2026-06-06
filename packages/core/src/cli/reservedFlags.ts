@@ -11,7 +11,7 @@
  *
  * Future top-level flags update this constant; the warning logic re-runs
  * against existing FSMs at next boot. The set includes top-level verbs and
- * runtime-owned flags such as `--ask` and `--yolo`, which the dispatcher
+ * runtime-owned flags such as `--ask`, `--yolo`, and `--no-open`, which the dispatcher
  * consumes before `inputArgs` reach author input parsing.
  */
 export const RESERVED_CLI_FLAGS: ReadonlySet<string> = new Set([
@@ -20,6 +20,7 @@ export const RESERVED_CLI_FLAGS: ReadonlySet<string> = new Set([
   'completion',
   'init',
   'ask',
+  'no-open',
   'yolo',
 ]);
 

@@ -295,6 +295,8 @@ export interface RunCliOpts {
   readonly inputArgs?: ReadonlyArray<string>;
   /** Runtime permission behavior for Codex approval handling. */
   readonly permissionMode?: RunPermissionMode;
+  /** Suppress opening the browser window after the run UI server starts. */
+  readonly noOpen?: boolean;
   /** Command prefix shown in input-flag diagnostics, excluding input flags. */
   readonly inputUsageCommand?: string;
   /** @internal Display-only target label used by installed command wrappers. */
@@ -1143,12 +1145,13 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     return { exitCode: 1 };
   }
 
-  // Auto-launch the browser as soon as the UI server is bound — the
-  // pre-React boot screen and BootSkeleton give the user visual feedback
-  // while codex spawns, the WS handshake completes, and `thread/start`
-  // resolves. Without this, the user stares at an empty terminal for
-  // several seconds before the browser window even appears.
-  if (o.launchBrowserImpl) {
+  // Unless suppressed by --no-open, auto-launch the browser as soon
+  // as the UI server is bound. The pre-React boot screen and BootSkeleton
+  // give the user visual feedback while codex spawns, the WS handshake
+  // completes, and `thread/start` resolves. Without this, the user stares
+  // at an empty terminal for several seconds before the browser window
+  // even appears.
+  if (!o.noOpen && o.launchBrowserImpl) {
     const launchResult = o.launchBrowserImpl(
       urlWithUiBootParams(uiServer.url, {
         token: uiToken,

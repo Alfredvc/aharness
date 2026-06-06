@@ -22,7 +22,8 @@ At runtime, `aharness run <file.fsm.ts>` runs foreground-only:
 5. It starts the Codex thread only after skill preflight succeeds.
 6. It hosts the XState actor, submit handling, owner input, approval dispatch,
    hook dispatch and canonical JSONL event logging in the same CLI process.
-7. It opens a loopback browser UI protected by a per-run token.
+7. It serves a loopback browser UI protected by a per-run token, prints the URL,
+   and opens that URL unless `--no-open` is set.
 
 The live CLI stdout contract is deliberately small. Standard output reports
 operator milestones for run start, browser UI availability, Codex

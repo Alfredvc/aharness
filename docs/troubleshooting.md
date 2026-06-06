@@ -117,9 +117,10 @@ aharness run @scope/tools/build
 
 ## Approval Or Owner Input Is Stuck
 
-aharness runs foreground-only and opens a loopback browser UI for owner input
+aharness runs foreground-only and serves a loopback browser UI for owner input
 and, in manual review mode, approval cards. Keep the CLI process running and
-use the URL printed by the command.
+use the URL printed by the command. If you used `--no-open`, aharness skips
+opening a browser window but still prints the URL.
 
 Owner-paced free text belongs in an open state, where Codex can converse with
 the owner until it submits typed data. Model-originated Codex

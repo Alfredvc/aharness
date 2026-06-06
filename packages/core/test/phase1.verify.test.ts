@@ -27,9 +27,9 @@
  * here as checklist-only tests.
  */
 import { spawn, execFileSync } from 'node:child_process';
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -85,8 +85,8 @@ describe('Phase 1 verify checklist', () => {
 
       const result = await runAharnessBin({
         cwd: repo,
-        args: ['run', 'hello.fsm.ts'],
-        env: withFakeBrowserOpener(repo, { AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl }),
+        args: ['run', '--no-open', 'hello.fsm.ts'],
+        env: { AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
       });
       expect(result.exitCode, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
     });
@@ -123,8 +123,8 @@ describe('Phase 1 verify checklist', () => {
 
         const result = await runAharnessBin({
           cwd: repo,
-          args: ['run', 'mssl.fsm.ts'],
-          env: withFakeBrowserOpener(repo, { AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl }),
+          args: ['run', '--no-open', 'mssl.fsm.ts'],
+          env: { AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
         });
         expect(result.exitCode, `stdout:\n${result.stdout}\nstderr:\n${result.stderr}`).toBe(0);
       },
@@ -142,9 +142,9 @@ describe('Phase 1 verify checklist', () => {
       // The mock never queues a turn — the model POST parks indefinitely
       // and the CLI stays in the turn loop until the app-server WS drops.
 
-      const child = spawn(process.execPath, [CLI_BIN, 'run', 'hello.fsm.ts'], {
+      const child = spawn(process.execPath, [CLI_BIN, 'run', '--no-open', 'hello.fsm.ts'], {
         cwd: repo,
-        env: withFakeBrowserOpener(repo, { AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl }),
+        env: { ...process.env, AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       cleanups.push(async () => {
@@ -174,9 +174,9 @@ describe('Phase 1 verify checklist', () => {
         const mock = await startMockModel();
         cleanups.push(() => mock.close());
 
-        const child = spawn(process.execPath, [CLI_BIN, 'run', 'hello.fsm.ts'], {
+        const child = spawn(process.execPath, [CLI_BIN, 'run', '--no-open', 'hello.fsm.ts'], {
           cwd: repo,
-          env: withFakeBrowserOpener(repo, { AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl }),
+          env: { ...process.env, AHARNESS_MOCK_MODEL_BASE_URL: mock.baseUrl },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
         cleanups.push(async () => {
@@ -224,31 +224,6 @@ async function runAharnessBin(opts: {
       else resolveP({ exitCode: code, stdout, stderr });
     });
   });
-}
-
-function withFakeBrowserOpener(
-  root: string,
-  extraEnv: Record<string, string> = {},
-): NodeJS.ProcessEnv {
-  const fakeBin = join(root, '.fake-browser-bin');
-  mkdirSync(fakeBin, { recursive: true });
-
-  const commandName =
-    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd.cmd' : 'xdg-open';
-  const commandPath = join(fakeBin, commandName);
-  writeFileSync(commandPath, fakeBrowserOpenerScript(), 'utf8');
-  if (process.platform !== 'win32') chmodSync(commandPath, 0o755);
-
-  return {
-    ...process.env,
-    ...extraEnv,
-    PATH: `${fakeBin}${delimiter}${process.env['PATH'] ?? ''}`,
-  };
-}
-
-function fakeBrowserOpenerScript(): string {
-  if (process.platform === 'win32') return '@echo off\r\nexit /b 0\r\n';
-  return '#!/bin/sh\nexit 0\n';
 }
 
 async function runProc(cmd: string, args: string[]): Promise<string> {

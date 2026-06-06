@@ -338,7 +338,7 @@ describe('runCompletionBridge — run target completion', () => {
   });
 
   it('includes local run targets after run flags', async () => {
-    for (const flag of ['--ask', '--yolo']) {
+    for (const flag of ['--ask', '--yolo', '--no-open']) {
       const lines = await captureBridge(`aharness run ${flag} `, { cwd });
       expect(lines).toContain('alpha.fsm.ts');
     }
@@ -356,6 +356,23 @@ describe('runCompletionBridge — run target completion', () => {
     const lines = await captureBridge('aharness run --ask ', {
       cwd,
       env: makeEnvWithHome('aharness run --ask ', storeRoot),
+    });
+    expect(lines).toContain('build');
+    expect(lines).toContain('@scope/tools/build');
+  });
+
+  it('includes installed run targets after --no-open', async () => {
+    writeCompletionStore(storeRoot, {
+      installs: {},
+      generation: 'test-generation',
+      commands: {
+        '@scope/tools/build': commandIndexEntry('@scope/tools', 'build'),
+      },
+    });
+
+    const lines = await captureBridge('aharness run --no-open ', {
+      cwd,
+      env: makeEnvWithHome('aharness run --no-open ', storeRoot),
     });
     expect(lines).toContain('build');
     expect(lines).toContain('@scope/tools/build');
@@ -551,6 +568,28 @@ describe('runCompletionBridge — flag-name completion', () => {
     expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
   });
 
+  it('emits run FSM flags after leading --no-open', async () => {
+    const lines = await captureBridge(`aharness run --no-open ${fixture} --`);
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
+  });
+
+  it('emits run FSM flags after combined leading runtime flags', async () => {
+    const lines = await captureBridge(`aharness run --ask --no-open ${fixture} --`);
+    const names = lines.map((l) => l.split(':')[0]).sort();
+    expect(names).toEqual(['--choice', '--ideafile-path', '--runs', '--topic']);
+  });
+
+  it('emits no completions after conflicting leading run permission flags', async () => {
+    const lines = await captureBridge(`aharness run --ask --yolo ${fixture} --`);
+    expect(lines).toEqual([]);
+  });
+
+  it('emits no completions after repeated leading --no-open', async () => {
+    const lines = await captureBridge(`aharness run --no-open --no-open ${fixture} --`);
+    expect(lines).toEqual([]);
+  });
+
   it('emits no input completions for retired direct post-target permission forms', async () => {
     for (const flag of ['--ask', '--yolo']) {
       const lines = await captureBridge(`aharness ${fixture} ${flag} --`);
@@ -561,6 +600,13 @@ describe('runCompletionBridge — flag-name completion', () => {
   it('rejects post-target runtime permission flags for run and visualize completions', async () => {
     const runLines = await captureBridge(`aharness run ${fixture} --ask --`);
     const visualizeLines = await captureBridge(`aharness visualize ${fixture} --ask --`);
+    expect(runLines).toEqual([]);
+    expect(visualizeLines).toEqual([]);
+  });
+
+  it('rejects post-target --no-open for run and visualize completions', async () => {
+    const runLines = await captureBridge(`aharness run ${fixture} --no-open --`);
+    const visualizeLines = await captureBridge(`aharness visualize ${fixture} --no-open --`);
     expect(runLines).toEqual([]);
     expect(visualizeLines).toEqual([]);
   });
@@ -810,6 +856,11 @@ describe('runCompletionBridge — FSM path completion', () => {
 
   it('emits no file completion after retired direct-run --ask', async () => {
     const lines = await captureBridge('aharness --ask ');
+    expect(lines).toEqual([]);
+  });
+
+  it('emits no file completion after retired direct-run --no-open', async () => {
+    const lines = await captureBridge('aharness --no-open ');
     expect(lines).toEqual([]);
   });
 

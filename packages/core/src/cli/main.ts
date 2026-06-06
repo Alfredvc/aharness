@@ -15,7 +15,7 @@
  *     watchdog so a stuck import never hangs the user's shell. Bare
  *     `aharness completion` remains a compatibility alias for the bridge.
  *   - `aharness install <source>` — npm-backed installed package mutation.
- *   - `aharness run [--ask|--yolo] <file.fsm.ts|command>` — target execution.
+ *   - `aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command>` — target execution.
  *   - `aharness list` — installed package command listing.
  *   - `aharness uninstall <package-name>` — npm-backed package removal.
  *   - `aharness visualize <file.fsm.ts>` — browser-only FSM inspection.
@@ -80,6 +80,7 @@ export interface Dispatcher {
     target: string;
     inputArgs: ReadonlyArray<string>;
     permissionMode?: RunPermissionMode;
+    noOpen?: boolean;
   }) => Promise<{ exitCode: number }>;
   readonly runTargetInputHelp: (o: { target: string }) => Promise<{ exitCode: number }>;
   readonly runListInstalled: (o: Record<string, never>) => Promise<{ exitCode: number }>;
@@ -149,6 +150,7 @@ export async function dispatch(
       target: parsed.target,
       inputArgs: parsed.inputArgs,
       ...(parsed.permissionMode !== undefined ? { permissionMode: parsed.permissionMode } : {}),
+      ...(parsed.noOpen ? { noOpen: true } : {}),
     });
   }
   if (cmd === 'list') {
@@ -254,11 +256,10 @@ function parseVisualizeFsmPathAndInputArgs(argv: ReadonlyArray<string>): {
   const positional: string[] = [];
   const inputArgs: string[] = [];
   // Visualize accepts one FSM path plus author-defined `--<flag>` pairs.
-  // Runtime permission flags remain live-run-only and are rejected here.
+  // Runtime run flags remain live-run-only and are rejected here.
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
-    const runtimePermissionMode = runtimePermissionModeFromFlag(a);
-    if (runtimePermissionMode) return null;
+    if (isRuntimeRunFlag(a)) return null;
     if (a.startsWith('--')) {
       inputArgs.push(a);
       const next = argv[i + 1];
@@ -277,16 +278,32 @@ function parseVisualizeFsmPathAndInputArgs(argv: ReadonlyArray<string>): {
   };
 }
 
-function parseRunTargetAndInputArgs(
-  argv: ReadonlyArray<string>,
-): { target: string; inputArgs: ReadonlyArray<string>; permissionMode?: RunPermissionMode } | null {
+function parseRunTargetAndInputArgs(argv: ReadonlyArray<string>): {
+  target: string;
+  inputArgs: ReadonlyArray<string>;
+  permissionMode?: RunPermissionMode;
+  noOpen?: boolean;
+} | null {
   let index = 0;
   let permissionMode: RunPermissionMode | undefined;
+  let noOpen = false;
 
-  const leadingPermissionMode = runtimePermissionModeFromFlag(argv[index]);
-  if (leadingPermissionMode) {
-    permissionMode = leadingPermissionMode;
-    index++;
+  while (true) {
+    const current = argv[index];
+    const leadingPermissionMode = runtimePermissionModeFromFlag(current);
+    if (leadingPermissionMode) {
+      if (permissionMode !== undefined) return null;
+      permissionMode = leadingPermissionMode;
+      index++;
+      continue;
+    }
+    if (current === '--no-open') {
+      if (noOpen) return null;
+      noOpen = true;
+      index++;
+      continue;
+    }
+    break;
   }
 
   const target = argv[index];
@@ -297,18 +314,27 @@ function parseRunTargetAndInputArgs(
   for (let i = 0; i < inputArgs.length; i++) {
     const current = inputArgs[i]!;
     if (!current.startsWith('--')) return null;
-    if (runtimePermissionModeFromFlag(current)) return null;
+    if (isRuntimeRunFlag(current)) return null;
     const next = inputArgs[i + 1];
     if (next !== undefined && !next.startsWith('--')) i++;
   }
 
-  return { target, inputArgs, ...(permissionMode !== undefined ? { permissionMode } : {}) };
+  return {
+    target,
+    inputArgs,
+    ...(permissionMode !== undefined ? { permissionMode } : {}),
+    ...(noOpen ? { noOpen: true } : {}),
+  };
 }
 
 function runtimePermissionModeFromFlag(flag: string | undefined): RunPermissionMode | null {
   if (flag === '--ask') return 'ask';
   if (flag === '--yolo') return 'yolo';
   return null;
+}
+
+function isRuntimeRunFlag(flag: string | undefined): boolean {
+  return runtimePermissionModeFromFlag(flag) !== null || flag === '--no-open';
 }
 
 function parseInitArgs(args: ReadonlyArray<string>): {
@@ -365,7 +391,7 @@ function usage(stderr: NodeJS.WritableStream): number {
       '  aharness verify <file.fsm.ts>\n' +
       '  aharness verify <package-name>\n' +
       '  aharness verify <package-name>/<command-name>\n' +
-      '  aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...\n' +
+      '  aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...\n' +
       '  aharness list\n' +
       '  aharness uninstall <package-name>\n' +
       '  aharness doctor\n' +
@@ -425,7 +451,7 @@ if (process.argv[1]?.endsWith('main.js')) {
         stdout: process.stdout,
         stderr: process.stderr,
       }),
-    runTarget: ({ target, inputArgs, permissionMode }) => {
+    runTarget: ({ target, inputArgs, permissionMode, noOpen }) => {
       const opts = {
         target,
         cwd: process.cwd(),
@@ -433,6 +459,7 @@ if (process.argv[1]?.endsWith('main.js')) {
         stderr: process.stderr,
         inputArgs,
         ...(permissionMode !== undefined ? { permissionMode } : {}),
+        ...(noOpen ? { noOpen: true } : {}),
       };
       return runTargetCli(opts);
     },

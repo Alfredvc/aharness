@@ -309,7 +309,24 @@ async function deriveRunTargetCompletionContext(
   const afterRun = tokens.slice(2);
   let targetIndex = 0;
 
-  if (isRuntimePermissionFlag(afterRun[targetIndex])) targetIndex++;
+  let sawPermissionFlag = false;
+  let sawNoOpen = false;
+  while (true) {
+    const flag = afterRun[targetIndex];
+    if (isRuntimePermissionFlag(flag)) {
+      if (sawPermissionFlag) return null;
+      sawPermissionFlag = true;
+      targetIndex++;
+      continue;
+    }
+    if (flag === '--no-open') {
+      if (sawNoOpen) return null;
+      sawNoOpen = true;
+      targetIndex++;
+      continue;
+    }
+    break;
+  }
 
   if (targetIndex === afterRun.length) {
     return last === '' ? { kind: 'run-target', partial: '' } : null;
@@ -335,7 +352,7 @@ function isValidInputCompletionTail(inputArgs: ReadonlyArray<string>): boolean {
   for (let i = 0; i < inputArgs.length; i++) {
     const current = inputArgs[i]!;
     if (!current.startsWith('--')) return false;
-    if (isRuntimePermissionFlag(current)) return false;
+    if (isRunRuntimeFlag(current)) return false;
     const next = inputArgs[i + 1];
     if (next !== undefined && !next.startsWith('--')) i++;
   }
@@ -344,6 +361,10 @@ function isValidInputCompletionTail(inputArgs: ReadonlyArray<string>): boolean {
 
 function isRuntimePermissionFlag(flag: string | undefined): flag is '--ask' | '--yolo' {
   return flag === '--ask' || flag === '--yolo';
+}
+
+function isRunRuntimeFlag(flag: string | undefined): flag is '--ask' | '--yolo' | '--no-open' {
+  return flag === '--ask' || flag === '--yolo' || flag === '--no-open';
 }
 
 async function resolveCompletionInputTarget(args: {

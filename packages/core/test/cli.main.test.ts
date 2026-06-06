@@ -69,6 +69,7 @@ function buildStubs() {
         target: string;
         inputArgs: ReadonlyArray<string>;
         permissionMode?: RunPermissionMode;
+        noOpen?: boolean;
       }) => {
         void o;
         return { exitCode: 0 };
@@ -178,6 +179,19 @@ describe('dispatch', () => {
     const s = buildStubs();
     const cap = captureStderr();
     const r = await dispatch(['visualize', '/a.fsm.ts', '--ask'], { ...s, stderr: cap.stream });
+
+    expect(r).toEqual({ exitCode: 2 });
+    expect(s.runVisualize).not.toHaveBeenCalled();
+    expect(cap.text()).toContain('usage:');
+  });
+
+  it('returns usage for visualize with --no-open instead of treating it as author input', async () => {
+    const s = buildStubs();
+    const cap = captureStderr();
+    const r = await dispatch(['visualize', '/a.fsm.ts', '--no-open'], {
+      ...s,
+      stderr: cap.stream,
+    });
 
     expect(r).toEqual({ exitCode: 2 });
     expect(s.runVisualize).not.toHaveBeenCalled();
@@ -328,6 +342,34 @@ describe('dispatch', () => {
     });
   });
 
+  it('routes "run --no-open <target>" with browser auto-open disabled', async () => {
+    const s = buildStubs();
+    const r = await dispatch(['run', '--no-open', './workflow.fsm.ts', '--topic', 'auth'], s);
+
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runTarget).toHaveBeenCalledWith({
+      target: './workflow.fsm.ts',
+      inputArgs: ['--topic', 'auth'],
+      noOpen: true,
+    });
+  });
+
+  it('routes composable leading run runtime flags before the target', async () => {
+    const s = buildStubs();
+    const r = await dispatch(
+      ['run', '--no-open', '--ask', './workflow.fsm.ts', '--topic', 'auth'],
+      s,
+    );
+
+    expect(r).toEqual({ exitCode: 0 });
+    expect(s.runTarget).toHaveBeenCalledWith({
+      target: './workflow.fsm.ts',
+      inputArgs: ['--topic', 'auth'],
+      permissionMode: 'ask',
+      noOpen: true,
+    });
+  });
+
   it('returns usage when run input flags appear before the target', async () => {
     const s = buildStubs();
     const cap = captureStderr();
@@ -339,7 +381,7 @@ describe('dispatch', () => {
     expect(r).toEqual({ exitCode: 2 });
     expect(s.runTarget).not.toHaveBeenCalled();
     expect(cap.text()).toContain(
-      'aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+      'aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...',
     );
   });
 
@@ -373,7 +415,7 @@ describe('dispatch', () => {
     expect(r).toEqual({ exitCode: 2 });
     expect(s.runTarget).not.toHaveBeenCalled();
     expect(cap.text()).toContain(
-      'aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+      'aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...',
     );
   });
 
@@ -388,7 +430,22 @@ describe('dispatch', () => {
     expect(r).toEqual({ exitCode: 2 });
     expect(s.runTarget).not.toHaveBeenCalled();
     expect(cap.text()).toContain(
-      'aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+      'aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...',
+    );
+  });
+
+  it('returns usage when run --no-open appears after the target', async () => {
+    const s = buildStubs();
+    const cap = captureStderr();
+    const r = await dispatch(['run', './workflow.fsm.ts', '--no-open'], {
+      ...s,
+      stderr: cap.stream,
+    });
+
+    expect(r).toEqual({ exitCode: 2 });
+    expect(s.runTarget).not.toHaveBeenCalled();
+    expect(cap.text()).toContain(
+      'aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...',
     );
   });
 
@@ -411,6 +468,19 @@ describe('dispatch', () => {
     }
   });
 
+  it('returns usage when run repeats --no-open', async () => {
+    const s = buildStubs();
+    const cap = captureStderr();
+    const r = await dispatch(['run', '--no-open', '--no-open', './workflow.fsm.ts'], {
+      ...s,
+      stderr: cap.stream,
+    });
+
+    expect(r).toEqual({ exitCode: 2 });
+    expect(s.runTarget).not.toHaveBeenCalled();
+    expect(cap.text()).toContain('usage:');
+  });
+
   it('returns usage for unknown run framework flags before the target', async () => {
     const s = buildStubs();
     const cap = captureStderr();
@@ -419,7 +489,7 @@ describe('dispatch', () => {
     expect(r).toEqual({ exitCode: 2 });
     expect(s.runTarget).not.toHaveBeenCalled();
     expect(cap.text()).toContain(
-      'aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+      'aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...',
     );
   });
 
@@ -438,7 +508,7 @@ describe('dispatch', () => {
       expect(r).toEqual({ exitCode: 2 });
       expect(s.runTarget).not.toHaveBeenCalled();
       expect(cap.text()).toContain(
-        'aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+        'aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...',
       );
     }
   });
@@ -579,6 +649,14 @@ describe('dispatch', () => {
     await expectUsageOnly(['/a.fsm.ts', '--yolo', '--topic', 'auth']);
   });
 
+  it('returns usage for "--no-open <file>" root direct invocations', async () => {
+    await expectUsageOnly(['--no-open', '/a.fsm.ts', '--topic', 'auth']);
+  });
+
+  it('returns usage for "<file> --no-open" root direct invocations', async () => {
+    await expectUsageOnly(['/a.fsm.ts', '--no-open', '--topic', 'auth']);
+  });
+
   it('returns usage when root direct invocations mix --ask and --yolo', async () => {
     const cases: ReadonlyArray<ReadonlyArray<string>> = [
       ['--ask', '--yolo', '/a.fsm.ts'],
@@ -619,7 +697,7 @@ describe('dispatch', () => {
     expect(text).toContain('aharness install <source>');
     expect(text).not.toContain('aharness [--ask|--yolo] <file.fsm.ts> [--<flag> <value>]...');
     expect(text).toContain(
-      'aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...',
+      'aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...',
     );
     expect(text).toContain('aharness list');
     expect(text).toContain('aharness uninstall <package-name>');
@@ -686,6 +764,10 @@ describe('dispatch — retired direct input passthrough', () => {
 
   it('reserves ask as a framework runtime flag', () => {
     expect(RESERVED_CLI_FLAGS.has('ask')).toBe(true);
+  });
+
+  it('reserves no-open as a framework runtime flag', () => {
+    expect(RESERVED_CLI_FLAGS.has('no-open')).toBe(true);
   });
 
   it('does not reserve resume as a framework runtime flag', () => {

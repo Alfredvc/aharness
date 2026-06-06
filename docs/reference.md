@@ -233,7 +233,7 @@ Built-in event keys are reserved:
 ## CLI
 
 ```bash
-aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...
+aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<flag> <value>]...
 aharness run <file.fsm.ts> --help
 aharness visualize <file.fsm.ts> [--<flag> <value>]...
 aharness view [run-id]
@@ -253,11 +253,13 @@ Machine inputs become kebab-case flags for
 `aharness run <file.fsm.ts|command>` and `aharness visualize <file.fsm.ts>`.
 For example, `fixtureRoot` becomes `--fixture-root`. Default live runs use
 Codex auto-review for eligible approval prompts. `--ask` restores manual
-user/browser review, and `--yolo` remains a dangerous bypass that disables
-approvals and grants full filesystem access.
+user/browser review, `--yolo` remains a dangerous bypass that disables
+approvals and grants full filesystem access, and `--no-open` suppresses opening
+a browser window while still serving and printing the run UI URL.
 
-On `aharness run`, runtime flags such as `--ask` and `--yolo` must appear
-before the run target, while FSM input flags must appear after the target:
+On `aharness run`, runtime flags such as `--ask`, `--yolo`, and `--no-open`
+must appear before the run target, while FSM input flags must appear after the
+target:
 
 ```bash
 aharness run --ask ./workflow.fsm.ts --fixture-root ./fixture

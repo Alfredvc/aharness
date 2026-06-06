@@ -218,7 +218,9 @@ XState actor in-process. Codex performs the work; aharness controls which
 state transitions are legal.
 
 Runs are foreground-only. Keep the CLI process running and use the printed
-browser URL for owner input and any approval prompts routed to the user.
+browser URL for owner input and any approval prompts routed to the user. Pass
+`--no-open` to suppress opening a browser window while still serving and printing
+that URL.
 The default browser transcript focuses on model/owner messages, tool summaries,
 failures, and live interaction cards; dev mode exposes protocol/state/lifecycle
 rows and successful tool output when you need to inspect the run plumbing.
@@ -261,7 +263,7 @@ aharness init --dir <path>
 aharness verify <file.fsm.ts>
 aharness visualize <file.fsm.ts>
 aharness run <file.fsm.ts> --help
-aharness run [--ask|--yolo] <file.fsm.ts|command> [--<input-flag> <value>]...
+aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<input-flag> <value>]...
 aharness view [run-id]
 aharness doctor
 aharness install <source>
@@ -269,7 +271,7 @@ aharness install <source>
 
 See [`docs/reference.md`](docs/reference.md) for the full CLI, state options,
 hooks, installable package commands, completions, default Codex auto-review
-behavior, `--ask`, and `--yolo`.
+behavior, `--ask`, `--yolo`, and `--no-open`.
 
 ## Packages
 
