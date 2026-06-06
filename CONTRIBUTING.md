@@ -8,7 +8,7 @@ Thanks for contributing to aharness. This repository is a TypeScript monorepo fo
 Prerequisites:
 
 - Node.js `>=20`
-- pnpm `9.15.4`, matching the root `packageManager`
+- pnpm `11.5.2`, matching the root `packageManager`
 - Codex CLI `>=0.136.0` for runtime work and Codex compatibility checks
 
 Install dependencies:
