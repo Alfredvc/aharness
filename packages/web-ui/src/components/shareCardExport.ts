@@ -249,8 +249,11 @@ function buildBucketRows(stats: RunCompletionStats): RunCompletionShareCardBucke
 }
 
 function buildTopTimeBuckets(stats: RunCompletionStats): RunCompletionShareCardTimeBucket[] {
-  const visible = stats.stateBuckets.slice(0, MAX_TIME_BUCKET_ROWS);
-  const remaining = stats.stateBuckets.slice(MAX_TIME_BUCKET_ROWS);
+  const sortedBuckets = Array.from(stats.stateBuckets).sort(
+    (left, right) => right.elapsedMs - left.elapsedMs,
+  );
+  const visible = sortedBuckets.slice(0, MAX_TIME_BUCKET_ROWS);
+  const remaining = sortedBuckets.slice(MAX_TIME_BUCKET_ROWS);
   const denominator =
     stats.duration.elapsedMs !== undefined
       ? stats.duration.elapsedMs

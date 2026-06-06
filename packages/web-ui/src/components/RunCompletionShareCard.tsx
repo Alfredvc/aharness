@@ -52,21 +52,27 @@ export type RunCompletionShareCardProps = {
 
 const INSET = 84;
 const PANEL_WIDTH = SHARE_CARD_WIDTH - INSET * 2;
-const MINT = '#28d0bd';
-const PANEL = '#111923';
-const LINE = '#314457';
-const LINE_SOFT = '#263849';
+const MINT = '#35d7c8';
+const WARM = '#ff6a32';
+const PLASMA = '#ff4f78';
+const AMBER = '#ffd15a';
+const INDIGO = '#7686ff';
+const PANEL = '#101826';
+const PANEL_DEEP = '#0c141f';
+const LINE = '#31495f';
+const LINE_SOFT = '#273a4d';
 const TEXT = '#fff7ec';
 const MUTED = '#b7c4cf';
 const FAINT = '#7d8d9b';
+const FONT = 'ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif';
 
 export function RunCompletionShareCard(props: RunCompletionShareCardProps) {
   const tone = props.outcome === 'success' ? SHARE_TONES.success : SHARE_TONES.failure;
-  const titleLines = splitTextLines(props.fsmDisplayName, 28, 3);
+  const titleLines = splitTextLines(props.fsmDisplayName, 23, 3);
   const longestTitleLine = Math.max(...titleLines.map((line) => line.length));
   const titleFontSize =
-    titleLines.length > 2 ? 58 : titleLines.length > 1 ? 66 : longestTitleLine > 20 ? 72 : 84;
-  const summaryLines = splitTextLines(buildSummaryLine(props), 42, 2);
+    titleLines.length > 2 ? 70 : titleLines.length > 1 ? 78 : longestTitleLine > 20 ? 86 : 96;
+  const summaryLines = splitTextLines(buildSummaryLine(props, tone), 44, 2);
   const timeBucketRows =
     props.topTimeBuckets.length > 0
       ? props.topTimeBuckets
@@ -90,18 +96,36 @@ export function RunCompletionShareCard(props: RunCompletionShareCardProps) {
     >
       <defs>
         <linearGradient id="share-card-bg" x1="0" y1="0" x2="1320" y2="2868">
-          <stop offset="0" stopColor="#162435" />
-          <stop offset="0.36" stopColor="#121c29" />
-          <stop offset="0.362" stopColor="#0b1119" />
-          <stop offset="1" stopColor="#0b1119" />
+          <stop offset="0" stopColor="#172333" />
+          <stop offset="0.32" stopColor="#111a27" />
+          <stop offset="0.62" stopColor="#0a1018" />
+          <stop offset="1" stopColor="#090d14" />
+        </linearGradient>
+        <linearGradient id="share-card-route" x1="84" y1="654" x2="1168" y2="82">
+          <stop offset="0" stopColor={WARM} />
+          <stop offset="0.48" stopColor="#ff5538" />
+          <stop offset="1" stopColor={PLASMA} />
+        </linearGradient>
+        <linearGradient id="share-card-ring" x1="774" y1="0" x2="1084" y2="310">
+          <stop offset="0" stopColor={AMBER} />
+          <stop offset="0.5" stopColor={WARM} />
+          <stop offset="1" stopColor={PLASMA} />
         </linearGradient>
         <pattern id="share-card-grid" width="144" height="144" patternUnits="userSpaceOnUse">
           <path d="M 144 0 L 0 0 0 144" fill="none" stroke="#819aad" strokeWidth="2" />
         </pattern>
+        <filter id="share-card-route-glow" x="-18%" y="-80%" width="136%" height="260%">
+          <feGaussianBlur stdDeviation="10" result="routeBlur" />
+          <feMerge>
+            <feMergeNode in="routeBlur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
       </defs>
 
       <rect width="1320" height="2868" fill="url(#share-card-bg)" />
       <rect width="1320" height="2868" fill="url(#share-card-grid)" opacity="0.055" />
+      <DecorativeBackdrop tone={tone} />
 
       <PosterHeader tone={tone} />
       <PosterHero
@@ -109,12 +133,41 @@ export function RunCompletionShareCard(props: RunCompletionShareCardProps) {
         titleFontSize={titleFontSize}
         titleLines={titleLines}
       />
-      <OutcomeBand props={props} tone={tone} />
+      <ProgressPanel props={props} tone={tone} />
       <TokenPanel props={props} />
-      <PosterStatStrip props={props} />
+      <PosterStatGrid props={props} />
       <TimeByStatePanel rows={timeBucketRows} />
       <PosterFooter />
     </svg>
+  );
+}
+
+function DecorativeBackdrop({ tone }: { tone: ShareCardTone }) {
+  return (
+    <g aria-hidden="true">
+      <circle cx="1118" cy="96" r="540" fill={tone.ambient} opacity="0.26" />
+      <circle cx="-72" cy="2490" r="560" fill={MINT} opacity="0.12" />
+      <circle cx="1210" cy="2518" r="440" fill={INDIGO} opacity="0.12" />
+      <path
+        d="M 90 654 C 220 642 374 646 536 624 C 688 604 772 576 856 486 C 950 386 1010 168 1168 86"
+        fill="none"
+        stroke="#03060a"
+        strokeLinecap="round"
+        strokeWidth="46"
+        opacity="0.32"
+      />
+      <path
+        d="M 90 654 C 220 642 374 646 536 624 C 688 604 772 576 856 486 C 950 386 1010 168 1168 86"
+        fill="none"
+        stroke="url(#share-card-route)"
+        strokeLinecap="round"
+        strokeWidth="20"
+        filter="url(#share-card-route-glow)"
+        opacity={tone.routeOpacity}
+      />
+      <circle cx="96" cy="652" r="23" fill={MINT} />
+      <circle cx="1168" cy="86" r="25" fill={AMBER} />
+    </g>
   );
 }
 
@@ -125,7 +178,7 @@ function PosterHeader({ tone }: { tone: ShareCardTone }) {
         x="0"
         y="0"
         fill={MUTED}
-        fontFamily="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+        fontFamily={FONT}
         fontSize="34"
         fontWeight="900"
         letterSpacing="5"
@@ -146,7 +199,7 @@ function PosterHeader({ tone }: { tone: ShareCardTone }) {
           x="76"
           y="50"
           fill={tone.pillText}
-          fontFamily="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+          fontFamily={FONT}
           fontSize="25"
           fontWeight="900"
           letterSpacing="4"
@@ -168,8 +221,8 @@ function PosterHero({
   titleLines: ReadonlyArray<string>;
 }) {
   const titleLineHeight = titleFontSize + 10;
-  const titleY = titleLines.length > 2 ? 386 : titleLines.length > 1 ? 420 : 470;
-  const summaryY = titleY + (titleLines.length - 1) * titleLineHeight + titleFontSize + 52;
+  const titleY = titleLines.length > 2 ? 302 : titleLines.length > 1 ? 348 : 404;
+  const summaryY = titleY + (titleLines.length - 1) * titleLineHeight + titleFontSize + 54;
 
   return (
     <g>
@@ -178,7 +231,7 @@ function PosterHero({
         x={INSET}
         y={titleY}
         fill={TEXT}
-        fontFamily="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+        fontFamily={FONT}
         fontSize={titleFontSize}
         fontWeight="900"
       >
@@ -188,14 +241,7 @@ function PosterHero({
           </tspan>
         ))}
       </text>
-      <text
-        x={INSET}
-        y={summaryY}
-        fill={MUTED}
-        fontFamily="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
-        fontSize="32"
-        fontWeight="800"
-      >
+      <text x={INSET} y={summaryY} fill={MUTED} fontFamily={FONT} fontSize="32" fontWeight="800">
         {summaryLines.map((line, index) => (
           <tspan key={`${line}-${index}`} x={INSET} dy={index === 0 ? 0 : 48}>
             {line}
@@ -206,144 +252,169 @@ function PosterHero({
   );
 }
 
-function OutcomeBand({ props, tone }: { props: RunCompletionShareCardProps; tone: ShareCardTone }) {
-  return (
-    <g transform="translate(84 744)">
-      <OutcomeTile
-        x={0}
-        label="Terminal state"
-        value={tone.stateWord}
-        valueColor={tone.accent}
-        width={564}
-      />
-      <OutcomeTile x={588} label="Total time" value={props.totalTimeLabel} width={564} />
-    </g>
-  );
-}
-
-function OutcomeTile({
-  label,
-  value,
-  valueColor = TEXT,
-  width,
-  x,
+function ProgressPanel({
+  props,
+  tone,
 }: {
-  label: string;
-  value: string;
-  valueColor?: string;
-  width: number;
-  x: number;
+  props: RunCompletionShareCardProps;
+  tone: ShareCardTone;
 }) {
   return (
-    <g transform={`translate(${x} 0)`}>
-      <rect width={width} height="300" rx="24" fill={PANEL} stroke={LINE} strokeWidth="3" />
-      <MetricLabel x={48} y={78} text={label} />
-      <text
-        x="48"
-        y="202"
-        fill={valueColor}
-        fontFamily="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
-        fontSize="78"
-        fontWeight="900"
-      >
-        {value}
+    <g transform="translate(84 650)">
+      <rect x="0" y="18" width={PANEL_WIDTH} height="490" rx="46" fill="#03060a" opacity="0.34" />
+      <rect
+        width={PANEL_WIDTH}
+        height="470"
+        rx="44"
+        fill={PANEL}
+        stroke="#203144"
+        strokeWidth="3"
+      />
+      <MetricLabel x={64} y={86} text="Total time" />
+      <text x="62" y="258" fill={TEXT} fontFamily={FONT} fontSize="152" fontWeight="950">
+        {props.totalTimeLabel}
       </text>
+      <text x="66" y="340" fill={MUTED} fontFamily={FONT} fontSize="32" fontWeight="850">
+        {props.transitionCountLabel} transitions / {props.freshClearCountLabel} fresh clears / final
+        state: {tone.stateWord.toLowerCase()}
+      </text>
+      <g transform="translate(880 86)">
+        <circle cx="150" cy="150" r="126" fill="none" stroke={LINE_SOFT} strokeWidth="28" />
+        <circle
+          cx="150"
+          cy="150"
+          r="126"
+          fill="none"
+          stroke="url(#share-card-ring)"
+          strokeLinecap="round"
+          strokeWidth="28"
+        />
+        <text
+          x="150"
+          y="151"
+          fill={TEXT}
+          fontFamily={FONT}
+          fontSize={tone.ringValueFontSize}
+          fontWeight="950"
+          textAnchor="middle"
+        >
+          {tone.ringValue}
+        </text>
+        <text
+          x="150"
+          y="202"
+          fill={MUTED}
+          fontFamily={FONT}
+          fontSize="28"
+          fontWeight="850"
+          textAnchor="middle"
+        >
+          {tone.ringLabel}
+        </text>
+      </g>
     </g>
   );
 }
 
 function TokenPanel({ props }: { props: RunCompletionShareCardProps }) {
   return (
-    <g transform="translate(84 1090)">
-      <rect width={PANEL_WIDTH} height="386" rx="24" fill={PANEL} stroke={LINE} strokeWidth="3" />
+    <g transform="translate(84 1200)">
+      <rect width={PANEL_WIDTH} height="360" rx="34" fill="#131d2b" stroke={LINE} strokeWidth="3" />
       <MetricLabel x={48} y={76} text="Token burn" />
-      <MetricLabel x={780} y={76} text="Cache hit" />
-      <text
-        x="48"
-        y="188"
-        fill={TEXT}
-        fontFamily="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
-        fontSize="78"
-        fontWeight="900"
-      >
+      <MetricLabel x={760} y={76} text="Cache hit" />
+      <text x="48" y="188" fill={TEXT} fontFamily={FONT} fontSize="78" fontWeight="900">
         {props.totalTokenLabel}
       </text>
-      <text
-        x="780"
-        y="188"
-        fill={TEXT}
-        fontFamily="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
-        fontSize="78"
-        fontWeight="900"
-      >
+      <text x="760" y="188" fill={TEXT} fontFamily={FONT} fontSize="78" fontWeight="900">
         {props.cacheHitPercentageLabel}
       </text>
-      <text
-        x="48"
-        y="238"
-        fill={MUTED}
-        fontFamily="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
-        fontSize="28"
-        fontWeight="800"
-      >
+      <text x="48" y="238" fill={MUTED} fontFamily={FONT} fontSize="28" fontWeight="800">
         total tokens
       </text>
-      <rect x="48" y="286" width="1056" height="36" rx="18" fill={LINE_SOFT} />
+      <text x="760" y="238" fill={MUTED} fontFamily={FONT} fontSize="28" fontWeight="800">
+        {props.outputTokenLabel} output tokens
+      </text>
+      <rect x="48" y="286" width="1056" height="34" rx="17" fill={LINE_SOFT} />
       <rect
         id="share-card-token-burn-bar"
         x="48"
         y="286"
         width="1056"
-        height="36"
-        rx="18"
+        height="34"
+        rx="17"
         fill={MINT}
       />
     </g>
   );
 }
 
-function PosterStatStrip({ props }: { props: RunCompletionShareCardProps }) {
+function PosterStatGrid({ props }: { props: RunCompletionShareCardProps }) {
   return (
-    <g transform="translate(84 1528)">
-      <StatTile x={0} label="Transitions" value={props.transitionCountLabel} width={360} />
-      <StatTile x={390} label="Turns" value={props.totalTurnCountLabel} width={276} />
+    <g transform="translate(84 1640)">
       <StatTile
-        x={696}
-        label="Changes"
+        x={0}
+        y={0}
+        label="Turns"
+        value={props.totalTurnCountLabel}
+        detail="main + subthread turns"
+      />
+      <StatTile
+        x={600}
+        y={0}
+        label="Transitions"
+        value={props.transitionCountLabel}
+        detail="actual FSM transitions"
+      />
+      <StatTile
+        x={0}
+        y={280}
+        label="Files changed"
         value={buildChangesLabel(props)}
-        width={456}
-        valueFontSize="46"
+        detail="final work footprint"
+      />
+      <StatTile
+        x={600}
+        y={280}
+        label="Lines changed"
+        value={props.linesChangedLabel}
+        detail={props.lineDeltaDetailLabel}
       />
     </g>
   );
 }
 
 function StatTile({
+  detail,
   label,
   value,
-  valueFontSize = '58',
-  width,
   x,
+  y,
 }: {
+  detail: string;
   label: string;
   value: string;
-  valueFontSize?: string;
-  width: number;
   x: number;
+  y: number;
 }) {
   return (
-    <g transform={`translate(${x} 0)`}>
-      <rect width={width} height="204" rx="20" fill={PANEL} stroke={LINE} strokeWidth="3" />
-      <MetricLabel x={36} y={68} text={label} />
+    <g transform={`translate(${x} ${y})`}>
+      <rect width="552" height="232" rx="30" fill="#111a29" stroke="#273d52" strokeWidth="3" />
       <text
-        x="36"
-        y="150"
-        fill={TEXT}
-        fontFamily="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
-        fontSize={valueFontSize}
+        x="48"
+        y="70"
+        fill={FAINT}
+        fontFamily={FONT}
+        fontSize="27"
         fontWeight="900"
+        letterSpacing="4"
       >
+        {label.toUpperCase()}
+      </text>
+      <text x="48" y="150" fill={TEXT} fontFamily={FONT} fontSize="76" fontWeight="950">
         {value}
+      </text>
+      <text x="48" y="196" fill={MUTED} fontFamily={FONT} fontSize="27" fontWeight="850">
+        {detail}
       </text>
     </g>
   );
@@ -351,21 +422,21 @@ function StatTile({
 
 function TimeByStatePanel({ rows }: { rows: ReadonlyArray<RunCompletionShareCardTimeBucket> }) {
   return (
-    <g transform="translate(84 1792)">
-      <rect width={PANEL_WIDTH} height="590" rx="24" fill={PANEL} stroke={LINE} strokeWidth="3" />
-      <text
-        x="48"
-        y="82"
-        fill={TEXT}
-        fontFamily="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
-        fontSize="46"
-        fontWeight="900"
-      >
+    <g transform="translate(84 2180)">
+      <rect
+        width={PANEL_WIDTH}
+        height="410"
+        rx="34"
+        fill={PANEL_DEEP}
+        stroke={LINE}
+        strokeWidth="3"
+      />
+      <text x="48" y="82" fill={TEXT} fontFamily={FONT} fontSize="46" fontWeight="900">
         Time by state
       </text>
       <MetricLabel x={854} y={82} text="top buckets" />
       {rows.map((bucket, index) => (
-        <TimeBucketBar key={`${bucket.label}-${index}`} bucket={bucket} y={158 + index * 88} />
+        <TimeBucketBar key={`${bucket.label}-${index}`} bucket={bucket} y={156 + index * 76} />
       ))}
     </g>
   );
@@ -375,14 +446,7 @@ function TimeBucketBar({ bucket, y }: { bucket: RunCompletionShareCardTimeBucket
   const width = Math.max(8, Math.round((bucket.percent / 100) * 520));
   return (
     <g transform={`translate(48 ${y})`}>
-      <text
-        x="0"
-        y="0"
-        fill={TEXT}
-        fontFamily="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
-        fontSize="32"
-        fontWeight="900"
-      >
+      <text x="0" y="0" fill={TEXT} fontFamily={FONT} fontSize="32" fontWeight="900">
         {bucket.label}
       </text>
       <rect x="390" y="-20" width="520" height="28" rx="14" fill={LINE_SOFT} />
@@ -391,7 +455,7 @@ function TimeBucketBar({ bucket, y }: { bucket: RunCompletionShareCardTimeBucket
         x="1056"
         y="2"
         fill={MUTED}
-        fontFamily="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+        fontFamily={FONT}
         fontSize="30"
         fontWeight="900"
         textAnchor="end"
@@ -405,12 +469,12 @@ function TimeBucketBar({ bucket, y }: { bucket: RunCompletionShareCardTimeBucket
 function PosterFooter() {
   return (
     <g>
-      <line x1={INSET} y1="2618" x2={SHARE_CARD_WIDTH - INSET} y2="2618" stroke={LINE_SOFT} />
+      <line x1={INSET} y1="2686" x2={SHARE_CARD_WIDTH - INSET} y2="2686" stroke={LINE_SOFT} />
       <text
         x={SHARE_CARD_WIDTH / 2}
-        y="2734"
+        y="2802"
         fill={MUTED}
-        fontFamily="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+        fontFamily={FONT}
         fontSize="30"
         fontWeight="800"
         letterSpacing="1.2"
@@ -428,7 +492,7 @@ function MetricLabel({ text, x, y }: { text: string; x: number; y: number }) {
       x={x}
       y={y}
       fill={FAINT}
-      fontFamily="ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+      fontFamily={FONT}
       fontSize="24"
       fontWeight="900"
       letterSpacing="5"
@@ -438,8 +502,8 @@ function MetricLabel({ text, x, y }: { text: string; x: number; y: number }) {
   );
 }
 
-function buildSummaryLine(props: RunCompletionShareCardProps): string {
-  return `Finished in ${props.totalTimeLabel} with ${pluralizeLabel(
+function buildSummaryLine(props: RunCompletionShareCardProps, tone: ShareCardTone): string {
+  return `${tone.stateWord} after ${props.totalTimeLabel} with ${pluralizeLabel(
     props.totalTurnCountLabel,
     'turn',
   )}, ${pluralizeLabel(props.transitionCountLabel, 'transition')}, and ${buildChangeSummary(
@@ -513,31 +577,46 @@ function truncateDisplay(value: string, maxLength: number): string {
 
 type ShareCardTone = {
   accent: string;
+  ambient: string;
   pillFill: string;
   pillLabel: string;
   pillStroke: string;
   pillText: string;
   pillWidth: number;
+  ringLabel: string;
+  ringValue: string;
+  ringValueFontSize: string;
+  routeOpacity: number;
   stateWord: string;
 };
 
 const SHARE_TONES: Record<RunCompletionShareCardOutcome, ShareCardTone> = {
   success: {
     accent: MINT,
+    ambient: WARM,
     pillFill: '#164c4a',
     pillLabel: 'Run complete',
     pillStroke: '#246762',
     pillText: '#d7fff8',
     pillWidth: 344,
+    ringLabel: 'finished',
+    ringValue: '100%',
+    ringValueFontSize: '58',
+    routeOpacity: 0.94,
     stateWord: 'DONE',
   },
   failure: {
     accent: '#ff7892',
+    ambient: PLASMA,
     pillFill: '#4c1f2d',
     pillLabel: 'Run failed',
     pillStroke: '#793045',
     pillText: '#ffe0e6',
     pillWidth: 272,
+    ringLabel: 'failed',
+    ringValue: 'HALT',
+    ringValueFontSize: '54',
+    routeOpacity: 0.82,
     stateWord: 'HALT',
   },
 };

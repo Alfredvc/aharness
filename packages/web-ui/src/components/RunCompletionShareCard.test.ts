@@ -135,20 +135,24 @@ describe('RunCompletionShareCard', () => {
     expect(props.topTimeBuckets.at(-1)).toEqual(expect.objectContaining({ label: 'Other states' }));
 
     const posterText = svg.textContent ?? '';
-    expect(posterText).toContain('TERMINAL STATE');
     expect(posterText).toContain(props.totalTimeLabel);
+    expect(posterText).toContain('final state: done');
     expect(posterText).toContain('TOKEN BURN');
     expect(posterText).toContain(props.totalTokenLabel);
     expect(posterText).toContain('TRANSITIONS');
     expect(posterText).toContain('TURNS');
-    expect(posterText).toContain('CHANGES');
+    expect(posterText).toContain('FILES CHANGED');
+    expect(posterText).toContain('LINES CHANGED');
     expect(posterText).toContain('Time by state');
     expect(posterText).toContain(props.topTimeBuckets.at(-1)?.label);
     expect(posterText).not.toContain('Main');
     expect(posterText).not.toContain('Subthreads');
     requiredElement(svg, '#share-card-token-burn-bar');
 
-    const footerStatus = requiredElement(svg, 'text[text-anchor="middle"]');
+    const footerStatus = Array.from(svg.querySelectorAll('text')).find((node) =>
+      node.textContent?.includes('Run with npmjs.com/package/@aharness/core'),
+    );
+    if (!footerStatus) throw new Error('footer status missing');
     expect(footerStatus.textContent).toContain('Run with npmjs.com/package/@aharness/core');
     expect(footerStatus.textContent).not.toContain(unavailableReason);
     expect(footerStatus.textContent).not.toContain(props.lineDeltaDetailLabel);

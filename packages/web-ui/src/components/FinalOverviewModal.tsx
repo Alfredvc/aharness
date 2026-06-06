@@ -184,33 +184,39 @@ function StatsBody({
         <p className="final-overview-note">Partial terminal summary from available run events.</p>
       ) : null}
 
-      <section className="final-overview-outcome-grid" aria-label="Run outcome">
-        <OutcomeCell
+      <section
+        className="final-overview-hero-grid"
+        data-tone={dashboard.tone}
+        aria-label="Run outcome"
+      >
+        <HeroCard
           label="Terminal state"
           value={dashboard.statusValue}
           detail={dashboard.statusDetail}
           tone={dashboard.tone}
         />
-        <OutcomeCell
+        <HeroCard
           label="Total time"
           value={dashboard.totalTimeLabel}
           detail={dashboard.timeDetailLabel}
         />
-        <OutcomeCell
-          label="Turns"
-          value={dashboard.totalTurnCountLabel}
-          detail={dashboard.turnDetailLabel}
-        />
-        <OutcomeCell
-          label="Transitions"
-          value={dashboard.transitionCountLabel}
-          detail={`${dashboard.freshClearCountLabel} fresh clears`}
-        />
-        <OutcomeCell
-          label="Changes"
-          value={dashboard.filesChangedLabel}
-          detail={dashboard.changeDetailLabel}
-        />
+        <div className="final-overview-hero-metrics" aria-label="Run counts">
+          <HeroMetric
+            label="Turns"
+            value={dashboard.totalTurnCountLabel}
+            detail={dashboard.turnDetailLabel}
+          />
+          <HeroMetric
+            label="Transitions"
+            value={dashboard.transitionCountLabel}
+            detail={`${dashboard.freshClearCountLabel} fresh clears`}
+          />
+          <HeroMetric
+            label="Changes"
+            value={dashboard.filesChangedLabel}
+            detail={dashboard.changeDetailLabel}
+          />
+        </div>
       </section>
 
       <section className="final-overview-token-panel" aria-label="Token burn">
@@ -360,7 +366,7 @@ function IconButton({
   );
 }
 
-function OutcomeCell({
+function HeroCard({
   label,
   value,
   detail,
@@ -372,7 +378,17 @@ function OutcomeCell({
   tone?: 'failure' | 'partial' | 'success';
 }) {
   return (
-    <div className="final-overview-outcome-cell" data-tone={tone}>
+    <div className="final-overview-hero-card" data-tone={tone}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <p>{detail}</p>
+    </div>
+  );
+}
+
+function HeroMetric({ detail, label, value }: { detail: string; label: string; value: string }) {
+  return (
+    <div className="final-overview-hero-metric">
       <span>{label}</span>
       <strong>{value}</strong>
       <p>{detail}</p>
