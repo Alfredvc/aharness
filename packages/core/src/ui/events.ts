@@ -32,7 +32,7 @@ export type FsmState = {
   context?: Record<string, unknown>;
 };
 
-export type UiMode = 'run' | 'inspect';
+export type UiMode = 'run' | 'inspect' | 'view';
 
 export type NodeKind = 'stateful' | 'terminal' | 'passive' | 'choice' | 'embed';
 

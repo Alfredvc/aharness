@@ -90,6 +90,7 @@ const ROOT_SUBCOMMANDS = [
   'run',
   'uninstall',
   'verify',
+  'view',
   'visualize',
 ] as const;
 

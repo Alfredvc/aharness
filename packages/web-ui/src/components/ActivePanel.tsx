@@ -15,7 +15,7 @@ import type {
   ElicitationRequest,
 } from '../types/events';
 import type { VizNode } from '../types/topology';
-import { displayItems, hasVisibleContent } from '../state/store';
+import { displayItems, hasVisibleContent, isReadOnlyMode } from '../state/store';
 import { deriveActivity, formatElapsed } from '../state/activity';
 import type { Activity } from '../state/activity';
 import { InteractionSlot, OwnerChoiceSlot } from './InteractionSlot';
@@ -149,6 +149,9 @@ function buildActivePanelTimelineRows(input: {
       },
     ];
   }
+  const readOnly = isReadOnlyMode(input.mode);
+  const showInlineIndicator = input.showInlineIndicator && !readOnly;
+  const showApprovals = input.showApprovals && !readOnly;
   const rows: ActivePanelTimelineRow[] = [];
   if (input.groups.length === 0) {
     rows.push({
@@ -178,10 +181,10 @@ function buildActivePanelTimelineRows(input: {
       }
     }
   }
-  if (input.showInlineIndicator) {
+  if (showInlineIndicator) {
     rows.push({ kind: 'inline_indicator', key: 'inline-indicator', activity: input.activity });
   }
-  if (input.showApprovals) {
+  if (showApprovals) {
     rows.push({ kind: 'approvals', key: 'approvals' });
   }
   return rows;
@@ -208,6 +211,9 @@ function buildRunTranscriptRows(input: {
       },
     ];
   }
+  const readOnly = isReadOnlyMode(input.mode);
+  const showInlineIndicator = input.showInlineIndicator && !readOnly;
+  const showApprovals = input.showApprovals && !readOnly;
   const visible = displayItems(
     [...input.items].sort((a, b) => {
       const aSeq = a.seq ?? Number.MAX_SAFE_INTEGER;
@@ -222,22 +228,23 @@ function buildRunTranscriptRows(input: {
     visible.length === 0 &&
     input.turnsLength === 0 &&
     !input.hasAnyVisibleContent &&
-    !input.showApprovals
+    !showApprovals &&
+    !readOnly
   ) {
     return [{ kind: 'awaiting_codex', key: 'awaiting-codex' }];
   }
 
   const rows: ActivePanelTimelineRow[] =
-    visible.length === 0 && input.showApprovals
+    visible.length === 0 && showApprovals
       ? []
       : visible.length === 0
         ? [{ kind: 'empty', key: 'empty-run', text: 'no run activity yet' }]
         : visible.map((item) => ({ kind: 'transcript' as const, key: item.id, item }));
 
-  if (input.showInlineIndicator) {
+  if (showInlineIndicator) {
     rows.push({ kind: 'inline_indicator', key: 'inline-indicator', activity: input.activity });
   }
-  if (input.showApprovals) {
+  if (showApprovals) {
     rows.push({ kind: 'approvals', key: 'approvals' });
   }
   return rows;
@@ -310,6 +317,7 @@ export function ActivePanel({ session }: Props) {
   const displayLeaf = isRunTranscript ? 'Run transcript' : leafOf(selectedPath);
   const displayPath = isRunTranscript ? null : selectedPath;
   const displayNode = session.topology.nodes.find((node) => node.id === displayPath) ?? null;
+  const readOnly = isReadOnlyMode(session.mode);
   const totalVisits = groups.length;
   const crumbs = displayPath ? breadcrumbOf(displayPath) : [];
 
@@ -326,6 +334,7 @@ export function ActivePanel({ session }: Props) {
   // own cards/composer, terminal/lost ends the run.
   const showInlineIndicator =
     isRunTranscript &&
+    !readOnly &&
     !session.posture.isTerminal &&
     !session.pending.ownerChoice &&
     !session.pending.ownerInput &&
@@ -333,19 +342,22 @@ export function ActivePanel({ session }: Props) {
     (activity.kind === 'thinking' || activity.kind === 'submitted');
   const showOpenComposer =
     isRunTranscript &&
+    !readOnly &&
     fsmState.kind === 'stateful' &&
     session.posture.open &&
     !session.pending.ownerChoice &&
     !session.pending.ownerInput &&
     !session.posture.isAwaiting &&
     !session.posture.isTerminal;
-  const interactionKind = session.pending.ownerChoice
-    ? 'owner-choice'
-    : session.pending.ownerInput
-      ? 'owner-input'
-      : showOpenComposer
-        ? 'open-state'
-        : null;
+  const interactionKind = readOnly
+    ? null
+    : session.pending.ownerChoice
+      ? 'owner-choice'
+      : session.pending.ownerInput
+        ? 'owner-input'
+        : showOpenComposer
+          ? 'open-state'
+          : null;
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const atBottomRef = useRef(true);
   useEffect(() => {
@@ -362,7 +374,7 @@ export function ActivePanel({ session }: Props) {
             hasAnyVisibleContent: hasVisibleContent(session.transcript),
             showInlineIndicator,
             activity,
-            showApprovals: totalApprovals > 0,
+            showApprovals: !readOnly && totalApprovals > 0,
           })
         : buildActivePanelTimelineRows({
             mode: session.mode,
@@ -447,9 +459,9 @@ export function ActivePanel({ session }: Props) {
             tone: 'indigo' | 'amber' | 'mint' | 'plasma' | 'rose';
           }> = [];
           if (isRunTranscript) {
-            if (session.posture.submittedThisTurn)
+            if (session.posture.submittedThisTurn && !readOnly)
               chips.push({ label: 'submitted', tone: 'plasma' });
-            if (totalApprovals > 0)
+            if (totalApprovals > 0 && !readOnly)
               chips.push({
                 label: `${totalApprovals} approval${totalApprovals === 1 ? '' : 's'}`,
                 tone: 'rose',

@@ -19,6 +19,7 @@
  *   - `aharness list` — installed package command listing.
  *   - `aharness uninstall <package-name>` — npm-backed package removal.
  *   - `aharness visualize <file.fsm.ts>` — browser-only FSM inspection.
+ *   - `aharness view [run-id]` — browser-only recorded run inspection.
  *
  * The `dispatch` function takes the argv slice and a `Dispatcher` of
  * function-shaped subcommand handlers; tests pass stubs and assert that
@@ -55,6 +56,7 @@ export interface Dispatcher {
     fsmPath: string;
     inputArgs: ReadonlyArray<string>;
   }) => Promise<{ exitCode: number }>;
+  readonly runView: (o: { runId?: string }) => Promise<{ exitCode: number }>;
   readonly runCompletionInstall: (o: {
     name?: string;
     completer?: string;
@@ -164,6 +166,12 @@ export async function dispatch(
     if (!parsed) return { exitCode: usage(stderr) };
     return d.runVisualize(parsed);
   }
+  if (cmd === 'view') {
+    if (rest.includes('--help')) return { exitCode: usage(stderr) };
+    const parsed = parseViewArgs(rest);
+    if (!parsed) return { exitCode: usage(stderr) };
+    return d.runView(parsed);
+  }
   return { exitCode: usage(stderr) };
 }
 
@@ -200,7 +208,28 @@ function isKnownSubcommand(cmd: string | undefined): boolean {
     cmd === 'install' ||
     cmd === 'list' ||
     cmd === 'uninstall' ||
-    cmd === 'visualize'
+    cmd === 'visualize' ||
+    cmd === 'view'
+  );
+}
+
+function parseViewArgs(args: ReadonlyArray<string>): { runId?: string } | null {
+  if (args.length === 0) return {};
+  if (args.length !== 1) return null;
+  const runId = args[0]!;
+  if (!isValidViewRunId(runId)) return null;
+  return { runId };
+}
+
+function isValidViewRunId(runId: string): boolean {
+  return (
+    runId.length > 0 &&
+    runId !== '.' &&
+    runId !== '..' &&
+    !runId.startsWith('-') &&
+    !runId.includes('/') &&
+    !runId.includes('\\') &&
+    !isAbsolute(runId)
   );
 }
 
@@ -330,6 +359,7 @@ function usage(stderr: NodeJS.WritableStream): number {
   stderr.write(
     'usage:\n' +
       '  aharness visualize <file.fsm.ts> [--<flag> <value>]...\n' +
+      '  aharness view [run-id]\n' +
       '  aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|yarn|bun>]\n' +
       '  aharness install <source>\n' +
       '  aharness verify <file.fsm.ts>\n' +
@@ -363,6 +393,15 @@ if (process.argv[1]?.endsWith('main.js')) {
         stderr: process.stderr,
         stdout: process.stdout,
         inputArgs,
+      });
+    },
+    runView: async ({ runId }) => {
+      const { runViewCli } = await import('./viewCli.js');
+      return runViewCli({
+        ...(runId !== undefined ? { runId } : {}),
+        cwd: process.cwd(),
+        stderr: process.stderr,
+        stdout: process.stdout,
       });
     },
     runCompletionInstall: (o) => runCompletionInstall(o),

@@ -184,6 +184,7 @@ import { runVerifyCli } from './verifyCli.js';
 const exec = promisify(execFile);
 
 const SIGINT_EXIT_CODE = 130;
+const LIVE_UI_CLOSEOUT_GRACE_MS = 10_000;
 
 export type RunPermissionMode = 'autoReview' | 'ask' | 'yolo';
 
@@ -305,12 +306,16 @@ export interface RunCliResult {
 }
 
 /**
- * Production entrypoint. Forwards to `runCliForTest` with test hooks
- * unset; defaults inside `runCliForTest` wire each step to its real
- * implementation.
+ * Production entrypoint. Forwards to `runCliForTest` with production
+ * defaults; unset external-boundary hooks inside `runCliForTest` still
+ * wire each step to its real implementation.
  */
 export function runCli(o: RunCliOpts): Promise<RunCliResult> {
-  return runCliForTest({ ...o, launchBrowserImpl: launchBrowser });
+  return runCliForTest({
+    ...o,
+    launchBrowserImpl: launchBrowser,
+    _testLiveUiCloseoutGraceMs: LIVE_UI_CLOSEOUT_GRACE_MS,
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -362,6 +367,12 @@ export interface RunCliTestHooks {
    * for canonical git fact ordering tests. Production uses execFileSync.
    */
   readonly _testGitFactSyncExec?: GitFactSyncExec;
+  /**
+   * Test seam: override the live-run UI closeout grace. Production
+   * `runCli` passes `LIVE_UI_CLOSEOUT_GRACE_MS`; tests default to no
+   * delay unless they opt into this behavior.
+   */
+  readonly _testLiveUiCloseoutGraceMs?: number;
   /**
    * Test seam for Slice 2 active-thread binding. Lets tests simulate a
    * future replacement-thread swap without enabling fresh-clear behavior.
@@ -435,6 +446,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     o.runTargetLabel ?? o.fsmPath,
     finalRunDir.root,
   );
+  const liveUiCloseoutGraceMs = o._testLiveUiCloseoutGraceMs ?? 0;
   liveStdout.runStarting({ runId: finalRunDir.runId, runRoot: finalRunDir.root });
   const runEventQueryService = createRunEventQueryService({
     runId: finalRunDir.runId,
@@ -747,7 +759,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     fatalShutdownRequested = true;
     publishRunFailedOnce(message);
     const shutdown = shutdownAfterTerminal.current;
-    void Promise.resolve(shutdown?.())
+    void afterLiveUiCloseoutGrace(async () => {
+      await shutdown?.();
+    })
       .catch((error: unknown) => {
         const err = error instanceof Error ? error : new Error(String(error));
         o.stderr.write(`aharness: shutdown after run failure failed: ${err.message}\n`);
@@ -815,13 +829,8 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     }
     publishPostureChange({ isTerminal: true });
     const complete = async (): Promise<void> => {
-      if (shutdownAfterTerminal.current) {
-        await shutdownAfterTerminal.current();
-      }
-      const terminalMeta = host.currentMeta();
-      liveStdout.completed({
-        state: host.currentStateId(),
-        terminal: terminalMeta?.kind === 'terminal' ? terminalMeta.outcome : 'unknown',
+      await afterLiveUiCloseoutGrace(async () => {
+        await shutdownAfterTerminal.current?.();
       });
       terminalResolve(null);
     };
@@ -1100,6 +1109,14 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     uiServer = undefined;
     if (handle) await handle.close();
   };
+  const waitForLiveUiCloseoutGrace = runOnce(async (): Promise<void> => {
+    if (uiServer === undefined || liveUiCloseoutGraceMs <= 0) return;
+    await delay(liveUiCloseoutGraceMs);
+  });
+  const afterLiveUiCloseoutGrace = async (close: () => Promise<void>): Promise<void> => {
+    await waitForLiveUiCloseoutGrace();
+    await close();
+  };
   try {
     uiServer = await (o.startUiServerImpl ?? startUiServer)({
       host: '127.0.0.1',
@@ -1269,7 +1286,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         const message = 'fresh clear failed: internal: client unbound at fresh-clear time';
         o.stderr.write(`aharness: ${message}\n`);
         publishRunFailedOnce(message);
-        void shutdownAfterTerminal.current?.().finally(() => {
+        void afterLiveUiCloseoutGrace(async () => {
+          await shutdownAfterTerminal.current?.();
+        }).finally(() => {
           terminalResolve({ exitCode: 1 });
         });
         return;
@@ -1318,7 +1337,9 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         const message = `fresh clear failed: ${(error as Error).message}`;
         o.stderr.write(`aharness: ${message}\n`);
         publishRunFailedOnce(message);
-        void shutdownAfterTerminal.current?.().finally(() => {
+        void afterLiveUiCloseoutGrace(async () => {
+          await shutdownAfterTerminal.current?.();
+        }).finally(() => {
           terminalResolve({ exitCode: 1 });
         });
       });
@@ -1490,8 +1511,10 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     const message = `app-server failed: ${(e as Error).message}`;
     o.stderr.write(`aharness: ${message}\n`);
     publishRunFailedOnce(message);
-    closeContextRecorder();
-    await closeUiServer();
+    await afterLiveUiCloseoutGrace(async () => {
+      closeContextRecorder();
+      await closeUiServer();
+    });
     return { exitCode: 1 };
   }
 
@@ -1674,9 +1697,11 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
         `aharness: WS diagnostics:\n${wsDiagnostics.map((m) => `  - ${m}`).join('\n')}\n`,
       );
     }
-    closeContextRecorder();
-    await appServer.close();
-    await closeUiServer();
+    await afterLiveUiCloseoutGrace(async () => {
+      closeContextRecorder();
+      await appServer.close();
+      await closeUiServer();
+    });
     return { exitCode: 1 };
   }
   client = wsHandle.client;
@@ -1736,7 +1761,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     const message = `skill preflight failed: ${(e as Error).message}`;
     o.stderr.write(`aharness: ${message}\n`);
     publishRunFailedOnce(message);
-    await shutdown();
+    await afterLiveUiCloseoutGrace(shutdown);
     return { exitCode: 1 };
   }
   skillInjectionRef.current = createStateSkillInjectionService({
@@ -1755,7 +1780,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     const message = `thread/start failed: ${(e as Error).message}`;
     o.stderr.write(`aharness: ${message}\n`);
     publishRunFailedOnce(message);
-    await shutdown();
+    await afterLiveUiCloseoutGrace(shutdown);
     return { exitCode: 1 };
   }
 
@@ -1783,7 +1808,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       const message = `hook socket failed: ${(e as Error).message}`;
       o.stderr.write(`aharness: ${message}\n`);
       publishRunFailedOnce(message);
-      await shutdown();
+      await afterLiveUiCloseoutGrace(shutdown);
       return { exitCode: 1 };
     }
   }
@@ -1803,7 +1828,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
       return orientation;
     },
     onShutdown: async () => {
-      await shutdown();
+      await afterLiveUiCloseoutGrace(shutdown);
       terminalResolve(null);
     },
     submittedThisTurn: () => submittedThisTurnFlag,
@@ -1925,7 +1950,7 @@ export async function runCliForTest(o: RunCliForTestOpts): Promise<RunCliResult>
     o.stderr.write(`aharness: ${message}\n`);
     publishRunFailedOnce(message);
     router.close();
-    await shutdown();
+    await afterLiveUiCloseoutGrace(shutdown);
     return { exitCode: 1 };
   }
 
@@ -3110,6 +3135,10 @@ function runOnce(fn: () => Promise<void>): () => Promise<void> {
     promise ??= fn();
     return promise;
   };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function createHookDispatchers(i: {

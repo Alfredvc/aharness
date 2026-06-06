@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { formatAggregateStats } from '../state/activity.js';
-import type { UiState } from '../state/store.js';
+import { isReadOnlyMode, type UiState } from '../state/store.js';
 import type { RunScopedAggregateStats } from '../types/events.js';
 
 type RunStatsSession = Pick<UiState, 'aggregateStats' | 'connection' | 'mode' | 'posture' | 'run'>;
@@ -41,8 +41,8 @@ function shouldTickRunDuration(session: RunStatsSession): boolean {
 function statusLabel(session: RunStatsSession): string {
   if (session.connection === 'connecting') return 'connecting';
   if (session.connection === 'lost') return 'lost';
-  if (session.mode === 'inspect') return 'inspect';
   if (session.posture.isTerminal || hasTerminalStatus(session.aggregateStats)) return 'terminal';
+  if (isReadOnlyMode(session.mode)) return session.mode;
   if (session.posture.isAwaiting) return 'awaiting owner';
   return 'live';
 }

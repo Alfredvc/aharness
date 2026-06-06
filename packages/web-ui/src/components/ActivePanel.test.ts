@@ -549,6 +549,44 @@ describe('ActivePanel timeline rows', () => {
     expect(rows.map((row) => row.kind)).toEqual(['approvals']);
   });
 
+  it('keeps view-mode transcript rows while suppressing live tail affordances', () => {
+    const rows = buildRunTranscriptRowsForTest({
+      mode: 'view',
+      items: [
+        {
+          id: 'msg-1',
+          type: 'agent_message',
+          text: 'recorded message',
+          streaming: false,
+          stateVisitId: 'workflow.collect#2',
+        },
+      ],
+      devMode: false,
+      hasAnyVisibleContent: true,
+      turnsLength: 1,
+      showInlineIndicator: true,
+      activity: { kind: 'submitted', label: 'reply submitted', tone: 'plasma', motion: 'wave' },
+      showApprovals: true,
+    });
+
+    expect(rows.map((row) => row.kind)).toEqual(['transcript']);
+  });
+
+  it('uses a passive empty transcript row in view mode before rows load', () => {
+    const rows = buildRunTranscriptRowsForTest({
+      mode: 'view',
+      items: [],
+      devMode: false,
+      hasAnyVisibleContent: false,
+      turnsLength: 0,
+      showInlineIndicator: false,
+      activity: { kind: 'idle', label: 'idle', tone: 'muted', motion: 'still' },
+      showApprovals: false,
+    });
+
+    expect(rows).toEqual([{ kind: 'empty', key: 'empty-run', text: 'no run activity yet' }]);
+  });
+
   it('keeps state transitions inspectable in dev mode while appending tail rows', () => {
     const rows = buildRunTranscriptRowsForTest({
       mode: 'run',
@@ -763,6 +801,94 @@ describe('ActivePanel timeline rows', () => {
     expect(html).toContain('class="ap-interaction-dock"');
     expect(html).toContain('data-interaction-kind="owner-choice"');
     expect(html).toContain('framework choice');
+  });
+
+  it('hides pending owner interactions in view mode while preserving transcript rows', () => {
+    const html = renderActivePanel(
+      baseSession({
+        mode: 'view',
+        posture: {
+          isTerminal: false,
+          isAwaiting: true,
+          submittedThisTurn: true,
+          open: true,
+        },
+        transcript: [
+          {
+            id: 'msg-1',
+            type: 'agent_message',
+            text: 'recorded transcript',
+            streaming: false,
+            stateVisitId: 'workflow.collect#2',
+          },
+        ],
+        pending: {
+          fileApprovals: [],
+          cmdApprovals: [],
+          permissionApprovals: [],
+          elicitations: [],
+          ownerChoice: {
+            kind: 'OwnerChoice',
+            id: 'owner-choice:workflow.pick#2',
+            requestId: 'owner-choice:workflow.pick#2',
+            state: 'workflow.pick',
+            visitCount: 2,
+            question: 'Pick a path',
+            options: [{ label: 'Left' }, { label: 'Right' }],
+          },
+          ownerInput: {
+            kind: 'ServerRequest',
+            id: 'owner-1',
+            method: 'item/tool/requestUserInput',
+            questions: [
+              {
+                id: 'q1',
+                header: 'Plan',
+                question: 'Approve this plan?',
+                isOther: false,
+                isSecret: false,
+              },
+            ],
+          },
+        },
+      }),
+    );
+
+    expect(html).toContain('recorded transcript');
+    expect(html).not.toContain('ap-interaction-dock');
+    expect(html).not.toContain('framework choice');
+    expect(html).not.toContain('Pick a path');
+    expect(html).not.toContain('Approve this plan?');
+    expect(html).not.toContain('reply submitted');
+    expect(html).not.toContain('submitted');
+  });
+
+  it('hides the open-state composer in view mode', () => {
+    const html = renderActivePanel(
+      baseSession({
+        mode: 'view',
+        posture: {
+          isTerminal: false,
+          isAwaiting: false,
+          submittedThisTurn: false,
+          open: true,
+        },
+        transcript: [
+          {
+            id: 'msg-1',
+            type: 'agent_message',
+            text: 'recorded transcript',
+            streaming: false,
+            stateVisitId: 'workflow.collect#2',
+          },
+        ],
+      }),
+    );
+
+    expect(html).toContain('recorded transcript');
+    expect(html).not.toContain('ap-interaction-dock');
+    expect(html).not.toContain('Type a message to the model');
+    expect(html).not.toContain('POST /api/runs/:runId/reply');
   });
 
   it('still suppresses duplicate state transitions inside scoped visit rows', () => {

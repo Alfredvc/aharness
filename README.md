@@ -50,8 +50,9 @@ runs leave inspectable artifacts.
   run-global skill availability from FSM source.
 - **Inspectable runs.** Every run writes a canonical transcript and declared
   artifacts under `.aharness/runs/<runId>/`.
-- **A browser view.** Live runs and `visualize` show the workflow graph,
-  current state, compact transcript, approvals, and run stats.
+- **A browser view.** Live `run` sessions show current state, compact
+  transcript, approvals, and run stats; `visualize` opens static FSM
+  inspection; `view` opens recorded run history read-only.
 
 ## Install
 
@@ -96,6 +97,7 @@ npx aharness verify ./workflow.fsm.ts
 npx aharness visualize ./workflow.fsm.ts
 npx aharness run ./workflow.fsm.ts --help
 npx aharness run ./workflow.fsm.ts
+npx aharness view [run-id]
 ```
 
 - `verify` checks the machine before Codex starts.
@@ -104,6 +106,9 @@ npx aharness run ./workflow.fsm.ts
   you start the run.
 - `aharness run ./workflow.fsm.ts` starts a foreground Codex run and opens the
   browser UI for owner input and any approval prompts routed to the user.
+- `aharness view [run-id]` opens a foreground, read-only browser view over a
+  recorded run. Without a run id, it selects the newest
+  `.aharness/runs/<runId>/events.jsonl`.
 
 Machine inputs become kebab-case flags, so `fixtureRoot` is passed as
 `--fixture-root`.
@@ -218,6 +223,15 @@ The default browser transcript focuses on model/owner messages, tool summaries,
 failures, and live interaction cards; dev mode exposes protocol/state/lifecycle
 rows and successful tool output when you need to inspect the run plumbing.
 
+When a live run reaches a terminal state, the CLI writes the final status and
+keeps the UI routes available for about 10 seconds before shutdown if a UI
+server exists. Signals during that closeout grace still shut down promptly.
+
+Recorded inspection uses `aharness view [run-id]`. It serves the same browser
+shell until you stop it, projects canonical JSONL through the run-scoped APIs,
+and does not start Codex, an app-server, or a live thread. The optional argument
+is a run id, not a filesystem path.
+
 Run directories are sensitive. `.aharness/runs/<runId>/events.jsonl` can include
 raw owner input, browser replies, tool arguments and results, command output,
 file diffs, approval data, and token usage payloads. `events.jsonl` can also
@@ -248,6 +262,7 @@ aharness verify <file.fsm.ts>
 aharness visualize <file.fsm.ts>
 aharness run <file.fsm.ts> --help
 aharness run [--ask|--yolo] <file.fsm.ts|command> [--<input-flag> <value>]...
+aharness view [run-id]
 aharness doctor
 aharness install <source>
 ```

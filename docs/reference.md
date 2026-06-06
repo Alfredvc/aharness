@@ -236,6 +236,7 @@ Built-in event keys are reserved:
 aharness run [--ask|--yolo] <file.fsm.ts|command> [--<flag> <value>]...
 aharness run <file.fsm.ts> --help
 aharness visualize <file.fsm.ts> [--<flag> <value>]...
+aharness view [run-id]
 aharness verify <file.fsm.ts>
 aharness doctor
 aharness init --dir <path> [--force] [--no-git] [--no-install] [--pm <npm|pnpm|yarn|bun>]
@@ -278,6 +279,30 @@ are not part of this slice and return generic usage.
 `aharness visualize` does not require runtime input flags; any provided flags
 are checked for name/type validity but are not used to start an actor.
 
+`aharness view [run-id]` opens a foreground, read-only browser session for a
+recorded run under `.aharness/runs`. With no run id, it selects the newest
+`.aharness/runs/<runId>/events.jsonl` by run-directory mtime, using the
+directory name as a lexical tie-break. The optional argument is a run id only;
+filesystem paths are not accepted. The canonical run id comes from the selected
+event log, so the browser URL and run-scoped API routes use the recorded id
+rather than trusting the directory name.
+
+View mode projects recorded canonical JSONL through the same run-scoped
+bootstrap, rows, events, summary, and SSE APIs used by live runs. It does not
+start Codex, a Codex `app-server`, a live thread, hooks, or the FSM actor.
+Replies are unavailable in view mode, and crafted reply requests are rejected.
+The browser labels the session as view, shows recorded transcript/history/stats
+and final overview data when present, and hides or disables live reply surfaces,
+pending cards, approval shortcuts, owner input/choice controls, and the open
+composer.
+
+Recorded topology recovery is best-effort. When the recorded `run.started`
+metadata includes `repoRoot` and `fsmFile`, `aharness view` imports that FSM
+source and extracts the graph topology. If recovery fails, the CLI prints a
+warning and continues with an empty topology. This import has the same
+import-time trust boundary as `aharness verify` and `aharness run`: only open
+recorded runs whose FSM source you are willing to execute at import time.
+
 `aharness completion install` delegates to `@pnpm/tabtab` and writes the
 shell-side completion delegate for bash, zsh, or fish. That delegate invokes
 the hidden `aharness completion-server` bridge on every Tab press; bare
@@ -311,13 +336,20 @@ messages, tool activity, approvals, diagnostics, and raw event payloads remain
 available through the browser UI, sensitive run artifacts, or standard error as
 appropriate.
 
+When a live run reaches a terminal state, the CLI emits the final stdout summary
+and canonical terminal event, then keeps run-scoped UI routes available for
+about 10 seconds before automatic shutdown if a UI server exists. `SIGINT` and
+`SIGTERM` during that closeout grace still shut down promptly. Unlike `run`,
+`aharness view` continues serving its read-only browser session until you stop
+the process.
+
 During live runs, the same browser shell also shows the active turn state and a
 polished transcript with state transitions, lifecycle rows, markdown assistant
 messages, concise tool/MCP/subagent rows, and fresh-clear boundaries. Internal
 aharness submit plumbing remains hidden from all transcript views; owner-input
 plumbing remains hidden from the default view.
-Current live and dev replay transcript rows are driven by API-safe compact rows,
-including command display fields such as `data.row.data.displayKind`,
+Current live and recorded-view transcript rows are driven by API-safe compact
+rows, including command display fields such as `data.row.data.displayKind`,
 `data.row.data.command`, row `output`, row `elapsedMs`, and summary-only
 file-change activity. These compact file-change rows expose safe
 status/path/count summaries, not diff bodies; full raw file diffs remain
@@ -379,7 +411,7 @@ overview dashboard with completion outcome, total time, completion status, token
 burn, cache-hit rate, main/subthread token split, transition and turn tiles,
 four compact tiles for transitions, turns, files changed, and lines changed, and
 "Where the time went" bars for top state buckets. Live terminal completion and
-terminal inspect/replay bootstrap can auto-open this overview once per page
+recorded view bootstrap can auto-open this overview once per page
 load. After dismissal, the terminal-only header `Summary` action reopens it.
 Active non-terminal runs do not show the action or modal.
 

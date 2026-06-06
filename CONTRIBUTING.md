@@ -68,30 +68,33 @@ Codex requires changed repo-local command hooks to be reviewed before they run.
 When Codex reports that hooks need review, open `/hooks` in the CLI and trust the
 current hook definition for this repository.
 
-## Dev-Only Event Log Replay
+## Recorded Run UI Inspection
 
-For UI visualization work, use the spike replay helper to open the browser UI
-against the first N canonical events from an existing run log:
+For UI visualization work against an existing run log, use the public recorded
+run viewer:
 
 ```bash
-pnpm run replay .aharness/runs/<run-id> 120
+pnpm exec aharness view <run-id>
 ```
 
-The first argument can be a run directory or an `events.jsonl` file. The second
-argument is the number of non-empty events to load immediately; there is no
-timed playback. Open the printed URL in a browser to inspect the run transcript
-and visualizations.
+Omit the run id to open the newest `.aharness/runs/<runId>/events.jsonl` by run
+directory mtime, with directory name as the lexical tie-break. The optional
+argument is a run id only, not a path. Open the printed URL in a browser to
+inspect the recorded transcript, history, stats, graph, and final overview when
+the log contains that data.
 
-This helper is intentionally not a public CLI command. It starts only a local
-UI server for dev/test inspection, does not launch Codex, and drains selected
-canonical events through the same run-scoped SSE reducer path as live runs,
-including context snapshot events. Its bootstrap seed remains minimal so ordered
-event replay is what restores the latest context. If source changes need fresh
-built server or UI assets, run `pnpm run build` first.
+`aharness view` serves until you stop it. It projects recorded canonical JSONL
+through the same run-scoped browser APIs used by live runs, but it is read-only:
+it does not launch Codex, start an app-server or live thread, or accept replies.
+Topology recovery is best-effort and imports the FSM source recorded in
+`run.started` metadata when available; import failures warn and continue with an
+empty topology. Treat that import with the same trust boundary as `verify` and
+`run`.
 
-Replay is supported for current-version canonical event logs. The helper does
-not guarantee polished transcript rendering for logs from older aharness
-versions, and it does not backfill old compact-row shapes from raw payloads.
+Run directories remain sensitive. `.aharness/runs/<runId>/events.jsonl` can
+contain raw owner input, browser replies, tool arguments and results, command
+output, file diffs, approval data, token usage, sub-thread activity, and public
+workflow context snapshots.
 
 ## Publishing
 

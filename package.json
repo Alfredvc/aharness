@@ -19,7 +19,6 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "replay": "node scripts/spikes/replay-run-prefix-ui.mjs",
     "check:no-workflow-terms": "node scripts/check-no-workflow-terms.mjs",
     "check:no-stale-stateless-contracts": "node scripts/check-no-stale-stateless-contracts.mjs",
     "verify": "pnpm run format:check && pnpm run lint && pnpm run check:no-workflow-terms && pnpm run check:no-stale-stateless-contracts && pnpm run typecheck && pnpm --dir packages/web-ui run typecheck && pnpm --dir packages/core run verify:codex-bump && pnpm run build && pnpm run test",

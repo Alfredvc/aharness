@@ -31,9 +31,24 @@ or failed summary. It does not carry raw model deltas, tool detail, approval
 payloads, or canonical event detail; those remain in the browser UI, run
 artifacts, or diagnostics channels according to their sensitivity and use.
 
+After a terminal live run has written the final status and terminal event, the
+CLI keeps the run-scoped UI routes available for about 10 seconds before
+automatic shutdown when a UI server exists. Signal handling during that grace
+still takes the prompt shutdown path.
+
 For read-only FSM inspection, `aharness visualize <file.fsm.ts>` verifies and
 opens the same graph/details UI without starting Codex, hooks, a thread, or the
 FSM actor.
+
+For recorded-run inspection, `aharness view [run-id]` opens a foreground,
+read-only browser session over a canonical `.aharness/runs/<runId>/events.jsonl`
+log. With no run id it selects the newest run directory that contains an
+`events.jsonl` file, using directory mtime and a lexical directory-name
+tie-break. The optional argument is a run id only, not a path. View mode reads
+the canonical run id from the selected log, serves recorded JSONL through the
+same run-scoped projection APIs as live runs, and does not start Codex, a Codex
+`app-server`, hooks, a live thread, or the FSM actor. It serves until the user
+stops it.
 
 Codex writes code, runs tools, and produces natural-language reasoning. aharness
 does not ask Codex to remember the workflow. Instead, aharness exposes only the
@@ -50,6 +65,11 @@ of the default transcript and are available through dev mode when needed.
 Terminal or aggregate-completed runs continue to display completed/failed shell
 status when the foreground SSE stream closes, so stream loss does not mask a
 known terminal outcome.
+
+Recorded view sessions use the same compact transcript, visit, stats, and final
+overview projections when the recorded log contains the necessary events, but
+the browser labels the session as view and hides or disables live-only reply,
+owner-input, owner-choice, approval, pending-card, and open-composer surfaces.
 Selecting a graph state switches the right panel to that state's historical
 visits, grouped chronologically by visit id. Visits that only contain filtered
 state-transition rows render as transition-only visit summaries rather than
@@ -158,11 +178,13 @@ text.
 
 ## Artifacts And Runs
 
-Each invocation creates a fresh run directory under `.aharness/runs/<runId>/`.
+Each `aharness run` invocation creates a fresh run directory under
+`.aharness/runs/<runId>/`.
 Run artifacts include the canonical `events.jsonl` transcript, terminal
 reports, and any final artifacts declared by the FSM. These files are
-inspection evidence for the run; the current public CLI starts a new run and
-Codex thread for each invocation.
+inspection evidence for the run; `aharness run` starts a new run and Codex
+thread for each invocation, while `aharness view` reads an existing canonical
+event log without creating a Codex runtime.
 
 For new runs, `events.jsonl` is a canonical `aharness.event.v1` transcript. It
 stores compact normalized event data plus full raw runtime payloads inline,
@@ -206,10 +228,16 @@ generic request/reply protocol rows stay hidden unless dev mode is enabled.
 Terminal final-overview auto-open waits for local `completionStats`; automatic
 summary fetch failures stay off-screen so a foreground UI shutdown cannot cover
 a successful terminal transcript with a failed modal.
+
 The live run-event projection tails the same canonical JSONL and catches up
 from disk when compatibility writers append events outside the live publisher,
 so later terminal events are not dropped because an artifact metadata event
 landed through the legacy writer path.
+
+Recorded view mode uses these same run-scoped JSONL projections over the
+selected log instead of a live publisher. Its route service exposes recorded
+bootstrap, rows, event pages, SSE, and summaries, but replies are rejected
+read-only.
 Those compact rows can include command display fields such as `data.row.data.displayKind`,
 `data.row.data.command`, row `output`, row `elapsedMs`, and summary-only
 file-change transcript rows. File-change rows expose safe display summaries
@@ -234,6 +262,13 @@ turn ribbon are no longer user-facing chrome. The old flat `/api/state`,
 `/api/stream`, and `/api/reply` browser routes are no longer served for new
 runs. Production live runs do not write `snapshot.json`; retained snapshot
 helper exports are legacy/internal compatibility only.
+
+View topology recovery is best-effort. When `run.started` metadata records
+`repoRoot` and `fsmFile`, `aharness view` imports that recorded FSM source and
+extracts semantic topology for the browser. Import failures warn and continue
+with an empty topology. That recovery has the same import-time trust boundary as
+`aharness verify` and `aharness run`, so recorded runs should only be opened
+when the referenced FSM source is trusted enough to import.
 
 ## Package Boundaries
 

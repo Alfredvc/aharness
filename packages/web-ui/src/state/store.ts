@@ -309,6 +309,10 @@ export type ReplyPayload =
   | { kind: 'owner-choice'; state: string; visitCount: number; label: string }
   | { kind: 'user-prompt'; text: string };
 
+export function isReadOnlyMode(mode: UiMode): boolean {
+  return mode === 'inspect' || mode === 'view';
+}
+
 export const EMPTY_TOPOLOGY: Topology = {
   machineId: '',
   initial: '',
@@ -2142,13 +2146,13 @@ export function useAharnessSession(
 
   const reply = useCallback(
     async (p: ReplyPayload) => {
-      if (!uiToken) {
-        throw new Error('UI token is unavailable');
-      }
-      if (s.mode === 'inspect') {
-        const error = new Error('Replies are unavailable in inspect mode');
+      if (isReadOnlyMode(s.mode)) {
+        const error = new Error(`Replies are unavailable in ${s.mode} mode`);
         dispatch({ type: 'replyFailed', error: error.message });
         throw error;
+      }
+      if (!uiToken) {
+        throw new Error('UI token is unavailable');
       }
       const runId = s.run?.runId;
       if (!runId) {

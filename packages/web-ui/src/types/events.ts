@@ -14,7 +14,7 @@ export type RunMeta = {
   startedAt: string;
 };
 
-export type UiMode = 'run' | 'inspect';
+export type UiMode = 'run' | 'inspect' | 'view';
 
 export type Posture = {
   isTerminal: boolean;
@@ -663,7 +663,12 @@ export function isRunScopedBootstrap(value: unknown): value is RunScopedBootstra
   if (!isRunScopedAggregateStats(value['aggregateStats'])) return false;
   if (!isArrayOf(value['recentRows'], isRunScopedCompactRow)) return false;
   if (!isArrayOf(value['diagnostics'], isRunScopedReplayDiagnostic)) return false;
-  if (value['mode'] !== undefined && value['mode'] !== 'run' && value['mode'] !== 'inspect') {
+  if (
+    value['mode'] !== undefined &&
+    value['mode'] !== 'run' &&
+    value['mode'] !== 'inspect' &&
+    value['mode'] !== 'view'
+  ) {
     return false;
   }
   return true;

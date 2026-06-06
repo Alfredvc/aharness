@@ -54,13 +54,15 @@ plans unless the task explicitly asks for historical context.
   recorded as `context.initialized` and `context.changed` events. Treat run
   directories as sensitive even when the browser transcript does not display
   those context values by default.
-- Dev-only UI replay for visualization work lives in
-  `scripts/spikes/replay-run-prefix-ui.mjs`. It accepts a run directory or
-  `events.jsonl` plus an event count, starts a local UI server, drains selected
-  canonical events through the same run-scoped SSE reducer path as live runs,
-  including context snapshot events, and does not launch Codex. Its bootstrap
-  seed remains minimal so ordered event replay is what restores the latest
-  context. See `CONTRIBUTING.md` before using or changing it.
+- Recorded-run UI inspection is the public foreground
+  `aharness view [run-id]` command. It selects the newest recorded run when no
+  run id is provided, accepts a run id only, projects recorded canonical JSONL
+  through the same run-scoped browser APIs as live runs, and does not start
+  Codex, an app-server, or a live thread. View mode is read-only; crafted
+  replies are rejected. Topology recovery imports the recorded FSM source on a
+  best-effort basis using recorded `repoRoot`/`fsmFile` metadata when present,
+  warns and continues with empty topology on failure, and has the same
+  import-time trust boundary as `verify` and `run`.
 
 ## Files to avoid editing
 

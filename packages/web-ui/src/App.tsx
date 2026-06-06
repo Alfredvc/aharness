@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { readBootToken, useAharnessSession, type UiState } from './state/store';
+import { isReadOnlyMode, readBootToken, useAharnessSession, type UiState } from './state/store';
 import { Graph } from './components/Graph';
 import { ActivePanel } from './components/ActivePanel';
 import { BootSkeleton } from './components/BootSkeleton';
@@ -33,11 +33,17 @@ function shellStatus(session: UiState): ShellStatus {
     return { label: 'connecting', tone: 'plasma', terminalish: false };
   }
   if (session.connection === 'lost') return { label: 'lost', tone: 'rose', terminalish: false };
-  if (session.mode === 'inspect') return { label: 'inspect', tone: 'indigo', terminalish: false };
+  if (isReadOnlyMode(session.mode)) {
+    return { label: session.mode, tone: 'indigo', terminalish: false };
+  }
   if (session.posture.isAwaiting) {
     return { label: 'awaiting owner', tone: 'amber', terminalish: false };
   }
   return { label: 'live', tone: 'indigo', terminalish: false };
+}
+
+export function documentTitleForMode(mode: UiState['mode']): string {
+  return `aharness - ${mode}`;
 }
 
 function runStatsSession(session: ShellSession, status: ShellStatus): ShellSession {
@@ -62,7 +68,7 @@ export function AharnessShell({ session }: { session: ReturnType<typeof useAharn
   const statsSession = runStatsSession(session, status);
 
   useEffect(() => {
-    document.title = session.mode === 'inspect' ? 'aharness · inspect' : 'aharness · run';
+    document.title = documentTitleForMode(session.mode);
   }, [session.mode]);
 
   // Global keybinds: A/D for top approval, J/K nav, ? for help, V dev mode.
@@ -83,6 +89,7 @@ export function AharnessShell({ session }: { session: ReturnType<typeof useAharn
         session.toggleDevMode();
         return;
       }
+      if (isReadOnlyMode(session.mode)) return;
       const topApproval = session.pending.fileApprovals[0] ?? session.pending.cmdApprovals[0];
       if (!topApproval) return;
       if (e.key === 'a' || e.key === 'A') {
@@ -159,7 +166,7 @@ function TopHeader({
       <div className="brand">
         <span className="brand-name">aharness</span>
         <span className="brand-dot" data-tone={posturePill.tone} aria-hidden />
-        <span className="brand-it">·&nbsp;{session.mode === 'inspect' ? 'inspect' : 'run'}</span>
+        <span className="brand-it">·&nbsp;{session.mode}</span>
       </div>
       <div className="top-meta">
         <span className="pill" data-tone={posturePill.tone}>

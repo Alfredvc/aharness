@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { AharnessShell } from './App.js';
+import { AharnessShell, documentTitleForMode } from './App.js';
 import { RunStatsBar } from './components/RunStatsBar.js';
 import type { UiActions, UiState } from './state/store.js';
 
@@ -104,6 +104,55 @@ function baseSession(overrides: Partial<TestSession> = {}): TestSession {
 }
 
 describe('AharnessShell run stats chrome', () => {
+  it('labels view mode as read-only view chrome instead of live execution', () => {
+    const html = renderToStaticMarkup(
+      createElement(AharnessShell, {
+        session: baseSession({
+          mode: 'view',
+          posture: {
+            isTerminal: false,
+            isAwaiting: true,
+            submittedThisTurn: false,
+            open: false,
+          },
+        }),
+      }),
+    );
+
+    expect(html).toContain('·\u00a0view');
+    expect(html.match(/>view</g) ?? []).toHaveLength(2);
+    expect(html).not.toContain('·\u00a0run');
+    expect(html).not.toContain('>live<');
+    expect(html).not.toContain('awaiting owner');
+  });
+
+  it('uses the boot mode in the document title', () => {
+    expect(documentTitleForMode('run')).toBe('aharness - run');
+    expect(documentTitleForMode('inspect')).toBe('aharness - inspect');
+    expect(documentTitleForMode('view')).toBe('aharness - view');
+  });
+
+  it('keeps terminal status and summary controls for terminal view-mode runs', () => {
+    const html = renderToStaticMarkup(
+      createElement(AharnessShell, {
+        session: baseSession({
+          mode: 'view',
+          posture: {
+            isTerminal: true,
+            isAwaiting: false,
+            submittedThisTurn: false,
+            open: false,
+          },
+        }),
+      }),
+    );
+
+    expect(html).toContain('·\u00a0view');
+    expect(html.match(/>terminal</g) ?? []).toHaveLength(2);
+    expect(html).toContain('>summary<');
+    expect(html).not.toContain('>live<');
+  });
+
   it('prioritizes completed run status over a lost stream', () => {
     const html = renderToStaticMarkup(
       createElement(AharnessShell, {

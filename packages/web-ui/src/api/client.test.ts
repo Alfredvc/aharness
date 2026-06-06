@@ -339,6 +339,7 @@ describe('run-scoped API client', () => {
   it('accepts bootstrap completionStats for active and terminal runs', () => {
     expect(isRunScopedBootstrap(bootstrap({ completionStats: null }))).toBe(true);
     expect(isRunScopedBootstrap(bootstrap({ completionStats: completionStats() }))).toBe(true);
+    expect(isRunScopedBootstrap(bootstrap({ mode: 'view' }))).toBe(true);
     expect(
       isRunScopedBootstrap(
         bootstrap({
@@ -354,7 +355,9 @@ describe('run-scoped API client', () => {
   it('reads boot run id and inspect mode from URL search params', () => {
     expect(readBootRunId('?token=t&runId=run%2Fencoded&mode=inspect')).toBe('run/encoded');
     expect(readBootMode('?token=t&runId=run-1&mode=inspect')).toBe('inspect');
+    expect(readBootMode('?token=t&runId=run-1&mode=view')).toBe('view');
     expect(readBootMode('?token=t&runId=run-1')).toBe('run');
+    expect(readBootMode('?token=t&runId=run-1&mode=unknown')).toBe('run');
     expect(() => readBootRunId('?token=t')).toThrow(ApiClientError);
   });
 

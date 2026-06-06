@@ -293,6 +293,7 @@ describe('runCompletionBridge — root completion', () => {
       'run',
       'uninstall',
       'verify',
+      'view',
       'visualize',
     ]);
   });

@@ -10,6 +10,7 @@ import {
   failFinalOverviewSummaryLoad,
   hasVisibleContent,
   hydrateFromBootstrap,
+  isReadOnlyMode,
   markConnectionLost,
   openFinalOverviewState,
   startFinalOverviewSummaryLoad,
@@ -3130,6 +3131,24 @@ describe('headless production store helpers', () => {
     expect(state.mode).toBe('inspect');
     expect(state.devMode).toBe(true);
     expect(state.topology).toEqual(topology);
+  });
+
+  it('hydrates view-mode snapshots with normal transcript defaults', () => {
+    const state = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      mode: 'view',
+    });
+
+    expect(state.mode).toBe('view');
+    expect(state.devMode).toBe(false);
+    expect(state.transcript.map((item) => item.type)).toEqual(['state_change']);
+    expect(isReadOnlyMode(state.mode)).toBe(true);
+  });
+
+  it('treats only inspect and view as read-only UI modes', () => {
+    expect(isReadOnlyMode('run')).toBe(false);
+    expect(isReadOnlyMode('inspect')).toBe(true);
+    expect(isReadOnlyMode('view')).toBe(true);
   });
 
   it('hydrates abandoned-thread diagnostics from the legacy flat snapshot fixture contract', () => {

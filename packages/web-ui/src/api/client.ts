@@ -154,7 +154,8 @@ export function readBootRunId(
 export function readBootMode(
   search = typeof window === 'undefined' ? '' : window.location.search,
 ): UiMode {
-  return new URLSearchParams(search).get('mode') === 'inspect' ? 'inspect' : 'run';
+  const mode = new URLSearchParams(search).get('mode');
+  return mode === 'inspect' || mode === 'view' ? mode : 'run';
 }
 
 export async function fetchBootstrap(options: {

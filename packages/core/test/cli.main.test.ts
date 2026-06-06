@@ -28,6 +28,10 @@ function buildStubs() {
       void o;
       return { exitCode: 0 };
     }),
+    runView: vi.fn(async (o: { runId?: string }) => {
+      void o;
+      return { exitCode: 0 };
+    }),
     runCompletionInstall: vi.fn(
       async (o: { name?: string; completer?: string; shell?: 'bash' | 'zsh' | 'fish' }) => {
         void o;
@@ -103,6 +107,7 @@ function expectNoHandlersCalled(s: DispatcherStubs): void {
   expect(s.runVerify).not.toHaveBeenCalled();
   expect(s.runDoctor).not.toHaveBeenCalled();
   expect(s.runVisualize).not.toHaveBeenCalled();
+  expect(s.runView).not.toHaveBeenCalled();
   expect(s.runCompletionInstall).not.toHaveBeenCalled();
   expect(s.runCompletionUninstall).not.toHaveBeenCalled();
   expect(s.runCompletionBridge).not.toHaveBeenCalled();
@@ -619,6 +624,7 @@ describe('dispatch', () => {
     expect(text).toContain('aharness list');
     expect(text).toContain('aharness uninstall <package-name>');
     expect(text).toContain('aharness verify <package-name>');
+    expect(text).toContain('aharness view [run-id]');
     expect(text).not.toContain('[--resume]');
   });
 
