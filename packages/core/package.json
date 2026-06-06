@@ -34,7 +34,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "rimraf dist && tsc --build --force && pnpm --dir ../web-ui build && node scripts/postBuild.mjs",
+    "build": "pnpm --dir ../.. run sync:package-readmes && rimraf dist && tsc --build --force && pnpm --dir ../web-ui build && node scripts/postBuild.mjs",
     "clean": "tsc --build --clean",
     "verify:codex-bump": "esbuild scripts/verify-codex-bump.ts --bundle --platform=node --format=esm --packages=external --outfile=/tmp/aharness-core-verify-codex-bump.mjs && node /tmp/aharness-core-verify-codex-bump.mjs"
   },

@@ -10,7 +10,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "tsc --build && pnpm --dir packages/web-ui build && pnpm --dir packages/core exec node scripts/postBuild.mjs",
+    "build": "pnpm run sync:package-readmes && tsc --build && pnpm --dir packages/web-ui build && pnpm --dir packages/core exec node scripts/postBuild.mjs",
     "clean": "tsc --build --clean && rimraf packages/core/dist packages/test-support/dist packages/web-ui/dist packages/core/*.tsbuildinfo packages/test-support/*.tsbuildinfo",
     "typecheck": "tsc --noEmit --project tsconfig.lint.json",
     "lint": "oxlint --max-warnings 0",
@@ -19,9 +19,11 @@
     "format:check": "prettier --check .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "sync:package-readmes": "node scripts/sync-package-readmes.mjs",
+    "check:package-readmes": "node scripts/sync-package-readmes.mjs --check",
     "check:no-workflow-terms": "node scripts/check-no-workflow-terms.mjs",
     "check:no-stale-stateless-contracts": "node scripts/check-no-stale-stateless-contracts.mjs",
-    "verify": "pnpm run format:check && pnpm run lint && pnpm run check:no-workflow-terms && pnpm run check:no-stale-stateless-contracts && pnpm run typecheck && pnpm --dir packages/web-ui run typecheck && pnpm --dir packages/core run verify:codex-bump && pnpm run build && pnpm run test",
+    "verify": "pnpm run format:check && pnpm run lint && pnpm run check:no-workflow-terms && pnpm run typecheck && pnpm --dir packages/web-ui run typecheck && pnpm --dir packages/core run verify:codex-bump && pnpm run build && pnpm run check:package-readmes && pnpm run check:no-stale-stateless-contracts && pnpm run test",
     "verify:release": "node scripts/verify-release-workflows.mjs && node scripts/verify-release-manifests.mjs --release-gate",
     "prepare": "husky",
     "doctor": "react-doctor"

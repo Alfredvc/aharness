@@ -5,6 +5,10 @@ import { dirname, join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import {
+  buildCorePackageReadme,
+  findRootRelativeMarkdownLinks,
+} from '../../../scripts/sync-package-readmes.mjs';
 import { findStaleDistArtifacts } from '../../../scripts/verify-no-stale-dist.mjs';
 import { verifyPackedManifest } from '../../../scripts/verify-release-manifests.mjs';
 
@@ -32,6 +36,11 @@ function readPackageJson(path: string): Record<string, unknown> {
     string,
     unknown
   >;
+}
+
+function readPackageScripts(path: string): Record<string, string> {
+  const pkg = readPackageJson(path);
+  return pkg.scripts as Record<string, string>;
 }
 
 function makeTempDir(prefix: string): string {
@@ -145,19 +154,37 @@ describe('release manifest readiness', () => {
   });
 
   it('root verify wires UI typecheck and Codex drift checks', () => {
-    const pkg = readPackageJson('.');
-    const scripts = pkg.scripts as Record<string, string>;
+    const scripts = readPackageScripts('.');
 
+    expect(scripts['sync:package-readmes']).toBe('node scripts/sync-package-readmes.mjs');
+    expect(scripts['check:package-readmes']).toBe('node scripts/sync-package-readmes.mjs --check');
+    expect(scripts.verify).toContain('pnpm run check:package-readmes');
     expect(scripts.verify).toContain('packages/web-ui run typecheck');
     expect(scripts.verify).toContain('packages/core run verify:codex-bump');
     expect(scripts.build).not.toContain(`${retiredVizPackageDir} build`);
     expect(scripts['verify:release']).toContain('scripts/verify-release-manifests.mjs');
   });
 
+  it('build scripts regenerate package READMEs before packaging artifacts', () => {
+    const rootScripts = readPackageScripts('.');
+    const coreScripts = readPackageScripts('packages/core');
+
+    expect(rootScripts.build).toContain('pnpm run sync:package-readmes');
+    expect(coreScripts.build).toContain('pnpm --dir ../.. run sync:package-readmes');
+  });
+
   it('documents package-level READMEs for publishable packages', () => {
     for (const packageDir of publishablePackageDirs) {
       expect(existsSync(join(root, packageDir, 'README.md'))).toBe(true);
     }
+  });
+
+  it('@aharness/core package README mirrors the root npm-facing README', () => {
+    const rootReadme = readFileSync(join(root, 'README.md'), 'utf8');
+    const coreReadme = readFileSync(join(root, 'packages/core/README.md'), 'utf8');
+
+    expect(coreReadme).toBe(buildCorePackageReadme(rootReadme));
+    expect(findRootRelativeMarkdownLinks(coreReadme)).toEqual([]);
   });
 
   it('license file and package license fields are Apache-2.0', () => {

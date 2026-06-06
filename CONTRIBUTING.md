@@ -122,7 +122,9 @@ Keep public docs small and navigable:
 
 - root overview and launch path live in `README.md`;
 - user-facing guides live under lowercase `docs/` files;
-- package-specific details live in each package README;
+- package-specific details live in each package README. `packages/core/README.md`
+  is generated from the root README for the npm package page; after editing the
+  root README, run `pnpm run sync:package-readmes`;
 - internal specs and plans remain archival context unless a task explicitly
   asks to update them.
 
