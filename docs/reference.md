@@ -253,6 +253,9 @@ aharness completion install [--shell bash|zsh|fish]
 aharness completion uninstall
 ```
 
+`aharness init` scaffolds a package-shaped hello-world FSM project with source
+under `fsms/`, a short `.fsm.js` export, and matching package command metadata.
+
 Machine inputs become kebab-case flags for
 `aharness run <file.fsm.ts|command>` and
 `aharness visualize <file.fsm.ts|command>`.
@@ -592,37 +595,13 @@ loop/back edge; they do not expose renderer-local taxonomy names.
 
 ## FSM Packages
 
-Reusable FSM packages are npm-shaped packages with explicit command metadata in
-`package.json`:
+Reusable FSM packages are npm packages with explicit
+`aharness.package.commands` metadata. See [`fsm-packages.md`](./fsm-packages.md)
+for the package structure, short FSM export convention, composition pattern,
+skills, assets, and install flow.
 
-```json
-{
-  "name": "@scope/tools",
-  "version": "1.0.0",
-  "type": "module",
-  "dependencies": {
-    "@aharness/core": "^0.1.0"
-  },
-  "aharness": {
-    "package": {
-      "commands": {
-        "build": {
-          "entry": "fsms/build.fsm.ts",
-          "description": "Build project artifacts"
-        }
-      }
-    }
-  }
-}
-```
-
-Each command entry must be a package-root-relative `.fsm.ts` file. aharness
-validates entries, package-relative asset calls, and `@aharness/core`
-compatibility during install before writing trusted command-index records.
-FSM source remains the source of truth for bundled skill availability: declare
-supporting skill directories or paths in `fsm.machine({ availableSkills })`, and
-declare immediate per-state skill selections in state `skills`.
-Packages are installed and run through the global CLI:
+Each command entry must be a package-root-relative `.fsm.ts` file. Packages are
+installed and run through the global CLI:
 
 ```bash
 aharness install @scope/tools

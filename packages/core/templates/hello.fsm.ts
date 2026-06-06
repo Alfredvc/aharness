@@ -11,6 +11,10 @@ interface Data {
   name: string | null;
 }
 
+interface DoneOutput {
+  readonly name: string | null;
+}
+
 const fsm = createFsm<Data>();
 
 export const machine = fsm.machine({
@@ -34,8 +38,16 @@ export const machine = fsm.machine({
         }),
       },
     }),
-    done: fsm.final({ outcome: 'success' }),
+    done: fsm.final({
+      outcome: 'success',
+      output: (data): DoneOutput => ({ name: data.name }),
+    }),
   },
 });
+
+export type HelloMachine = typeof machine;
+export type HelloInput = NonNullable<HelloMachine['__inputType']>;
+export type HelloFinals = NonNullable<HelloMachine['__finalsType']>;
+export type HelloOutput = DoneOutput;
 
 export default machine;

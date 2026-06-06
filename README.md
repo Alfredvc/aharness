@@ -338,6 +338,8 @@ behavior, `--ask`, `--yolo`, and `--no-open`.
 
 - [`docs/authoring.md`](docs/authoring.md) teaches the workflow authoring
   mental model.
+- [`docs/fsm-packages.md`](docs/fsm-packages.md) explains how to publish,
+  install, run, and compose reusable FSM packages.
 - [`docs/reference.md`](docs/reference.md) documents the public SDK and CLI.
 - [`docs/architecture.md`](docs/architecture.md) explains the Codex/aharness
   runtime boundary.

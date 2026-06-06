@@ -1,14 +1,17 @@
 {
   "name": "__PROJECT_NAME__",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
   "engines": {
     "node": ">=20"
   },
+  "files": ["fsms", "README.md"],
+  "exports": {
+    "./hello.fsm.js": "./fsms/hello.fsm.ts"
+  },
   "scripts": {
-    "start": "aharness run ./hello.fsm.ts",
-    "verify": "aharness verify ./hello.fsm.ts",
+    "start": "aharness run ./fsms/hello.fsm.ts",
+    "verify": "aharness verify ./fsms/hello.fsm.ts",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint --max-warnings 0",
     "lint:fix": "oxlint --fix",
@@ -16,8 +19,7 @@
     "format:check": "prettier --check ."
   },
   "dependencies": {
-    "@aharness/core": "^0.1.0",
-    "xstate": "^5.19.0"
+    "@aharness/core": "^0.1.0"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
@@ -25,5 +27,15 @@
     "oxlint-tsgolint": "^0.22.1",
     "prettier": "^3.8.3",
     "typescript": "^6.0.3"
+  },
+  "aharness": {
+    "package": {
+      "commands": {
+        "hello": {
+          "entry": "fsms/hello.fsm.ts",
+          "description": "Run the scaffolded hello-world FSM."
+        }
+      }
+    }
   }
 }

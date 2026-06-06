@@ -1,12 +1,13 @@
-# Creating FSM Packages
+# FSM Packages
 
-Use this reference when creating, reviewing, or diagnosing installable aharness
-FSM packages. Ordinary one-file local FSMs do not need package metadata.
+Reusable FSM packages are npm packages that aharness can install, verify, run,
+and compose from other FSM packages. Use this guide when publishing workflows
+for a team or ecosystem. For one-off local workflows, a normal `.fsm.ts` file is
+usually enough.
 
 ## Expected Shape
 
-Reusable FSM packages are npm packages that can be installed as aharness
-commands and imported by other FSM packages.
+Keep package contents ordinary and source-first:
 
 ```text
 package/
@@ -21,21 +22,32 @@ package/
 `-- README.md
 ```
 
-Package metadata should expose two surfaces:
+The `fsms/` directory owns aharness workflow source. Bundled skills, prompts,
+and helper modules live alongside it and are referenced from FSM source.
 
-- `aharness.package.commands` for `aharness install` / `aharness run`.
-- `exports` for TypeScript composition with `fsm.embed(...)`.
+Create a new package scaffold with:
 
-Start new packages with `aharness init --dir <path>`. The scaffold includes a
-hello-world FSM under `fsms/`, a short `.fsm.js` export, and matching command
-metadata. Rename or extend the sample for the target workflow.
+```bash
+aharness init --dir my-workflows
+```
 
-`init` installs dependencies by default. Use `--pm <npm|pnpm|yarn|bun>` to
-choose the package manager, or `--no-install` to skip installation. After
-scaffolding, use `<your-pm> verify` and `<your-pm> start` from the package
-directory.
+The scaffold starts with a runnable hello-world FSM under `fsms/`, a short
+`.fsm.js` export, and matching aharness command metadata. Rename or extend that
+sample for your package.
 
-Use the short FSM export form only:
+By default, `init` installs dependencies. Use `--pm <npm|pnpm|yarn|bun>` to
+choose the package manager, or `--no-install` to skip dependency installation.
+
+```bash
+cd my-workflows
+<your-pm> verify
+<your-pm> start
+```
+
+## Package Metadata
+
+Declare package commands in `package.json` with package-root-relative `.fsm.ts`
+entries:
 
 ```json
 {
@@ -62,22 +74,50 @@ Use the short FSM export form only:
 }
 ```
 
-Do not document deep FSM imports as the public API. Consumers should import the
-short package subpath:
+The `aharness.package.commands` block makes an FSM runnable after
+`aharness install`. The `exports` block makes the same FSM importable by other
+FSM packages.
+
+Use the short export form:
+
+```json
+"./build.fsm.js": "./fsms/build.fsm.ts"
+```
+
+Consumers then import the stable public subpath:
 
 ```ts
 import buildWorkflow from '@scope/tools/build.fsm.js';
 ```
 
+Do not publish deep FSM import paths as the documented API. Keep the package's
+public composition surface short and intentional.
+
 ## FSM Module Exports
 
-Export the machine as named `machine` and as the default export. If consumers
-will embed the FSM, export public input/final/output types they need.
+Export the machine as both a named `machine` and the default export. If other
+FSM packages are expected to embed it, export the public input and output types
+that consumers need.
 
 ```ts
+import { createFsm } from '@aharness/core';
+
+interface Data {
+  project: string;
+}
+
+const fsm = createFsm<Data>();
+
 export const machine = fsm.machine({
   id: 'build',
-  // ...
+  input: {
+    project: fsm.input.path({ description: 'Project directory', complete: 'directory' }),
+  },
+  data: ({ input }) => ({ project: input.project }),
+  initial: 'done',
+  states: {
+    done: fsm.final({ outcome: 'success' }),
+  },
 });
 
 export type BuildMachine = typeof machine;
@@ -87,13 +127,13 @@ export type BuildFinals = NonNullable<BuildMachine['__finalsType']>;
 export default machine;
 ```
 
-Keep internal workflow data and payload types private unless they are part of
-the embedding contract.
+Keep internal workflow data and payload types private unless consumers need
+them to embed the FSM safely.
 
 ## Composition
 
-Composition uses normal package imports and `fsm.embed(...)`. Installed command
-metadata is not a composition API.
+Composition uses normal TypeScript imports and `fsm.embed(...)`. It does not use
+installed command metadata as an API.
 
 ```ts
 import { createFsm } from '@aharness/core';
@@ -121,15 +161,14 @@ export default fsm.machine({
 });
 ```
 
-The parent input projection must satisfy the child input declaration. The `on`
-map must cover the child final ids exactly.
+The parent projection must satisfy the child input declaration. The `on` map
+must cover the child final ids exactly.
 
 ## Skills And Assets
 
-FSM source remains the source of truth for bundled skill availability.
-
-Use top-level `availableSkills` for package-owned skill roots. Use state
-`skills` for skills selected in a specific active state.
+FSM source declares bundled skill availability. Use top-level `availableSkills`
+for package-owned skill roots, and state `skills` for the skills selected in a
+specific active state.
 
 ```ts
 export default fsm.machine({
@@ -149,7 +188,8 @@ export default fsm.machine({
 });
 ```
 
-Use package asset helpers for package-owned files:
+Installable packages can read package-owned files with package-relative asset
+helpers:
 
 ```ts
 import { aharness } from '@aharness/core';
@@ -163,7 +203,7 @@ modules read their own package assets.
 
 ## Install And Run
 
-Install packages through aharness:
+Users install package commands through aharness:
 
 ```bash
 aharness install @scope/tools
@@ -173,17 +213,18 @@ aharness run @scope/tools/build --project ./app
 ```
 
 Bare command names work only when exactly one installed package provides that
-command. Package-only names are not FSM targets.
+command. Package-only names are not FSM targets for `run`, `verify`, or
+`visualize`.
 
 Re-run `aharness install <same-source>` to refresh a package after a new npm
-version, Git ref, tarball, or local snapshot is available. Remove packages by
+version, Git ref, tarball, or local snapshot is available. Remove a package by
 package identity:
 
 ```bash
 aharness uninstall @scope/tools
 ```
 
-## Trust And Verification
+## Trust Boundary
 
 `aharness install <source>` delegates package materialization to npm inside the
 aharness managed npm project. Installs may run npm lifecycle scripts, so install

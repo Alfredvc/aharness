@@ -7,7 +7,7 @@
  *   1. Resolve absolute target dir.
  *   2. Pre-flight: refuse non-empty dir without --force.
  *   3. Pre-flight: collision check (with or without --force, collisions
- *      against any of the 7 template paths abort — we never overwrite).
+ *      against any of the template paths abort — we never overwrite).
  *   4. Read templates dir (injected for tests; resolved from import.meta.url
  *      in production), apply renames (`gitignore` → `.gitignore`,
  *      `prettierrc.json` → `.prettierrc.json`, `package.json.tmpl` →
@@ -58,7 +58,7 @@ const TEMPLATE_FILES: ReadonlyArray<{ src: string; dest: string; substitute: boo
   { src: '.oxlintrc.json.tmpl', dest: '.oxlintrc.json', substitute: false },
   { src: 'prettierrc.json', dest: '.prettierrc.json', substitute: false },
   { src: 'gitignore', dest: '.gitignore', substitute: false },
-  { src: 'hello.fsm.ts', dest: 'hello.fsm.ts', substitute: false },
+  { src: 'hello.fsm.ts', dest: 'fsms/hello.fsm.ts', substitute: false },
   { src: 'README.md', dest: 'README.md', substitute: true },
 ];
 
@@ -124,7 +124,9 @@ export async function runInitCli(opts: InitOpts): Promise<{ exitCode: number }> 
     if (substitute) {
       body = substituteTemplate(body, projectName, aharnessCoreVersion);
     }
-    writeFileSync(join(target, dest), body);
+    const outPath = join(target, dest);
+    mkdirSync(dirname(outPath), { recursive: true });
+    writeFileSync(outPath, body);
   }
 
   if (opts.git) {

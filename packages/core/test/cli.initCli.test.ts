@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { Writable } from 'node:stream';
 
 import { runInitCli, type RunCommandResult } from '../src/cli/initCli.js';
+import { readInstallPackageManifest } from '../src/installPackage/index.js';
 import { runVerifyCli } from '../src/cli/verifyCli.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -62,7 +63,7 @@ describe('runInitCli — file scaffold', () => {
     expect(existsSync(join(target, '.oxlintrc.json'))).toBe(true);
     expect(existsSync(join(target, '.prettierrc.json'))).toBe(true);
     expect(existsSync(join(target, '.gitignore'))).toBe(true);
-    expect(existsSync(join(target, 'hello.fsm.ts'))).toBe(true);
+    expect(existsSync(join(target, 'fsms', 'hello.fsm.ts'))).toBe(true);
     expect(existsSync(join(target, 'README.md'))).toBe(true);
   });
 
@@ -86,23 +87,63 @@ describe('runInitCli — file scaffold', () => {
     });
     const pkg = JSON.parse(readFileSync(join(target, 'package.json'), 'utf8')) as {
       name: string;
+      files: string[];
+      exports: Record<string, string>;
       scripts: Record<string, string>;
       dependencies: Record<string, string>;
       devDependencies: Record<string, string>;
+      aharness: { package: { commands: Record<string, { entry: string; description: string }> } };
     };
     expect(pkg.name).toBe('my-fsm');
-    expect(pkg.scripts['start']).toBe('aharness run ./hello.fsm.ts');
-    expect(pkg.scripts['verify']).toBe('aharness verify ./hello.fsm.ts');
+    expect(pkg.files).toEqual(['fsms', 'README.md']);
+    expect(pkg.exports['./hello.fsm.js']).toBe('./fsms/hello.fsm.ts');
+    expect(pkg.aharness.package.commands['hello']?.entry).toBe('fsms/hello.fsm.ts');
+    expect(pkg.scripts['start']).toBe('aharness run ./fsms/hello.fsm.ts');
+    expect(pkg.scripts['verify']).toBe('aharness verify ./fsms/hello.fsm.ts');
     expect(pkg.dependencies['@aharness/core']).toBe('1.2.3');
     expect(Object.keys(pkg.devDependencies)).not.toContain(retiredVizPackageName);
-    // Non-placeholder dep pins survive substitution unchanged (regression
-    // guard: a too-greedy replace would corrupt them).
-    expect(pkg.dependencies['xstate']).toBe('^5.19.0');
     expect(pkg.devDependencies['typescript']).toMatch(/^\^/);
     // README's literal `<your-pm>` placeholder is NOT touched (it is example
     // text for the user to read, not a substitution token).
     const readme = readFileSync(join(target, 'README.md'), 'utf8');
     expect(readme).toContain('<your-pm>');
+    expect(readme).toContain("from 'my-fsm/hello.fsm.js'");
+    expect(readme).toContain('type HelloInput');
+    expect(readme).toContain('type HelloOutput');
+  });
+
+  it('scaffolds valid installable package command metadata', async () => {
+    const root = tmp();
+    const target = join(root, 'package-ready');
+    await runInitCli({
+      dir: target,
+      force: false,
+      git: false,
+      install: false,
+      cwd: root,
+      stdout: captureStream().stream,
+      stderr: captureStream().stream,
+      templatesDir: TEMPLATES_DIR,
+      aharnessCoreVersion: '1.2.3',
+      runCommand: noopRunCommand(),
+      env: {},
+    });
+
+    const manifest = await readInstallPackageManifest({
+      packageRoot: target,
+      currentCoreVersion: '1.2.3',
+    });
+
+    expect(manifest.ok).toBe(true);
+    if (!manifest.ok) throw new Error('scaffolded package manifest should validate');
+    expect(manifest.value.commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          commandName: 'hello',
+          entry: 'fsms/hello.fsm.ts',
+        }),
+      ]),
+    );
   });
 
   it('substitutes __PROJECT_NAME__ in README.md', async () => {
@@ -592,8 +633,13 @@ describe('runInitCli — scaffolded FSM passes aharness verify', () => {
       env: {},
     });
 
-    const source = readFileSync(join(target, 'hello.fsm.ts'), 'utf8');
+    const source = readFileSync(join(target, 'fsms', 'hello.fsm.ts'), 'utf8');
     expect(source).toContain('createFsm');
+    expect(source).toContain('export const machine');
+    expect(source).toContain('export type HelloInput');
+    expect(source).toContain('export type HelloFinals');
+    expect(source).toContain('export type HelloOutput');
+    expect(source).toContain('export default machine');
     expect(source).not.toMatch(
       /import\s+\{[^}]*\b(assign|aharness|terminal|state|exit|arg|embed|skill|writeArtifact|RunDir|AharnessInput)\b[^}]*\}\s+from\s+['"][^'"]+['"]/s,
     );
@@ -617,7 +663,7 @@ describe('runInitCli — scaffolded FSM passes aharness verify', () => {
       env: {},
     });
     const r = await runVerifyCli({
-      fsmPath: join(target, 'hello.fsm.ts'),
+      fsmPath: join(target, 'fsms', 'hello.fsm.ts'),
       // CRITICAL: pass `repoRoot: target` (or `root` tmpdir). Default is
       // `process.cwd()`, which during vitest = the aharness repo root —
       // running the verifier with that default writes loader cache entries

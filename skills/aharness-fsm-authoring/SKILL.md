@@ -534,7 +534,7 @@ token usage, sub-thread activity, and workflow context snapshots.
 
 ## CLI Use
 
-- New standalone projects: `aharness init --dir <path>`.
+- New FSM package scaffolds: `aharness init --dir <path>`.
 - Static validation: `aharness verify <file.fsm.ts>`.
 - Visual graph inspection: `aharness visualize <file.fsm.ts> [--<input-flag> <value>]`.
 - Run an FSM: `aharness run [--ask|--yolo] [--no-open] <file.fsm.ts|command> [--<input-flag> <value>]`.

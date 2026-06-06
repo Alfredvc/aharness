@@ -340,6 +340,8 @@ behavior, `--ask`, `--yolo`, and `--no-open`.
 
 - [`docs/authoring.md`](https://github.com/Alfredvc/aharness/blob/main/docs/authoring.md) teaches the workflow authoring
   mental model.
+- [`docs/fsm-packages.md`](https://github.com/Alfredvc/aharness/blob/main/docs/fsm-packages.md) explains how to publish,
+  install, run, and compose reusable FSM packages.
 - [`docs/reference.md`](https://github.com/Alfredvc/aharness/blob/main/docs/reference.md) documents the public SDK and CLI.
 - [`docs/architecture.md`](https://github.com/Alfredvc/aharness/blob/main/docs/architecture.md) explains the Codex/aharness
   runtime boundary.

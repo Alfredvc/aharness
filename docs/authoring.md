@@ -767,8 +767,10 @@ Start with the real example:
 
 Use the public docs as the source of truth for adjacent details:
 
-- [`reference.md`](./reference.md) for complete SDK, CLI, package, graph, and
-  verifier details.
+- [`fsm-packages.md`](./fsm-packages.md) for publishing, installing, running,
+  and composing reusable FSM packages.
+- [`reference.md`](./reference.md) for complete SDK, CLI, graph, and verifier
+  details.
 - [`architecture.md`](./architecture.md) for the Codex/aharness runtime boundary.
 - [`troubleshooting.md`](./troubleshooting.md) for setup, verify, input, skill,
   approval, and artifact failures.
