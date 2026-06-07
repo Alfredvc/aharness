@@ -22,9 +22,10 @@
  * Cache layout:
  *
  *   <repoRoot>/.aharness/cache/<hash>/
- *     fsm.mjs        # esbuild bundle of <file>.fsm.ts; re-exports
- *                    # `__sidecar` (a SerializedSidecar literal injected
- *                    # via esbuild's `banner` option at compile time).
+ *     fsm.mjs        # esbuild bundle of <file>.fsm.ts; includes the
+ *                    # Node ESM prelude and re-exports `__sidecar`
+ *                    # (a SerializedSidecar literal injected via
+ *                    # esbuild's `banner` option at compile time).
  *
  * Hash semantics:
  *
@@ -60,6 +61,9 @@ import { getInstallPaths } from './installPath.js';
 /**
  * Bumped when the loader's serialisation shape changes.
  *
+ * v7 (2026-06-07): generated ESM bundles include a `createRequire` bridge so
+ *   bundled CommonJS dependencies can require Node builtins at import time.
+ *
  * v6 (2026-06-05): salts direct-file cache keys with the resolved
  *   `@aharness/core` and `xstate` runtime entries, package directories, and
  *   package versions. Direct bundles externalise those imports as absolute
@@ -92,9 +96,12 @@ import { getInstallPaths } from './installPath.js';
  * v6 (2026-06-05): serialized sidecars carry verifier source-location
  *   metadata so CLI diagnostics can print file:line details.
  */
-const CACHE_VERSION = 'v6';
+const CACHE_VERSION = 'v7';
 /**
  * Installed-package cache key version.
+ *
+ * v5 (2026-06-07): generated ESM bundles include a `createRequire` bridge so
+ *   bundled CommonJS dependencies can require Node builtins at import time.
  *
  * v4 (2026-06-05): serialized sidecars carry verifier source-location
  *   metadata so CLI diagnostics can print file:line details.
@@ -111,7 +118,7 @@ const CACHE_VERSION = 'v6';
  *   source inputs plus package identity, host runtime identity, sidecar
  *   serialization, and lock fingerprint.
  */
-const INSTALLED_CACHE_VERSION = 'v4';
+const INSTALLED_CACHE_VERSION = 'v5';
 
 const SKIP_DIR_NAMES = new Set(['node_modules', 'dist', '.aharness']);
 
@@ -170,7 +177,7 @@ export interface SourceLocationManifest {
 
 /**
  * Shape of the `__sidecar` re-export injected into the compiled `fsm.mjs`
- * via esbuild's `banner` option (`compile.ts`). The bundle stringifies a
+ * by the esbuild banner prelude (`compile.ts`). The bundle stringifies a
  * `SerializedSidecar` literal at compile time; the loader's warm path reads
  * it back off `mod.__sidecar` and rehydrates ajv validators from the embedded
  * JSON Schemas.

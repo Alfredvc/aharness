@@ -15,10 +15,12 @@
  * load time. The user's local files (`./types`, `./render`) bundle in
  * the normal way.
  *
- * The bundle additionally re-exports a `__sidecar` literal (schemas, issues,
- * input metadata, and loader skill-origin metadata) injected via esbuild's
- * `banner` option. Warm-cache hits read it back off the imported module instead
- * of going through a separate `sidecar.json` file — see `cache.ts` history.
+ * The bundle additionally gets a small Node ESM prelude via esbuild's `banner`
+ * option: a `createRequire(import.meta.url)` bridge for bundled CommonJS
+ * dependencies plus a re-exported `__sidecar` literal (schemas, issues, input
+ * metadata, and loader skill-origin metadata). Warm-cache hits read the sidecar
+ * back off the imported module instead of going through a separate
+ * `sidecar.json` file — see `cache.ts` history.
  *
  * This deviates from `SPEC_SDK.md` §6.2 step 1's `bundle: false`. The
  * spec line was written assuming a single-file FSM in a node project;
@@ -56,9 +58,10 @@ export interface InstalledBundleResult {
 /**
  * Bundle `entryFile` into `outPath`. Externalises `xstate` and
  * `@aharness/core` (including subpaths) by rewriting them to absolute
- * file paths in the aharness install. Injects `serializedSidecar` as a
- * top-of-file `export const __sidecar = …;` literal so warm-cache reads
- * pick it up directly off the imported module. Throws on esbuild errors.
+ * file paths in the aharness install. Injects a Node ESM prelude and
+ * `serializedSidecar` as an `export const __sidecar = …;` literal so
+ * warm-cache reads pick it up directly off the imported module. Throws on
+ * esbuild errors.
  *
  * `serializedSidecar` is JSON-serialisable by construction: schemas and
  * issues are JSON-Schema/structured-record shapes, and any `arg<T>()`
@@ -84,7 +87,7 @@ export async function compileFsm(
     sourcemap: false,
     logLevel: 'silent',
     banner: {
-      js: `export const __sidecar = ${JSON.stringify(serializedSidecar)};`,
+      js: fsmBundleBanner(serializedSidecar),
     },
     plugins: [externalisePlugin(installPaths)],
   });
@@ -115,7 +118,7 @@ export async function buildInstalledFsmBundle(opts: {
     write: false,
     metafile: true,
     banner: {
-      js: `export const __sidecar = ${JSON.stringify(opts.serializedSidecar)};`,
+      js: fsmBundleBanner(opts.serializedSidecar),
     },
     plugins: [
       installedAssetPlugin({ managedProjectRoot, assets }),
@@ -136,6 +139,14 @@ export async function buildInstalledFsmBundle(opts: {
     inputFiles: inputFilesFromMetafile(result.metafile, packageRoot),
     assetFiles: Array.from(new Set(assets.map((asset) => path.resolve(asset.resolvedFile)))).sort(),
   };
+}
+
+function fsmBundleBanner(serializedSidecar: SerializedSidecar): string {
+  return [
+    "import { createRequire as __aharnessCreateRequire } from 'node:module';",
+    'const require = __aharnessCreateRequire(import.meta.url);',
+    `export const __sidecar = ${JSON.stringify(serializedSidecar)};`,
+  ].join('\n');
 }
 
 function inputFilesFromMetafile(metafile: Metafile, absWorkingDir: string): readonly string[] {

@@ -1,15 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { execFile } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { promisify } from 'node:util';
 import { loadFsm } from '../src/loader/index.js';
-import { hashSourceTree, isSerializedSidecar } from '../src/loader/cache.js';
+import { compileFsm } from '../src/loader/compile.js';
+import {
+  hashSourceTree,
+  isSerializedSidecar,
+  type SerializedSidecar,
+} from '../src/loader/cache.js';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const composedDir = path.resolve(repoRoot, 'packages/core/test/fixtures/composed-pipeline');
 const parentPath = path.join(composedDir, 'parent.fsm.ts');
 const childPath = path.join(composedDir, 'child-spec.fsm.ts');
+const execFileAsync = promisify(execFile);
 
 describe('loader cache — keying', () => {
   let tmpRepo: string;
@@ -111,5 +119,60 @@ describe('loader cache — keying', () => {
         ref: { __aharnessSkillRef: true, source: 'dir', path: './skills' },
       },
     ]);
+  });
+
+  it('loads a compiled ESM FSM bundle containing a CommonJS package that requires a Node builtin', async () => {
+    const sourceDir = path.join(tmpRepo, 'cjs-package');
+    await fs.mkdir(sourceDir, { recursive: true });
+    const packageDir = path.join(sourceDir, 'node_modules', 'requires-process');
+    await fs.mkdir(packageDir, { recursive: true });
+    await fs.writeFile(
+      path.join(packageDir, 'package.json'),
+      JSON.stringify({ name: 'requires-process', version: '1.0.0', main: 'index.js' }),
+    );
+    await fs.writeFile(
+      path.join(packageDir, 'index.js'),
+      [
+        "const process = require('process');",
+        'module.exports = { pidType: typeof process.pid };',
+        '',
+      ].join('\n'),
+    );
+    const fsmPath = path.join(sourceDir, 'uses-cjs-package.fsm.ts');
+    await fs.writeFile(
+      fsmPath,
+      [
+        "import requiresProcess from 'requires-process';",
+        'export default {',
+        '  id: `cjs-${requiresProcess.pidType}`,',
+        '};',
+        '',
+      ].join('\n'),
+    );
+
+    const outPath = path.join(tmpRepo, 'compiled', 'fsm.mjs');
+    await fs.mkdir(path.dirname(outPath), { recursive: true });
+    const sidecar: SerializedSidecar = {
+      schemas: {},
+      issues: [],
+      skillOriginManifest: {
+        rootSourceDir: sourceDir,
+        sourceDirPrefixes: [],
+        availableSkills: [],
+      },
+    };
+    await compileFsm(fsmPath, outPath, sidecar);
+    const importScript = [
+      `const mod = await import(${JSON.stringify(pathToFileURL(outPath).href)});`,
+      'console.log(mod.default.id);',
+    ].join('\n');
+
+    const result = await execFileAsync(process.execPath, [
+      '--input-type=module',
+      '-e',
+      importScript,
+    ]);
+
+    expect(result.stdout).toBe('cjs-number\n');
   });
 });
