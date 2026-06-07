@@ -1,6 +1,6 @@
 {
   "name": "@aharness/test-support",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Test fixtures for @aharness/core: app-server lifecycle, model SSE replay, second-client multicast-race driver.",
   "license": "Apache-2.0",
   "repository": {

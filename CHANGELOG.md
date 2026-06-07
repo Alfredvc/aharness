@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file. See [commit-and-tag-version](https://github.com/absolute-version/commit-and-tag-version) for commit guidelines.
 
+## [0.1.2](https://github.com/Alfredvc/aharness/compare/v0.1.1...v0.1.2) (2026-06-07)
+
+### Bug Fixes
+
+- support CommonJS requires in FSM bundles ([99223ce](https://github.com/Alfredvc/aharness/commit/99223ce1e7eba2fdbea85e6bc886086b47de10df))
+
 ## [0.1.1](https://github.com/Alfredvc/aharness/compare/v0.1.0...v0.1.1) (2026-06-06)
 
 ### Features
