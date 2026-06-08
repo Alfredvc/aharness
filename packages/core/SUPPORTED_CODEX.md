@@ -52,6 +52,11 @@ It also contains the sidecar author-surface protocol fields
 variants `Text`, `Image`, `LocalImage`, `Skill`, and `Mention`.
 The `0.136.0` validation rechecked those runtime surfaces with the installed
 CLI, including the skill catalog preflight methods.
+Those fields are the minimum Codex protocol support for aharness sidecar
+threads: aharness sends developer instructions on `thread/start`, maps public
+text/image/local-image/mention sidecar inputs to Codex `turn/start` items, and
+injects verified `threadSkills` as Codex `Skill` input items on the first
+sidecar turn.
 
 ---
 

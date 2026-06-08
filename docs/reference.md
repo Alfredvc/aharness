@@ -462,6 +462,11 @@ type CodexSidecarInput =
 type ImageDetail = 'auto' | 'low' | 'high' | 'original';
 ```
 
+Raw skill input items are not part of the public sidecar input union. Declare
+sidecar skill aliases with machine-level `threadSkills`, then pass those aliases
+through `initialSkills` so aharness can resolve and inject them on the first
+sidecar turn.
+
 Result values are recoverable by default:
 
 ```ts
@@ -493,6 +498,30 @@ type CodexSidecarBoundary = Extract<CodexSidecarBoundaryResult, { readonly ok: t
 `{ ok: true, kind: 'needsInput' }` means the sidecar parked on Codex
 `request_user_input`. It is sidecar evidence, not owner input for the parent
 state. Resume it with `thread.answer(request.id, answers)`.
+
+Failure statuses are stable boundary values:
+
+- `timeout` means the configured boundary timeout elapsed. Aharness interrupts
+  the sidecar turn when Codex has accepted a turn id.
+- `interrupted` means the run or sidecar operation was cancelled or interrupted.
+- `thread_closed` means the sidecar was already closed or was closed while the
+  operation was active.
+- `app_server_closed` means the shared Codex app-server connection closed before
+  the boundary completed.
+- `error` means aharness or Codex reported an unexpected sidecar failure. The
+  result carries a message and may carry a `cause`.
+
+Sidecar command, file-change, permission, and MCP elicitation requests follow
+the run approval mode and can appear as browser pending cards through the
+existing `request.*` lifecycle with sidecar metadata. They do not invoke FSM
+`permissionRequest` hooks, because those hooks are policy for the active parent
+state. Sidecar `request_user_input` is different: it returns `needsInput` to
+author code and never creates owner-reply controls.
+
+Use `ops.emit(eventName, payload)` from entry/effect code to send typed events
+declared with `withEvents(...)`. The dispatch uses the normal canonical event
+path, including serialization, custom event recording, reducers/effects, final
+artifact capture, and terminal handling.
 
 ## Submit, Choice, And Events
 

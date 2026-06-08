@@ -634,6 +634,8 @@ import { createFsm, type CodexSidecarBoundaryResult } from '@aharness/core';
 interface Data {
   sidecarText?: string;
   sidecarError?: string;
+  sidecarRequestId?: string;
+  sidecarQuestionId?: string;
 }
 
 const base = createFsm<Data>();
@@ -663,6 +665,60 @@ export default fsm.machine({
         });
         const result = await subject.send('Inspect the fixture and report concise findings.');
         await ops.emit('subjectBoundary', { result });
+        if (!result.ok || result.kind === 'completed') {
+          await subject.close();
+        }
+      },
+      on: {
+        subjectBoundary: {
+          route: [
+            {
+              if: (_data, payload) =>
+                payload.result.ok === true && payload.result.kind === 'completed',
+              to: 'done',
+              reduce: (draft, payload) => {
+                if (payload.result.ok && payload.result.kind === 'completed') {
+                  draft.sidecarText = payload.result.turn.assistantText;
+                }
+              },
+            },
+            {
+              if: (_data, payload) =>
+                payload.result.ok === true && payload.result.kind === 'needsInput',
+              to: 'answerSubject',
+              reduce: (draft, payload) => {
+                if (payload.result.ok && payload.result.kind === 'needsInput') {
+                  draft.sidecarRequestId = payload.result.request.id;
+                  draft.sidecarQuestionId = payload.result.request.questions[0]?.id;
+                }
+              },
+            },
+            {
+              to: 'failed',
+              reduce: (draft, payload) => {
+                if (!payload.result.ok) {
+                  draft.sidecarError = payload.result.message;
+                }
+              },
+            },
+          ],
+        },
+      },
+    }),
+    answerSubject: fsm.state({
+      prompt: 'Resume the sidecar after its clarification request.',
+      entry: async (data, ops) => {
+        if (data.sidecarRequestId === undefined || data.sidecarQuestionId === undefined) {
+          return;
+        }
+        const subject = ops.codex.thread('subject');
+        const result = await subject.answer(data.sidecarRequestId, {
+          [data.sidecarQuestionId]: 'Use the fixture README as the source of truth.',
+        });
+        await ops.emit('subjectBoundary', { result });
+        if (!result.ok || result.kind === 'completed') {
+          await subject.close();
+        }
       },
       on: {
         subjectBoundary: {
@@ -680,11 +736,9 @@ export default fsm.machine({
             {
               to: 'failed',
               reduce: (draft, payload) => {
-                if (!payload.result.ok) {
-                  draft.sidecarError = payload.result.message;
-                } else {
-                  draft.sidecarError = `Sidecar needs input: ${payload.result.request.id}`;
-                }
+                draft.sidecarError = payload.result.ok
+                  ? `Sidecar still needs input: ${payload.result.request.id}`
+                  : payload.result.message;
               },
             },
           ],
@@ -708,7 +762,11 @@ export default fsm.machine({
 failure reasons are `timeout`, `interrupted`, `thread_closed`,
 `app_server_closed`, and `error`. `needsInput` is a sidecar
 `request_user_input` boundary; answer it later with `ops.codex.thread(key)` and
-`thread.answer(request.id, answers)`.
+`thread.answer(request.id, answers)`. Keep the sidecar open while it is waiting
+for that answer, then close it when the resumed turn completes or fails.
+
+`close()` is idempotent. Closing a sidecar removes it from
+`ops.codex.thread(key)` lookup until a later live sidecar reuses the key.
 
 ## Composition And Runtime Events
 

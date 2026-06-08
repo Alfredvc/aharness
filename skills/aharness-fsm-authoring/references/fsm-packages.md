@@ -129,7 +129,9 @@ map must cover the child final ids exactly.
 FSM source remains the source of truth for bundled skill availability.
 
 Use top-level `availableSkills` for package-owned skill roots. Use state
-`skills` for skills selected in a specific active state.
+`skills` for skills selected in a specific active state. Use machine-level
+`threadSkills` for sidecar skill aliases that author code passes through
+sidecar `initialSkills`.
 
 ```ts
 export default fsm.machine({
@@ -148,6 +150,49 @@ export default fsm.machine({
   },
 });
 ```
+
+For sidecar threads, declare keyed aliases instead of passing raw skill input
+items:
+
+```ts
+import { createFsm } from '@aharness/core';
+
+const base = createFsm();
+const fsm = base.withEvents({
+  reviewed: base.event<{ result: unknown }>(),
+});
+
+export default fsm.machine({
+  id: 'sidecar-review',
+  threadSkills: {
+    reviewer: fsm.skill.path('../skills/reviewing-code/SKILL.md'),
+  },
+  initial: 'review',
+  states: {
+    review: fsm.state({
+      prompt: 'Start the sidecar reviewer from entry code.',
+      entry: async (_data, ops) => {
+        const thread = await ops.codex.createThread('reviewer', {
+          initialSkills: ['reviewer'],
+        });
+        const result = await thread.send('Review the target and report findings.');
+        await ops.emit('reviewed', { result });
+        if (!result.ok || result.kind === 'completed') {
+          await thread.close();
+        }
+      },
+      on: {
+        reviewed: { to: 'done' },
+      },
+    }),
+    done: fsm.final({ outcome: 'success' }),
+  },
+});
+```
+
+`threadSkills` accepts name-form and `SKILL.md` path-form refs, not dir-form
+refs. Path-form refs resolve relative to the FSM source that declared them,
+including embedded package FSMs.
 
 Use package asset helpers for package-owned files:
 

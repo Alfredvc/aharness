@@ -85,6 +85,9 @@ progression by convention or by dynamic-tool routing. Their notifications are
 consumed by the sidecar manager's own listeners while the `NotificationRouter`
 continues to route only the active parent thread and existing parent sub-thread
 correlations.
+The browser graph remains a projection of the FSM topology; sidecar lifecycle,
+turn, tool, approval, input-needed, and token activity appears as compact run
+evidence rather than new parent-thread nodes or transitions.
 
 The browser run UI defaults to a chronological compact transcript for the whole
 run, focused on model/owner messages, tool summaries, failed tool output,

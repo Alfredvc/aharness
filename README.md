@@ -51,6 +51,10 @@ instead of copied around as prompts.
   transitions.
 - **State-scoped skills.** Skills guide Codex inside a state, while the FSM owns
   process control, valid exits, recovery paths, and terminal outcomes.
+- **Managed sidecar threads.** Author code can start keyed Codex sidecar
+  threads for scoped auxiliary work, inject sidecar-specific skills, handle
+  typed boundary results, and keep that activity inspectable without changing
+  the parent FSM topology.
 - **Inspectable runs.** Every run writes durable event logs, state history,
   artifacts, and recorded browser views so the workflow can be audited after the
   fact.
@@ -272,14 +276,18 @@ flowchart LR
     Aharness --> Runs
 ```
 
-An aharness run has three jobs:
+An aharness run has four jobs:
 
 1. **Verify the workflow before Codex starts.** Invalid FSMs fail early, before
    the model can begin work.
 2. **Keep Codex inside the active state.** aharness tells Codex the current
    state, valid exits, and required submit schema. Codex does the work;
    aharness validates submitted evidence and decides the next state.
-3. **Record the run.** Every run writes canonical artifacts under
+3. **Coordinate scoped sidecar work.** FSM author code can start managed Codex
+   sidecar threads for auxiliary turns. Sidecars share the same live app-server
+   connection, do not receive the parent `aharness_submit` tool, and appear as
+   compact run evidence rather than graph topology.
+4. **Record the run.** Every run writes canonical artifacts under
    `.aharness/runs/<runId>/`, including the event log, state history, final
    artifacts, and data used by the browser view.
 

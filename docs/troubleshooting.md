@@ -49,6 +49,26 @@ Common causes are:
 Fix the referenced skill path/name, package-bundled skill file, or Codex skill
 configuration, then rerun the FSM.
 
+## Sidecar Thread Fails Or Needs Input
+
+Managed Codex sidecar threads use machine-level `threadSkills` and per-thread
+`initialSkills`. If startup preflight fails before the first sidecar turn, check
+that each `threadSkills` value names one enabled catalog skill or a valid
+`SKILL.md` path, and that every `initialSkills` entry references one of those
+keys. Dir-form skill refs are valid for `availableSkills`, not `threadSkills`.
+
+If author code receives `{ ok: true, kind: "needsInput" }`, the sidecar is
+parked on Codex `request_user_input`. That prompt is recorded as sidecar
+evidence, but it does not create owner-input controls in the browser. Resume it
+from author code with `ops.codex.thread(key).answer(request.id, answers)`.
+
+Sidecar command, file-change, permission, and MCP elicitation approvals still
+use the normal browser approval cards when the run approval mode routes them to
+the user. If you expected a sidecar approval card and none appeared, confirm the
+run was started with the intended approval mode, such as `--ask`, and inspect
+`.aharness/runs/<runId>/events.jsonl` for `request.*` events with sidecar
+metadata.
+
 ## Verify Fails Before Runtime
 
 Run:
