@@ -754,6 +754,55 @@ export function createSkillsProtocolContractCheck(): CodexBumpCheck {
   };
 }
 
+export function createSidecarProtocolContractCheck(): CodexBumpCheck {
+  return {
+    name: 'sidecar-protocol-contract',
+    async run(context) {
+      const [threadSource, turnSource] = await Promise.all([
+        context.readFile(CODEX_PATHS.v2ThreadProtocol),
+        context.readFile(CODEX_PATHS.v2TurnProtocol),
+      ]);
+
+      return [
+        ...missingSpanSnippetMessages(
+          CODEX_PATHS.v2ThreadProtocol,
+          threadSource,
+          'pub struct ThreadStartParams {',
+          'pub struct MockExperimentalMethodParams {',
+          [
+            'pub cwd: Option<String>',
+            'pub model: Option<String>',
+            'pub config: Option<HashMap<String, JsonValue>>',
+            'pub base_instructions: Option<String>',
+            'pub developer_instructions: Option<String>',
+          ],
+          context.pinnedCommit,
+        ),
+        ...missingSpanSnippetMessages(
+          CODEX_PATHS.v2TurnProtocol,
+          turnSource,
+          'pub enum UserInput {',
+          'impl UserInput {',
+          [
+            'Text {',
+            'text: String',
+            'text_elements: Vec<TextElement>',
+            'Image {',
+            'url: String',
+            'LocalImage {',
+            'path: PathBuf',
+            'Skill {',
+            'name: String',
+            'Mention {',
+            'path: String',
+          ],
+          context.pinnedCommit,
+        ),
+      ];
+    },
+  };
+}
+
 export function createDaemonProbeClientNameCheck(): CodexBumpCheck {
   return {
     name: 'daemon-probe-client-name',
@@ -784,6 +833,7 @@ export const DEFAULT_CHECKS: readonly CodexBumpCheck[] = [
   createClearOnEntryModelContractCheck(),
   createThreadSettingsUpdateContractCheck(),
   createSkillsProtocolContractCheck(),
+  createSidecarProtocolContractCheck(),
   createDaemonProbeClientNameCheck(),
 ];
 

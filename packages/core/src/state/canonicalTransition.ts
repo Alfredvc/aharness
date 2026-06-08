@@ -6,7 +6,7 @@ import type {
   CanonicalSubmitMeta,
 } from './exits.js';
 import type { CanonicalEmbeddedFinalHandler } from './embed.js';
-import type { AharnessOps } from './aharnessOps.js';
+import { createAharnessOps, type AharnessOps } from './aharnessOps.js';
 
 export const CANONICAL_COMMIT_CONTEXT_KEY = '__aharnessCanonicalCommitContext';
 export const CANONICAL_SELECTED_BRANCH_KEY = '__aharnessCanonicalSelectedBranch';
@@ -28,7 +28,7 @@ export function isCanonicalDryRun(): boolean {
   return dryRunDepth > 0;
 }
 
-const noopOps: AharnessOps = Object.freeze({});
+const noopOps: AharnessOps = createAharnessOps().ops;
 
 export function defaultCanonicalOps(): AharnessOps {
   return noopOps;

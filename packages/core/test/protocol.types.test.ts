@@ -27,6 +27,7 @@ import type {
   GrantedPermissionProfile,
   HookCompletedNotification,
   HookStartedNotification,
+  ImageDetail,
   InitializeParams,
   InitializeResult,
   ItemCompletedNotification,
@@ -72,6 +73,7 @@ import type {
   ThreadUnsubscribeParams,
   ThreadUnsubscribeResponse,
   ThreadUnsubscribeStatus,
+  TextElement,
   TokenUsageBreakdown,
   ToolRequestUserInputParams,
   ToolRequestUserInputResponse,
@@ -81,7 +83,11 @@ import type {
   TurnStartResponse,
   TurnStartedNotification,
   UserInput,
+  UserInputImage,
+  UserInputLocalImage,
+  UserInputMention,
   UserInputSkill,
+  UserInputText,
 } from '../src/protocol/index.js';
 import { METHOD } from '../src/protocol/methodNames.js';
 import { DAEMON_PROBE_CLIENT_NAME } from '../src/protocol/types.js';
@@ -110,6 +116,7 @@ describe('protocol request/response types', () => {
   it('ThreadStartParams accepts narrow aharness fields', () => {
     expectTypeOf<ThreadStartParams>().toMatchTypeOf<{
       baseInstructions?: string;
+      developerInstructions?: string;
       dynamicTools?: ReadonlyArray<DynamicToolDef>;
       model?: string;
       config?: Record<string, unknown>;
@@ -119,6 +126,7 @@ describe('protocol request/response types', () => {
       method: 'thread/start',
       params: {
         model: 'gpt-5.1-codex',
+        developerInstructions: 'Use sidecar developer instructions.',
         config: { model_reasoning_effort: 'high' },
         sessionStartSource: 'clear',
       },
@@ -128,6 +136,7 @@ describe('protocol request/response types', () => {
       method: METHOD.threadStart,
       params: {
         model: 'gpt-5.1-codex',
+        developerInstructions: 'Use sidecar developer instructions.',
         config: { model_reasoning_effort: 'high' },
         sessionStartSource: 'clear',
       },
@@ -294,19 +303,76 @@ describe('protocol request/response types', () => {
     expectTypeOf<TurnStartResponse>().toMatchTypeOf<{ turn: { id: string } }>();
   });
 
-  it('UserInput includes text and skill variants', () => {
+  it('UserInput includes text, image, local image, skill, and mention variants', () => {
+    const textSpan: TextElement = {
+      byteRange: { start: 0, end: 4 },
+      placeholder: 'file mention',
+    };
+    const textInput: UserInputText = {
+      type: 'text',
+      text: 'Read README.md',
+      text_elements: [textSpan],
+    };
+    const imageInput: UserInputImage = {
+      type: 'image',
+      url: 'https://example.test/screenshot.png',
+      detail: 'high',
+    };
+    const localImageInput: UserInputLocalImage = {
+      type: 'localImage',
+      path: '/tmp/screenshot.png',
+      detail: 'auto',
+    };
     const skillInput: UserInputSkill = {
       type: 'skill',
       name: 'review-plan',
       path: '/tmp/project/.agents/skills/review-plan/SKILL.md',
     };
-    const input: UserInput = skillInput;
+    const mentionInput: UserInputMention = {
+      type: 'mention',
+      name: 'README.md',
+      path: '/tmp/project/README.md',
+    };
+    const inputs: readonly UserInput[] = [
+      textInput,
+      imageInput,
+      localImageInput,
+      skillInput,
+      mentionInput,
+    ];
+    expectTypeOf<ImageDetail>().toEqualTypeOf<'auto' | 'low' | 'high' | 'original'>();
+    expectTypeOf<UserInputText>().toMatchTypeOf<{
+      type: 'text';
+      text: string;
+      text_elements?: ReadonlyArray<TextElement>;
+    }>();
+    expectTypeOf<UserInputImage>().toMatchTypeOf<{
+      type: 'image';
+      url: string;
+      detail?: ImageDetail;
+    }>();
+    expectTypeOf<UserInputLocalImage>().toMatchTypeOf<{
+      type: 'localImage';
+      path: string;
+      detail?: ImageDetail;
+    }>();
     expectTypeOf<UserInputSkill>().toMatchTypeOf<{
       type: 'skill';
       name: string;
       path: string;
     }>();
-    expect(input.type).toBe('skill');
+    expectTypeOf<UserInputMention>().toMatchTypeOf<{
+      type: 'mention';
+      name: string;
+      path: string;
+    }>();
+    expect(inputs.map((input) => input.type)).toEqual([
+      'text',
+      'image',
+      'localImage',
+      'skill',
+      'mention',
+    ]);
   });
 
   it('DynamicToolCallParams shape (v2.rs:7740-7747)', () => {

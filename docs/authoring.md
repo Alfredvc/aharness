@@ -622,6 +622,94 @@ during startup skill preflight before any sidecar turn can start. Relative
 path-form refs resolve against the FSM source file that declared them,
 including embedded FSM sources.
 
+### Sidecar Ops
+
+Use `ops.codex` inside entry or effect callbacks to start and drive a managed
+sidecar thread. Use `ops.emit(...)` to feed the sidecar boundary result back
+into declared FSM events instead of mutating state directly from the callback:
+
+```ts
+import { createFsm, type CodexSidecarBoundaryResult } from '@aharness/core';
+
+interface Data {
+  sidecarText?: string;
+  sidecarError?: string;
+}
+
+const base = createFsm<Data>();
+const fsm = base.withEvents({
+  subjectBoundary: base.event<{ result: CodexSidecarBoundaryResult }>(),
+});
+
+export default fsm.machine({
+  id: 'sidecar-example',
+  threadSkills: {
+    subjectHelper: fsm.skill.path('../skills/subject-helper/SKILL.md'),
+  },
+  data: () => ({}),
+  initial: 'startSubject',
+  states: {
+    startSubject: fsm.state({
+      prompt: 'Start the sidecar.',
+      entry: async (_data, ops) => {
+        const subject = await ops.codex.createThread('subject', {
+          label: 'Subject',
+          cwd: './fixtures/subject',
+          initialSkills: ['subjectHelper'],
+          defaultTurnTimeoutMs: 120_000,
+          instructions: {
+            developer: 'Stay inside the subject fixture.',
+          },
+        });
+        const result = await subject.send('Inspect the fixture and report concise findings.');
+        await ops.emit('subjectBoundary', { result });
+      },
+      on: {
+        subjectBoundary: {
+          route: [
+            {
+              if: (_data, payload) =>
+                payload.result.ok === true && payload.result.kind === 'completed',
+              to: 'done',
+              reduce: (draft, payload) => {
+                if (payload.result.ok && payload.result.kind === 'completed') {
+                  draft.sidecarText = payload.result.turn.assistantText;
+                }
+              },
+            },
+            {
+              to: 'failed',
+              reduce: (draft, payload) => {
+                if (!payload.result.ok) {
+                  draft.sidecarError = payload.result.message;
+                } else {
+                  draft.sidecarError = `Sidecar needs input: ${payload.result.request.id}`;
+                }
+              },
+            },
+          ],
+        },
+      },
+    }),
+    failed: fsm.final({
+      outcome: 'failure',
+      output: (data) => ({ error: data.sidecarError }),
+    }),
+    done: fsm.final({
+      outcome: 'success',
+      output: (data) => ({ text: data.sidecarText }),
+    }),
+  },
+});
+```
+
+`send()` returns `{ ok: true, kind: 'completed' }`,
+`{ ok: true, kind: 'needsInput' }`, or `{ ok: false, reason: ... }`. The
+failure reasons are `timeout`, `interrupted`, `thread_closed`,
+`app_server_closed`, and `error`. `needsInput` is a sidecar
+`request_user_input` boundary; answer it later with `ops.codex.thread(key)` and
+`thread.answer(request.id, answers)`.
+
 ## Composition And Runtime Events
 
 ### Embedded FSMs

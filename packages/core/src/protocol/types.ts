@@ -69,12 +69,13 @@ export interface DynamicToolDef {
 
 /**
  * `thread/start` request params. Matches
- * `app-server-protocol/src/protocol/v2.rs:3548-3618`. The full upstream
+ * `app-server-protocol/src/protocol/v2/thread.rs` (`ThreadStartParams`). The full upstream
  * struct carries ~20 optional fields; only the fields the aharness sets
  * are typed here. Add additional fields as new call sites emerge.
  */
 export interface ThreadStartParams {
   baseInstructions?: string;
+  developerInstructions?: string;
   dynamicTools?: ReadonlyArray<DynamicToolDef>;
   cwd?: string;
   model?: string;
@@ -362,13 +363,39 @@ export type ThreadInjectItemsResponse = Record<string, never>;
 
 /**
  * `UserInput` variants relevant to aharness-owned `turn/start.input`.
- * Matches `app-server-protocol/src/protocol/v2/turn.rs:275-294`.
- * Runtime call sites still send only `Text` inputs in Slice 2; `Skill`
- * is modelled now so Slice 3 can use the Codex-native skill item shape.
+ * Matches `app-server-protocol/src/protocol/v2/turn.rs` (`UserInput`).
+ * Text spans retain the upstream wire key `text_elements`; most aharness
+ * call sites omit it.
  */
+export type ImageDetail = 'auto' | 'low' | 'high' | 'original';
+
+export interface TextElement {
+  readonly byteRange: { readonly start: number; readonly end: number };
+  readonly placeholder: string | null;
+}
+
 export interface UserInputText {
   type: 'text';
   text: string;
+  text_elements?: ReadonlyArray<TextElement>;
+}
+
+export interface UserInputImage {
+  type: 'image';
+  url: string;
+  detail?: ImageDetail;
+}
+
+export interface UserInputLocalImage {
+  type: 'localImage';
+  path: string;
+  detail?: ImageDetail;
+}
+
+export interface UserInputMention {
+  type: 'mention';
+  name: string;
+  path: string;
 }
 
 export interface UserInputSkill {
@@ -377,7 +404,12 @@ export interface UserInputSkill {
   path: string;
 }
 
-export type UserInput = UserInputText | UserInputSkill;
+export type UserInput =
+  | UserInputText
+  | UserInputImage
+  | UserInputLocalImage
+  | UserInputSkill
+  | UserInputMention;
 
 /**
  * `turn/start` request params. Matches

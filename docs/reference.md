@@ -362,6 +362,138 @@ resolve relative to the FSM source file that declared them, including embedded
 FSM sources, and duplicate transitive keys are verifier errors because sidecar
 turns address skills by key.
 
+## Sidecar Ops
+
+Entry and effect callbacks receive `ops: AharnessOps`. In live runs, `ops.codex`
+creates and retrieves managed Codex sidecar threads, and `ops.emit(...)` routes
+typed custom events through the same canonical event dispatcher used by browser
+and owner inputs. In preflight and dry-run contexts the properties still exist,
+but using them throws because no live app-server or event dispatcher is bound.
+
+```ts
+interface AharnessOps {
+  readonly codex: CodexSidecarOps;
+  emit<Payload>(eventName: string, payload: Payload): Promise<AharnessEmitResult>;
+}
+
+interface AharnessEmitResult {
+  readonly handled: boolean;
+  readonly stateChanged: boolean;
+  readonly returnValue: unknown;
+}
+
+interface CodexSidecarOps {
+  createThread<Data = unknown>(
+    key: string,
+    options?: CodexSidecarThreadOptions<Data>,
+  ): Promise<CodexSidecarThread>;
+  thread(key: string): CodexSidecarThread;
+}
+```
+
+`createThread(key, options)` uses an author-defined key such as `"subject"` or
+`subject:${areaId}`. `ops.codex.thread(key)` returns the current live sidecar
+handle for that key and throws when the key is unknown, closed, or not owned by
+the run. Sidecar keys are not Codex thread ids; the handle exposes `threadId`
+only for diagnostics and run evidence.
+
+```ts
+interface CodexSidecarThreadOptions<Data = unknown> {
+  readonly cwd?: string | ((data: Readonly<Data>) => string);
+  readonly initialSkills?: readonly string[];
+  readonly defaultTurnTimeoutMs?: number; // defaults to 120_000
+  readonly model?: {
+    readonly name?: string;
+    readonly effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  };
+  readonly instructions?: {
+    readonly base?: string;
+    readonly developer?: string;
+  };
+  readonly label?: string;
+}
+```
+
+Relative `cwd` values resolve against the FSM source file that declared the
+sidecar operation. Function-form `cwd` receives readonly active state data and
+then follows the same relative-path rule. `initialSkills` entries reference
+machine-level `threadSkills` keys and are injected only into the sidecar's first
+turn. The default sidecar boundary timeout is `120_000ms`; per-turn
+`timeoutMs` overrides it for one `send()` or `answer()` operation.
+
+```ts
+interface CodexSidecarThread {
+  readonly key: string;
+  readonly threadId: string;
+  readonly label?: string;
+
+  send(
+    input: string | readonly CodexSidecarInput[],
+    opts?: { readonly timeoutMs?: number },
+  ): Promise<CodexSidecarBoundaryResult>;
+
+  sendOrThrow(
+    input: string | readonly CodexSidecarInput[],
+    opts?: { readonly timeoutMs?: number },
+  ): Promise<CodexSidecarBoundary>;
+
+  answer(
+    requestId: string,
+    answers: Readonly<Record<string, string | readonly string[]>>,
+    opts?: { readonly timeoutMs?: number },
+  ): Promise<CodexSidecarBoundaryResult>;
+
+  close(): Promise<void>;
+}
+```
+
+`close()` is idempotent. Closing an active sidecar prevents further lookup
+through `ops.codex.thread(key)` until a later live sidecar reuses that key.
+
+Sidecar turn input is intentionally closed:
+
+```ts
+type CodexSidecarInput =
+  | { readonly type: 'text'; readonly text: string }
+  | { readonly type: 'image'; readonly url: string; readonly detail?: ImageDetail }
+  | { readonly type: 'localImage'; readonly path: string; readonly detail?: ImageDetail }
+  | { readonly type: 'mention'; readonly name: string; readonly path: string };
+
+type ImageDetail = 'auto' | 'low' | 'high' | 'original';
+```
+
+Result values are recoverable by default:
+
+```ts
+type CodexSidecarBoundaryResult =
+  | { readonly ok: true; readonly kind: 'completed'; readonly turn: CodexSidecarTurn }
+  | {
+      readonly ok: true;
+      readonly kind: 'needsInput';
+      readonly request: CodexSidecarInputRequest;
+      readonly events: readonly CodexSidecarEvent[];
+    }
+  | {
+      readonly ok: false;
+      readonly reason:
+        | 'timeout'
+        | 'interrupted'
+        | 'thread_closed'
+        | 'app_server_closed'
+        | 'error';
+      readonly message: string;
+      readonly threadId: string;
+      readonly turnId?: string;
+      readonly events: readonly CodexSidecarEvent[];
+    };
+
+type CodexSidecarBoundary = Extract<CodexSidecarBoundaryResult, { readonly ok: true }>;
+```
+
+`{ ok: true, kind: 'needsInput' }` means the sidecar parked on Codex
+`request_user_input`. It is sidecar evidence, not owner input for the parent
+state. Resume it with `thread.answer(request.id, answers)`.
+
 ## Submit, Choice, And Events
 
 `fsm.submit<T>({ to, reduce, effect, actions })` moves directly to another

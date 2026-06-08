@@ -16,7 +16,9 @@ code and docs are valid at this commit. Earlier versions may lack
 `dynamic_tools` immutability, the `default_mode_request_user_input` feature
 flag, the `app-server` JSON-RPC surface this code relies on, runtime
 `skills/extraRoots/set` skill-root registration, `skills/list` catalog
-preflight, or specific notification field shapes documented below.
+preflight, `thread/start.developerInstructions`, image/local-image/mention/skill
+`turn/start` input variants, or specific notification field shapes documented
+below.
 
 The version string written to `scripts/codex-version-min.txt` is `0.136.0`.
 
@@ -45,6 +47,9 @@ selection surfaces, thread-settings updates, and the JSON-RPC methods
 `item/tool/call`, `item/tool/requestUserInput`, `thread/inject_items`,
 `thread/settings/update`, `config/read`, `model/list`, `skills/list`, and
 `skills/extraRoots/set`.
+It also contains the sidecar author-surface protocol fields
+`ThreadStartParams.developer_instructions` and the Codex-native `UserInput`
+variants `Text`, `Image`, `LocalImage`, `Skill`, and `Mention`.
 The `0.136.0` validation rechecked those runtime surfaces with the installed
 CLI, including the skill catalog preflight methods.
 
@@ -78,6 +83,11 @@ Current check families:
   notification macro table.
 - `skills/extraRoots/set`, `skills/list`, catalog entry/error fields, and the
   structured `UserInput::Skill` input variant.
+- Sidecar thread-start and turn-start surfaces:
+  `ThreadStartParams.base_instructions`,
+  `ThreadStartParams.developer_instructions`, `ThreadStartParams.cwd`,
+  `ThreadStartParams.model`, `ThreadStartParams.config`, and Codex `UserInput`
+  variants `Text`, `Image`, `LocalImage`, `Skill`, and `Mention`.
 - `request_user_input` source shape, including the
   `default_mode_request_user_input` feature gate and handler path.
 - `thread/settings/update` contract and empty acknowledgement semantics:

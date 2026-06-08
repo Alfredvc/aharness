@@ -72,7 +72,41 @@ export type {
   PermissionRequestHook,
 } from './state/hooks.js';
 export { discoverDeclaredHookKinds } from './state/discoverHooks.js';
-export type { AharnessOps } from './state/aharnessOps.js';
+export type { AharnessEmit, AharnessEmitResult, AharnessOps } from './state/aharnessOps.js';
+export { CODEX_SIDECAR_DEFAULT_TURN_TIMEOUT_MS, CodexSidecarError } from './state/codexSidecar.js';
+export type {
+  CodexSidecarAnswerPayload,
+  CodexSidecarAnswerValue,
+  CodexSidecarAppServerClosedBoundary,
+  CodexSidecarBoundary,
+  CodexSidecarBoundaryResult,
+  CodexSidecarCompletedBoundary,
+  CodexSidecarErrorBoundary,
+  CodexSidecarEvent,
+  CodexSidecarFailureBoundary,
+  CodexSidecarFailureBoundaryBase,
+  CodexSidecarFailureReason,
+  CodexSidecarImageDetail,
+  CodexSidecarImageInput,
+  CodexSidecarInput,
+  CodexSidecarInputRequest,
+  CodexSidecarInputRequestOption,
+  CodexSidecarInputRequestQuestion,
+  CodexSidecarInstructionOptions,
+  CodexSidecarInterruptedBoundary,
+  CodexSidecarLocalImageInput,
+  CodexSidecarMentionInput,
+  CodexSidecarModelOptions,
+  CodexSidecarNeedsInputBoundary,
+  CodexSidecarOps,
+  CodexSidecarTextInput,
+  CodexSidecarThread,
+  CodexSidecarThreadClosedBoundary,
+  CodexSidecarThreadOptions,
+  CodexSidecarTimeoutBoundary,
+  CodexSidecarTurn,
+  CodexSidecarTurnOptions,
+} from './state/codexSidecar.js';
 export { arg, isArgSentinel } from './state/args.js';
 export type {
   ArgSentinel,
