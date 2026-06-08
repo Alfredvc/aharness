@@ -82,6 +82,8 @@ export {
   enrichRunEventAppendInput,
   legacyEventInputToRunEventAppendInput,
   ownerChoicePendingRunEvent,
+  sidecarDiagnosticToRunEventAppendInput,
+  type SidecarRunEventDiagnostic,
 } from './adapter.js';
 export {
   appendRunEvent,

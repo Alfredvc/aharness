@@ -68,6 +68,11 @@ type MutableAggregateStats = {
   cachedInputTokens?: number;
   outputTokens?: number;
   reasoningOutputTokens?: number;
+  sidecarTotalTokens?: number;
+  sidecarInputTokens?: number;
+  sidecarCachedInputTokens?: number;
+  sidecarOutputTokens?: number;
+  sidecarReasoningOutputTokens?: number;
   modelContextWindow?: number;
 };
 
@@ -471,6 +476,11 @@ function assignNumber(
     | 'cachedInputTokens'
     | 'outputTokens'
     | 'reasoningOutputTokens'
+    | 'sidecarTotalTokens'
+    | 'sidecarInputTokens'
+    | 'sidecarCachedInputTokens'
+    | 'sidecarOutputTokens'
+    | 'sidecarReasoningOutputTokens'
     | 'modelContextWindow',
   value: unknown,
 ): void {
@@ -481,8 +491,17 @@ function assignNumber(
 }
 
 function observeTokens(aggregate: MutableAggregateStats, event: RunEventEnvelope): void {
-  if (event.type !== 'token.updated') return;
   const data = dataOf(event);
+  if (event.type === 'sidecar.token.updated') {
+    const total = isRecord(data['total']) ? data['total'] : data;
+    assignNumber(aggregate, 'sidecarTotalTokens', total['totalTokens']);
+    assignNumber(aggregate, 'sidecarInputTokens', total['inputTokens']);
+    assignNumber(aggregate, 'sidecarCachedInputTokens', total['cachedInputTokens']);
+    assignNumber(aggregate, 'sidecarOutputTokens', total['outputTokens']);
+    assignNumber(aggregate, 'sidecarReasoningOutputTokens', total['reasoningOutputTokens']);
+    return;
+  }
+  if (event.type !== 'token.updated') return;
   const total = isRecord(data['total']) ? data['total'] : data;
   assignNumber(aggregate, 'totalTokens', total['totalTokens']);
   assignNumber(aggregate, 'inputTokens', total['inputTokens']);

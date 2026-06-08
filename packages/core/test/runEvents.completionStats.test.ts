@@ -115,7 +115,16 @@ describe('run completion stats projection', () => {
         },
         raw: { toolOutput: 'RAW_TOOL_OUTPUT_SECRET' },
       }),
-      event(11, 'run.completed', { data: { endedAt: '2026-05-29T00:00:11.000Z' } }),
+      event(11, 'sidecar.token.updated', {
+        threadId: 'sidecar-thread-secret',
+        turnId: 'sidecar-turn',
+        data: {
+          sidecarKey: 'subject',
+          total: { totalTokens: 50, inputTokens: 35, outputTokens: 15 },
+        },
+        raw: { toolOutput: 'SIDECAR_RAW_SECRET' },
+      }),
+      event(12, 'run.completed', { data: { endedAt: '2026-05-29T00:00:12.000Z' } }),
     ]);
 
     expect(projected).toEqual(
@@ -124,8 +133,8 @@ describe('run completion stats projection', () => {
         fsmDisplayName: 'demo.fsm',
         duration: {
           startedAt: '2026-05-29T00:00:01.000Z',
-          endedAt: '2026-05-29T00:00:11.000Z',
-          elapsedMs: 10_000,
+          endedAt: '2026-05-29T00:00:12.000Z',
+          elapsedMs: 11_000,
         },
         transitionCount: 2,
         freshClearCount: 1,
@@ -143,6 +152,7 @@ describe('run completion stats projection', () => {
         outputTokens: 55,
         mainTokens: 125,
         subthreadTokens: 40,
+        sidecarTokens: 50,
       }),
     );
     expect(JSON.stringify(projected)).not.toContain('/secret');
@@ -152,6 +162,7 @@ describe('run completion stats projection', () => {
     expect(JSON.stringify(projected)).not.toContain('fedcba9876543210');
     expect(JSON.stringify(projected)).not.toContain('RAW_TRANSCRIPT_SECRET');
     expect(JSON.stringify(projected)).not.toContain('RAW_TOOL_OUTPUT_SECRET');
+    expect(JSON.stringify(projected)).not.toContain('SIDECAR_RAW_SECRET');
     expect(JSON.stringify(projected)).not.toContain('OWNER_INPUT_SECRET');
   });
 

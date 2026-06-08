@@ -16,6 +16,18 @@ const ABANDONED_THREAD_RESIDUE_SOURCE_MAX_BYTES = 128;
 const ABANDONED_THREAD_RESIDUE_MESSAGE_MAX_BYTES = 512;
 const TRUNCATION_MARKER = '…[truncated]';
 
+export interface SidecarRunEventDiagnostic {
+  readonly type: string;
+  readonly key?: string;
+  readonly label?: string;
+  readonly threadId?: string;
+  readonly turnId?: string;
+  readonly itemId?: string;
+  readonly requestId?: string;
+  readonly message?: string;
+  readonly data?: unknown;
+}
+
 function compactRecord<T extends Record<string, unknown>>(record: T): RunEventPayload {
   return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
 }
@@ -166,6 +178,294 @@ function displayKindForToolName(toolName: string | undefined): string | undefine
   if (normalized.startsWith('mcp:')) return 'mcp';
   if (normalized.includes('agent')) return 'subagent';
   return 'tool';
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeSidecarEventType(type: string): string {
+  if (type === 'sidecar.request.created') return 'sidecar.input_request.created';
+  if (type === 'sidecar.request.resolved') return 'sidecar.input_request.resolved';
+  return type;
+}
+
+function sidecarLabel(input: SidecarRunEventDiagnostic): string {
+  return input.label ?? input.key ?? input.threadId ?? 'sidecar';
+}
+
+function sidecarBaseData(input: SidecarRunEventDiagnostic): RunEventPayload {
+  return compactRecord({
+    sidecar: true,
+    sidecarKey: input.key,
+    sidecarLabel: input.label,
+    threadId: input.threadId,
+    turnId: input.turnId,
+    itemId: input.itemId,
+    requestId: input.requestId,
+  });
+}
+
+function sidecarRow(input: {
+  readonly diagnostic: SidecarRunEventDiagnostic;
+  readonly activity: string;
+  readonly status: string;
+  readonly summary: string;
+  readonly label?: string;
+  readonly data?: RunEventPayload;
+}): RunEventPayload {
+  return compactRecord({
+    kind: 'sidecar',
+    label: input.label ?? sidecarLabel(input.diagnostic),
+    status: input.status,
+    summary: input.summary,
+    data: compactRecord({
+      ...sidecarBaseData(input.diagnostic),
+      activity: input.activity,
+      ...(input.data ?? {}),
+    }),
+  });
+}
+
+function sidecarThreadData(
+  input: SidecarRunEventDiagnostic,
+  status: 'started' | 'closed',
+): RunEventPayload {
+  return compactRecord({
+    ...sidecarBaseData(input),
+    kind: 'sidecar-thread',
+    status,
+    row: sidecarRow({
+      diagnostic: input,
+      activity: 'thread',
+      status,
+      summary: `thread ${status}`,
+    }),
+  });
+}
+
+function sidecarTurnData(
+  input: SidecarRunEventDiagnostic,
+  status: 'started' | 'completed' | 'timeout',
+): RunEventPayload {
+  return compactRecord({
+    ...sidecarBaseData(input),
+    kind: 'sidecar-turn',
+    status,
+    row: sidecarRow({
+      diagnostic: input,
+      activity: 'turn',
+      status,
+      summary: input.turnId === undefined ? `turn ${status}` : `${input.turnId} ${status}`,
+    }),
+  });
+}
+
+function sidecarItemData(
+  input: SidecarRunEventDiagnostic,
+  status: 'started' | 'completed' | 'updated',
+): RunEventPayload {
+  const data = readRecord(input.data);
+  const item = readRecord(data?.['item']);
+  const itemType = readString(item?.['type']);
+  const toolName = readString(item?.['name']);
+  const displayName = toolName ?? itemType ?? input.itemId ?? 'item';
+  return compactRecord({
+    ...sidecarBaseData(input),
+    kind: 'sidecar-item',
+    status,
+    itemType,
+    toolName,
+    row: sidecarRow({
+      diagnostic: input,
+      activity: 'item',
+      status,
+      label: displayName,
+      summary: `${displayName} ${status}`,
+      data: compactRecord({
+        itemType,
+        toolName,
+        displayKind: displayKindForToolName(toolName),
+      }),
+    }),
+  });
+}
+
+function tokenBreakdown(value: unknown): RunEventPayload | undefined {
+  const source = readRecord(value);
+  if (source === undefined) return undefined;
+  return compactRecord({
+    totalTokens: readNumber(source['totalTokens']),
+    inputTokens: readNumber(source['inputTokens']),
+    cachedInputTokens: readNumber(source['cachedInputTokens']),
+    outputTokens: readNumber(source['outputTokens']),
+    reasoningOutputTokens: readNumber(source['reasoningOutputTokens']),
+  });
+}
+
+function sidecarTokenData(input: SidecarRunEventDiagnostic): RunEventPayload {
+  const data = readRecord(input.data);
+  const tokenUsage = readRecord(data?.['tokenUsage']);
+  const total = tokenBreakdown(tokenUsage?.['total']) ?? tokenBreakdown(tokenUsage);
+  const last = tokenBreakdown(tokenUsage?.['last']);
+  const totalTokens = readNumber(total?.['totalTokens']);
+  return compactRecord({
+    ...sidecarBaseData(input),
+    kind: 'sidecar-token',
+    total,
+    last,
+    modelContextWindow: readNumber(tokenUsage?.['modelContextWindow']),
+    row: sidecarRow({
+      diagnostic: input,
+      activity: 'token',
+      status: 'updated',
+      summary:
+        totalTokens === undefined ? 'token usage updated' : `${String(totalTokens)} sidecar tokens`,
+    }),
+  });
+}
+
+function sidecarInputRequestData(
+  input: SidecarRunEventDiagnostic,
+  status: 'pending' | 'resolved',
+): RunEventPayload {
+  const data = readRecord(input.data);
+  const questions = Array.isArray(data?.['questions']) ? data['questions'] : undefined;
+  const requestId = input.requestId ?? readString(data?.['requestId']) ?? input.itemId;
+  const questionCount = questions?.length;
+  return compactRecord({
+    ...sidecarBaseData({ ...input, ...(requestId !== undefined ? { requestId } : {}) }),
+    kind: 'sidecar-input-request',
+    status,
+    questionCount,
+    row: sidecarRow({
+      diagnostic: input,
+      activity: 'input_request',
+      status,
+      summary:
+        status === 'resolved'
+          ? 'input request resolved'
+          : `${String(questionCount ?? 0)} input question${questionCount === 1 ? '' : 's'}`,
+      data: compactRecord({
+        requestId,
+        questionCount,
+      }),
+    }),
+  });
+}
+
+function sidecarDiagnosticData(input: SidecarRunEventDiagnostic): RunEventPayload {
+  return compactRecord({
+    ...sidecarBaseData(input),
+    kind: 'sidecar-diagnostic',
+    status: 'warn',
+    message: input.message,
+    row: sidecarRow({
+      diagnostic: input,
+      activity: 'diagnostic',
+      status: 'warn',
+      summary: input.message ?? input.type,
+    }),
+  });
+}
+
+function sidecarRawEvidenceData(
+  input: SidecarRunEventDiagnostic,
+  kind: 'sidecar-message-delta' | 'sidecar-raw-response-item',
+  status: 'updated' | 'completed',
+): RunEventPayload {
+  return compactRecord({
+    ...sidecarBaseData(input),
+    kind,
+    status,
+  });
+}
+
+export function sidecarDiagnosticToRunEventAppendInput(
+  diagnostic: SidecarRunEventDiagnostic,
+): RunEventAppendInput {
+  const type = normalizeSidecarEventType(diagnostic.type);
+  const requestId =
+    diagnostic.requestId ??
+    (type.startsWith('sidecar.input_request.')
+      ? (readString(readRecord(diagnostic.data)?.['requestId']) ?? diagnostic.itemId)
+      : undefined);
+  let data: RunEventPayload;
+  switch (type) {
+    case 'sidecar.thread.started':
+      data = sidecarThreadData(diagnostic, 'started');
+      break;
+    case 'sidecar.thread.closed':
+      data = sidecarThreadData(diagnostic, 'closed');
+      break;
+    case 'sidecar.turn.started':
+      data = sidecarTurnData(diagnostic, 'started');
+      break;
+    case 'sidecar.turn.completed':
+      data = sidecarTurnData(diagnostic, 'completed');
+      break;
+    case 'sidecar.turn.timeout':
+      data = sidecarTurnData(diagnostic, 'timeout');
+      break;
+    case 'sidecar.item.started':
+      data = sidecarItemData(diagnostic, 'started');
+      break;
+    case 'sidecar.item.completed':
+      data = sidecarItemData(diagnostic, 'completed');
+      break;
+    case 'sidecar.item.fileChange.patchUpdated':
+      data = sidecarItemData(diagnostic, 'updated');
+      break;
+    case 'sidecar.input_request.created':
+      data = sidecarInputRequestData(diagnostic, 'pending');
+      break;
+    case 'sidecar.input_request.resolved':
+      data = sidecarInputRequestData(diagnostic, 'resolved');
+      break;
+    case 'sidecar.token.updated':
+      data = sidecarTokenData(diagnostic);
+      break;
+    case 'sidecar.agentMessage.delta':
+      data = sidecarRawEvidenceData(diagnostic, 'sidecar-message-delta', 'updated');
+      break;
+    case 'sidecar.rawResponseItem.completed':
+      data = sidecarRawEvidenceData(diagnostic, 'sidecar-raw-response-item', 'completed');
+      break;
+    default:
+      data = sidecarDiagnosticData(diagnostic);
+      break;
+  }
+  return {
+    type,
+    ...(diagnostic.threadId !== undefined ? { threadId: diagnostic.threadId } : {}),
+    ...(diagnostic.turnId !== undefined ? { turnId: diagnostic.turnId } : {}),
+    ...(diagnostic.itemId !== undefined ? { itemId: diagnostic.itemId } : {}),
+    ...(requestId !== undefined ? { requestId } : {}),
+    data,
+    meta: compactRecord({
+      sidecar: true,
+      sidecarKey: diagnostic.key,
+      sidecarLabel: diagnostic.label,
+    }),
+    ...(diagnostic.data !== undefined || diagnostic.message !== undefined
+      ? {
+          raw: compactRecord({
+            message: diagnostic.message,
+            data: diagnostic.data,
+          }),
+        }
+      : {}),
+  };
 }
 
 function ownerInputRequestData(event: OwnerInputRequest): RunEventPayload {

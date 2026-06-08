@@ -74,6 +74,7 @@ const KNOWN_COMPACT_ROW_KINDS = new Set<string>([
   'framework_note',
   'diagnostic',
   'run_lifecycle',
+  'sidecar',
   'state_change',
   'transition_failure',
   'fresh_clear',
@@ -150,7 +151,7 @@ export type TranscriptItem =
   | (TranscriptBase & {
       id: string;
       type: 'compact_status';
-      category: 'request' | 'reply' | 'diagnostic' | 'lifecycle';
+      category: 'request' | 'reply' | 'diagnostic' | 'lifecycle' | 'sidecar';
       label: string;
       status?: string;
       summary?: string;
@@ -1058,6 +1059,19 @@ function transcriptItemFromCompactRow(
         ...(row.elapsedMs === undefined ? {} : { elapsedMs: row.elapsedMs }),
       };
     }
+    case 'sidecar': {
+      const summary = row.summary ?? row.text;
+      return {
+        ...common,
+        id: row.id,
+        type: 'compact_status',
+        category: 'sidecar',
+        label: row.label ?? 'sidecar',
+        ...(row.status === undefined ? {} : { status: row.status }),
+        ...(summary === undefined ? {} : { summary }),
+        ...(row.elapsedMs === undefined ? {} : { elapsedMs: row.elapsedMs }),
+      };
+    }
     case 'state_change': {
       const visitCount = readNumber(row.data?.['visitCount']);
       const stateKind = readString(row.data?.['stateKind']);
@@ -1644,6 +1658,19 @@ function mergeAggregateFromRunEvent(state: UiState, e: RunScopedApiEvent): UiSta
     ] as const) {
       const value = readNumber(key === 'modelContextWindow' ? data[key] : total[key]);
       if (value !== undefined) aggregate[key] = value;
+    }
+  } else if (e.type === 'sidecar.token.updated') {
+    const total = isRecord(data['total']) ? data['total'] : data;
+    const sidecarTokenFields = [
+      ['sidecarTotalTokens', 'totalTokens'],
+      ['sidecarInputTokens', 'inputTokens'],
+      ['sidecarCachedInputTokens', 'cachedInputTokens'],
+      ['sidecarOutputTokens', 'outputTokens'],
+      ['sidecarReasoningOutputTokens', 'reasoningOutputTokens'],
+    ] as const;
+    for (const [aggregateKey, tokenKey] of sidecarTokenFields) {
+      const value = readNumber(total[tokenKey]);
+      if (value !== undefined) aggregate[aggregateKey] = value;
     }
   }
   return { ...state, aggregateStats: aggregate };

@@ -281,6 +281,85 @@ describe('run event query service', () => {
     });
   });
 
+  it('replays sidecar rows without indexing sidecar input requests as pending cards', () => {
+    const eventsPath = tempEventsPath();
+    writeJsonl(
+      eventsPath,
+      event(1, 'run.started'),
+      event(2, 'sidecar.thread.started', {
+        threadId: 'sidecar-thread',
+        data: {
+          sidecar: true,
+          sidecarKey: 'subject',
+          row: {
+            kind: 'sidecar',
+            label: 'subject',
+            status: 'started',
+            summary: 'thread started',
+          },
+        },
+      }),
+      event(3, 'sidecar.input_request.created', {
+        threadId: 'sidecar-thread',
+        turnId: 'sidecar-turn',
+        itemId: 'input-item',
+        requestId: 'sidecar-input',
+        data: {
+          sidecar: true,
+          sidecarKey: 'subject',
+          row: {
+            kind: 'sidecar',
+            label: 'subject',
+            status: 'pending',
+            summary: '1 input question',
+          },
+        },
+      }),
+      event(4, 'sidecar.token.updated', {
+        threadId: 'sidecar-thread',
+        turnId: 'sidecar-turn',
+        data: {
+          total: { totalTokens: 33, inputTokens: 20, outputTokens: 13 },
+          row: {
+            kind: 'sidecar',
+            label: 'subject',
+            status: 'updated',
+            summary: '33 sidecar tokens',
+          },
+        },
+      }),
+    );
+    const service = createRunEventQueryService({ runId: RUN_ID, eventsPath });
+
+    const bootstrap = service.getBootstrap({
+      getRunMeta: () => ({ runId: RUN_ID }),
+      recentLimit: 10,
+    });
+
+    expect(bootstrap.ok).toBe(true);
+    if (!bootstrap.ok) return;
+    expect(bootstrap.bootstrap.pending).toEqual([]);
+    expect(bootstrap.bootstrap.aggregateStats).toEqual(
+      expect.objectContaining({ sidecarTotalTokens: 33, sidecarInputTokens: 20 }),
+    );
+    expect(bootstrap.bootstrap.recentRows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'sidecar.thread.started',
+          kind: 'sidecar',
+          label: 'subject',
+          status: 'started',
+        }),
+        expect.objectContaining({
+          type: 'sidecar.input_request.created',
+          requestId: 'sidecar-input',
+          kind: 'sidecar',
+          status: 'pending',
+        }),
+      ]),
+    );
+  });
+
   it('serves owner-choice pending cards and failed reply rows from bootstrap', () => {
     const eventsPath = tempEventsPath();
     const requestId = 'owner-choice:root.pick#2';

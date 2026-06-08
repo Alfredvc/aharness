@@ -62,6 +62,22 @@ Legend:
 | `subthread.item.started` | Row-kind dependent | Row-kind dependent | Row-kind dependent | Usually tool rows when a row is present. |
 | `subthread.item.completed` | Row-kind dependent | Row-kind dependent | Row-kind dependent | Usually tool rows when a row is present. |
 | `subthread.token.updated` | No row | No row | No row | Updates subthread token stats. |
+| `sidecar.thread.started` | Shown | Shown | Shown | Projects compact `sidecar` lifecycle evidence for an author-created sidecar thread. |
+| `sidecar.thread.closed` | Shown | Shown | Shown | Projects compact `sidecar` lifecycle evidence for sidecar shutdown. |
+| `sidecar.turn.started` | Shown | Shown | Shown | Projects compact `sidecar` turn status without making the sidecar a parent transcript turn. |
+| `sidecar.turn.completed` | Shown | Shown | Shown | Projects compact `sidecar` turn completion evidence. |
+| `sidecar.turn.timeout` | Shown | Shown | Shown | Projects compact `sidecar` timeout evidence. |
+| `sidecar.item.started` | Shown | Shown | Shown | Projects compact `sidecar` tool/item activity; raw item payloads stay in canonical JSONL raw evidence. |
+| `sidecar.item.completed` | Shown | Shown | Shown | Projects compact `sidecar` tool/item completion; raw item payloads stay in canonical JSONL raw evidence. |
+| `sidecar.item.fileChange.patchUpdated` | Shown | Shown | Shown | Projects compact sidecar file-change progress; raw patch payloads stay in canonical JSONL raw evidence. |
+| `sidecar.agentMessage.delta` | No row | No row | No row | Records raw sidecar model delta evidence without projecting it as parent-thread transcript text. |
+| `sidecar.rawResponseItem.completed` | No row | No row | No row | Records raw sidecar response-item evidence without creating a transcript row. |
+| `sidecar.input_request.created` | Shown | Shown | Shown | Sidecar `request_user_input` evidence only; does not create owner-reply controls or pending-card routing. |
+| `sidecar.input_request.resolved` | Shown | Shown | Shown | Sidecar `request_user_input` answer evidence only; does not use the browser owner-reply route. |
+| `sidecar.token.updated` | Shown | Shown | Shown | Projects compact `sidecar` token evidence and updates sidecar token stats separately from parent/subthread totals. |
+| `sidecar.notification.ignored` | Shown | Shown | Shown | Diagnostic evidence for late sidecar notifications that no longer affect an operation. |
+| `sidecar.thread.close.warning` | Shown | Shown | Shown | Diagnostic evidence for best-effort sidecar close failures. |
+| `sidecar.turn.interrupt.warning` | Shown | Shown | Shown | Diagnostic evidence for best-effort sidecar interrupt failures. |
 | `artifact.written` | Row-kind dependent | Row-kind dependent | Row-kind dependent | Visibility depends on optional `data.row`. |
 | `submit.recorded` | Row-kind dependent | Row-kind dependent | Row-kind dependent | Visibility depends on optional `data.row`; submit-tool rows are always hidden. |
 | `transition.recorded` | Row-kind dependent | Row-kind dependent | Row-kind dependent | Visibility depends on optional `data.row`; transition failure rows are shown. |
@@ -93,6 +109,7 @@ pending cards, but it does not create a transcript item.
 | `framework_note` with `status: "orientation"` | `framework_note` | Filtered | Shown | Filtered | Orientation notes are dev-only. |
 | `diagnostic` | `compact_status` / `diagnostic` | Shown | Shown | Shown | Diagnostics are visible by default. |
 | `run_lifecycle` | `compact_status` / `lifecycle` | Shown | Shown | Shown | Covers run started/completed/failed/cancelled lifecycle rows. |
+| `sidecar` | `compact_status` / `sidecar` | Shown | Shown | Shown | Covers compact sidecar lifecycle, turn, tool/request-user-input, and token evidence. It is evidence only; pending cards still come only from `request.*` events with `pendingCard`. |
 | `state_change` | `state_change` | Shown | Shown | Shown | Covers boot and transition markers in the chronological run transcript. Scoped state views may still suppress duplicate transition rows inside visit groups. |
 | `transition_failure` | `transition_failure` | Shown | Shown | Shown | Failed submit/transition rows are visible. |
 | `fileChange` | `file_change` | Shown | Shown | Shown | Compact file-change summaries only; diff bodies are not exposed as transcript rows. |
@@ -107,6 +124,8 @@ Normal live sessions can show surfaces that are not transcript rows:
 - owner-choice cards
 - owner-input prompts
 - file, command, permission, and MCP elicitation approval cards
+- sidecar file, command, permission, and MCP elicitation approval cards when
+  recorded through `request.*` events with sidecar metadata
 - open-state composer
 - pending/thinking/submitted activity indicators
 
@@ -115,3 +134,8 @@ always rejects writes. View mode hides live interaction controls, not historical
 evidence: lifecycle rows, state changes, and workflow-visible request/reply
 summaries can still appear as transcript rows when the recorded log contains
 those rows.
+
+Sidecar `request_user_input` is deliberately different from browser owner input.
+It is recorded and projected only through `sidecar.input_request.*` evidence.
+Those events must not create owner-input controls, owner replies, or pending
+cards in live or recorded views.

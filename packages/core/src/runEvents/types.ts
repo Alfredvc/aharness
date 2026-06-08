@@ -315,6 +315,11 @@ export interface RunEventAggregateStats {
   readonly cachedInputTokens?: number;
   readonly outputTokens?: number;
   readonly reasoningOutputTokens?: number;
+  readonly sidecarTotalTokens?: number;
+  readonly sidecarInputTokens?: number;
+  readonly sidecarCachedInputTokens?: number;
+  readonly sidecarOutputTokens?: number;
+  readonly sidecarReasoningOutputTokens?: number;
   readonly modelContextWindow?: number;
 }
 
@@ -337,6 +342,7 @@ export interface RunCompletionTokenTotals {
 export interface RunCompletionTokenSummary extends RunCompletionTokenTotals {
   readonly mainTokens: number;
   readonly subthreadTokens: number;
+  readonly sidecarTokens?: number;
   readonly unattributedTokens: number;
 }
 

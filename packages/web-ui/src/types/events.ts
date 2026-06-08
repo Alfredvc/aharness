@@ -196,6 +196,11 @@ export type RunScopedAggregateStats = {
   cachedInputTokens?: number;
   outputTokens?: number;
   reasoningOutputTokens?: number;
+  sidecarTotalTokens?: number;
+  sidecarInputTokens?: number;
+  sidecarCachedInputTokens?: number;
+  sidecarOutputTokens?: number;
+  sidecarReasoningOutputTokens?: number;
   modelContextWindow?: number;
 };
 
@@ -218,6 +223,7 @@ export type RunCompletionTokenTotals = {
 export type RunCompletionTokenSummary = RunCompletionTokenTotals & {
   mainTokens: number;
   subthreadTokens: number;
+  sidecarTokens?: number;
   unattributedTokens: number;
 };
 
@@ -973,6 +979,11 @@ function isRunScopedAggregateStats(value: unknown): value is RunScopedAggregateS
     isOptionalNumber(value['cachedInputTokens']) &&
     isOptionalNumber(value['outputTokens']) &&
     isOptionalNumber(value['reasoningOutputTokens']) &&
+    isOptionalNumber(value['sidecarTotalTokens']) &&
+    isOptionalNumber(value['sidecarInputTokens']) &&
+    isOptionalNumber(value['sidecarCachedInputTokens']) &&
+    isOptionalNumber(value['sidecarOutputTokens']) &&
+    isOptionalNumber(value['sidecarReasoningOutputTokens']) &&
     isOptionalNumber(value['modelContextWindow'])
   );
 }
@@ -1007,6 +1018,7 @@ function isRunCompletionTokenSummary(value: unknown): value is RunCompletionToke
   return (
     isNonNegativeSafeNumber(summary['mainTokens']) &&
     isNonNegativeSafeNumber(summary['subthreadTokens']) &&
+    (summary['sidecarTokens'] === undefined || isNonNegativeSafeNumber(summary['sidecarTokens'])) &&
     isNonNegativeSafeNumber(summary['unattributedTokens'])
   );
 }

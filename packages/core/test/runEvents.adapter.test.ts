@@ -12,6 +12,7 @@ import {
   createRunEventQueryService,
   legacyEventInputToRunEventAppendInput,
   ownerChoicePendingRunEvent,
+  sidecarDiagnosticToRunEventAppendInput,
 } from '../src/runEvents/index.js';
 import { createUiEventLog } from '../src/ui/sse.js';
 import type { AppEvent, FsmState, RunMeta } from '../src/ui/events.js';
@@ -108,6 +109,79 @@ describe('run event adapter', () => {
         }),
       }),
     });
+  });
+
+  it('maps sidecar diagnostics to sanitized canonical sidecar events', () => {
+    const started = sidecarDiagnosticToRunEventAppendInput({
+      type: 'sidecar.thread.started',
+      key: 'subject',
+      label: 'Subject runner',
+      threadId: 'sidecar-thread',
+      data: { cwd: '/secret/repo' },
+    });
+    const inputNeeded = sidecarDiagnosticToRunEventAppendInput({
+      type: 'sidecar.request.created',
+      key: 'subject',
+      threadId: 'sidecar-thread',
+      turnId: 'sidecar-turn',
+      itemId: 'input-item',
+      data: { requestId: 'sidecar-input', questions: [{ question: 'secret prompt' }] },
+    });
+    const tokened = sidecarDiagnosticToRunEventAppendInput({
+      type: 'sidecar.token.updated',
+      key: 'subject',
+      threadId: 'sidecar-thread',
+      turnId: 'sidecar-turn',
+      data: {
+        tokenUsage: {
+          total: { totalTokens: 42, inputTokens: 30, outputTokens: 12 },
+          last: { totalTokens: 8, inputTokens: 5, outputTokens: 3 },
+        },
+      },
+    });
+
+    expect(started).toEqual(
+      expect.objectContaining({
+        type: 'sidecar.thread.started',
+        threadId: 'sidecar-thread',
+        data: expect.objectContaining({
+          sidecar: true,
+          sidecarKey: 'subject',
+          sidecarLabel: 'Subject runner',
+          row: expect.objectContaining({
+            kind: 'sidecar',
+            label: 'Subject runner',
+            status: 'started',
+          }),
+        }),
+        meta: expect.objectContaining({ sidecar: true, sidecarKey: 'subject' }),
+        raw: expect.objectContaining({ data: { cwd: '/secret/repo' } }),
+      }),
+    );
+    expect(inputNeeded).toEqual(
+      expect.objectContaining({
+        type: 'sidecar.input_request.created',
+        requestId: 'sidecar-input',
+        data: expect.objectContaining({
+          kind: 'sidecar-input-request',
+          questionCount: 1,
+          row: expect.objectContaining({
+            kind: 'sidecar',
+            status: 'pending',
+            summary: '1 input question',
+          }),
+        }),
+      }),
+    );
+    expect(inputNeeded.data).not.toHaveProperty('pendingCard');
+    expect(JSON.stringify(inputNeeded.data)).not.toContain('secret prompt');
+    expect(JSON.stringify(inputNeeded.raw)).toContain('secret prompt');
+    expect(tokened.data).toEqual(
+      expect.objectContaining({
+        total: expect.objectContaining({ totalTokens: 42, inputTokens: 30, outputTokens: 12 }),
+        last: expect.objectContaining({ totalTokens: 8, inputTokens: 5, outputTokens: 3 }),
+      }),
+    );
   });
 
   it.each([

@@ -270,7 +270,13 @@ function bucketForPath(
 }
 
 function readTokenSnapshot(event: RunEventEnvelope): TokenSnapshot | null {
-  if (event.type !== 'token.updated' && event.type !== 'subthread.token.updated') return null;
+  if (
+    event.type !== 'token.updated' &&
+    event.type !== 'subthread.token.updated' &&
+    event.type !== 'sidecar.token.updated'
+  ) {
+    return null;
+  }
   const data = dataOf(event);
   const total = isRecord(data['total']) ? data['total'] : data;
   return {
@@ -437,6 +443,7 @@ export function buildRunCompletionStats(
   let freshClearCount = 0;
   let mainTurnCount = 0;
   let subthreadTurnCount = 0;
+  let sidecarTokens = 0;
 
   const resolveBucket = (event: RunEventEnvelope): MutableBucket => {
     const explicitVisit = stateVisitId(event);
@@ -493,7 +500,11 @@ export function buildRunCompletionStats(
       );
     }
 
-    if (!event.type.startsWith('subthread.') && activePath !== undefined) {
+    if (
+      !event.type.startsWith('subthread.') &&
+      !event.type.startsWith('sidecar.') &&
+      activePath !== undefined
+    ) {
       return bucketForPath(buckets, activePath, topologyStatus, topologyNodes);
     }
     return bucketForPath(buckets, undefined, topologyStatus, topologyNodes);
@@ -549,11 +560,17 @@ export function buildRunCompletionStats(
     const snapshot = readTokenSnapshot(event);
     if (snapshot !== null) {
       const tokenKey =
-        event.type === 'subthread.token.updated'
-          ? `sub:${readThreadId(event) ?? readTurnId(event) ?? event.id}`
-          : `main:${readThreadId(event) ?? 'main'}`;
+        event.type === 'sidecar.token.updated'
+          ? `sidecar:${readThreadId(event) ?? readTurnId(event) ?? event.id}`
+          : event.type === 'subthread.token.updated'
+            ? `sub:${readThreadId(event) ?? readTurnId(event) ?? event.id}`
+            : `main:${readThreadId(event) ?? 'main'}`;
       const delta = tokenDelta(tokenSnapshots.get(tokenKey), snapshot);
       tokenSnapshots.set(tokenKey, snapshot);
+      if (event.type === 'sidecar.token.updated') {
+        sidecarTokens += delta.totalTokens;
+        continue;
+      }
       addTokens(tokenTotals, delta);
       addTokens(bucket.tokenTotals, delta);
       if (event.type === 'subthread.token.updated') {
@@ -592,7 +609,10 @@ export function buildRunCompletionStats(
     freshClearCount,
     mainTurnCount,
     subthreadTurnCount,
-    tokenTotals,
+    tokenTotals: {
+      ...tokenTotals,
+      ...(sidecarTokens > 0 ? { sidecarTokens } : {}),
+    },
     topologyStatus,
     stateBuckets: freezeBuckets(buckets),
     workDelta: readWorkDelta(options.events, terminal.seq),

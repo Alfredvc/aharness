@@ -56,11 +56,19 @@ export interface CodexSidecarClient {
 export interface CodexSidecarManagerDiagnostic {
   readonly type: string;
   readonly key?: string;
+  readonly label?: string;
   readonly threadId?: string;
   readonly turnId?: string;
   readonly itemId?: string;
+  readonly requestId?: string;
   readonly message?: string;
   readonly data?: unknown;
+}
+
+export interface CodexSidecarThreadMetadata {
+  readonly key: string;
+  readonly threadId: string;
+  readonly label?: string;
 }
 
 type Timer = ReturnType<typeof setTimeout>;
@@ -85,6 +93,7 @@ export interface CodexSidecarManager extends CodexSidecarOps {
     params: ToolRequestUserInputParams,
   ) => Promise<ToolRequestUserInputResponse> | undefined;
   readonly ownsThread: (threadId: string) => boolean;
+  readonly threadMetadata: (threadId: string) => CodexSidecarThreadMetadata | undefined;
   readonly markAppServerClosed: () => void;
   readonly shutdown: () => Promise<void>;
 }
@@ -207,7 +216,7 @@ export function createCodexSidecarManager(
         type: 'sidecar.thread.started',
         key: normalizedKey,
         threadId,
-        ...(prepared.label !== undefined ? { data: { label: prepared.label } } : {}),
+        ...(prepared.label !== undefined ? { label: prepared.label } : {}),
       });
       return sidecar.handle;
     },
@@ -238,13 +247,17 @@ export function createCodexSidecarManager(
       active.turnId = params.turnId;
       const pending = createPendingInputRequest(params);
       sidecar.pendingInput = pending;
-      appendEvent(active, {
-        type: 'sidecar.request.created',
-        threadId: params.threadId,
-        turnId: params.turnId,
-        itemId: params.itemId,
-        data: { questions: params.questions },
-      });
+      appendEvent(
+        active,
+        {
+          type: 'sidecar.input_request.created',
+          threadId: params.threadId,
+          turnId: params.turnId,
+          itemId: params.itemId,
+          data: { requestId: pending.id, questions: params.questions },
+        },
+        emitDiagnostic,
+      );
       finishOperation(active, {
         ok: true,
         kind: 'needsInput',
@@ -256,6 +269,16 @@ export function createCodexSidecarManager(
 
     ownsThread(threadId: string): boolean {
       return byThreadId.has(threadId);
+    },
+
+    threadMetadata(threadId: string): CodexSidecarThreadMetadata | undefined {
+      const sidecar = byThreadId.get(threadId);
+      if (sidecar === undefined) return undefined;
+      return {
+        key: sidecar.key,
+        threadId: sidecar.threadId,
+        ...(sidecar.label !== undefined ? { label: sidecar.label } : {}),
+      };
     },
 
     markAppServerClosed(): void {
@@ -420,13 +443,17 @@ export function createCodexSidecarManager(
 
     const active = beginOperation(sidecar, 'answer', timeoutMs);
     active.turnId = pending.params.turnId;
-    appendEvent(active, {
-      type: 'sidecar.request.resolved',
-      threadId: sidecar.threadId,
-      turnId: pending.params.turnId,
-      itemId: pending.params.itemId,
-      data: { requestId },
-    });
+    appendEvent(
+      active,
+      {
+        type: 'sidecar.input_request.resolved',
+        threadId: sidecar.threadId,
+        turnId: pending.params.turnId,
+        itemId: pending.params.itemId,
+        data: { requestId },
+      },
+      emitDiagnostic,
+    );
     startOperationTimer(active);
     sidecar.pendingInput = undefined;
     pending.resolve(response);
@@ -483,6 +510,7 @@ export function createCodexSidecarManager(
     emitDiagnostic({
       type: 'sidecar.thread.closed',
       key: sidecar.key,
+      ...(sidecar.label !== undefined ? { label: sidecar.label } : {}),
       threadId: sidecar.threadId,
     });
   }
@@ -526,7 +554,7 @@ export function createCodexSidecarManager(
       if (active.turnId !== undefined && active.turnId !== notification.turnId) return;
       active.turnId = notification.turnId;
     }
-    appendEvent(active, notification.event);
+    appendEvent(active, notification.event, emitDiagnostic);
     if (notification.assistantDelta !== undefined) {
       active.assistantText += notification.assistantDelta;
     }
@@ -1045,8 +1073,28 @@ function isAppServerClosedError(error: unknown): boolean {
   return /jsonrpc: (client closed|transport closed|closed before response)/.test(message);
 }
 
-function appendEvent(active: ActiveOperation, event: CodexSidecarEvent): void {
+function appendEvent(
+  active: ActiveOperation,
+  event: CodexSidecarEvent,
+  emitDiagnostic: (diagnostic: CodexSidecarManagerDiagnostic) => void,
+): void {
   active.events.push(event);
+  const data = isPlainObject(event.data) ? event.data : undefined;
+  const requestId =
+    typeof data?.['requestId'] === 'string' && data['requestId'].length > 0
+      ? data['requestId']
+      : undefined;
+  emitDiagnostic({
+    type: event.type,
+    key: active.sidecar.key,
+    ...(active.sidecar.label !== undefined ? { label: active.sidecar.label } : {}),
+    threadId: event.threadId,
+    ...(event.turnId !== undefined ? { turnId: event.turnId } : {}),
+    ...(event.itemId !== undefined ? { itemId: event.itemId } : {}),
+    ...(requestId !== undefined ? { requestId } : {}),
+    ...(event.message !== undefined ? { message: event.message } : {}),
+    ...(event.data !== undefined ? { data: event.data } : {}),
+  });
 }
 
 function buildCompletedTurn(active: ActiveOperation): CodexSidecarTurn {

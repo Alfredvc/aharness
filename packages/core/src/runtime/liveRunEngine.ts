@@ -53,6 +53,7 @@ import {
   createLiveRunEventPublisher,
   createRunEventQueryService,
   ownerChoicePendingRunEvent,
+  sidecarDiagnosticToRunEventAppendInput,
   type GitFactSyncExec,
   type GitSnapshotRecordedRunEventAppendInput,
   type RunEventAppendInput,
@@ -452,6 +453,78 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
   const recordRunEvent = (input: RunEventAppendInput): void => {
     void livePublisher.record(input);
   };
+  const sidecarTimeoutClock = createThreadScopedPausableTimeoutClock();
+  const sidecarManagerRef: { current?: CodexSidecarManager } = {};
+  const sidecarRequestMetadataById = new Map<
+    string,
+    NonNullable<ReturnType<CodexSidecarManager['threadMetadata']>>
+  >();
+  const requestIdForRunEvent = (input: RunEventAppendInput): string | undefined =>
+    input.requestId ??
+    (typeof input.data?.['requestId'] === 'string' ? input.data['requestId'] : undefined);
+  const sidecarMetadataForRunEvent = (
+    input: RunEventAppendInput,
+  ): ReturnType<CodexSidecarManager['threadMetadata']> => {
+    const threadId =
+      input.threadId ??
+      (typeof input.data?.['threadId'] === 'string' ? input.data['threadId'] : undefined);
+    const byThread =
+      threadId === undefined ? undefined : sidecarManagerRef.current?.threadMetadata(threadId);
+    if (byThread !== undefined) return byThread;
+    const requestId = requestIdForRunEvent(input);
+    return requestId === undefined ? undefined : sidecarRequestMetadataById.get(requestId);
+  };
+  const enrichSidecarRequestRunEvent = (input: RunEventAppendInput): RunEventAppendInput => {
+    if (
+      input.type !== 'request.created' &&
+      input.type !== 'request.updated' &&
+      input.type !== 'request.resolved'
+    ) {
+      return input;
+    }
+    const sidecar = sidecarMetadataForRunEvent(input);
+    if (sidecar === undefined) return input;
+    const requestId = requestIdForRunEvent(input);
+    if (requestId !== undefined) {
+      if (input.type === 'request.resolved') {
+        sidecarRequestMetadataById.delete(requestId);
+      } else {
+        sidecarRequestMetadataById.set(requestId, sidecar);
+      }
+    }
+    const row = asUiRecord(input.data?.['row']);
+    return {
+      ...input,
+      data: compactRunEventPayload({
+        ...(input.data ?? {}),
+        sidecar: true,
+        sidecarKey: sidecar.key,
+        sidecarLabel: sidecar.label,
+        row:
+          row === null
+            ? input.data?.['row']
+            : compactRunEventPayload({
+                ...row,
+                data: compactRunEventPayload({
+                  ...(asUiRecord(row['data']) ?? {}),
+                  sidecar: true,
+                  sidecarKey: sidecar.key,
+                  sidecarLabel: sidecar.label,
+                  sidecarThreadId: sidecar.threadId,
+                }),
+              }),
+      }),
+      meta: compactRunEventPayload({
+        ...(input.meta ?? {}),
+        sidecar: true,
+        sidecarKey: sidecar.key,
+        sidecarLabel: sidecar.label,
+      }),
+    };
+  };
+  const recordRequestRunEvent = (input: RunEventAppendInput): void => {
+    recordRunEvent(enrichSidecarRequestRunEvent(input));
+  };
   const publishUiEventNonRecording = (
     event: Parameters<typeof uiEventLog.publish>[0],
   ): ReplayableAppEvent => {
@@ -598,8 +671,6 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
     const threadId = readThreadIdParam(params);
     return threadId === null ? true : isLiveThreadId(threadId);
   };
-  const sidecarTimeoutClock = createThreadScopedPausableTimeoutClock();
-  const sidecarManagerRef: { current?: CodexSidecarManager } = {};
   const isSidecarThreadId = (threadId: string): boolean =>
     sidecarManagerRef.current?.ownsThread(threadId) === true;
   const isRunRoutableThreadId = (threadId: string): boolean =>
@@ -816,7 +887,7 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
       }
       publishUiEventNonRecording(event);
     },
-    record: recordRunEvent,
+    record: recordRequestRunEvent,
     isRoutableThread: isRunRoutableThreadId,
     isPermissionHookThread: isLiveThreadId,
     onAbandonedThreadDiagnostic: publishAbandonedThreadDiagnostic,
@@ -1845,6 +1916,9 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
     getActiveStateData: () => host.currentContext(),
     getActiveStateSourceDir: () => activeStateSourceDir(loaded, host.currentStateId(), fsmAbs),
     clock: sidecarTimeoutClock,
+    onDiagnostic: (diagnostic) => {
+      recordRunEvent(sidecarDiagnosticToRunEventAppendInput(diagnostic));
+    },
   });
   sidecarManagerRef.current = runtimeSidecarManager;
   opsHandle.bind({

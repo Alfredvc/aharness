@@ -1271,9 +1271,20 @@ describe('headless production store helpers', () => {
           elapsedMs: 12,
         }),
         row({
-          id: 'internal-tool',
+          id: 'sidecar-row',
           eventId: 'run-1:20',
           seq: 20,
+          type: 'sidecar.turn.completed',
+          turnId: 'sidecar-turn',
+          kind: 'sidecar',
+          label: 'research helper',
+          status: 'completed',
+          summary: 'sidecar turn completed',
+        }),
+        row({
+          id: 'internal-tool',
+          eventId: 'run-1:21',
+          seq: 21,
           stateVisitId: 'workflow.collect#2',
           kind: 'tool',
           label: 'aharness_submit',
@@ -1406,6 +1417,15 @@ describe('headless production store helpers', () => {
           status: 'started',
           summary: 'run started',
           elapsedMs: 12,
+        }),
+        expect.objectContaining({
+          id: 'sidecar-row',
+          type: 'compact_status',
+          category: 'sidecar',
+          label: 'research helper',
+          status: 'completed',
+          summary: 'sidecar turn completed',
+          turnId: 'sidecar-turn',
         }),
       ]),
     );
@@ -1709,7 +1729,7 @@ describe('headless production store helpers', () => {
     expect(unknown).not.toHaveProperty('subagentAction');
   });
 
-  it('updates parent aggregate token totals from parent token events and ignores sub-thread token events', () => {
+  it('updates parent aggregate token totals while tracking sidecar tokens separately', () => {
     const initial = hydrateFromBootstrap({
       ...runScopedBootstrap(),
       aggregateStats: {
@@ -1757,6 +1777,25 @@ describe('headless production store helpers', () => {
         },
       }),
     );
+    const sidecarTokened = applyRunEvent(
+      childTokened,
+      apiEvent({
+        type: 'sidecar.token.updated',
+        id: 'run-1:7',
+        seq: 7,
+        threadId: 'sidecar-thread',
+        turnId: 'sidecar-turn',
+        data: {
+          total: {
+            totalTokens: 55,
+            inputTokens: 40,
+            cachedInputTokens: 12,
+            outputTokens: 15,
+            reasoningOutputTokens: 3,
+          },
+        },
+      }),
+    );
 
     expect(parentTokened.aggregateStats).toEqual(
       expect.objectContaining({
@@ -1769,6 +1808,16 @@ describe('headless production store helpers', () => {
       }),
     );
     expect(childTokened.aggregateStats).toEqual(parentTokened.aggregateStats);
+    expect(sidecarTokened.aggregateStats).toEqual(
+      expect.objectContaining({
+        totalTokens: 25,
+        sidecarTotalTokens: 55,
+        sidecarInputTokens: 40,
+        sidecarCachedInputTokens: 12,
+        sidecarOutputTokens: 15,
+        sidecarReasoningOutputTokens: 3,
+      }),
+    );
   });
 
   it('keeps historical row pages scoped to their own visits and idempotently merges duplicates by row id', () => {
@@ -2485,6 +2534,91 @@ describe('headless production store helpers', () => {
         summary: 'not enough fields',
       }),
     );
+  });
+
+  it('shows sidecar input evidence without owner-reply controls while preserving approval cards', () => {
+    const initial = hydrateFromBootstrap({
+      ...runScopedBootstrap(),
+      pending: [],
+      recentRows: [],
+    });
+    const inputNeeded = applyRunEvent(
+      initial,
+      apiEvent({
+        type: 'sidecar.input_request.created',
+        id: 'run-1:5',
+        seq: 5,
+        threadId: 'sidecar-thread',
+        turnId: 'sidecar-turn',
+        itemId: 'sidecar-input-item',
+        requestId: 'sidecar-input:sidecar-thread:sidecar-turn:sidecar-input-item',
+        data: {
+          sidecar: true,
+          sidecarKey: 'subject',
+          row: {
+            kind: 'sidecar',
+            label: 'subject',
+            status: 'pending',
+            summary: '1 input question',
+          },
+        },
+      }),
+    );
+    const approvalPending = applyRunEvent(
+      inputNeeded,
+      apiEvent({
+        type: 'request.created',
+        id: 'run-1:6',
+        seq: 6,
+        threadId: 'sidecar-thread',
+        turnId: 'sidecar-turn',
+        itemId: 'sidecar-command',
+        requestId: 'sidecar-command',
+        data: {
+          kind: 'command-approval',
+          sidecar: true,
+          sidecarKey: 'subject',
+          pendingCard: {
+            kind: 'command-approval',
+            id: 'sidecar-command',
+            requestId: 'sidecar-command',
+            method: 'item/commandExecution/requestApproval',
+            threadId: 'sidecar-thread',
+            turnId: 'sidecar-turn',
+            itemId: 'sidecar-command',
+            command: 'pnpm test',
+          },
+          row: {
+            kind: 'request',
+            label: 'command approval',
+            status: 'pending',
+            summary: 'pnpm test',
+          },
+        },
+      }),
+    );
+
+    expect(inputNeeded.pending.ownerInput).toBeNull();
+    expect(inputNeeded.pending.ownerChoice).toBeNull();
+    expect(inputNeeded.pending.cmdApprovals).toEqual([]);
+    expect(inputNeeded.transcript).toContainEqual(
+      expect.objectContaining({
+        id: 'run-1:5:row',
+        type: 'compact_status',
+        category: 'sidecar',
+        label: 'subject',
+        status: 'pending',
+      }),
+    );
+    expect(approvalPending.pending.ownerInput).toBeNull();
+    expect(approvalPending.pending.cmdApprovals).toEqual([
+      expect.objectContaining({
+        id: 'sidecar-command',
+        requestId: 'sidecar-command',
+        threadId: 'sidecar-thread',
+        command: 'pnpm test',
+      }),
+    ]);
   });
 
   it('recovers open and awaiting posture from bootstrap and keeps terminal runs terminal after stream close', () => {
