@@ -264,6 +264,32 @@ describe('createCodexSidecarManager', () => {
     });
   });
 
+  it('maps interrupted turn/completed notifications to interrupted boundaries', async () => {
+    const { client, manager } = createHarness();
+    const thread = await manager.createThread('subject');
+
+    const result = thread.send('interrupt me');
+    client.emit(METHOD.turnCompleted, {
+      threadId: thread.threadId,
+      turn: { id: 'turn-1', status: 'interrupted' },
+    });
+
+    await expect(result).resolves.toMatchObject({
+      ok: false,
+      reason: 'interrupted',
+      threadId: thread.threadId,
+      turnId: 'turn-1',
+      events: [
+        {
+          type: 'sidecar.turn.completed',
+          threadId: thread.threadId,
+          turnId: 'turn-1',
+          data: { status: 'interrupted' },
+        },
+      ],
+    });
+  });
+
   it('returns needsInput for sidecar request_user_input and answer normalizes responses', async () => {
     const { client, manager } = createHarness();
     const thread = await manager.createThread('subject');
@@ -321,6 +347,49 @@ describe('createCodexSidecarManager', () => {
       kind: 'completed',
       turn: { turnId: 'turn-1' },
     });
+  });
+
+  it('closes pending sidecar input by interrupting and ignoring the parked turn', async () => {
+    const { client, diagnostics, manager } = createHarness();
+    const thread = await manager.createThread('subject');
+
+    const send = thread.send('ask if needed');
+    const serverReply = manager.handleRequestUserInput({
+      threadId: thread.threadId,
+      turnId: 'turn-1',
+      itemId: 'input-1',
+      questions: [
+        {
+          id: 'direction',
+          question: 'Which path?',
+          isOther: false,
+          isSecret: false,
+        },
+      ],
+    });
+
+    await expect(send).resolves.toMatchObject({ ok: true, kind: 'needsInput' });
+    await thread.close();
+
+    expect(client.requestsFor(METHOD.turnInterrupt)[0]?.params).toEqual({
+      threadId: thread.threadId,
+      turnId: 'turn-1',
+    });
+    await expect(serverReply).resolves.toEqual({ answers: {} });
+
+    client.emit(METHOD.turnCompleted, {
+      threadId: thread.threadId,
+      turn: { id: 'turn-1' },
+    });
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'sidecar.notification.ignored',
+          threadId: thread.threadId,
+          turnId: 'turn-1',
+        }),
+      ]),
+    );
   });
 
   it('rejects overlapping operations on the same sidecar deterministically', async () => {

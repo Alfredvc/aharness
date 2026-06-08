@@ -490,7 +490,10 @@ export function createCodexSidecarManager(
       );
     }
     if (sidecar.pendingInput !== undefined) {
-      sidecar.pendingInput.resolve({ answers: {} });
+      const pending = sidecar.pendingInput;
+      sidecar.ignoredTurnIds.add(pending.params.turnId);
+      await interruptTurn(sidecar, pending.params.turnId);
+      pending.resolve({ answers: {} });
       sidecar.pendingInput = undefined;
     }
     if (sidecar.ignoredTurnIds.size > 0) {
@@ -572,11 +575,23 @@ export function createCodexSidecarManager(
       active.artifactsChanged.add(artifact);
     }
     if (notification.completed) {
-      finishOperation(active, {
-        ok: true,
-        kind: 'completed',
-        turn: buildCompletedTurn(active),
-      });
+      if (notification.turnStatus === 'interrupted') {
+        finishOperation(
+          active,
+          failureBoundary(sidecar, {
+            reason: 'interrupted',
+            message: `Codex sidecar thread '${sidecar.key}' ${active.kind} was interrupted`,
+            ...(active.turnId !== undefined ? { turnId: active.turnId } : {}),
+            events: active.events,
+          }),
+        );
+      } else {
+        finishOperation(active, {
+          ok: true,
+          kind: 'completed',
+          turn: buildCompletedTurn(active),
+        });
+      }
     }
   }
 
@@ -1129,6 +1144,7 @@ function normalizeNotification(
       readonly completed: boolean;
       readonly assistantDelta?: string;
       readonly tokenUsage?: unknown;
+      readonly turnStatus?: string;
       readonly artifactsChanged: readonly string[];
     }
   | undefined {
@@ -1148,11 +1164,18 @@ function normalizeNotification(
     case METHOD.turnCompleted: {
       const p = params as TurnCompletedNotification['params'];
       if (!isThreadTurnSnapshotParams(p)) return undefined;
+      const status = readTurnStatus(p.turn);
       return {
         threadId: p.threadId,
         turnId: p.turn.id,
-        event: { type: 'sidecar.turn.completed', threadId: p.threadId, turnId: p.turn.id },
+        event: {
+          type: 'sidecar.turn.completed',
+          threadId: p.threadId,
+          turnId: p.turn.id,
+          ...(status !== undefined ? { data: { status } } : {}),
+        },
         completed: true,
+        ...(status !== undefined ? { turnStatus: status } : {}),
         artifactsChanged: [],
       };
     }
@@ -1289,6 +1312,12 @@ function isToolRequestUserInputParams(value: unknown): value is ToolRequestUserI
     typeof record['itemId'] === 'string' &&
     Array.isArray(record['questions'])
   );
+}
+
+function readTurnStatus(turn: unknown): string | undefined {
+  if (!isPlainObject(turn)) return undefined;
+  const status = turn['status'];
+  return typeof status === 'string' ? status : undefined;
 }
 
 function isThreadTurnSnapshotParams(
