@@ -12,6 +12,9 @@ import {
 import type { ResolvedRuntimeSkill } from '../src/runtime/skillCatalog.js';
 
 type RequestRecord = { method: string; params: unknown };
+type DeferredResponse = {
+  readonly resolve: (response: unknown) => void;
+};
 
 class FakeSidecarClient {
   readonly requests: RequestRecord[] = [];
@@ -20,7 +23,7 @@ class FakeSidecarClient {
   private turnSeq = 0;
   private nextResponses: Array<{
     readonly method: string;
-    readonly response: unknown;
+    readonly response: unknown | Promise<unknown>;
     readonly reject?: boolean;
   }> = [];
 
@@ -28,13 +31,23 @@ class FakeSidecarClient {
     this.nextResponses.push({ method, response, reject: opts.reject });
   }
 
+  deferResponse(method: string): DeferredResponse {
+    let resolveResponse: (response: unknown) => void = () => undefined;
+    const response = new Promise<unknown>((resolve) => {
+      resolveResponse = resolve;
+    });
+    this.nextResponses.push({ method, response });
+    return { resolve: resolveResponse };
+  }
+
   async request<T>(method: string, params: unknown): Promise<T> {
     this.requests.push({ method, params });
     const queuedIndex = this.nextResponses.findIndex((entry) => entry.method === method);
     if (queuedIndex >= 0) {
       const [queued] = this.nextResponses.splice(queuedIndex, 1);
-      if (queued?.reject) throw queued.response;
-      return queued?.response as T;
+      const response = await queued?.response;
+      if (queued?.reject) throw response;
+      return response as T;
     }
     if (method === METHOD.threadStart) {
       this.threadSeq += 1;
@@ -261,6 +274,73 @@ describe('createCodexSidecarManager', () => {
     expect(client.requestsFor(METHOD.turnStart)[1]?.params).toEqual({
       threadId: thread.threadId,
       input: [{ type: 'mention', name: 'fixture', path: '/repo/fixture.md' }],
+    });
+  });
+
+  it('interrupts delayed turn/start after close without committing the closed first turn', async () => {
+    const { client, diagnostics, manager } = createHarness();
+    const delayedTurnStart = client.deferResponse(METHOD.turnStart);
+    const first = await manager.createThread('subject', {
+      initialSkills: ['reviewer'],
+    });
+
+    const firstSend = first.send('slow start');
+    expect(client.requestsFor(METHOD.turnStart)[0]?.params).toEqual({
+      threadId: first.threadId,
+      input: [
+        { type: 'skill', name: 'reviewing-code', path: '/skills/reviewing-code/SKILL.md' },
+        { type: 'text', text: 'slow start' },
+      ],
+    });
+
+    await first.close();
+    expect(client.requestsFor(METHOD.turnInterrupt)).toHaveLength(0);
+
+    delayedTurnStart.resolve({ turn: { id: 'turn-delayed' } });
+    await expect(firstSend).resolves.toMatchObject({
+      ok: false,
+      reason: 'thread_closed',
+      threadId: first.threadId,
+    });
+    expect(client.requestsFor(METHOD.turnInterrupt)[0]?.params).toEqual({
+      threadId: first.threadId,
+      turnId: 'turn-delayed',
+    });
+
+    client.emit(METHOD.turnCompleted, {
+      threadId: first.threadId,
+      turn: { id: 'turn-delayed' },
+    });
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'sidecar.notification.ignored',
+          threadId: first.threadId,
+          turnId: 'turn-delayed',
+        }),
+      ]),
+    );
+
+    const second = await manager.createThread('subject', {
+      initialSkills: ['reviewer'],
+    });
+    const secondSend = second.send('fresh start');
+    client.emit(METHOD.turnCompleted, {
+      threadId: second.threadId,
+      turn: { id: 'turn-1' },
+    });
+
+    await expect(secondSend).resolves.toMatchObject({
+      ok: true,
+      kind: 'completed',
+      turn: { threadId: second.threadId, turnId: 'turn-1' },
+    });
+    expect(client.requestsFor(METHOD.turnStart)[1]?.params).toEqual({
+      threadId: second.threadId,
+      input: [
+        { type: 'skill', name: 'reviewing-code', path: '/skills/reviewing-code/SKILL.md' },
+        { type: 'text', text: 'fresh start' },
+      ],
     });
   });
 

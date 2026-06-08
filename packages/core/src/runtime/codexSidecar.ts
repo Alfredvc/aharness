@@ -127,6 +127,7 @@ type ActiveOperation = {
   turnId?: string;
   timer?: Timer;
   done: boolean;
+  result?: CodexSidecarBoundaryResult;
 };
 
 type PendingInputRequest = {
@@ -399,7 +400,17 @@ export function createCodexSidecarManager(
         threadId: sidecar.threadId,
         input,
       } satisfies TurnStartParams);
-      active.turnId = response.turn.id;
+      const turnId = response.turn.id;
+      if (shouldIgnoreStartedTurn(active, sidecar)) {
+        const alreadyIgnored = sidecar.ignoredTurnIds.has(turnId);
+        sidecar.ignoredTurnIds.add(turnId);
+        rememberClosedSidecarForDiagnostics(sidecar);
+        if (!alreadyIgnored) {
+          await interruptTurn(sidecar, turnId);
+        }
+        return active.promise;
+      }
+      active.turnId = turnId;
       sidecar.firstTurnCommitted = true;
       startOperationTimer(active);
     } catch (error) {
@@ -496,13 +507,7 @@ export function createCodexSidecarManager(
       pending.resolve({ answers: {} });
       sidecar.pendingInput = undefined;
     }
-    if (sidecar.ignoredTurnIds.size > 0) {
-      closedSidecarsForDiagnostics.set(sidecar.threadId, {
-        key: sidecar.key,
-        threadId: sidecar.threadId,
-        ignoredTurnIds: new Set(sidecar.ignoredTurnIds),
-      });
-    }
+    rememberClosedSidecarForDiagnostics(sidecar);
 
     try {
       await opts.client.request<ThreadUnsubscribeResponse>(METHOD.threadUnsubscribe, {
@@ -619,6 +624,13 @@ export function createCodexSidecarManager(
     return active;
   }
 
+  function shouldIgnoreStartedTurn(active: ActiveOperation, sidecar: ManagedSidecar): boolean {
+    if (sidecar.closed) return true;
+    if (!active.done) return false;
+    const result = active.result;
+    return result !== undefined && !result.ok && result.reason !== 'interrupted';
+  }
+
   function startOperationTimer(active: ActiveOperation): void {
     if (active.done || active.timer !== undefined) return;
     active.timer = clock.setTimeout(() => {
@@ -669,11 +681,21 @@ export function createCodexSidecarManager(
   function finishOperation(active: ActiveOperation, result: CodexSidecarBoundaryResult): void {
     if (active.done) return;
     active.done = true;
+    active.result = result;
     if (active.timer !== undefined) clock.clearTimeout(active.timer);
     if (active.sidecar.active === active) {
       active.sidecar.active = undefined;
     }
     active.resolve(result);
+  }
+
+  function rememberClosedSidecarForDiagnostics(sidecar: ManagedSidecar): void {
+    if (!sidecar.closed || sidecar.ignoredTurnIds.size === 0) return;
+    closedSidecarsForDiagnostics.set(sidecar.threadId, {
+      key: sidecar.key,
+      threadId: sidecar.threadId,
+      ignoredTurnIds: new Set(sidecar.ignoredTurnIds),
+    });
   }
 
   function emitDiagnostic(diagnostic: CodexSidecarManagerDiagnostic): void {
