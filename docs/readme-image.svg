@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="678" viewBox="0 0 1600 678" role="img" aria-labelledby="title desc">
+  <title id="title">Make Codex workflows executable</title>
+  <desc id="desc">A concise aharness README banner highlighting enforcement, composable FSM packages, and inspectable run evidence.</desc>
+  <defs>
+    <radialGradient id="bg" cx="62%" cy="42%" r="82%">
+      <stop offset="0%" stop-color="#12354c" />
+      <stop offset="54%" stop-color="#0a1f31" />
+      <stop offset="100%" stop-color="#06101d" />
+    </radialGradient>
+    <linearGradient id="cyan" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#17d7e8" />
+      <stop offset="58%" stop-color="#1bb7e9" />
+      <stop offset="100%" stop-color="#367dff" />
+    </linearGradient>
+    <linearGradient id="amber" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffd866" />
+      <stop offset="100%" stop-color="#f59e0b" />
+    </linearGradient>
+    <linearGradient id="panel" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0d1b2b" stop-opacity="0.95" />
+      <stop offset="100%" stop-color="#081320" stop-opacity="0.95" />
+    </linearGradient>
+    <filter id="cyanGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="7" result="blur" />
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.07 0 0 0 0 0.80 0 0 0 0 0.93 0 0 0 0.44 0" result="coloredBlur" />
+      <feMerge>
+        <feMergeNode in="coloredBlur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <filter id="amberGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="5" result="blur" />
+      <feColorMatrix in="blur" type="matrix" values="0 0 0 0 1 0 0 0 0 0.63 0 0 0 0 0.05 0 0 0 0.50 0" result="coloredBlur" />
+      <feMerge>
+        <feMergeNode in="coloredBlur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse">
+      <path d="M 44 0 L 0 0 0 44" fill="none" stroke="#7dd3fc" stroke-opacity="0.055" stroke-width="1" />
+    </pattern>
+    <marker id="arrowCyan" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#22d3ee" />
+    </marker>
+  </defs>
+
+  <rect width="1600" height="678" fill="#06101d" />
+  <rect width="1600" height="678" fill="url(#bg)" />
+  <rect width="1600" height="678" fill="url(#grid)" />
+  <path d="M-68 522 C 206 450 360 546 566 424 C 792 290 982 326 1182 402 C 1380 478 1510 428 1670 326" fill="none" stroke="#38bdf8" stroke-opacity="0.10" stroke-width="3" />
+  <path d="M-50 146 C 230 68 420 138 635 96 C 872 50 1056 58 1252 132 C 1428 198 1542 158 1675 82" fill="none" stroke="#fbbf24" stroke-opacity="0.10" stroke-width="3" />
+
+  <g transform="translate(78 72)">
+    <rect x="0" y="0" width="430" height="534" rx="30" fill="#07111f" fill-opacity="0.44" stroke="#5eead4" stroke-opacity="0.18" />
+    <g transform="translate(86 58) scale(0.78)" filter="url(#cyanGlow)">
+      <path d="M178 48 C112 64 51 147 52 238 C53 306 98 342 169 342 L274 342 C346 342 388 294 371 226 C352 152 287 73 242 57" fill="none" stroke="url(#cyan)" stroke-width="25" stroke-linecap="round" stroke-linejoin="round" />
+      <circle cx="178" cy="48" r="33" fill="url(#cyan)" />
+      <circle cx="69" cy="238" r="33" fill="url(#cyan)" />
+      <circle cx="303" cy="178" r="33" fill="url(#amber)" filter="url(#amberGlow)" />
+    </g>
+    <text x="50" y="395" fill="#f8fafc" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="74" font-weight="760">aharness</text>
+    <text x="54" y="442" fill="#bae6fd" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="26" font-weight="560">Workflow harness for Codex.</text>
+    <text x="55" y="494" fill="#e2e8f0" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="20" font-weight="700">Codex does the work.</text>
+    <text x="55" y="523" fill="#94a3b8" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="20" font-weight="500">aharness controls the process.</text>
+  </g>
+
+  <g transform="translate(560 92)">
+    <text x="0" y="62" fill="#f8fafc" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="58" font-weight="760">Make Codex workflows executable</text>
+    <text x="3" y="111" fill="#bae6fd" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="28" font-weight="560">Typed gates, reusable FSM packages, inspectable run evidence.</text>
+
+    <g transform="translate(0 176)">
+      <g>
+        <rect x="0" y="0" width="286" height="228" rx="28" fill="url(#panel)" stroke="#22d3ee" stroke-opacity="0.36" />
+        <rect x="0" y="0" width="286" height="7" rx="3.5" fill="url(#cyan)" opacity="0.92" />
+        <g transform="translate(34 36)">
+          <rect x="0" y="0" width="62" height="58" rx="17" fill="#082032" stroke="#22d3ee" stroke-opacity="0.54" />
+          <path d="M 19 29 L 43 29" stroke="#22d3ee" stroke-width="5" stroke-linecap="round" />
+          <path d="M 31 17 L 31 41" stroke="#22d3ee" stroke-width="5" stroke-linecap="round" />
+        </g>
+        <text x="34" y="128" fill="#f8fafc" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="34" font-weight="760">Enforce</text>
+        <text x="35" y="164" fill="#94a3b8" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="560">typed exits + owner choices</text>
+        <rect x="34" y="185" width="148" height="28" rx="14" fill="#082032" stroke="#22d3ee" stroke-opacity="0.28" />
+        <text x="51" y="204" fill="#67e8f9" font-family="SFMono-Regular, ui-monospace, Consolas, monospace" font-size="14">fsm.submit&lt;T&gt;</text>
+      </g>
+
+      <path d="M 302 114 L 336 114" stroke="#22d3ee" stroke-width="3" stroke-opacity="0.68" marker-end="url(#arrowCyan)" />
+
+      <g transform="translate(354 0)">
+        <rect x="0" y="0" width="286" height="228" rx="28" fill="url(#panel)" stroke="#fbbf24" stroke-opacity="0.34" />
+        <rect x="0" y="0" width="286" height="7" rx="3.5" fill="url(#amber)" opacity="0.92" />
+        <g transform="translate(34 36)">
+          <rect x="0" y="0" width="78" height="58" rx="17" fill="#1f1a0b" stroke="#fbbf24" stroke-opacity="0.54" />
+          <path d="M 20 29 L 58 29" stroke="#fbbf24" stroke-width="5" stroke-linecap="round" />
+          <path d="M 58 29 L 45 18" stroke="#fbbf24" stroke-width="5" stroke-linecap="round" />
+          <path d="M 58 29 L 45 40" stroke="#fbbf24" stroke-width="5" stroke-linecap="round" />
+        </g>
+        <text x="34" y="128" fill="#f8fafc" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="34" font-weight="760">Compose</text>
+        <text x="35" y="164" fill="#94a3b8" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="560">embed and publish FSMs</text>
+        <rect x="34" y="185" width="132" height="28" rx="14" fill="#082032" stroke="#22d3ee" stroke-opacity="0.28" />
+        <text x="51" y="204" fill="#67e8f9" font-family="SFMono-Regular, ui-monospace, Consolas, monospace" font-size="14">fsm.embed</text>
+        <rect x="176" y="185" width="76" height="28" rx="14" fill="#1f1a0b" stroke="#fbbf24" stroke-opacity="0.32" />
+        <text x="197" y="204" fill="#fde68a" font-family="SFMono-Regular, ui-monospace, Consolas, monospace" font-size="14">npm</text>
+      </g>
+
+      <path d="M 656 114 L 690 114" stroke="#22d3ee" stroke-width="3" stroke-opacity="0.68" marker-end="url(#arrowCyan)" />
+
+      <g transform="translate(708 0)">
+        <rect x="0" y="0" width="286" height="228" rx="28" fill="url(#panel)" stroke="#22d3ee" stroke-opacity="0.36" />
+        <rect x="0" y="0" width="286" height="7" rx="3.5" fill="url(#cyan)" opacity="0.92" />
+        <g transform="translate(34 36)">
+          <rect x="0" y="0" width="62" height="58" rx="17" fill="#082032" stroke="#22d3ee" stroke-opacity="0.54" />
+          <circle cx="17" cy="18" r="3" fill="#22d3ee" />
+          <path d="M 28 18 L 46 18" stroke="#94a3b8" stroke-width="4" stroke-linecap="round" />
+          <circle cx="17" cy="29" r="3" fill="#22d3ee" />
+          <path d="M 28 29 L 41 29" stroke="#94a3b8" stroke-width="4" stroke-linecap="round" />
+          <circle cx="17" cy="40" r="3" fill="#fbbf24" />
+          <path d="M 28 40 L 46 40" stroke="#94a3b8" stroke-width="4" stroke-linecap="round" />
+        </g>
+        <text x="34" y="128" fill="#f8fafc" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="34" font-weight="760">Inspect</text>
+        <text x="35" y="164" fill="#94a3b8" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="18" font-weight="560">durable logs + artifacts</text>
+        <rect x="34" y="185" width="126" height="28" rx="14" fill="#082032" stroke="#22d3ee" stroke-opacity="0.28" />
+        <text x="51" y="204" fill="#67e8f9" font-family="SFMono-Regular, ui-monospace, Consolas, monospace" font-size="14">events.jsonl</text>
+      </g>
+    </g>
+
+    <g transform="translate(0 452)">
+      <path d="M 0 24 L 994 24" stroke="#38bdf8" stroke-opacity="0.18" stroke-width="2" />
+      <circle cx="0" cy="24" r="6" fill="#22d3ee" />
+      <circle cx="497" cy="24" r="6" fill="#fbbf24" filter="url(#amberGlow)" />
+      <circle cx="994" cy="24" r="6" fill="#22d3ee" />
+      <text x="0" y="66" fill="#94a3b8" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="20" font-weight="560">verify before runtime</text>
+      <text x="497" y="66" fill="#94a3b8" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="20" font-weight="560" text-anchor="middle">advance by valid exits</text>
+      <text x="994" y="66" fill="#94a3b8" font-family="Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif" font-size="20" font-weight="560" text-anchor="end">audit every run</text>
+    </g>
+  </g>
+</svg>

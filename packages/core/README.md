@@ -2,6 +2,8 @@
 
 <div align="center">
 
+![aharness - make agent workflows executable](https://raw.githubusercontent.com/Alfredvc/aharness/main/docs/readme-image.png)
+
 # aharness
 
 **Make agent workflows executable.**

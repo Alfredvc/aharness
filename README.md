@@ -1,5 +1,7 @@
 <div align="center">
 
+![aharness - make agent workflows executable](docs/readme-image.png)
+
 # aharness
 
 **Make agent workflows executable.**
