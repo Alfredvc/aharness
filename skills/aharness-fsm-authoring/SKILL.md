@@ -63,7 +63,7 @@ Before writing the file, answer these in the FSM itself or in brief notes:
 Use the current `createFsm` surface for new FSMs:
 
 - `createFsm<Data>()`
-- `fsm.machine({ id, input?, data?, availableSkills?, threadSkills?, initial, states })`
+- `fsm.machine({ id, input?, data?, availableSkills?, initial, states })`
 - `fsm.state({ mode?, main?, prompt, on?, entry?, model?, clearOnEntry?, guidance?, skills?, xstate? })`
 - `fsm.submit<TPayload>({ to, effect?, reduce?, actions? })`
 - `fsm.submit<TPayload>({ route: [...] })`
@@ -411,149 +411,13 @@ export default fsm.machine({
 ```
 
 State `skills` accepts name-form and `SKILL.md` path-form refs. Top-level
-`availableSkills` accepts path-form and dir-form refs. Machine-level
-`threadSkills` accepts keyed name-form and `SKILL.md` path-form refs for
-managed sidecar threads. Dir-form refs are not valid in state `skills` or
-`threadSkills`. Name-form refs are not valid in `availableSkills`.
-
-Use `threadSkills` only when author code will start managed Codex sidecar
-threads and needs stable first-turn skill aliases:
-
-```ts
-export default fsm.machine({
-  id: 'sidecar-workflow',
-  threadSkills: {
-    reviewer: fsm.skill('reviewing-code'),
-    subjectHelper: fsm.skill.path('../skills/subject-helper/SKILL.md'),
-  },
-  initial: 'review',
-  states: {
-    review: fsm.state({
-      prompt: 'Review the subject and submit findings.',
-      on: {
-        reviewed: fsm.submit<{ findings: string }>({ to: 'done' }),
-      },
-    }),
-    done: fsm.final({ outcome: 'success' }),
-  },
-});
-```
-
-`initialSkills` passed to a sidecar thread must reference `threadSkills` keys.
-Do not put raw `{ type: 'skill' }` items in sidecar `send(...)` input; aharness
-injects verified sidecar skill items from `initialSkills`.
+`availableSkills` accepts path-form and dir-form refs. Dir-form refs are not
+valid in state `skills`. Name-form refs are not valid in `availableSkills`.
 
 If the FSM wraps an existing skill or prose workflow, keep the FSM focused on
 durable gates, routing, recovery policy, outputs, and terminal boundaries. Let
 skill guidance own ordinary in-phase judgment unless the workflow contract
 requires aharness to supervise that judgment as separate runtime states.
-
-## Sidecar Ops
-
-Use sidecar threads when the FSM needs scoped auxiliary Codex work that should
-not become the active parent thread or change the FSM graph. Sidecars reuse the
-run's single Codex app-server and WebSocket connection. They do not receive
-`aharness_submit`; they return typed boundaries to author code.
-
-Use `ops.codex` only from entry/effect callbacks, and use `ops.emit(...)` to
-route sidecar results through declared typed events:
-
-```ts
-import { createFsm, type CodexSidecarBoundaryResult } from '@aharness/core';
-
-interface Data {
-  requestId?: string;
-  questionId?: string;
-}
-
-const base = createFsm<Data>();
-const fsm = base.withEvents({
-  sidecarDone: base.event<{ result: CodexSidecarBoundaryResult }>(),
-});
-
-export default fsm.machine({
-  id: 'sidecar-example',
-  threadSkills: {
-    helper: fsm.skill.path('../skills/helper/SKILL.md'),
-  },
-  data: () => ({}),
-  initial: 'start',
-  states: {
-    start: fsm.state({
-      prompt: 'Start the sidecar.',
-      entry: async (_data, ops) => {
-        const thread = await ops.codex.createThread('helper', {
-          initialSkills: ['helper'],
-          defaultTurnTimeoutMs: 120_000,
-          instructions: { developer: 'Stay focused on the helper task.' },
-        });
-        const result = await thread.send('Inspect the target and report one finding.');
-        await ops.emit('sidecarDone', { result });
-        if (!result.ok || result.kind === 'completed') {
-          await thread.close();
-        }
-      },
-      on: {
-        sidecarDone: {
-          route: [
-            {
-              if: (_data, payload) => payload.result.ok && payload.result.kind === 'completed',
-              to: 'done',
-            },
-            {
-              if: (_data, payload) => payload.result.ok && payload.result.kind === 'needsInput',
-              to: 'answer',
-              reduce: (draft, payload) => {
-                if (payload.result.ok && payload.result.kind === 'needsInput') {
-                  draft.requestId = payload.result.request.id;
-                  draft.questionId = payload.result.request.questions[0]?.id;
-                }
-              },
-            },
-            { to: 'failed' },
-          ],
-        },
-      },
-    }),
-    answer: fsm.state({
-      prompt: 'Resume the sidecar after its input request.',
-      entry: async (data, ops) => {
-        if (data.requestId === undefined || data.questionId === undefined) return;
-        const thread = ops.codex.thread('helper');
-        const result = await thread.answer(data.requestId, {
-          [data.questionId]: 'Use the repository README as the source of truth.',
-        });
-        await ops.emit('sidecarDone', { result });
-        if (!result.ok || result.kind === 'completed') {
-          await thread.close();
-        }
-      },
-      on: {
-        sidecarDone: {
-          route: [
-            {
-              if: (_data, payload) => payload.result.ok && payload.result.kind === 'completed',
-              to: 'done',
-            },
-            { to: 'failed' },
-          ],
-        },
-      },
-    }),
-    done: fsm.final({ outcome: 'success' }),
-    failed: fsm.final({ outcome: 'failure' }),
-  },
-});
-```
-
-`send()` and `answer()` return `{ ok: true, kind: 'completed' }`,
-`{ ok: true, kind: 'needsInput' }`, or `{ ok: false, reason: ... }`. Failure
-reasons are `timeout`, `interrupted`, `thread_closed`, `app_server_closed`, and
-`error`. `needsInput` is sidecar `request_user_input` evidence only; it does
-not create owner-input controls. Sidecar command, file, permission, and MCP
-elicitation approvals can still appear as normal browser approval cards
-according to the run approval mode. Close sidecars when done; `close()` is
-idempotent.
 
 ## Composition
 
@@ -642,19 +506,13 @@ re-entry.
 
 The runtime starts one Codex `app-server`, registers one parent-thread dynamic
 tool named `aharness_submit`, and uses per-state orientation messages to tell
-the model the current state, valid exits, and submit data schema. Managed
-sidecar threads reuse that same app-server/WebSocket connection, do not receive
-`aharness_submit`, and appear as compact sidecar run evidence instead of parent
-FSM topology.
+the model the current state, valid exits, and submit data schema.
 
-Programmatic callers outside FSM source can import `startAharnessRun` from
-`@aharness/core/runtime`. It is a sibling live-run surface to `aharness run`
-with the same target resolution, verifier, single Codex `app-server`, single
-aharness WebSocket client, XState actor, reply handling, approval dispatch,
-hook dispatch, and local run artifacts. It defaults to no browser UI, but can
-serve the same run-scoped UI when requested. User `.fsm.ts` source must still
-import only from the root `@aharness/core`; do not import
-`@aharness/core/runtime` from FSM source.
+Advanced runtime surfaces, including programmatic live runs and Codex sidecar
+threads, are documented in `references/advanced-runtime-surfaces.md`. Consult
+that reference only when the user explicitly asks for advanced runtime
+embedding or sidecar threads. Regular FSM source normally imports from the root
+`@aharness/core` authoring SDK.
 
 Model submit shape:
 

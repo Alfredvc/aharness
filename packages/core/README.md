@@ -55,16 +55,12 @@ instead of copied around as prompts.
   transitions.
 - **State-scoped skills.** Skills guide Codex inside a state, while the FSM owns
   process control, valid exits, recovery paths, and terminal outcomes.
-- **Managed sidecar threads.** Author code can start keyed Codex sidecar
-  threads for scoped auxiliary work, inject sidecar-specific skills, handle
-  typed boundary results, and keep that activity inspectable without changing
-  the parent FSM topology.
 - **Inspectable runs.** Every run writes durable event logs, state history,
   artifacts, and recorded browser views so the workflow can be audited after the
   fact.
-- **Programmatic run control.** Node callers can start the same live runtime
-  with `startAharnessRun` from `@aharness/core/runtime`, subscribe to canonical
-  events, send browser-equivalent replies, and await terminal results.
+- **Advanced runtime surfaces.** Node hosts can drive live runs directly, and
+  advanced FSMs can coordinate scoped Codex sidecar threads; see
+  [`docs/advanced-runtime-surfaces.md`](https://github.com/Alfredvc/aharness/blob/main/docs/advanced-runtime-surfaces.md).
 
 ## Install
 
@@ -280,18 +276,14 @@ flowchart LR
     Aharness --> Runs
 ```
 
-An aharness run has four jobs:
+An aharness run has three jobs:
 
 1. **Verify the workflow before Codex starts.** Invalid FSMs fail early, before
    the model can begin work.
 2. **Keep Codex inside the active state.** aharness tells Codex the current
    state, valid exits, and required submit schema. Codex does the work;
    aharness validates submitted evidence and decides the next state.
-3. **Coordinate scoped sidecar work.** FSM author code can start managed Codex
-   sidecar threads for auxiliary turns. Sidecars share the same live app-server
-   connection, do not receive the parent `aharness_submit` tool, and appear as
-   compact run evidence rather than graph topology.
-4. **Record the run.** Every run writes canonical artifacts under
+3. **Record the run.** Every run writes canonical artifacts under
    `.aharness/runs/<runId>/`, including the event log, state history, final
    artifacts, and data used by the browser view.
 
@@ -341,19 +333,16 @@ When the standard `CI` environment variable is set to a truthy value,
 verification can run in environments without a Codex app-server. All other
 static verifier checks still run.
 
-TypeScript callers that need to drive fixture runs can use `startAharnessRun`
-from `@aharness/core/runtime`; see [`docs/reference.md`](https://github.com/Alfredvc/aharness/blob/main/docs/reference.md) for
-the API details.
-
-See [`docs/reference.md`](https://github.com/Alfredvc/aharness/blob/main/docs/reference.md) for the full CLI, runtime API,
+See [`docs/reference.md`](https://github.com/Alfredvc/aharness/blob/main/docs/reference.md) for the full CLI, authoring API,
 state options, hooks, installable package commands, completions, default Codex
-auto-review behavior, `--ask`, `--yolo`, and `--no-open`.
+auto-review behavior, `--ask`, `--yolo`, and `--no-open`. See
+[`docs/advanced-runtime-surfaces.md`](https://github.com/Alfredvc/aharness/blob/main/docs/advanced-runtime-surfaces.md) for
+programmatic live runs and Codex sidecar threads.
 
 ## Packages
 
 - [`@aharness/core`](https://github.com/Alfredvc/aharness/blob/main/packages/core/README.md) provides the SDK, the `aharness`
-  CLI binary, the `aharness-completion` shell-completion helper binary, and the
-  `@aharness/core/runtime` programmatic live-run API.
+  CLI binary, and the `aharness-completion` shell-completion helper binary.
 - [`@aharness/test-support`](https://github.com/Alfredvc/aharness/blob/main/packages/test-support/README.md) provides
   integration-test fixtures for aharness runs.
 - `packages/web-ui` is the private React/Vite browser UI bundled into the core
@@ -365,8 +354,9 @@ auto-review behavior, `--ask`, `--yolo`, and `--no-open`.
   mental model.
 - [`docs/fsm-packages.md`](https://github.com/Alfredvc/aharness/blob/main/docs/fsm-packages.md) explains how to publish,
   install, run, and compose reusable FSM packages.
-- [`docs/reference.md`](https://github.com/Alfredvc/aharness/blob/main/docs/reference.md) documents the public SDK, runtime
-  API, and CLI.
+- [`docs/reference.md`](https://github.com/Alfredvc/aharness/blob/main/docs/reference.md) documents the public SDK and CLI.
+- [`docs/advanced-runtime-surfaces.md`](https://github.com/Alfredvc/aharness/blob/main/docs/advanced-runtime-surfaces.md)
+  documents programmatic live runs and Codex sidecar threads.
 - [`docs/architecture.md`](https://github.com/Alfredvc/aharness/blob/main/docs/architecture.md) explains the Codex/aharness
   runtime boundary.
 - [`docs/troubleshooting.md`](https://github.com/Alfredvc/aharness/blob/main/docs/troubleshooting.md) covers prerequisite and
