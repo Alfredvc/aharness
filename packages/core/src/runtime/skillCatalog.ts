@@ -5,6 +5,7 @@ import type { SkillOriginManifest } from '../loader/cache.js';
 import type { SkillCatalogError, SkillsListResponse } from '../protocol/index.js';
 import {
   collectStateSkillsWithOrigins,
+  collectThreadSkillsWithOrigins,
   resolveSkillPathFromSource,
   skillOriginEnvFromManifest,
 } from '../state/skillOrigins.js';
@@ -16,8 +17,10 @@ export interface SkillCatalogPreflightInput {
 }
 
 export interface RuntimeSkillRequirement {
+  readonly source: 'state' | 'thread';
   readonly stateId: string;
   readonly index: number;
+  readonly threadSkillKey?: string;
   readonly ref: SkillRef;
   readonly optional: boolean;
   readonly displayName: string;
@@ -30,8 +33,10 @@ export interface SkillCatalogPreflight {
 }
 
 export interface ResolvedRuntimeSkill {
+  readonly source?: 'state' | 'thread';
   readonly stateId: string;
   readonly index: number;
+  readonly threadSkillKey?: string;
   readonly name: string;
   readonly path: string;
 }
@@ -71,6 +76,7 @@ export function buildSkillCatalogPreflight(
       const resolvedPath = resolveSkillPathFromSource(ref, stateSkill.sourceDir);
       roots.add(dirname(resolvedPath));
       requirements.push({
+        source: 'state',
         stateId: stateSkill.stateId,
         index: stateSkill.index,
         ref,
@@ -81,8 +87,36 @@ export function buildSkillCatalogPreflight(
       continue;
     }
     requirements.push({
+      source: 'state',
       stateId: stateSkill.stateId,
       index: stateSkill.index,
+      ref,
+      optional: ref.optional,
+      displayName: ref.name,
+    });
+  }
+  for (const threadSkill of collectThreadSkillsWithOrigins(input.machine, originEnv)) {
+    const ref = threadSkill.ref;
+    if (ref.source === 'path') {
+      const resolvedPath = resolveSkillPathFromSource(ref, threadSkill.sourceDir);
+      roots.add(dirname(resolvedPath));
+      requirements.push({
+        source: 'thread',
+        stateId: '',
+        index: 0,
+        threadSkillKey: threadSkill.key,
+        ref,
+        optional: ref.optional,
+        displayName: ref.path,
+        resolvedPath,
+      });
+      continue;
+    }
+    requirements.push({
+      source: 'thread',
+      stateId: '',
+      index: 0,
+      threadSkillKey: threadSkill.key,
       ref,
       optional: ref.optional,
       displayName: ref.name,
@@ -141,8 +175,10 @@ export function validateSkillCatalog(input: {
       if (matches.length === 1) {
         const match = matches[0]!;
         resolvedSkills.push({
+          source: need.source,
           stateId: need.stateId,
           index: need.index,
+          ...(need.threadSkillKey !== undefined ? { threadSkillKey: need.threadSkillKey } : {}),
           name: match.name,
           path: normalizeAbs(match.path),
         });
@@ -150,8 +186,8 @@ export function validateSkillCatalog(input: {
       }
       const message =
         matches.length === 0
-          ? `state '${need.stateId}' skills[${String(need.index)}] path '${need.displayName}' resolved to '${requiredPath}' is missing from enabled Codex skills`
-          : `state '${need.stateId}' skills[${String(need.index)}] path '${need.displayName}' resolved to '${requiredPath}' matched ${String(matches.length)} enabled Codex skills`;
+          ? `${formatRequirementLocation(need)} path '${need.displayName}' resolved to '${requiredPath}' is missing from enabled Codex skills`
+          : `${formatRequirementLocation(need)} path '${need.displayName}' resolved to '${requiredPath}' matched ${String(matches.length)} enabled Codex skills`;
       pushDiagnostic({ optional: need.optional, message, errors, warnings });
       continue;
     }
@@ -162,8 +198,10 @@ export function validateSkillCatalog(input: {
     if (matches.length === 1) {
       const match = matches[0]!;
       resolvedSkills.push({
+        source: need.source,
         stateId: need.stateId,
         index: need.index,
+        ...(need.threadSkillKey !== undefined ? { threadSkillKey: need.threadSkillKey } : {}),
         name: match.name,
         path: normalizeAbs(match.path),
       });
@@ -171,8 +209,8 @@ export function validateSkillCatalog(input: {
     }
     const message =
       matches.length === 0
-        ? `state '${need.stateId}' skills[${String(need.index)}] name '${requiredName}' is missing from enabled Codex skills`
-        : `state '${need.stateId}' skills[${String(need.index)}] name '${requiredName}' matched ${String(matches.length)} enabled Codex skills`;
+        ? `${formatRequirementLocation(need)} name '${requiredName}' is missing from enabled Codex skills`
+        : `${formatRequirementLocation(need)} name '${requiredName}' matched ${String(matches.length)} enabled Codex skills`;
     pushDiagnostic({ optional: need.optional, message, errors, warnings });
   }
 
@@ -182,6 +220,12 @@ export function validateSkillCatalog(input: {
     warnings,
     resolvedSkills,
   };
+}
+
+function formatRequirementLocation(need: RuntimeSkillRequirement): string {
+  return need.source === 'thread'
+    ? `threadSkills['${need.threadSkillKey ?? '<unknown>'}']`
+    : `state '${need.stateId}' skills[${String(need.index)}]`;
 }
 
 function resolveFromSource(refPath: string, sourceDir: string): string {

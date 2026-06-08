@@ -105,9 +105,11 @@ import {
   isAnySkillRef,
   isAvailableSkillRef,
   isSkillRef,
+  isThreadSkillRef,
 } from '../state/skills.js';
 import { resolveSkill, resolveSkillDir, type SkillResolverEnv } from '../state/skillResolver.js';
 import {
+  collectThreadSkillsWithOrigins,
   skillOriginEnvFromManifest,
   sourceDirForState,
   type SkillOriginEnv,
@@ -167,6 +169,9 @@ export type VerifyIssueCheck =
   | 'hooks-only-on-stateful-states'
   | 'available-skills-well-formed'
   | 'available-skill-must-resolve'
+  | 'thread-skills-well-formed'
+  | 'thread-skill-duplicate-key'
+  | 'thread-skill-must-resolve'
   | 'skill-invalid-placement'
   | 'skill-path-must-be-skill-md'
   | 'skill-must-resolve'
@@ -293,6 +298,10 @@ export function verify(
     issues.push(...checkHookMatcherInvalidRegex(machine));
     issues.push(...checkHooksOnlyOnStatefulStates(machine));
     issues.push(...checkAvailableSkillsWellFormed(machine));
+    issues.push(...checkThreadSkillsWellFormed(machine, opts?.sourceLocations));
+    issues.push(
+      ...checkThreadSkillDuplicateKeys(machine, opts?.skillOriginManifest, opts?.sourceLocations),
+    );
     issues.push(...checkSkillsOnlyOnStatefulStates(machine));
     issues.push(...checkSkillInvalidPlacement(machine));
     issues.push(...checkSkillNameShapeAndDuplicates(machine));
@@ -301,6 +310,14 @@ export function verify(
       issues.push(...checkAvailableSkillsResolve(machine, opts.skillEnv, opts.sourceLocations));
       issues.push(
         ...checkSkillsResolve(
+          machine,
+          opts.skillEnv,
+          opts.skillOriginManifest,
+          opts.sourceLocations,
+        ),
+      );
+      issues.push(
+        ...checkThreadSkillsResolve(
           machine,
           opts.skillEnv,
           opts.skillOriginManifest,
@@ -2852,11 +2869,16 @@ function checkEmbeddedFinalIdNameShape(machine: AnyStateMachine): VerifyIssue[] 
 type RawAvailableSkillsMachine = {
   readonly __aharnessRawConfig?: {
     readonly availableSkills?: unknown;
+    readonly threadSkills?: unknown;
   };
 };
 
 function rawAvailableSkills(machine: AnyStateMachine): unknown {
   return (machine as RawAvailableSkillsMachine).__aharnessRawConfig?.availableSkills;
+}
+
+function rawThreadSkills(machine: AnyStateMachine): unknown {
+  return (machine as RawAvailableSkillsMachine).__aharnessRawConfig?.threadSkills;
 }
 
 function pathTargetIsSkillMd(path: string): boolean {
@@ -2937,6 +2959,134 @@ function checkAvailableSkillsWellFormed(machine: AnyStateMachine): VerifyIssue[]
     seen.add(key);
   }
   return issues;
+}
+
+function checkThreadSkillsWellFormed(
+  machine: AnyStateMachine,
+  sourceLocations?: SourceLocationManifest,
+): VerifyIssue[] {
+  const raw = rawThreadSkills(machine);
+  if (raw === undefined) return [];
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return [err('thread-skills-well-formed', '', 'threadSkills must be an object of skill refs')];
+  }
+  const issues: VerifyIssue[] = [];
+  for (const [key, ref] of Object.entries(raw as Record<string, unknown>)) {
+    if (key.length === 0) {
+      issues.push(
+        err('thread-skills-well-formed', '', 'threadSkills keys must be non-empty strings'),
+      );
+      continue;
+    }
+    if (!isAnySkillRef(ref)) {
+      issues.push(
+        err(
+          'thread-skills-well-formed',
+          '',
+          `threadSkills['${key}'] must be a SkillRef returned by fsm.skill(...) or fsm.skill.path(...)`,
+          threadSkillSourceLocation(key, sourceLocations),
+        ),
+      );
+      continue;
+    }
+    if (
+      (ref.source === 'path' || ref.source === 'dir') &&
+      (typeof ref.path !== 'string' || ref.path.length === 0)
+    ) {
+      issues.push(
+        err(
+          'thread-skills-well-formed',
+          '',
+          `threadSkills['${key}'] ${ref.source} path must be a non-empty string`,
+          threadSkillSourceLocation(key, sourceLocations),
+        ),
+      );
+      continue;
+    }
+    if (
+      ref.source === 'name' &&
+      (typeof ref.name !== 'string' || ref.name.length === 0 || typeof ref.optional !== 'boolean')
+    ) {
+      issues.push(
+        err(
+          'thread-skills-well-formed',
+          '',
+          `threadSkills['${key}'] name ref must include a non-empty name and boolean optional flag`,
+          threadSkillSourceLocation(key, sourceLocations),
+        ),
+      );
+      continue;
+    }
+    if (!isThreadSkillRef(ref)) {
+      issues.push(
+        err(
+          'thread-skills-well-formed',
+          '',
+          `threadSkills['${key}'] uses dir-form ref '${ref.path}', but threadSkills accepts only name-form and path-form refs`,
+          threadSkillSourceLocation(key, sourceLocations),
+        ),
+      );
+      continue;
+    }
+    if (ref.source === 'name' && !SKILL_NAME_SHAPE.test(ref.name)) {
+      issues.push(
+        err(
+          'skill-name-shape',
+          '',
+          `threadSkills['${key}']: name '${ref.name}' must match ${SKILL_NAME_SHAPE.source} (lowercase, digits, hyphens; starting with a letter)`,
+          threadSkillSourceLocation(key, sourceLocations),
+        ),
+      );
+    }
+    if (ref.source === 'path' && !pathTargetIsSkillMd(ref.path)) {
+      issues.push(
+        err(
+          'skill-path-must-be-skill-md',
+          '',
+          `threadSkills['${key}'] path '${ref.path}' must point at a file named SKILL.md`,
+          threadSkillSourceLocation(key, sourceLocations),
+        ),
+      );
+    }
+  }
+  return issues;
+}
+
+function checkThreadSkillDuplicateKeys(
+  machine: AnyStateMachine,
+  skillOriginManifest?: SkillOriginManifest,
+  sourceLocations?: SourceLocationManifest,
+): VerifyIssue[] {
+  const originEnv: SkillOriginEnv =
+    skillOriginManifest !== undefined
+      ? skillOriginEnvFromManifest(skillOriginManifest)
+      : { rootSourceDir: '', sourceDirPrefixes: [], threadSkills: [] };
+  const entries = collectThreadSkillsWithOrigins(machine, originEnv);
+  const issues: VerifyIssue[] = [];
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (entry.key.length === 0) continue;
+    if (seen.has(entry.key)) {
+      issues.push(
+        err(
+          'thread-skill-duplicate-key',
+          '',
+          `threadSkills key '${entry.key}' is declared more than once across the root and embedded FSMs`,
+          threadSkillSourceLocation(entry.key, sourceLocations),
+        ),
+      );
+      continue;
+    }
+    seen.add(entry.key);
+  }
+  return issues;
+}
+
+function threadSkillSourceLocation(
+  key: string,
+  sourceLocations?: SourceLocationManifest,
+): SourceLocation | undefined {
+  return sourceLocations?.threadSkills?.find((entry) => entry.key === key)?.location ?? undefined;
 }
 
 /**
@@ -3126,7 +3276,7 @@ function checkSkillsResolve(
   const originEnv: SkillOriginEnv =
     skillOriginManifest !== undefined
       ? skillOriginEnvFromManifest(skillOriginManifest)
-      : { rootSourceDir: env.fsmFileDir, sourceDirPrefixes: [] };
+      : { rootSourceDir: env.fsmFileDir, sourceDirPrefixes: [], threadSkills: [] };
   for (const node of iterStates(machine)) {
     const meta = asStatefulMeta(node);
     if (!meta || !meta.skills) continue;
@@ -3148,6 +3298,36 @@ function checkSkillsResolve(
           : err('skill-must-resolve', sid, ctx, location),
       );
     }
+  }
+  return issues;
+}
+
+function checkThreadSkillsResolve(
+  machine: AnyStateMachine,
+  env: SkillResolverEnv,
+  skillOriginManifest?: SkillOriginManifest,
+  sourceLocations?: SourceLocationManifest,
+): VerifyIssue[] {
+  const issues: VerifyIssue[] = [];
+  const originEnv: SkillOriginEnv =
+    skillOriginManifest !== undefined
+      ? skillOriginEnvFromManifest(skillOriginManifest)
+      : { rootSourceDir: env.fsmFileDir, sourceDirPrefixes: [], threadSkills: [] };
+  for (const entry of collectThreadSkillsWithOrigins(machine, originEnv)) {
+    const ref = entry.ref;
+    if (!isSkillRef(ref) || ref.source === 'name') continue;
+    const res = resolveSkill(ref, {
+      ...env,
+      fsmFileDir: entry.sourceDir,
+    });
+    if (res.kind === 'resolved') continue;
+    const ctx = `threadSkills['${entry.key}'] (${res.displayName}): not found in any of:\n  - ${res.searched.join('\n  - ')}`;
+    const location = threadSkillSourceLocation(entry.key, sourceLocations);
+    issues.push(
+      res.optional
+        ? warn('thread-skill-must-resolve', '', ctx, location)
+        : err('thread-skill-must-resolve', '', ctx, location),
+    );
   }
   return issues;
 }

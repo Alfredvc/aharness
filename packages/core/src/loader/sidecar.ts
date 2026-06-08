@@ -55,7 +55,7 @@ import * as path from 'node:path';
 import { Ajv, type Schema, type ValidateFunction } from 'ajv';
 import type { JSONSchema7 } from 'json-schema';
 import type { SchemaSidecar, SidecarValidateResult, ValidationError } from '../types.js';
-import type { AvailableSkillRef } from '../state/skills.js';
+import type { AvailableSkillRef, SkillRef } from '../state/skills.js';
 import { getEnclosingStateId } from './stateId.js';
 import { getInstallPaths, type InstallPaths } from './installPath.js';
 import { collectArgBindings, extractInputFromLiteral, type ArgFlagMeta } from './inputSchema.js';
@@ -189,6 +189,11 @@ export async function extractSchemaSidecar(
     machineCall,
     createFsmFactoryNames,
   ).map((ref) => ({ sourceDir: rootSourceDir, ref }));
+  const rootThreadSkills = extractThreadSkillsFromMachineCall(
+    sourceFile,
+    machineCall,
+    createFsmFactoryNames,
+  ).map(({ key, ref }) => ({ sourceDir: rootSourceDir, key, ref }));
   const rootSourceLocations = collectSourceLocations(sourceFile, machineCall, rootSourceFile);
   const childResults = await resolveAndExtractChildSidecars(
     sourceFile,
@@ -205,6 +210,7 @@ export async function extractSchemaSidecar(
   const skillOriginManifest = buildSkillOriginManifest({
     rootSourceDir,
     rootAvailableSkills,
+    rootThreadSkills,
     childResults,
   });
   if (
@@ -591,6 +597,18 @@ function collectSourceLocations(
       sourceLocationOf(sourceFile, sourceFilePath, element),
     );
   }
+  const threadSkillsProp = findProperty(machineArg0, 'threadSkills');
+  if (threadSkillsProp && ts.isObjectLiteralExpression(threadSkillsProp.initializer)) {
+    for (const prop of threadSkillsProp.initializer.properties) {
+      if (!ts.isPropertyAssignment(prop)) continue;
+      const key = staticPropertyName(prop);
+      if (key === null) continue;
+      manifest.threadSkills.push({
+        key,
+        location: sourceLocationOf(sourceFile, sourceFilePath, prop.name),
+      });
+    }
+  }
 
   const statesProp = findProperty(machineArg0, 'states');
   if (statesProp && ts.isObjectLiteralExpression(statesProp.initializer)) {
@@ -695,6 +713,7 @@ type MutableSourceLocationManifest = {
   whenBranches: Record<string, Record<string, Array<SourceLocation | null>>>;
   stateSkills: Record<string, Array<SourceLocation | null>>;
   availableSkills: Array<SourceLocation | null>;
+  threadSkills: Array<{ key: string; location: SourceLocation | null }>;
 };
 
 function mutableSourceLocationManifest(): MutableSourceLocationManifest {
@@ -704,6 +723,7 @@ function mutableSourceLocationManifest(): MutableSourceLocationManifest {
     whenBranches: {},
     stateSkills: {},
     availableSkills: [],
+    threadSkills: [],
   };
 }
 
@@ -724,6 +744,7 @@ function prefixSourceLocationManifest(
   for (const [stateId, skills] of Object.entries(manifest.stateSkills)) {
     out.stateSkills[`${prefix}.${stateId}`] = [...skills];
   }
+  out.threadSkills.push(...(manifest.threadSkills ?? []));
   return out;
 }
 
@@ -747,6 +768,9 @@ function mergeSourceLocationManifests(
     }
     if (manifest.availableSkills.length > 0) {
       out.availableSkills.push(...manifest.availableSkills);
+    }
+    if ((manifest.threadSkills?.length ?? 0) > 0) {
+      out.threadSkills.push(...(manifest.threadSkills ?? []));
     }
   }
   return out;
@@ -848,12 +872,14 @@ type ChildOriginResult = Awaited<ReturnType<typeof resolveAndExtractChildSidecar
 function buildSkillOriginManifest(opts: {
   readonly rootSourceDir: string;
   readonly rootAvailableSkills: readonly SkillOriginManifest['availableSkills'][number][];
+  readonly rootThreadSkills: readonly ThreadSkillOriginEntry[];
   readonly childResults: readonly ChildOriginResult[];
 }): SkillOriginManifest {
   const prefixes: Array<SkillOriginManifest['sourceDirPrefixes'][number]> = [];
   const availableSkills: Array<SkillOriginManifest['availableSkills'][number]> = [
     ...opts.rootAvailableSkills,
   ];
+  const threadSkills: ThreadSkillOriginEntry[] = [...opts.rootThreadSkills];
 
   for (const child of opts.childResults) {
     prefixes.push({ stateIdPrefix: child.hostKey, sourceDir: child.childSourceDir });
@@ -864,12 +890,14 @@ function buildSkillOriginManifest(opts: {
       });
     }
     availableSkills.push(...child.childSkillOriginManifest.availableSkills);
+    threadSkills.push(...(child.childSkillOriginManifest.threadSkills ?? []));
   }
 
   return {
     rootSourceDir: opts.rootSourceDir,
     sourceDirPrefixes: dedupeAndSortPrefixes(prefixes),
     availableSkills: dedupeAndSortAvailableSkills(availableSkills),
+    threadSkills: sortThreadSkills(threadSkills),
   };
 }
 
@@ -904,6 +932,25 @@ function availableSkillRefKey(ref: AvailableSkillRef): string {
   return ref.source === 'path'
     ? `path:${ref.path}:${ref.optional ? 'optional' : 'required'}`
     : `dir:${ref.path}`;
+}
+
+function sortThreadSkills(
+  entries: readonly ThreadSkillOriginEntry[],
+): NonNullable<SkillOriginManifest['threadSkills']> {
+  return [...entries].sort(
+    (a, b) =>
+      a.key.localeCompare(b.key) ||
+      a.sourceDir.localeCompare(b.sourceDir) ||
+      skillRefKey(a.ref).localeCompare(skillRefKey(b.ref)),
+  );
+}
+
+type ThreadSkillOriginEntry = NonNullable<SkillOriginManifest['threadSkills']>[number];
+
+function skillRefKey(ref: SkillRef): string {
+  return ref.source === 'name'
+    ? `name:${ref.name}:${ref.optional ? 'optional' : 'required'}`
+    : `path:${ref.path}:${ref.optional ? 'optional' : 'required'}`;
 }
 
 /**
@@ -1326,13 +1373,37 @@ function extractAvailableSkillsFromMachineCall(
   return refs;
 }
 
+function extractThreadSkillsFromMachineCall(
+  sourceFile: ts.SourceFile,
+  machineCall: ts.CallExpression | null,
+  createFsmFactoryNames: ReadonlySet<string>,
+): Array<{ readonly key: string; readonly ref: SkillRef }> {
+  if (!machineCall) return [];
+  const machineArg0 = machineCall.arguments[0];
+  if (!machineArg0 || !ts.isObjectLiteralExpression(machineArg0)) return [];
+  const threadSkillsProp = findProperty(machineArg0, 'threadSkills');
+  if (!threadSkillsProp || !ts.isObjectLiteralExpression(threadSkillsProp.initializer)) {
+    return [];
+  }
+  const bindings = collectAvailableSkillBindings(sourceFile, createFsmFactoryNames);
+  const refs: Array<{ readonly key: string; readonly ref: SkillRef }> = [];
+  for (const prop of threadSkillsProp.initializer.properties) {
+    if (!ts.isPropertyAssignment(prop)) continue;
+    const key = staticPropertyName(prop);
+    if (key === null) continue;
+    const ref = extractThreadSkillRef(prop.initializer, bindings);
+    if (ref) refs.push({ key, ref });
+  }
+  return refs;
+}
+
 function extractAvailableSkillRef(
   expression: ts.Expression,
   bindings: AvailableSkillBindings,
 ): AvailableSkillRef | null {
   const expr = unwrapTypeAssertion(expression);
   if (!ts.isCallExpression(expr)) return null;
-  if (isDirectSkillPathCall(expr, bindings)) {
+  if (isDirectSkillCall(expr, bindings)) {
     const firstArg = expr.arguments[0];
     if (!firstArg || !ts.isObjectLiteralExpression(firstArg)) return null;
     const pathProp = findProperty(firstArg, 'path');
@@ -1373,7 +1444,50 @@ function extractAvailableSkillRef(
   return null;
 }
 
-function isDirectSkillPathCall(call: ts.CallExpression, bindings: AvailableSkillBindings): boolean {
+function extractThreadSkillRef(
+  expression: ts.Expression,
+  bindings: AvailableSkillBindings,
+): SkillRef | null {
+  const expr = unwrapTypeAssertion(expression);
+  if (!ts.isCallExpression(expr)) return null;
+  if (isDirectSkillCall(expr, bindings)) {
+    const firstArg = expr.arguments[0];
+    if (!firstArg) return null;
+    if (ts.isObjectLiteralExpression(firstArg)) {
+      const pathProp = findProperty(firstArg, 'path');
+      if (!pathProp) return null;
+      const refPath = getStringLiteralValue(pathProp.initializer);
+      if (!refPath) return null;
+      const optional = readOptionalBoolean(firstArg);
+      if (optional === null) return null;
+      return { __aharnessSkillRef: true, source: 'path', path: refPath, optional };
+    }
+    const name = getStringLiteralValue(firstArg);
+    if (!name) return null;
+    const optional = readOptionalArg(expr.arguments[1]);
+    if (optional === null) return null;
+    return { __aharnessSkillRef: true, source: 'name', name, optional };
+  }
+  if (isCanonicalSkillNameCall(expr, bindings)) {
+    const firstArg = expr.arguments[0];
+    const name = firstArg ? getStringLiteralValue(firstArg) : null;
+    if (!name) return null;
+    const optional = readOptionalArg(expr.arguments[1]);
+    if (optional === null) return null;
+    return { __aharnessSkillRef: true, source: 'name', name, optional };
+  }
+  if (isCanonicalSkillPathCall(expr, bindings)) {
+    const firstArg = expr.arguments[0];
+    const refPath = firstArg ? getStringLiteralValue(firstArg) : null;
+    if (!refPath) return null;
+    const optional = readOptionalArg(expr.arguments[1]);
+    if (optional === null) return null;
+    return { __aharnessSkillRef: true, source: 'path', path: refPath, optional };
+  }
+  return null;
+}
+
+function isDirectSkillCall(call: ts.CallExpression, bindings: AvailableSkillBindings): boolean {
   return ts.isIdentifier(call.expression) && bindings.directSkillNames.has(call.expression.text);
 }
 
@@ -1394,6 +1508,16 @@ function isCanonicalSkillPathCall(
     ts.isIdentifier(skillExpr.expression) &&
     bindings.factoryNames.has(skillExpr.expression.text)
   );
+}
+
+function isCanonicalSkillNameCall(
+  call: ts.CallExpression,
+  bindings: AvailableSkillBindings,
+): boolean {
+  const expr = call.expression;
+  return ts.isPropertyAccessExpression(expr) && expr.name.text === 'skill'
+    ? ts.isIdentifier(expr.expression) && bindings.factoryNames.has(expr.expression.text)
+    : false;
 }
 
 function isCanonicalSkillDirCall(
@@ -1417,6 +1541,11 @@ function readOptionalBoolean(literal: ts.ObjectLiteralExpression): boolean | nul
   if (optionalProp.initializer.kind === ts.SyntaxKind.TrueKeyword) return true;
   if (optionalProp.initializer.kind === ts.SyntaxKind.FalseKeyword) return false;
   return null;
+}
+
+function readOptionalArg(expression: ts.Expression | undefined): boolean | null {
+  if (expression === undefined) return false;
+  return ts.isObjectLiteralExpression(expression) ? readOptionalBoolean(expression) : null;
 }
 
 interface XstateCreateMachineBindings {

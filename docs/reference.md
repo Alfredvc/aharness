@@ -17,7 +17,8 @@ the compatibility gate and drift-check details.
 `createFsm<Data>()` returns the current FSM factory:
 
 - `fsm.machine(config)` declares the machine, optional typed `input`, optional
-  run-global `availableSkills`, initial data, initial state, and states map.
+  run-global `availableSkills`, optional sidecar `threadSkills`, initial data,
+  initial state, and states map.
 - `fsm.state(options)` declares an active Codex state with `prompt`, `on`,
   `entry`, `model`, `clearOnEntry`, visualization-only `main`,
   `guidance`, `skills`, `mode`, and low-level `xstate` escape hatch.
@@ -330,6 +331,36 @@ startup root set. Dir-form availability contributes that directory as a Codex
 skill root. `availableSkills` never injects a skill into a state turn by itself.
 Name-form refs are invalid in `availableSkills`, because the field is for
 declaring concrete package- or repository-owned roots.
+
+Top-level `threadSkills` declares keyed skill refs for managed Codex sidecar
+threads:
+
+```ts
+export default fsm.machine({
+  id: 'workflow',
+  threadSkills: {
+    requirementsDriver: fsm.skill.path('../skills/requirements-driver/SKILL.md'),
+    reviewer: fsm.skill('reviewing-code'),
+  },
+  initial: 'plan',
+  states: {
+    plan: fsm.state({
+      prompt: 'Write the current implementation plan.',
+      on: {
+        done: fsm.submit<{ summary: string }>({ to: 'done' }),
+      },
+    }),
+    done: fsm.final({ outcome: 'success' }),
+  },
+});
+```
+
+`threadSkills` must be an object with non-empty keys. Values accept the same
+name-form and path-form refs as state `skills`; dir-form refs are invalid.
+Every entry participates in startup skill catalog preflight. Path-form refs
+resolve relative to the FSM source file that declared them, including embedded
+FSM sources, and duplicate transitive keys are verifier errors because sidecar
+turns address skills by key.
 
 ## Submit, Choice, And Events
 

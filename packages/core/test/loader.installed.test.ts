@@ -195,6 +195,132 @@ describe('installed package loader', () => {
     });
   });
 
+  it('preserves installed threadSkills from embedded package sources across cache hits', async () => {
+    const command = await readMainCommand();
+    await writeFile(
+      path.join(packageRoot, 'fsms', 'child.fsm.ts'),
+      [
+        "import { aharness, exit, final, state, skill } from '@aharness/core';",
+        '',
+        'interface LocalPayload {',
+        '  readonly ok: boolean;',
+        '}',
+        '',
+        'export default aharness.machine({',
+        "  id: 'same-package-child-thread-skills',",
+        '  threadSkills: {',
+        "    sameHelper: skill({ path: './same-thread-helper/SKILL.md' }),",
+        "    sameReviewer: skill('same-reviewer'),",
+        '  },',
+        "  initial: 'local',",
+        '  states: {',
+        '    local: state({',
+        "      entryPrompt: 'same package child',",
+        '      exits: {',
+        '        done: exit<LocalPayload>({',
+        "          when: [{ guard: ({ event }) => event.payload.ok, to: 'shipped' }, { to: 'failed' }],",
+        '        }),',
+        '      },',
+        '    }),',
+        "    shipped: final({ outcome: 'success' }),",
+        "    failed: final({ outcome: 'failure' }),",
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+    );
+    await writeFile(
+      path.join(dependencyRoot, 'fsms', 'dependency-child.fsm.ts'),
+      [
+        "import { aharness, exit, final, state, skill, skillDir } from '@aharness/core';",
+        "import { dependencyHelper } from '../src/dependency-helper.js';",
+        '',
+        'interface DependencyPayload {',
+        '  readonly source: string;',
+        '}',
+        '',
+        'export default aharness.machine({',
+        '  id: `dependency-child-${dependencyHelper()}`,',
+        "  availableSkills: [skillDir('./dependency-skills')],",
+        '  threadSkills: {',
+        "    dependencyHelper: skill({ path: './dependency-thread-helper/SKILL.md' }),",
+        '  },',
+        "  initial: 'dependency',",
+        '  states: {',
+        '    dependency: state({',
+        '      entryPrompt: `dependency child ${dependencyHelper()}`,',
+        '      exits: {',
+        '        done: exit<DependencyPayload>({',
+        '          when: [',
+        "            { guard: ({ event }) => event.payload.source === 'ok', to: 'dependencyDone' },",
+        "            { to: 'dependencyFailed' },",
+        '          ],',
+        '        }),',
+        '      },',
+        '    }),',
+        "    dependencyDone: final({ outcome: 'success' }),",
+        "    dependencyFailed: final({ outcome: 'failure' }),",
+        '  },',
+        '});',
+        '',
+      ].join('\n'),
+    );
+
+    const loaded = await loadInstalledFsm({
+      entryFile: command.entryPath,
+      packageName: '@scope/command-package',
+      commandName: command.commandName,
+      packageRoot,
+      managedProjectRoot,
+      storeRoot,
+      lockFingerprint: 'lock:fixture',
+    });
+    const packageFsmDir = path.resolve(packageRoot, 'fsms');
+    const dependencyPrefix = loaded.skillOriginManifest.sourceDirPrefixes.find(
+      (prefix) => prefix.stateIdPrefix === 'dependency',
+    );
+
+    expect(loaded.skillOriginManifest.threadSkills).toEqual(
+      expect.arrayContaining([
+        {
+          sourceDir: packageFsmDir,
+          key: 'sameHelper',
+          ref: {
+            __aharnessSkillRef: true,
+            source: 'path',
+            path: './same-thread-helper/SKILL.md',
+            optional: false,
+          },
+        },
+        {
+          sourceDir: dependencyPrefix?.sourceDir,
+          key: 'dependencyHelper',
+          ref: {
+            __aharnessSkillRef: true,
+            source: 'path',
+            path: './dependency-thread-helper/SKILL.md',
+            optional: false,
+          },
+        },
+      ]),
+    );
+
+    const cached = await loadInstalledFsm({
+      entryFile: command.entryPath,
+      packageName: '@scope/command-package',
+      commandName: command.commandName,
+      packageRoot,
+      managedProjectRoot,
+      storeRoot,
+      lockFingerprint: 'lock:fixture',
+    });
+
+    expect(cached.cacheHit).toBe(true);
+    expect(cached.skillOriginManifest.threadSkills).toEqual(
+      loaded.skillOriginManifest.threadSkills,
+    );
+  });
+
   it('changes the installed cache key when same-package helper source changes', async () => {
     const command = await readMainCommand();
     const before = await loadInstalledFsm({

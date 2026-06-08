@@ -3,14 +3,16 @@
  * can make discoverable for a run or select for a state turn.
  *
  * Three author ref shapes:
- *   - **Name-form** — `skill('spec-review')`. Valid only for state-level
- *     `skills`; Codex's startup skill catalog preflight is authoritative for
- *     resolving it to exactly one enabled skill.
+ *   - **Name-form** — `skill('spec-review')`. Valid for state-level `skills`
+ *     and machine-level `threadSkills`; Codex's startup skill catalog
+ *     preflight is authoritative for resolving it to exactly one enabled
+ *     skill.
  *   - **Path-form** — `skill({ path: './foo/SKILL.md' })`. Relative paths resolve
  *     against the FSM file's directory (loader threads it to the daemon);
  *     absolute paths used as-is. No fallback search.
  *   - **Dir-form** — `fsm.skill.dir('./skills')`. Valid only in top-level
- *     machine `availableSkills`, not in state-level `skills`.
+ *     machine `availableSkills`, not in state-level `skills` or
+ *     `threadSkills`.
  *
  * `optional: true` lets startup preflight warn and skip a missing state skill
  * instead of failing the run.
@@ -49,6 +51,7 @@ export interface SkillRefDir {
 
 export type SkillRef = SkillRefName | SkillRefPath;
 export type AvailableSkillRef = SkillRefPath | SkillRefDir;
+export type ThreadSkillRef = SkillRef;
 
 export interface SkillOptions {
   readonly optional?: boolean;
@@ -134,6 +137,10 @@ export function isAvailableSkillRef(v: unknown): v is AvailableSkillRef {
     return typeof v.path === 'string' && v.path.length > 0;
   }
   return false;
+}
+
+export function isThreadSkillRef(v: unknown): v is ThreadSkillRef {
+  return isSkillRef(v);
 }
 
 export function isAnySkillRef(v: unknown): v is SkillRefName | SkillRefPath | SkillRefDir {

@@ -50,7 +50,9 @@ import {
   availableSkillKey,
   isAvailableSkillRef,
   isAnySkillRef,
+  isThreadSkillRef,
   type AvailableSkillRef,
+  type ThreadSkillRef,
 } from './skills.js';
 import {
   canonicalEmbeddedFinalCommitContext,
@@ -533,6 +535,44 @@ function validateAvailableSkills(raw: unknown): void {
   }
 }
 
+function validateThreadSkills(raw: unknown): void {
+  if (raw === undefined) return;
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new TypeError('aharness.machine(): threadSkills must be an object of skill refs');
+  }
+  for (const [key, ref] of Object.entries(raw as Record<string, unknown>)) {
+    if (key.length === 0) {
+      throw new TypeError('aharness.machine(): threadSkills keys must be non-empty strings');
+    }
+    if (!isAnySkillRef(ref)) {
+      throw new TypeError(
+        `aharness.machine(): threadSkills['${key}'] must be a SkillRef returned by skill(...) or skill.path(...) (got ${typeof ref})`,
+      );
+    }
+    if (
+      (ref.source === 'path' || ref.source === 'dir') &&
+      (typeof ref.path !== 'string' || ref.path.length === 0)
+    ) {
+      throw new TypeError(
+        `aharness.machine(): threadSkills['${key}'] ${ref.source} path must be a non-empty string`,
+      );
+    }
+    if (
+      ref.source === 'name' &&
+      (typeof ref.name !== 'string' || ref.name.length === 0 || typeof ref.optional !== 'boolean')
+    ) {
+      throw new TypeError(
+        `aharness.machine(): threadSkills['${key}'] name ref must include a non-empty name and boolean optional flag`,
+      );
+    }
+    if (!isThreadSkillRef(ref)) {
+      throw new TypeError(
+        `aharness.machine(): threadSkills['${key}'] must use name-form or path-form refs; dir-form refs are only valid in availableSkills`,
+      );
+    }
+  }
+}
+
 /**
  * Context factory shape exposed on the `aharness.machine` wrapper. Mirrors
  * XState's `ContextFactory` but pins the `input` parameter to the resolved
@@ -616,6 +656,7 @@ interface AharnessNamespace {
       // the field is data, not behavior.
       readonly input?: TInput;
       readonly availableSkills?: ReadonlyArray<AvailableSkillRef>;
+      readonly threadSkills?: Readonly<Record<string, ThreadSkillRef>>;
       // Typed root `context:` factory. The `input` parameter is
       // `ResolveInput<TInput>` — the resolved object shape of the FSM's
       // declared `input:` fields — so authors get a typed `input` without
@@ -653,6 +694,7 @@ function aharnessMachineImpl(config: unknown): AnyStateMachine {
   // generics.
   const looseConfig = config as AnyConfig;
   validateAvailableSkills((looseConfig as { availableSkills?: unknown }).availableSkills);
+  validateThreadSkills((looseConfig as { threadSkills?: unknown }).threadSkills);
   // Snapshot the input config BEFORE the in-place synthesis pass mutates
   // it. The snapshot is a structural deep-clone that preserves function
   // references (callbacks, action factories, function-form

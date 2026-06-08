@@ -515,11 +515,52 @@ describe('@aharness/core verify: skill authoring validation', () => {
     );
   });
 
+  it('rejects malformed threadSkills registries at static verify time', () => {
+    const fsm = createFsmVerify();
+    const m = fsm.machine({
+      id: 'thread-skills-malformed',
+      threadSkills: { helper: fsm.skill('reviewer') },
+      initial: 'a',
+      states: {
+        a: fsm.state({
+          prompt: 'go',
+          on: { ok: fsm.submit<{ ok: boolean }>({ to: 'done' }) },
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+    const raw = (m as { __aharnessRawConfig: { threadSkills: Record<string, unknown> } })
+      .__aharnessRawConfig.threadSkills;
+    raw[''] = skill('reviewer');
+    raw.malformed = { __aharnessSkillRef: true, source: 'path' };
+    raw.dir = fsm.skill.dir('./skills');
+
+    const result = verify(m, minimalSidecar(), [], { skillEnv });
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'thread-skills-well-formed',
+          message: expect.stringContaining('keys must be non-empty'),
+        }),
+        expect.objectContaining({
+          check: 'thread-skills-well-formed',
+          message: expect.stringContaining('path must be a non-empty string'),
+        }),
+        expect.objectContaining({
+          check: 'thread-skills-well-formed',
+          message: expect.stringContaining('dir-form'),
+        }),
+      ]),
+    );
+  });
+
   it('rejects non-SKILL.md path refs in state skills and availableSkills', () => {
     const fsm = createFsmVerify();
     const m = fsm.machine({
       id: 'skill-md-only',
       availableSkills: [fsm.skill.path('./skills/local.md')],
+      threadSkills: { helper: fsm.skill.path('./skills/local.md') },
       initial: 'a',
       states: {
         a: fsm.state({
@@ -544,6 +585,11 @@ describe('@aharness/core verify: skill authoring validation', () => {
           check: 'skill-path-must-be-skill-md',
           stateId: 'a',
           message: expect.stringContaining("skills[0] path './skills/local.md'"),
+        }),
+        expect.objectContaining({
+          check: 'skill-path-must-be-skill-md',
+          stateId: '',
+          message: expect.stringContaining("threadSkills['helper'] path './skills/local.md'"),
         }),
       ]),
     );
@@ -684,6 +730,92 @@ describe('@aharness/core verify: skill authoring validation', () => {
 
     expect(result.issues).toEqual([]);
     expect(result.ok).toBe(true);
+  });
+
+  it('resolves threadSkills path refs through source-origin manifest boundaries', () => {
+    const fsm = createFsmVerify();
+    const m = fsm.machine({
+      id: 'origin-thread-skill',
+      threadSkills: {
+        rootHelper: fsm.skill.path('./root-thread/SKILL.md'),
+      },
+      initial: 'a',
+      states: {
+        a: fsm.state({
+          prompt: 'go',
+          on: { ok: fsm.submit<{ ok: boolean }>({ to: 'done' }) },
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+    const originManifest: SkillOriginManifest = {
+      rootSourceDir: '/repo/root',
+      sourceDirPrefixes: [],
+      availableSkills: [],
+      threadSkills: [
+        {
+          sourceDir: '/repo/root',
+          key: 'rootHelper',
+          ref: fsm.skill.path('./root-thread/SKILL.md'),
+        },
+        {
+          sourceDir: '/repo/child',
+          key: 'childHelper',
+          ref: fsm.skill.path('./child-thread/SKILL.md'),
+        },
+      ],
+    };
+
+    const result = verify(m, minimalSidecar(), [], {
+      skillEnv: {
+        ...skillEnv,
+        fileExists: (p: string) =>
+          p === '/repo/root/root-thread/SKILL.md' || p === '/repo/child/child-thread/SKILL.md',
+      },
+      skillOriginManifest: originManifest,
+    });
+
+    expect(result.issues).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects duplicate transitive threadSkills keys', () => {
+    const fsm = createFsmVerify();
+    const m = fsm.machine({
+      id: 'duplicate-thread-skill',
+      threadSkills: { helper: fsm.skill('reviewer') },
+      initial: 'a',
+      states: {
+        a: fsm.state({
+          prompt: 'go',
+          on: { ok: fsm.submit<{ ok: boolean }>({ to: 'done' }) },
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+    const originManifest: SkillOriginManifest = {
+      rootSourceDir: '/repo/root',
+      sourceDirPrefixes: [],
+      availableSkills: [],
+      threadSkills: [
+        { sourceDir: '/repo/root', key: 'helper', ref: fsm.skill('reviewer') },
+        { sourceDir: '/repo/child', key: 'helper', ref: fsm.skill('child-reviewer') },
+      ],
+    };
+
+    const result = verify(m, minimalSidecar(), [], {
+      skillEnv,
+      skillOriginManifest: originManifest,
+    });
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          check: 'thread-skill-duplicate-key',
+          message: expect.stringContaining("threadSkills key 'helper'"),
+        }),
+      ]),
+    );
   });
 
   it('keeps optional missing state path skills as warnings', () => {

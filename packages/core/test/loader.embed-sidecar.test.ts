@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { extractSchemaSidecar } from '../src/loader/sidecar.js';
 
@@ -41,6 +43,94 @@ describe('loader — embed sidecar recursion', () => {
         },
       ]),
     );
+  });
+
+  it('extracts root and child threadSkills with declaring source dirs', async () => {
+    const tmp = await mkdtemp(path.join(tmpdir(), 'aharness-thread-skills-embed-'));
+    try {
+      await writeFile(
+        path.join(tmp, 'child.fsm.ts'),
+        [
+          "import { createFsm } from '@aharness/core';",
+          'const fsm = createFsm();',
+          'interface Payload { readonly ok: boolean }',
+          'export default fsm.machine({',
+          "  id: 'child-thread-skills',",
+          '  threadSkills: {',
+          "    childHelper: fsm.skill.path('./child-thread/SKILL.md'),",
+          "    childReviewer: fsm.skill('child-reviewer'),",
+          '  },',
+          "  initial: 'go',",
+          '  states: {',
+          "    go: fsm.state({ prompt: 'go', on: { out: fsm.submit<Payload>({ to: 'done' }) } }),",
+          "    done: fsm.final({ outcome: 'success' }),",
+          '  },',
+          '});',
+          '',
+        ].join('\n'),
+      );
+      await writeFile(
+        path.join(tmp, 'parent.fsm.ts'),
+        [
+          "import { aharness, embed, exit, final, skill, state } from '@aharness/core';",
+          "import child from './child.fsm.js';",
+          'interface Payload { readonly ok: boolean }',
+          'export default aharness.machine({',
+          "  id: 'parent-thread-skills',",
+          '  threadSkills: {',
+          "    rootHelper: skill({ path: './root-thread/SKILL.md' }),",
+          "    rootReviewer: skill('root-reviewer'),",
+          '  },',
+          "  initial: 'router',",
+          '  states: {',
+          "    router: state({ entryPrompt: 'route', exits: { go: exit<Payload>({ to: 'inner' }) } }),",
+          "    inner: embed(child, { on: { done: { target: 'done' } } }),",
+          "    done: final({ outcome: 'success' }),",
+          '  },',
+          '});',
+          '',
+        ].join('\n'),
+      );
+
+      const result = await extractSchemaSidecar({ filePath: path.join(tmp, 'parent.fsm.ts') });
+
+      expect(result.skillOriginManifest.threadSkills).toEqual(
+        expect.arrayContaining([
+          {
+            sourceDir: tmp,
+            key: 'rootHelper',
+            ref: {
+              __aharnessSkillRef: true,
+              source: 'path',
+              path: './root-thread/SKILL.md',
+              optional: false,
+            },
+          },
+          {
+            sourceDir: tmp,
+            key: 'childHelper',
+            ref: {
+              __aharnessSkillRef: true,
+              source: 'path',
+              path: './child-thread/SKILL.md',
+              optional: false,
+            },
+          },
+          {
+            sourceDir: tmp,
+            key: 'childReviewer',
+            ref: {
+              __aharnessSkillRef: true,
+              source: 'name',
+              name: 'child-reviewer',
+              optional: false,
+            },
+          },
+        ]),
+      );
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
   });
 
   it('extracts child submit-exit schemas under the embed-host qualified prefix', async () => {

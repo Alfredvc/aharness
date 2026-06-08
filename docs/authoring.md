@@ -583,12 +583,44 @@ export default fsm.machine({
 ```
 
 State skills accept name-form and `SKILL.md` path-form refs. Top-level
-`availableSkills` accepts path-form and dir-form refs. Dir-form refs are not
-valid in state `skills`.
+`availableSkills` accepts path-form and dir-form refs. Machine-level
+`threadSkills` accepts keyed name-form and `SKILL.md` path-form refs for sidecar
+threads. Dir-form refs are not valid in state `skills` or `threadSkills`.
 
 `availableSkills` does not select a skill for a state by itself. It contributes
 skill roots to the run so bundled skills can be discovered, while the state
 `skills` array decides what the active turn receives.
+
+### Thread Skills
+
+Use top-level `threadSkills` when author code will start managed Codex sidecar
+threads and needs stable aliases for first-turn sidecar skills:
+
+```ts
+export default fsm.machine({
+  id: 'sidecar-workflow',
+  threadSkills: {
+    requirementsDriver: fsm.skill.path('../skills/requirements-driver/SKILL.md'),
+    reviewer: fsm.skill('reviewing-code'),
+  },
+  initial: 'plan',
+  states: {
+    plan: fsm.state({
+      prompt: 'Plan the work.',
+      on: {
+        done: fsm.submit<{ summary: string }>({ to: 'done' }),
+      },
+    }),
+    done: fsm.final({ outcome: 'success' }),
+  },
+});
+```
+
+The object keys are author-defined aliases. Sidecar thread options reference
+those aliases through `initialSkills`; aharness resolves every registry entry
+during startup skill preflight before any sidecar turn can start. Relative
+path-form refs resolve against the FSM source file that declared them,
+including embedded FSM sources.
 
 ## Composition And Runtime Events
 

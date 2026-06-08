@@ -120,6 +120,64 @@ describe('state skill construction validation', () => {
   });
 });
 
+describe('machine threadSkills construction validation', () => {
+  it('accepts name and path refs on canonical machine config', () => {
+    const fsm = createFsm();
+    const machine = fsm.machine({
+      id: 'thread-skills-ok',
+      threadSkills: {
+        reviewer: fsm.skill('reviewing-code'),
+        local: fsm.skill.path('./skills/local/SKILL.md'),
+      },
+      initial: 'a',
+      states: {
+        a: fsm.state({
+          prompt: 'go',
+          on: { done: fsm.submit<{ ok: boolean }>({ to: 'done' }) },
+        }),
+        done: fsm.final({ outcome: 'success' }),
+      },
+    });
+
+    expect(
+      (machine as { __aharnessRawConfig?: { threadSkills?: unknown } }).__aharnessRawConfig
+        ?.threadSkills,
+    ).toMatchObject({
+      reviewer: { source: 'name', name: 'reviewing-code' },
+      local: { source: 'path', path: './skills/local/SKILL.md' },
+    });
+  });
+
+  it('rejects malformed and dir-form threadSkills registries at construction time', () => {
+    expect(() =>
+      aharness.machine({
+        id: 'thread-skills-array',
+        threadSkills: [] as never,
+        initial: 'done',
+        states: { done: terminal('success') },
+      }),
+    ).toThrow(/threadSkills must be an object/);
+
+    expect(() =>
+      aharness.machine({
+        id: 'thread-skills-empty-key',
+        threadSkills: { '': skill('reviewing-code') },
+        initial: 'done',
+        states: { done: terminal('success') },
+      }),
+    ).toThrow(/keys must be non-empty/);
+
+    expect(() =>
+      aharness.machine({
+        id: 'thread-skills-dir',
+        threadSkills: { helper: skillDir('./skills') as never },
+        initial: 'done',
+        states: { done: terminal('success') },
+      }),
+    ).toThrow(/dir-form/);
+  });
+});
+
 describe('resolveSkill', () => {
   function mk(content = '# skill\n\nbody.\n'): {
     repoRoot: string;
@@ -372,6 +430,18 @@ describe('runtime skill catalog preflight', () => {
         { sourceDir: rootSourceDir, ref: skillDir('./support') },
         { sourceDir: childSourceDir, ref: skill({ path: './child-available/SKILL.md' }) },
       ],
+      threadSkills: [
+        {
+          sourceDir: rootSourceDir,
+          key: 'rootHelper',
+          ref: skill({ path: './root-thread/SKILL.md' }),
+        },
+        {
+          sourceDir: childSourceDir,
+          key: 'childHelper',
+          ref: skill({ path: './child-thread/SKILL.md' }),
+        },
+      ],
     };
   }
 
@@ -380,6 +450,9 @@ describe('runtime skill catalog preflight', () => {
     const child = '/tmp/child-fsm';
     const machine = aharness.machine({
       id: 'catalog-roots',
+      threadSkills: {
+        rootHelper: skill({ path: './root-thread/SKILL.md' }),
+      },
       initial: 'child',
       states: {
         child: {
@@ -410,7 +483,9 @@ describe('runtime skill catalog preflight', () => {
       [
         resolve(child, 'child-available'),
         resolve(child, 'child-skill'),
+        resolve(child, 'child-thread'),
         resolve(root, 'root-skill'),
+        resolve(root, 'root-thread'),
         resolve(root, 'support'),
       ].sort(),
     );
@@ -423,6 +498,16 @@ describe('runtime skill catalog preflight', () => {
         expect.objectContaining({
           stateId: 'childish',
           resolvedPath: resolve(root, 'root-skill/SKILL.md'),
+        }),
+        expect.objectContaining({
+          source: 'thread',
+          threadSkillKey: 'rootHelper',
+          resolvedPath: resolve(root, 'root-thread/SKILL.md'),
+        }),
+        expect.objectContaining({
+          source: 'thread',
+          threadSkillKey: 'childHelper',
+          resolvedPath: resolve(child, 'child-thread/SKILL.md'),
         }),
       ]),
     );
@@ -488,6 +573,66 @@ describe('runtime skill catalog preflight', () => {
       expect.arrayContaining([
         expect.objectContaining({ name: 'review-plan' }),
         expect.objectContaining({ name: 'path-skill', path: resolve(root, 'path-skill/SKILL.md') }),
+      ]),
+    );
+  });
+
+  it('validates required and optional thread skill catalog entries', () => {
+    const root = '/tmp/root-fsm';
+    const machine = aharness.machine({
+      id: 'catalog-thread-validate',
+      threadSkills: {
+        reviewer: skill('review-plan'),
+        missingRequired: skill('missing-required'),
+        missingOptional: skill('missing-optional', { optional: true }),
+        pathHelper: skill({ path: './path-skill/./SKILL.md' }),
+      },
+      initial: 'a',
+      states: {
+        a: state({
+          entryPrompt: 'a',
+          exits: { done: exit({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const preflight = buildSkillCatalogPreflight({
+      machine,
+      skillOriginManifest: {
+        rootSourceDir: root,
+        sourceDirPrefixes: [],
+        availableSkills: [],
+      },
+    });
+
+    const result = validateSkillCatalog({
+      repoRoot: root,
+      preflight,
+      response: {
+        data: [
+          {
+            cwd: root,
+            errors: [],
+            skills: [
+              { name: 'review-plan', path: '/tmp/skills/review-plan/SKILL.md', enabled: true },
+              { name: 'path-skill', path: resolve(root, 'path-skill/SKILL.md'), enabled: true },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual([
+      expect.stringContaining("threadSkills['missingRequired'] name 'missing-required' is missing"),
+    ]);
+    expect(result.warnings).toEqual([
+      expect.stringContaining("threadSkills['missingOptional'] name 'missing-optional' is missing"),
+    ]);
+    expect(result.resolvedSkills).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'thread', threadSkillKey: 'reviewer' }),
+        expect.objectContaining({ source: 'thread', threadSkillKey: 'pathHelper' }),
       ]),
     );
   });

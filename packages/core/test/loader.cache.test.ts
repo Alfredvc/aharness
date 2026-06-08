@@ -88,11 +88,12 @@ describe('loader cache — keying', () => {
     await fs.mkdir(firstDir, { recursive: true });
     await fs.mkdir(secondDir, { recursive: true });
     const source = [
-      "import { aharness, state, exit, final, skillDir } from '@aharness/core';",
+      "import { aharness, state, exit, final, skill, skillDir } from '@aharness/core';",
       'interface Payload { readonly ok: boolean }',
       'export default aharness.machine({',
       "  id: 'same-source',",
       "  availableSkills: [skillDir('./skills')],",
+      "  threadSkills: { helper: skill({ path: './thread-helper/SKILL.md' }) },",
       "  initial: 'go',",
       '  states: {',
       "    go: state({ entryPrompt: 'go', exits: { done: exit<Payload>({ to: 'done' }) } }),",
@@ -117,6 +118,18 @@ describe('loader cache — keying', () => {
       {
         sourceDir: secondDir,
         ref: { __aharnessSkillRef: true, source: 'dir', path: './skills' },
+      },
+    ]);
+    expect(second.skillOriginManifest.threadSkills).toEqual([
+      {
+        sourceDir: secondDir,
+        key: 'helper',
+        ref: {
+          __aharnessSkillRef: true,
+          source: 'path',
+          path: './thread-helper/SKILL.md',
+          optional: false,
+        },
       },
     ]);
   });

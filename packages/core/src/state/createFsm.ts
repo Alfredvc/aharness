@@ -62,6 +62,7 @@ import {
   type SkillRefDir,
   type SkillRefName,
   type SkillRefPath,
+  type ThreadSkillRef,
 } from './skills.js';
 import type { ChoiceMeta, ChoiceOption } from '../types.js';
 
@@ -415,6 +416,7 @@ type CanonicalMachineConfig<Data, TInput extends Record<string, ArgSentinel>, TS
   readonly input?: TInput;
   readonly data?: CanonicalData<Data, ResolveInput<TInput>>;
   readonly availableSkills?: ReadonlyArray<AvailableSkillRef>;
+  readonly threadSkills?: Readonly<Record<string, ThreadSkillRef>>;
   readonly initial?: string;
   readonly states: TStates;
 };

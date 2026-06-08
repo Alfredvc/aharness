@@ -359,6 +359,35 @@ export default machine;
     await fs.rm(tmpFsmDir, { recursive: true, force: true });
   });
 
+  it('flags missing path-form threadSkills refs', async () => {
+    const tmpFsmDir = await fs.mkdtemp(join(tmpdir(), 'codex-verify-cli-thread-skill-'));
+    const tmpFsmPath = join(tmpFsmDir, 'thread-skills.fsm.ts');
+    const source = `import { aharness, state, terminal, exit, skill } from '@aharness/core';
+interface P { q: string }
+export default aharness.machine({
+  id: 'thread-skill-miss',
+  threadSkills: {
+    helper: skill({ path: './skills/missing/SKILL.md' }),
+  },
+  initial: 'a',
+  states: {
+    a: state({ entryPrompt: 'x', exits: { ok: exit<P>({ to: 'done' }) } }),
+    done: terminal('success'),
+  },
+});
+`;
+    await fs.writeFile(tmpFsmPath, source, 'utf8');
+
+    const log = vi.fn();
+    const r = await runVerifyCli({ fsmPath: tmpFsmPath, repoRoot, log });
+
+    expect(r.exitCode).toBe(1);
+    const lines = log.mock.calls.map((c) => String(c[0]));
+    expect(lines).toContainEqual(expect.stringContaining('[error] thread-skill-must-resolve'));
+    expect(lines).toContainEqual(expect.stringContaining("threadSkills['helper']"));
+    await fs.rm(tmpFsmDir, { recursive: true, force: true });
+  });
+
   it('downgrades optional skill misses to warning (does not block run)', async () => {
     const tmpFsmDir = await fs.mkdtemp(join(tmpdir(), 'codex-verify-cli-skill-opt-'));
     const tmpFsmPath = join(tmpFsmDir, 'skills.fsm.ts');

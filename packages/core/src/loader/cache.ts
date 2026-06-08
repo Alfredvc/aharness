@@ -53,13 +53,16 @@ import { promises as fs } from 'node:fs';
 import * as path from 'node:path';
 import type { JSONSchema7 } from 'json-schema';
 import { canonicalJson } from '../internal/canonicalJson.js';
-import type { AvailableSkillRef } from '../state/skills.js';
+import type { AvailableSkillRef, SkillRef } from '../state/skills.js';
 import type { SidecarIssue } from './sidecar.js';
 import type { ArgFlagMeta } from './inputSchema.js';
 import { getInstallPaths } from './installPath.js';
 
 /**
  * Bumped when the loader's serialisation shape changes.
+ *
+ * v8 (2026-06-08): adds machine-level `threadSkills` to skill-origin manifests
+ *   and source-location snapshots.
  *
  * v7 (2026-06-07): generated ESM bundles include a `createRequire` bridge so
  *   bundled CommonJS dependencies can require Node builtins at import time.
@@ -96,9 +99,12 @@ import { getInstallPaths } from './installPath.js';
  * v6 (2026-06-05): serialized sidecars carry verifier source-location
  *   metadata so CLI diagnostics can print file:line details.
  */
-const CACHE_VERSION = 'v7';
+const CACHE_VERSION = 'v8';
 /**
  * Installed-package cache key version.
+ *
+ * v6 (2026-06-08): adds machine-level `threadSkills` to skill-origin manifests
+ *   and source-location snapshots.
  *
  * v5 (2026-06-07): generated ESM bundles include a `createRequire` bridge so
  *   bundled CommonJS dependencies can require Node builtins at import time.
@@ -118,7 +124,7 @@ const CACHE_VERSION = 'v7';
  *   source inputs plus package identity, host runtime identity, sidecar
  *   serialization, and lock fingerprint.
  */
-const INSTALLED_CACHE_VERSION = 'v5';
+const INSTALLED_CACHE_VERSION = 'v6';
 
 const SKIP_DIR_NAMES = new Set(['node_modules', 'dist', '.aharness']);
 
@@ -155,6 +161,11 @@ export interface SkillOriginManifest {
     readonly sourceDir: string;
     readonly ref: AvailableSkillRef;
   }[];
+  readonly threadSkills?: readonly {
+    readonly sourceDir: string;
+    readonly key: string;
+    readonly ref: SkillRef;
+  }[];
 }
 
 export interface SourceLocation {
@@ -173,6 +184,10 @@ export interface SourceLocationManifest {
   >;
   readonly stateSkills: Readonly<Record<string, ReadonlyArray<SourceLocation | null>>>;
   readonly availableSkills: ReadonlyArray<SourceLocation | null>;
+  readonly threadSkills?: ReadonlyArray<{
+    readonly key: string;
+    readonly location: SourceLocation | null;
+  }>;
 }
 
 /**
@@ -513,7 +528,8 @@ function isSourceLocationManifest(parsed: unknown): parsed is SourceLocationMani
     isNestedSourceLocationRecord(obj['exits']) &&
     isNestedSourceLocationArrayRecord(obj['whenBranches']) &&
     isSourceLocationArrayRecord(obj['stateSkills']) &&
-    isSourceLocationArray(obj['availableSkills'])
+    isSourceLocationArray(obj['availableSkills']) &&
+    isThreadSkillSourceLocationArray(obj['threadSkills'])
   );
 }
 
@@ -557,6 +573,18 @@ function isSourceLocationArray(parsed: unknown): boolean {
   return true;
 }
 
+function isThreadSkillSourceLocationArray(parsed: unknown): boolean {
+  if (!Array.isArray(parsed)) return false;
+  for (const value of parsed) {
+    if (!value || typeof value !== 'object') return false;
+    const obj = value as Record<string, unknown>;
+    if (typeof obj['key'] !== 'string') return false;
+    const location = obj['location'];
+    if (location !== null && !isSourceLocation(location)) return false;
+  }
+  return true;
+}
+
 function isSourceLocation(parsed: unknown): parsed is SourceLocation {
   if (!parsed || typeof parsed !== 'object') return false;
   const obj = parsed as Record<string, unknown>;
@@ -587,7 +615,29 @@ function isSkillOriginManifest(parsed: unknown): parsed is SkillOriginManifest {
     if (typeof e['sourceDir'] !== 'string') return false;
     if (!isSerializedAvailableSkillRef(e['ref'])) return false;
   }
+  const threadSkills = obj['threadSkills'];
+  if (!Array.isArray(threadSkills)) return false;
+  for (const entry of threadSkills) {
+    if (!entry || typeof entry !== 'object') return false;
+    const e = entry as Record<string, unknown>;
+    if (typeof e['sourceDir'] !== 'string') return false;
+    if (typeof e['key'] !== 'string') return false;
+    if (!isSerializedSkillRef(e['ref'])) return false;
+  }
   return true;
+}
+
+function isSerializedSkillRef(parsed: unknown): parsed is SkillRef {
+  if (!parsed || typeof parsed !== 'object') return false;
+  const obj = parsed as Record<string, unknown>;
+  if (obj['__aharnessSkillRef'] !== true) return false;
+  if (obj['source'] === 'name') {
+    return typeof obj['name'] === 'string' && typeof obj['optional'] === 'boolean';
+  }
+  if (obj['source'] === 'path') {
+    return typeof obj['path'] === 'string' && typeof obj['optional'] === 'boolean';
+  }
+  return false;
 }
 
 function isSerializedAvailableSkillRef(parsed: unknown): parsed is AvailableSkillRef {
