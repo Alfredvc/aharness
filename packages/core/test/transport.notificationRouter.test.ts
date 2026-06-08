@@ -184,6 +184,37 @@ describe('notification router (Phase 1)', () => {
     ]);
   });
 
+  it('does not classify sidecar-owned threads as sub-threads', () => {
+    const c = makeStubClient();
+    const activeThreadBinding = createActiveThreadBinding('parent-1');
+    const onTurnCompleted = vi.fn();
+    const onItemStarted = vi.fn();
+    const subThreadNotifications: unknown[] = [];
+    const router = startNotificationRouter({
+      client: c as unknown as JsonRpcClient,
+      activeThreadBinding,
+      isSidecarThread: (threadId) => threadId === 'sidecar-1',
+      onTurnCompleted,
+      onItemStarted,
+      onItemCompleted: () => {},
+      onSubThreadNotification: (notification) => subThreadNotifications.push(notification),
+    });
+
+    c.fire('turn/started', { threadId: 'sidecar-1', turn: { id: 'sidecar-turn' } });
+    c.fire('item/started', {
+      threadId: 'sidecar-1',
+      turnId: 'sidecar-turn',
+      item: { type: 'agentMessage', id: 'sidecar-message' },
+    });
+    c.fire('turn/completed', { threadId: 'sidecar-1', turn: { id: 'sidecar-turn' } });
+
+    expect(onTurnCompleted).not.toHaveBeenCalled();
+    expect(onItemStarted).not.toHaveBeenCalled();
+    expect(subThreadNotifications).toEqual([]);
+    expect(router.isSubThread('sidecar-1')).toBe(false);
+    expect(router.isSubThread('unknown-child')).toBe(true);
+  });
+
   it('uses the current binding after construction', () => {
     const c = makeStubClient();
     const activeThreadBinding = createActiveThreadBinding('parent-1');

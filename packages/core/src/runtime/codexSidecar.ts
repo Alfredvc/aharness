@@ -93,6 +93,7 @@ export interface CodexSidecarManager extends CodexSidecarOps {
     params: ToolRequestUserInputParams,
   ) => Promise<ToolRequestUserInputResponse> | undefined;
   readonly ownsThread: (threadId: string) => boolean;
+  readonly knowsThread: (threadId: string) => boolean;
   readonly threadMetadata: (threadId: string) => CodexSidecarThreadMetadata | undefined;
   readonly markAppServerClosed: () => void;
   readonly shutdown: () => Promise<void>;
@@ -161,6 +162,7 @@ export function createCodexSidecarManager(
 ): CodexSidecarManager {
   const byKey = new Map<string, ManagedSidecar>();
   const byThreadId = new Map<string, ManagedSidecar>();
+  const knownThreadIds = new Set<string>();
   const closedSidecarsForDiagnostics = new Map<
     string,
     {
@@ -212,6 +214,7 @@ export function createCodexSidecarManager(
       });
       byKey.set(normalizedKey, sidecar);
       byThreadId.set(threadId, sidecar);
+      knownThreadIds.add(threadId);
       emitDiagnostic({
         type: 'sidecar.thread.started',
         key: normalizedKey,
@@ -269,6 +272,10 @@ export function createCodexSidecarManager(
 
     ownsThread(threadId: string): boolean {
       return byThreadId.has(threadId);
+    },
+
+    knowsThread(threadId: string): boolean {
+      return knownThreadIds.has(threadId);
     },
 
     threadMetadata(threadId: string): CodexSidecarThreadMetadata | undefined {

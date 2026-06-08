@@ -82,6 +82,40 @@ describe('loader cache — keying', () => {
     expect(isSerializedSidecar({ schemas: {}, issues: [] })).toBe(false);
   });
 
+  it('accepts older serialized sidecars without optional thread skill snapshots', () => {
+    const sourceLocations: NonNullable<SerializedSidecar['sourceLocations']> = {
+      states: {},
+      exits: {},
+      whenBranches: {},
+      stateSkills: {},
+      availableSkills: [],
+    };
+    const sidecar: SerializedSidecar = {
+      schemas: {},
+      issues: [],
+      skillOriginManifest: {
+        rootSourceDir: tmpRepo,
+        sourceDirPrefixes: [],
+        availableSkills: [],
+      },
+      sourceLocations,
+    };
+
+    expect(isSerializedSidecar(sidecar)).toBe(true);
+    expect(
+      isSerializedSidecar({
+        ...sidecar,
+        skillOriginManifest: { ...sidecar.skillOriginManifest, threadSkills: [{}] },
+      }),
+    ).toBe(false);
+    expect(
+      isSerializedSidecar({
+        ...sidecar,
+        sourceLocations: { ...sourceLocations, threadSkills: [{}] },
+      }),
+    ).toBe(false);
+  });
+
   it('salts direct cache hashes by absolute entry path for origin correctness', async () => {
     const firstDir = path.join(tmpRepo, 'first');
     const secondDir = path.join(tmpRepo, 'second');

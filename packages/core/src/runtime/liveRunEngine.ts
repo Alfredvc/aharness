@@ -673,6 +673,8 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
   };
   const isSidecarThreadId = (threadId: string): boolean =>
     sidecarManagerRef.current?.ownsThread(threadId) === true;
+  const isKnownSidecarThreadId = (threadId: string): boolean =>
+    sidecarManagerRef.current?.knowsThread(threadId) === true;
   const isRunRoutableThreadId = (threadId: string): boolean =>
     isLiveThreadId(threadId) || isSidecarThreadId(threadId);
   const publishAbandonedThreadParamsDiagnostic = (
@@ -1777,6 +1779,7 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
         c.onNotification(METHOD.threadTokenUsageUpdated, (params: unknown) => {
           const typedParams = threadTokenUsageParams(params);
           if (typedParams === null) return;
+          if (isKnownSidecarThreadId(typedParams.threadId)) return;
           if (!isLiveThreadId(typedParams.threadId)) {
             if (isPendingFreshClearDrainThread(typedParams.threadId)) {
               return;
@@ -2066,6 +2069,7 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
     },
     onAbandonedThreadDiagnostic: publishAbandonedThreadDiagnostic,
     isParentThreadDrainingFreshClear: isPendingFreshClearDrainThread,
+    isSidecarThread: isKnownSidecarThreadId,
   });
   notificationRouter.current = router;
   ws.onNotification(METHOD.turnCompleted, (p) => {

@@ -21,7 +21,12 @@ import {
 import type { ConnectHeadlessWsOptions } from '../src/transport/wsClient.js';
 import type { ReplayableAppEvent } from '../src/ui/events.js';
 import type { BrowserReplyController } from '../src/ui/reply.js';
-import { RUN_EVENT_SCHEMA, type RunEventEnvelope } from '../src/runEvents/index.js';
+import {
+  RUN_EVENT_SCHEMA,
+  buildRunCompletionStats,
+  type RunEventEnvelope,
+  type RunEventWithOffset,
+} from '../src/runEvents/index.js';
 
 const tempRoots: string[] = [];
 
@@ -132,6 +137,17 @@ function readJsonl(eventsPath: string): RunEventEnvelope[] {
     .split('\n')
     .filter(Boolean)
     .map((line) => JSON.parse(line) as RunEventEnvelope);
+}
+
+function withOffsets(events: ReadonlyArray<RunEventEnvelope>): RunEventWithOffset[] {
+  let offset = 0;
+  return events.map((event) => {
+    const line = `${JSON.stringify(event)}\n`;
+    const lineBytes = Buffer.byteLength(line, 'utf8');
+    const entry = { event, offset, lineBytes };
+    offset += lineBytes;
+    return entry;
+  });
 }
 
 function sidecarStatusPayload(result: {
@@ -490,6 +506,19 @@ async function runWithFakeSidecarAppServer(input: {
 function emitSidecarCompleted(context: SidecarScriptContext): void {
   context.transport.onMessage?.({
     jsonrpc: '2.0',
+    method: METHOD.threadTokenUsageUpdated,
+    params: {
+      threadId: context.threadId,
+      turnId: context.turnId,
+      tokenUsage: {
+        total: { totalTokens: 7, inputTokens: 5, outputTokens: 2 },
+        last: { totalTokens: 7, inputTokens: 5, outputTokens: 2 },
+        modelContextWindow: null,
+      },
+    },
+  });
+  context.transport.onMessage?.({
+    jsonrpc: '2.0',
     method: METHOD.agentMessageDelta,
     params: {
       threadId: context.threadId,
@@ -565,10 +594,27 @@ describe('sidecar live app-server integration', () => {
       expect.arrayContaining([
         'sidecar.thread.started',
         'sidecar.turn.started',
+        'sidecar.token.updated',
         'sidecar.turn.completed',
         'sidecar.thread.closed',
         'run.completed',
       ]),
+    );
+    expect(
+      run.events.filter(
+        (event) => event.threadId === 'sidecar-thread-1' && event.type.startsWith('subthread.'),
+      ),
+    ).toEqual([]);
+    const completionStats = buildRunCompletionStats({
+      events: withOffsets(run.events),
+      getRunMeta: () => ({ fsmFile: fakeRun.fsmPath }),
+    });
+    expect(completionStats?.subthreadTurnCount).toBe(0);
+    expect(completionStats?.tokenTotals).toEqual(
+      expect.objectContaining({
+        subthreadTokens: 0,
+        sidecarTokens: 7,
+      }),
     );
   });
 

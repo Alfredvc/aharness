@@ -529,7 +529,7 @@ function isSourceLocationManifest(parsed: unknown): parsed is SourceLocationMani
     isNestedSourceLocationArrayRecord(obj['whenBranches']) &&
     isSourceLocationArrayRecord(obj['stateSkills']) &&
     isSourceLocationArray(obj['availableSkills']) &&
-    isThreadSkillSourceLocationArray(obj['threadSkills'])
+    (obj['threadSkills'] === undefined || isThreadSkillSourceLocationArray(obj['threadSkills']))
   );
 }
 
@@ -615,14 +615,16 @@ function isSkillOriginManifest(parsed: unknown): parsed is SkillOriginManifest {
     if (typeof e['sourceDir'] !== 'string') return false;
     if (!isSerializedAvailableSkillRef(e['ref'])) return false;
   }
-  const threadSkills = obj['threadSkills'];
-  if (!Array.isArray(threadSkills)) return false;
-  for (const entry of threadSkills) {
-    if (!entry || typeof entry !== 'object') return false;
-    const e = entry as Record<string, unknown>;
-    if (typeof e['sourceDir'] !== 'string') return false;
-    if (typeof e['key'] !== 'string') return false;
-    if (!isSerializedSkillRef(e['ref'])) return false;
+  if (obj['threadSkills'] !== undefined) {
+    const threadSkills = obj['threadSkills'];
+    if (!Array.isArray(threadSkills)) return false;
+    for (const entry of threadSkills) {
+      if (!entry || typeof entry !== 'object') return false;
+      const e = entry as Record<string, unknown>;
+      if (typeof e['sourceDir'] !== 'string') return false;
+      if (typeof e['key'] !== 'string') return false;
+      if (!isSerializedSkillRef(e['ref'])) return false;
+    }
   }
   return true;
 }
