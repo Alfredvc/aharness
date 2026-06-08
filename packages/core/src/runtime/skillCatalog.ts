@@ -48,6 +48,23 @@ export interface SkillCatalogValidationResult {
   readonly resolvedSkills: readonly ResolvedRuntimeSkill[];
 }
 
+export function buildResolvedThreadSkillMap(
+  resolvedSkills: ReadonlyArray<ResolvedRuntimeSkill>,
+): ReadonlyMap<string, ResolvedRuntimeSkill> {
+  const byKey = new Map<string, ResolvedRuntimeSkill>();
+  for (const skill of resolvedSkills) {
+    if (skill.source !== 'thread' || skill.threadSkillKey === undefined) continue;
+    const existing = byKey.get(skill.threadSkillKey);
+    if (existing !== undefined) {
+      throw new Error(
+        `internal: duplicate resolved thread skill key '${skill.threadSkillKey}' in runtime catalog`,
+      );
+    }
+    byKey.set(skill.threadSkillKey, skill);
+  }
+  return byKey;
+}
+
 export function isSkillsListResponse(value: unknown): value is SkillsListResponse {
   if (value === null || typeof value !== 'object') return false;
   const data = (value as { data?: unknown }).data;

@@ -1,7 +1,7 @@
 import type { UserInput, UserInputSkill } from '../protocol/types.js';
 import type { SkillRef } from '../state/skills.js';
 
-import type { ResolvedRuntimeSkill } from './skillCatalog.js';
+import { buildResolvedThreadSkillMap, type ResolvedRuntimeSkill } from './skillCatalog.js';
 
 export interface SelectStateSkillInputOpts {
   readonly stateId: string;
@@ -26,6 +26,16 @@ export interface BuiltStateOrientationInput {
   readonly text: string;
   readonly input: ReadonlyArray<UserInput>;
   readonly commit: () => void;
+}
+
+export interface SelectThreadSkillInputOpts {
+  readonly owner: string;
+  readonly initialSkills: ReadonlyArray<unknown>;
+  readonly resolvedSkills: ReadonlyArray<ResolvedRuntimeSkill>;
+}
+
+export interface SelectedThreadSkillInput {
+  readonly skillItems: ReadonlyArray<UserInputSkill>;
 }
 
 export interface StateSkillInjectionService {
@@ -73,6 +83,34 @@ export function selectStateSkillInput(opts: SelectStateSkillInputOpts): Selected
       }
       for (const key of pendingKeys) opts.alreadyInjected.add(key);
     },
+  };
+}
+
+export function selectThreadSkillInput(opts: SelectThreadSkillInputOpts): SelectedThreadSkillInput {
+  const byKey = buildResolvedThreadSkillMap(opts.resolvedSkills);
+  const skillItems: UserInputSkill[] = [];
+
+  opts.initialSkills.forEach((entry, index) => {
+    if (typeof entry !== 'string') {
+      throw new Error(
+        `${opts.owner} initialSkills[${String(index)}] must be a string threadSkills key`,
+      );
+    }
+    const resolved = byKey.get(entry);
+    if (resolved === undefined) {
+      throw new Error(
+        `${opts.owner} initialSkills[${String(index)}] references unknown threadSkills key '${entry}'`,
+      );
+    }
+    skillItems.push({
+      type: 'skill',
+      name: resolved.name,
+      path: resolved.path,
+    });
+  });
+
+  return {
+    skillItems,
   };
 }
 
