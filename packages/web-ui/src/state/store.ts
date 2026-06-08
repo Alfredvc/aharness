@@ -698,7 +698,8 @@ function isAggregateTerminal(stats: UiState['aggregateStats']): boolean {
     stats.status === 'success' ||
     stats.status === 'completed' ||
     stats.status === 'failed' ||
-    stats.status === 'failure'
+    stats.status === 'failure' ||
+    stats.status === 'cancelled'
   );
 }
 
@@ -1622,6 +1623,9 @@ function mergeAggregateFromRunEvent(state: UiState, e: RunScopedApiEvent): UiSta
   } else if (e.type === 'run.failed') {
     aggregate.status = 'failed';
     aggregate.endedAt = readString(data['endedAt']) ?? e.time;
+  } else if (e.type === 'run.cancelled') {
+    aggregate.status = 'cancelled';
+    aggregate.endedAt = readString(data['endedAt']) ?? e.time;
   } else if (e.type === 'turn.started') {
     aggregate.turnCount += 1;
     aggregate.activeTurnId = e.turnId ?? readString(data['turnId']);
@@ -1651,6 +1655,7 @@ function reduceRunEvent(previous: UiState, e: RunScopedApiEvent): UiState {
   switch (e.type) {
     case 'run.completed':
     case 'run.failed':
+    case 'run.cancelled':
       return autoOpenTerminalOverview({
         ...appendRunEventRow(state, e),
         posture: {
@@ -2102,7 +2107,11 @@ export function useAharnessSession(
         onRunEvent: (event) => {
           latestEventIdRef.current = event.id;
           dispatch({ type: 'runEvent', e: event });
-          if (event.type === 'run.completed' || event.type === 'run.failed') {
+          if (
+            event.type === 'run.completed' ||
+            event.type === 'run.failed' ||
+            event.type === 'run.cancelled'
+          ) {
             loadSummary(false);
           }
         },

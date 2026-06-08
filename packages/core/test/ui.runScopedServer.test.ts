@@ -172,6 +172,19 @@ function terminalFixtureEvents(): RunEventEnvelope[] {
   ];
 }
 
+function cancelledFixtureEvents(): RunEventEnvelope[] {
+  return [
+    event(1, 'run.started', { data: { startedAt: '2026-05-29T00:00:01.000Z' } }),
+    event(2, 'run.cancelled', {
+      data: {
+        status: 'cancelled',
+        reason: 'owner stopped',
+        endedAt: '2026-05-29T00:00:02.000Z',
+      },
+    }),
+  ];
+}
+
 function writeJsonl(eventsPath: string, events: ReadonlyArray<RunEventEnvelope>): void {
   writeFileSync(eventsPath, `${events.map((runEvent) => JSON.stringify(runEvent)).join('\n')}\n`);
 }
@@ -395,6 +408,17 @@ describe('run-scoped UI server routes', () => {
     expect(JSON.stringify(summary)).not.toContain('to-object-id');
     expect(JSON.stringify(summary)).not.toContain('raw owner input must not be served');
     expect(JSON.stringify(summary)).not.toContain('raw transcript must not be served');
+
+    const cancelledHandle = await startTestServer({
+      service: createService(cancelledFixtureEvents()),
+    });
+    const cancelled = await fetch(`${cancelledHandle.url}/api/runs/${RUN_ID}/summary`, {
+      headers: { 'X-Aharness-Ui-Token': TEST_UI_TOKEN },
+    });
+    expect(cancelled.status).toBe(200);
+    expect(await cancelled.json()).toEqual({
+      completionStats: expect.objectContaining({ outcome: 'cancelled' }),
+    });
   });
 
   it('pins run-scoped route error precedence before invoking the service', async () => {

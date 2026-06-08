@@ -1,7 +1,7 @@
 import type { RunCliOpts, RunCliResult, RunPermissionMode } from './runCli.js';
 import { runFsmInputHelp, runLocalFsmInputHelp } from './inputHelpCli.js';
 import type { RunInstalledCliOptions } from './runInstalledCli.js';
-import { resolveFsmTarget, type ResolveFsmTargetOptions } from './fsmTarget.js';
+import { resolveFsmTarget, type ResolveFsmTargetOptions } from '../runtime/runTarget.js';
 import { writeInstallStoreDiagnostics } from './installStoreDiagnostics.js';
 
 export interface RunTargetCliOptions {

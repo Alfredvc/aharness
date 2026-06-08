@@ -152,3 +152,24 @@ export { createUiEventLog, serializeSseEvent } from './ui/sse.js';
 export type { UiEventLog, UiEventLogOptions } from './ui/sse.js';
 export { startUiServer } from './ui/server.js';
 export type { StartUiServerOptions, UiServerHandle } from './ui/server.js';
+
+// Programmatic live-run API. This is the typed sibling to `aharness run` for
+// callers that need canonical events and browser-reply-equivalent helpers.
+export { startAharnessRun } from './runtime/programmaticRun.js';
+export type {
+  AharnessApprovalDecision,
+  AharnessApprovalResolution,
+  AharnessElicitationAction,
+  AharnessElicitationResolution,
+  AharnessOwnerChoiceInput,
+  AharnessOwnerInputAnswer,
+  AharnessPermissionResolution,
+  AharnessRunEvent,
+  AharnessRunHandle,
+  AharnessRunPermissionMode,
+  AharnessRunReplyResult,
+  AharnessRunResult,
+  AharnessRunStatus,
+  AharnessRunUiOption,
+  StartAharnessRunOptions,
+} from './runtime/programmaticRun.js';

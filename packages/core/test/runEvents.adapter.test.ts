@@ -537,6 +537,7 @@ describe('run event adapter', () => {
 
     publisher.publishRunStarted();
     publisher.publishRunTerminal({ state: 'done', terminal: 'success' });
+    publisher.publishRunCancelled({ state: 'done', reason: 'owner stopped' });
 
     const envelopes = readFileSync(runDir.eventsPath, 'utf8')
       .trim()
@@ -555,6 +556,14 @@ describe('run event adapter', () => {
           status: 'success',
           terminal: 'success',
           row: expect.objectContaining({ kind: 'run_lifecycle', status: 'completed' }),
+        }),
+      }),
+      expect.objectContaining({
+        type: 'run.cancelled',
+        data: expect.objectContaining({
+          status: 'cancelled',
+          reason: 'owner stopped',
+          row: expect.objectContaining({ kind: 'run_lifecycle', status: 'cancelled' }),
         }),
       }),
     ]);

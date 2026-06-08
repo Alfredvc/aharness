@@ -508,6 +508,15 @@ The runtime starts one Codex `app-server`, registers one dynamic tool named
 `aharness_submit`, and uses per-state orientation messages to tell the model
 the current state, valid exits, and submit data schema.
 
+Programmatic callers outside FSM source can import `startAharnessRun` from
+`@aharness/core/runtime`. It is a sibling live-run surface to `aharness run`
+with the same target resolution, verifier, single Codex `app-server`, single
+aharness WebSocket client, XState actor, reply handling, approval dispatch,
+hook dispatch, and local run artifacts. It defaults to no browser UI, but can
+serve the same run-scoped UI when requested. User `.fsm.ts` source must still
+import only from the root `@aharness/core`; do not import
+`@aharness/core/runtime` from FSM source.
+
 Model submit shape:
 
 ```json
@@ -530,7 +539,8 @@ submit or owner choice is required.
 Each live run writes artifacts under `.aharness/runs/<runId>/`. Treat run
 directories as sensitive: `events.jsonl` can contain raw owner input, browser
 replies, tool arguments and results, command output, file diffs, approval data,
-token usage, sub-thread activity, and workflow context snapshots.
+permission data, MCP elicitation data, cancellation reasons, token usage,
+sub-thread activity, and workflow context snapshots.
 
 ## CLI Use
 

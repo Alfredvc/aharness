@@ -12,8 +12,11 @@ The file declares states, prompts, typed submit exits, owner-choice gates,
 open-state collaboration, built-in hook events, embedded child machines,
 inputs, skills, and final artifacts.
 
-At runtime, `aharness run <file.fsm.ts|command>` runs foreground-only for local
-`.fsm.ts` files and installed command targets:
+Live execution has two public foreground surfaces: `aharness run
+<file.fsm.ts|command>` from the CLI and `startAharnessRun(...)` from
+`@aharness/core/runtime` for Node callers. Both accept the same target forms:
+local `.fsm.ts` files, unique installed bare command names, and fully qualified
+installed command identities. Both use the same live-run engine:
 
 1. It verifies and loads the FSM.
 2. It starts one Codex `app-server` child process.
@@ -23,8 +26,19 @@ At runtime, `aharness run <file.fsm.ts|command>` runs foreground-only for local
 5. It starts the Codex thread only after skill preflight succeeds.
 6. It hosts the XState actor, submit handling, owner input, approval dispatch,
    hook dispatch and canonical JSONL event logging in the same CLI process.
-7. It serves a loopback browser UI protected by a per-run token, prints the URL,
-   and opens that URL unless `--no-open` is set.
+7. It optionally serves a loopback browser UI protected by a per-run token.
+   The CLI serves and opens that URL unless `--no-open` is set. Programmatic
+   runs default to no UI server; `ui: true` serves the same run-scoped UI
+   without opening a browser, and `ui: { open: true }` uses the same browser
+   launch behavior as the CLI.
+
+The programmatic handle is a control surface over that same run. It exposes the
+run id and local artifact paths, subscribes callers to the exact canonical
+`RunEventEnvelope` values appended to `events.jsonl`, routes typed helper
+methods through the same browser reply controller, supports cancellation, and
+resolves a terminal result. It does not introduce a separate server-backed run
+UI roadmap, mirror sessions, alternate WebSocket clients, durable reply
+recovery, or a second actor runtime.
 
 The live CLI stdout contract is deliberately small. Standard output reports
 operator milestones for run start, browser UI availability, Codex
@@ -186,13 +200,13 @@ text.
 
 ## Artifacts And Runs
 
-Each `aharness run` invocation creates a fresh run directory under
-`.aharness/runs/<runId>/`.
+Each live run, whether started by `aharness run` or `startAharnessRun(...)`,
+creates a fresh run directory under `.aharness/runs/<runId>/`.
 Run artifacts include the canonical `events.jsonl` transcript, terminal
 reports, and any final artifacts declared by the FSM. These files are
-inspection evidence for the run; `aharness run` starts a new run and Codex
-thread for each invocation, while `aharness view` reads an existing canonical
-event log without creating a Codex runtime.
+inspection evidence for the run; live surfaces start a new run and Codex thread
+for each invocation, while `aharness view` reads an existing canonical event
+log without creating a Codex runtime.
 
 For new runs, `events.jsonl` is a canonical `aharness.event.v1` transcript. It
 stores compact normalized event data plus full raw runtime payloads inline,
@@ -282,8 +296,10 @@ when the referenced FSM source is trusted enough to import.
 
 ## Package Boundaries
 
-`@aharness/core` provides the authoring SDK, the `aharness` CLI binary, and the
-`aharness-completion` shell-completion helper binary.
+`@aharness/core` provides the authoring SDK, the `aharness` CLI binary, the
+`aharness-completion` shell-completion helper binary, and the
+`@aharness/core/runtime` live-run API for Node callers. The runtime export is
+substrate-specific and must not be imported from user FSM source.
 `@aharness/test-support` provides integration-test fixtures and app-server test
 utilities. It has a regular dependency on `@aharness/core`; it is not a peer
 dependency.

@@ -143,6 +143,8 @@ function terminalEvidence(events: ReadonlyArray<RunEventWithOffset>): TerminalEv
       latest = { seq: event.seq, outcome: 'success', event };
     } else if (event.type === 'run.failed') {
       latest = { seq: event.seq, outcome: 'failure', event };
+    } else if (event.type === 'run.cancelled') {
+      latest = { seq: event.seq, outcome: 'cancelled', event };
     } else if (isTerminalStateChange(event)) {
       latest = { seq: event.seq, outcome: 'unknown', event };
     }

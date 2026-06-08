@@ -27,6 +27,10 @@ export interface LiveRunEventPublisher {
   readonly publishRunStarted: () => void;
   readonly publishRunTerminal: (input: RunTerminalInput) => void;
   readonly publishRunFailed: (message: string) => void;
+  readonly publishRunCancelled: (input: {
+    readonly state?: string;
+    readonly reason?: string;
+  }) => void;
   readonly record: (input: RunEventAppendInput) => RunEventAppendResult;
   readonly publish: (event: AppEvent) => ReplayableAppEvent;
   readonly publishNonRecording: (event: AppEvent) => ReplayableAppEvent;
@@ -168,6 +172,22 @@ export function createLiveRunEventPublisher(
             event: 'run.failed',
             status: 'failed',
             summary: 'Run failed',
+          }),
+        },
+      });
+    },
+    publishRunCancelled(input) {
+      append({
+        type: 'run.cancelled',
+        data: {
+          status: 'cancelled',
+          ...(input.state !== undefined ? { state: input.state } : {}),
+          ...(input.reason !== undefined ? { reason: input.reason } : {}),
+          row: runLifecycleRow({
+            event: 'run.cancelled',
+            status: 'cancelled',
+            summary:
+              input.reason === undefined ? 'Run cancelled' : `Run cancelled: ${input.reason}`,
           }),
         },
       });

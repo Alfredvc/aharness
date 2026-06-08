@@ -274,6 +274,39 @@ describe('useAharnessSession final overview summary fetch', () => {
     expect(latest?.finalOverview.open).toBe(true);
   });
 
+  it('fetches summary for live cancellation events', async () => {
+    const fetchSummary = vi.fn<SummaryFetcher>(() =>
+      Promise.resolve({
+        completionStats: stats({ outcome: 'cancelled' }),
+      }),
+    );
+    const sessions: Session[] = [];
+
+    await renderHook(
+      {
+        fetch: bootstrapFetch(bootstrap()),
+        EventSourceCtor: FakeEventSource,
+        fetchSummary,
+      },
+      (session) => {
+        sessions.push(session);
+      },
+    );
+
+    await act(async () => {
+      FakeEventSource.instances[0]?.emit(
+        apiEvent({ type: 'run.cancelled', id: 'run-1:3', seq: 3 }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const latest = sessions[sessions.length - 1];
+    expect(fetchSummary).toHaveBeenCalledTimes(1);
+    expect(latest?.posture.isTerminal).toBe(true);
+    expect(latest?.completionStats?.outcome).toBe('cancelled');
+  });
+
   it('keeps automatic summary fetch errors out of connection-lost state and out of the modal', async () => {
     const fetchSummary = vi.fn<SummaryFetcher>(() =>
       Promise.reject(new Error('summary unavailable')),

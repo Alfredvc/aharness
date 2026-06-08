@@ -318,7 +318,7 @@ export interface RunEventAggregateStats {
   readonly modelContextWindow?: number;
 }
 
-export type RunCompletionOutcome = 'success' | 'failure' | 'unknown';
+export type RunCompletionOutcome = 'success' | 'failure' | 'cancelled' | 'unknown';
 
 export interface RunCompletionDuration {
   readonly startedAt?: string;

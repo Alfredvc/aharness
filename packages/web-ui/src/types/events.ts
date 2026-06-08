@@ -199,7 +199,7 @@ export type RunScopedAggregateStats = {
   modelContextWindow?: number;
 };
 
-export type RunCompletionOutcome = 'success' | 'failure' | 'unknown';
+export type RunCompletionOutcome = 'success' | 'failure' | 'cancelled' | 'unknown';
 
 export type RunCompletionDuration = {
   startedAt?: string;
@@ -978,7 +978,7 @@ function isRunScopedAggregateStats(value: unknown): value is RunScopedAggregateS
 }
 
 function isRunCompletionOutcome(value: unknown): value is RunCompletionOutcome {
-  return value === 'success' || value === 'failure' || value === 'unknown';
+  return value === 'success' || value === 'failure' || value === 'cancelled' || value === 'unknown';
 }
 
 function isRunCompletionDuration(value: unknown): value is RunCompletionDuration {

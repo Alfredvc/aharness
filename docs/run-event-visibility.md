@@ -35,6 +35,7 @@ Legend:
 | `run.started` | Shown | Shown | Shown | Usually projects `data.row.kind: "run_lifecycle"`. |
 | `run.completed` | Shown | Shown | Shown | Usually projects `data.row.kind: "run_lifecycle"` and opens the terminal overview. |
 | `run.failed` | Shown | Shown | Shown | Usually projects `data.row.kind: "run_lifecycle"` and opens the terminal overview. |
+| `run.cancelled` | Shown | Shown | Shown | Usually projects `data.row.kind: "run_lifecycle"` and records cancellation as terminal lifecycle evidence. |
 | `state.changed` | Shown | Shown | Shown | Projects `data.row.kind: "state_change"` and updates graph/history/current state. |
 | `context.initialized` | No row | No row | No row | Updates context for the dev inspector when present. |
 | `context.changed` | No row | No row | No row | Updates context for the dev inspector when present. |
@@ -91,7 +92,7 @@ pending cards, but it does not create a transcript item.
 | `framework_note` with `status: "info"` | `framework_note` | Filtered | Shown | Filtered | Informational framework notes are dev-only. |
 | `framework_note` with `status: "orientation"` | `framework_note` | Filtered | Shown | Filtered | Orientation notes are dev-only. |
 | `diagnostic` | `compact_status` / `diagnostic` | Shown | Shown | Shown | Diagnostics are visible by default. |
-| `run_lifecycle` | `compact_status` / `lifecycle` | Shown | Shown | Shown | Covers run started/completed/failed lifecycle rows. |
+| `run_lifecycle` | `compact_status` / `lifecycle` | Shown | Shown | Shown | Covers run started/completed/failed/cancelled lifecycle rows. |
 | `state_change` | `state_change` | Shown | Shown | Shown | Covers boot and transition markers in the chronological run transcript. Scoped state views may still suppress duplicate transition rows inside visit groups. |
 | `transition_failure` | `transition_failure` | Shown | Shown | Shown | Failed submit/transition rows are visible. |
 | `fileChange` | `file_change` | Shown | Shown | Shown | Compact file-change summaries only; diff bodies are not exposed as transcript rows. |

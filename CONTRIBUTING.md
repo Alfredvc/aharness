@@ -50,6 +50,32 @@ Notes:
 - Package-local changes may need package-local scripts in addition to the root
   checks.
 
+## Real-Codex E2E Tests
+
+Use real-Codex E2E tests sparingly. They should cover production runtime paths
+that mocked tests cannot prove, using the fewest and simplest cases that
+increase confidence. Prefer a tiny happy path plus one focused edge case over a
+large matrix.
+
+Follow the existing pattern:
+
+- gate the suite on both `codex` being available on `PATH` and
+  `AHARNESS_E2E_REAL_CODEX=1`;
+- use `describe.skipIf(!E2E_ENABLED)` so normal `pnpm run verify` remains usable
+  without real-Codex prerequisites;
+- use `@aharness/test-support` helpers such as `startMockModel()` to exercise a
+  real Codex app-server and protocol path while keeping model output
+  deterministic;
+- keep fixtures small by writing an FSM source into a temp repo, stubbing only
+  unrelated preflight seams, and asserting durable production evidence such as
+  `events.jsonl`, terminal results, JSON-RPC requests, or resource shutdown.
+
+Run a gated E2E explicitly when needed:
+
+```bash
+AHARNESS_E2E_REAL_CODEX=1 pnpm exec vitest run packages/core/test/<file>.test.ts
+```
+
 ## Pre-commit Hook
 
 The Husky pre-commit hook runs `lint-staged` and the repository-specific

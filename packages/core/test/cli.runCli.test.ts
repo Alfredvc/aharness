@@ -888,6 +888,78 @@ describe('runCliForTest — pre-spawn gates', () => {
     expect(spawnAppServer).not.toHaveBeenCalled();
   });
 
+  it('passes CLI-coerced input flag values and defaults into ActorHost', async () => {
+    const fsmPath = makeFsmFile(repoRoot, 'coerced-input.fsm.ts');
+    let capturedInput: Record<string, unknown> | undefined;
+    const machine = aharness.machine({
+      context: ({ input }: { input: Record<string, unknown> }) => {
+        capturedInput = input;
+        return {};
+      },
+      initial: 'greet',
+      states: {
+        greet: state({
+          entryPrompt: 'stub',
+          exits: { finish: exit({ to: 'done' }) },
+        }),
+        done: terminal('success'),
+      },
+    });
+    const startUiServerImpl = vi.fn(async () => ({
+      url: 'http://127.0.0.1:45678',
+      close: vi.fn(async () => undefined),
+    }));
+    const spawnAppServer = vi.fn(async () => {
+      throw new Error('test-abort-after-input-captured');
+    });
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        loadFsmImpl: (async () => ({
+          ...makeStubLoadFsmResult(),
+          machine,
+          inputSchema: {
+            type: 'object',
+            properties: {
+              topic: { type: 'string' },
+              runs: { type: 'number' },
+              flag: { type: 'boolean' },
+              mode: { type: 'string' },
+            },
+            required: ['topic'],
+            additionalProperties: false,
+          },
+          inputFlags: {
+            topic: { description: 'Project topic' },
+            runs: { default: 3 },
+            flag: { default: false },
+            mode: { default: 'standard' },
+          },
+        })) as unknown as RunCliTestHooks['loadFsmImpl'],
+        startUiServerImpl: startUiServerImpl as unknown as RunCliTestHooks['startUiServerImpl'],
+        spawnAppServer: spawnAppServer as unknown as RunCliTestHooks['spawnAppServer'],
+      },
+    });
+    opts.stderr = stderrSink;
+    opts.inputArgs = ['--topic', 'auth', '--runs', '5', '--flag'];
+
+    const r = await runCliForTest(opts);
+
+    expect(r.exitCode).toBe(1);
+    expect(capturedInput).toEqual(
+      expect.objectContaining({
+        topic: 'auth',
+        runs: 5,
+        flag: true,
+        mode: 'standard',
+      }),
+    );
+    expect(capturedInput?.runId).toEqual(expect.any(String));
+    expect(capturedInput?.runDir).toEqual(expect.objectContaining({ root: expect.any(String) }));
+    expect(spawnAppServer).toHaveBeenCalledTimes(1);
+  });
+
   it('passes auto-review approval overrides for a default zero-hook run', async () => {
     const fsmPath = makeFsmFile(repoRoot, 'approval-policy.fsm.ts');
     let capturedOverrides: ReadonlyArray<readonly [string, string]> | undefined;

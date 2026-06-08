@@ -432,7 +432,11 @@ function observePosture(
     return;
   }
 
-  if (event.type === 'run.completed' || event.type === 'run.failed') {
+  if (
+    event.type === 'run.completed' ||
+    event.type === 'run.failed' ||
+    event.type === 'run.cancelled'
+  ) {
     posture.isTerminal = true;
     posture.isAwaiting = false;
     posture.submittedThisTurn = false;
@@ -498,6 +502,9 @@ function observeAggregate(aggregate: MutableAggregateStats, event: RunEventEnvel
     aggregate.endedAt = readString(data['endedAt']) ?? event.time;
   } else if (event.type === 'run.failed') {
     aggregate.status = 'failed';
+    aggregate.endedAt = readString(data['endedAt']) ?? event.time;
+  } else if (event.type === 'run.cancelled') {
+    aggregate.status = 'cancelled';
     aggregate.endedAt = readString(data['endedAt']) ?? event.time;
   } else if (event.type === 'turn.started') {
     aggregate.turnCount += 1;

@@ -73,6 +73,7 @@ const RUN_EVENT_TYPES = [
   'run.started',
   'run.completed',
   'run.failed',
+  'run.cancelled',
   'state.changed',
   'context.initialized',
   'context.changed',

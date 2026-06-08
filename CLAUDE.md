@@ -126,3 +126,20 @@ Never stage or commit files under these local planning and follow-up areas:
 - For runtime architecture questions, inspect `packages/core/src/runtime`,
   `packages/core/src/transport`, `packages/core/src/protocol`,
   `packages/core/src/runEvents`, and `docs/architecture.md` before changing code.
+
+## Real-Codex E2E tests
+
+- Add real-Codex E2E tests only when they increase confidence in production
+  runtime paths that mocked seams cannot prove. Use the fewest and simplest
+  tests that cover the risk; prefer one happy path plus one focused edge case
+  over a broad scenario matrix.
+- Follow the existing gate: require `codex` on `PATH` and
+  `AHARNESS_E2E_REAL_CODEX=1`, then wrap the suite in
+  `describe.skipIf(!E2E_ENABLED)`. Default `pnpm run verify` must stay usable
+  without real Codex E2E prerequisites.
+- Use `@aharness/test-support` helpers such as `startMockModel()` so the
+  app-server and protocol path are real while model output stays deterministic.
+- Keep fixtures tiny: write the FSM source into a temp repo, stub unrelated
+  preflight seams such as static verification or auth only when the test is not
+  about those seams, and assert durable production evidence such as
+  `events.jsonl`, terminal result, JSON-RPC requests, or resource shutdown.

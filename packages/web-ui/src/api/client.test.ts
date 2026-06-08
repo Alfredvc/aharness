@@ -286,6 +286,7 @@ describe('run-scoped API client', () => {
         }),
       ),
     ).toBe(true);
+    expect(isRunCompletionStats(completionStats({ outcome: 'cancelled' }))).toBe(true);
     expect(isRunSummaryResponse({ completionStats: null })).toBe(true);
     expect(isRunSummaryResponse({ completionStats: completionStats() })).toBe(true);
   });
@@ -562,6 +563,19 @@ describe('run-scoped API client', () => {
         type: 'context.changed',
         data: { context: { draft: 'stream' } },
       }),
+    );
+    source?.emit(
+      'run.cancelled',
+      apiEvent({
+        type: 'run.cancelled',
+        id: 'run-1:9',
+        seq: 9,
+        data: { status: 'cancelled' },
+      }),
+      'run-1:9',
+    );
+    expect(onRunEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'run.cancelled', data: { status: 'cancelled' } }),
     );
   });
 

@@ -56,6 +56,9 @@ instead of copied around as prompts.
 - **Inspectable runs.** Every run writes durable event logs, state history,
   artifacts, and recorded browser views so the workflow can be audited after the
   fact.
+- **Programmatic run control.** Node callers can start the same live runtime
+  with `startAharnessRun` from `@aharness/core/runtime`, subscribe to canonical
+  events, send browser-equivalent replies, and await terminal results.
 
 ## Install
 
@@ -328,14 +331,19 @@ When the standard `CI` environment variable is set to a truthy value,
 verification can run in environments without a Codex app-server. All other
 static verifier checks still run.
 
-See [`docs/reference.md`](https://github.com/Alfredvc/aharness/blob/main/docs/reference.md) for the full CLI, state options,
-hooks, installable package commands, completions, default Codex auto-review
-behavior, `--ask`, `--yolo`, and `--no-open`.
+TypeScript callers that need to drive fixture runs can use `startAharnessRun`
+from `@aharness/core/runtime`; see [`docs/reference.md`](https://github.com/Alfredvc/aharness/blob/main/docs/reference.md) for
+the API details.
+
+See [`docs/reference.md`](https://github.com/Alfredvc/aharness/blob/main/docs/reference.md) for the full CLI, runtime API,
+state options, hooks, installable package commands, completions, default Codex
+auto-review behavior, `--ask`, `--yolo`, and `--no-open`.
 
 ## Packages
 
 - [`@aharness/core`](https://github.com/Alfredvc/aharness/blob/main/packages/core/README.md) provides the SDK, the `aharness`
-  CLI binary, and the `aharness-completion` shell-completion helper binary.
+  CLI binary, the `aharness-completion` shell-completion helper binary, and the
+  `@aharness/core/runtime` programmatic live-run API.
 - [`@aharness/test-support`](https://github.com/Alfredvc/aharness/blob/main/packages/test-support/README.md) provides
   integration-test fixtures for aharness runs.
 - `packages/web-ui` is the private React/Vite browser UI bundled into the core
@@ -347,7 +355,8 @@ behavior, `--ask`, `--yolo`, and `--no-open`.
   mental model.
 - [`docs/fsm-packages.md`](https://github.com/Alfredvc/aharness/blob/main/docs/fsm-packages.md) explains how to publish,
   install, run, and compose reusable FSM packages.
-- [`docs/reference.md`](https://github.com/Alfredvc/aharness/blob/main/docs/reference.md) documents the public SDK and CLI.
+- [`docs/reference.md`](https://github.com/Alfredvc/aharness/blob/main/docs/reference.md) documents the public SDK, runtime
+  API, and CLI.
 - [`docs/architecture.md`](https://github.com/Alfredvc/aharness/blob/main/docs/architecture.md) explains the Codex/aharness
   runtime boundary.
 - [`docs/troubleshooting.md`](https://github.com/Alfredvc/aharness/blob/main/docs/troubleshooting.md) covers prerequisite and

@@ -3,10 +3,12 @@ import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  buildInstalledFsmLoadOptions,
   classifyFsmTargetSyntax,
   resolveFsmTarget,
   type InstalledFsmTarget,
-} from '../src/cli/fsmTarget.js';
+} from '../src/runtime/runTarget.js';
+import * as cliFsmTarget from '../src/cli/fsmTarget.js';
 import type {
   InstalledRuntimeSnapshot,
   InstallStoreDiagnostic,
@@ -21,6 +23,12 @@ import type {
 } from '../src/installStore/index.js';
 
 describe('FSM target syntax classification', () => {
+  it('keeps the CLI target module as a compatibility re-export', () => {
+    expect(cliFsmTarget.buildInstalledFsmLoadOptions).toBe(buildInstalledFsmLoadOptions);
+    expect(cliFsmTarget.classifyFsmTargetSyntax).toBe(classifyFsmTargetSyntax);
+    expect(cliFsmTarget.resolveFsmTarget).toBe(resolveFsmTarget);
+  });
+
   it('classifies local FSM syntax without filesystem checks', () => {
     const absoluteFsm = path.join(path.parse(process.cwd()).root, 'workflow.fsm.ts');
 
@@ -571,6 +579,47 @@ describe('FSM target resolution contracts', () => {
         commandsPath: '/store/commands.json',
       },
       entryFile: '/store/tools/dist/build.fsm.js',
+      lockFingerprint: 'lock-1',
+    });
+  });
+
+  it('builds installed loader options from resolved target metadata', () => {
+    const install: TrustedInstallRecord = {
+      packageName: '@scope/tools',
+      dependencyKey: '@scope/tools',
+      requestedSpec: '^1.0.0',
+      packageRoot: '/store/tools',
+      packageVersion: '1.0.0',
+      sourceIntentKey: 'npm:@scope/tools',
+      lockFingerprint: 'lock-1',
+      commands: {},
+    };
+    const command: TrustedCommandMetadata = {
+      commandName: 'build',
+      entry: 'dist/build.fsm.js',
+    };
+    const target: InstalledFsmTarget = {
+      kind: 'installed',
+      identity: '@scope/tools/build',
+      install,
+      command,
+      paths: {
+        storeRoot: '/store',
+        managedProjectRoot: '/store/packages',
+        installsPath: '/store/installs.json',
+        commandsPath: '/store/commands.json',
+      },
+      entryFile: '/store/tools/dist/build.fsm.js',
+      lockFingerprint: 'lock-1',
+    };
+
+    expect(buildInstalledFsmLoadOptions(target)).toEqual({
+      entryFile: '/store/tools/dist/build.fsm.js',
+      packageName: '@scope/tools',
+      commandName: 'build',
+      packageRoot: '/store/tools',
+      managedProjectRoot: '/store/packages',
+      storeRoot: '/store',
       lockFingerprint: 'lock-1',
     });
   });

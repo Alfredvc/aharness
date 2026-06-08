@@ -161,6 +161,9 @@ describe('run completion stats projection', () => {
         ?.outcome,
     ).toBe('unknown');
     expect(stats([event(1, 'run.completed'), event(2, 'run.failed')])?.outcome).toBe('failure');
+    expect(stats([event(1, 'run.completed'), event(2, 'run.cancelled')])?.outcome).toBe(
+      'cancelled',
+    );
   });
 
   it('sanitizes missing or unusable FSM names', () => {

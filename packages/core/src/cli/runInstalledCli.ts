@@ -1,15 +1,9 @@
-import * as path from 'node:path';
-
-import {
-  checkInstalledLockFingerprint,
-  readInstalledRuntimeSnapshot,
-  resolveInstalledCommand,
-  type InstalledRuntimeSnapshot,
-  type InstallStorePaths,
-  type InstallStoreResult,
-  type TrustedInstallRecord,
-} from '../installStore/index.js';
 import { loadInstalledFsm } from '../loader/index.js';
+import {
+  buildInstalledFsmLoadOptions,
+  resolveInstalledFsmTarget,
+  type ResolveFsmTargetOptions,
+} from '../runtime/runTarget.js';
 
 import { writeInstallStoreDiagnostics } from './installStoreDiagnostics.js';
 import {
@@ -27,13 +21,10 @@ export interface RunInstalledCliOptions {
   readonly inputArgs?: ReadonlyArray<string>;
   readonly permissionMode?: RunPermissionMode;
   readonly noOpen?: boolean;
-  readonly env?: Readonly<Record<string, string | undefined>>;
-  readonly homeDir?: string;
-  readonly readSnapshotImpl?: () => Promise<InstallStoreResult<InstalledRuntimeSnapshot>>;
-  readonly checkLockFingerprintImpl?: (
-    record: TrustedInstallRecord,
-    paths: InstallStorePaths,
-  ) => Promise<InstallStoreResult<string>>;
+  readonly env?: ResolveFsmTargetOptions['env'];
+  readonly homeDir?: ResolveFsmTargetOptions['homeDir'];
+  readonly readSnapshotImpl?: ResolveFsmTargetOptions['readSnapshotImpl'];
+  readonly checkLockFingerprintImpl?: ResolveFsmTargetOptions['checkLockFingerprintImpl'];
   readonly loadInstalledFsmImpl?: typeof loadInstalledFsm;
   readonly runCliImpl?: (opts: RunCliRuntimeOpts) => Promise<RunCliResult>;
 }
@@ -41,48 +32,26 @@ export interface RunInstalledCliOptions {
 export async function runInstalledCli(
   opts: RunInstalledCliOptions,
 ): Promise<{ readonly exitCode: number }> {
-  const snapshot = await (opts.readSnapshotImpl
-    ? opts.readSnapshotImpl()
-    : readInstalledRuntimeSnapshot({
-        ...(opts.env !== undefined ? { env: opts.env } : {}),
-        ...(opts.homeDir !== undefined ? { homeDir: opts.homeDir } : {}),
-      }));
-  if (!snapshot.ok) {
-    writeInstallStoreDiagnostics(opts.stderr, 'aharness run failed', snapshot.diagnostics);
-    return { exitCode: 1 };
-  }
-
-  const resolved = resolveInstalledCommand(opts.command, snapshot.value);
-  if (!resolved.ok) {
+  const resolved = await resolveInstalledFsmTarget(opts.command, {
+    ...(opts.env !== undefined ? { env: opts.env } : {}),
+    ...(opts.homeDir !== undefined ? { homeDir: opts.homeDir } : {}),
+    ...(opts.readSnapshotImpl !== undefined ? { readSnapshotImpl: opts.readSnapshotImpl } : {}),
+    ...(opts.checkLockFingerprintImpl !== undefined
+      ? { checkLockFingerprintImpl: opts.checkLockFingerprintImpl }
+      : {}),
+  });
+  if (resolved.kind === 'invalid') {
     writeInstallStoreDiagnostics(opts.stderr, 'aharness run failed', resolved.diagnostics);
-    return { exitCode: 1 };
-  }
-
-  const fingerprint = await (opts.checkLockFingerprintImpl ?? checkInstalledLockFingerprint)(
-    resolved.value.install,
-    snapshot.value.paths,
-  );
-  if (!fingerprint.ok) {
-    writeInstallStoreDiagnostics(opts.stderr, 'aharness run failed', fingerprint.diagnostics);
     return { exitCode: 1 };
   }
 
   const loadInstalledFsmImpl = opts.loadInstalledFsmImpl ?? loadInstalledFsm;
   const runCliImpl = opts.runCliImpl ?? runCli;
-  const entryFile = path.join(resolved.value.install.packageRoot, resolved.value.command.entry);
   const loadFsmImpl: RunCliRuntimeOpts['loadFsmImpl'] = async () =>
-    loadInstalledFsmImpl({
-      entryFile,
-      packageName: resolved.value.install.packageName,
-      commandName: resolved.value.command.commandName,
-      packageRoot: resolved.value.install.packageRoot,
-      managedProjectRoot: snapshot.value.paths.managedProjectRoot,
-      storeRoot: snapshot.value.paths.storeRoot,
-      lockFingerprint: resolved.value.install.lockFingerprint,
-    });
+    loadInstalledFsmImpl(buildInstalledFsmLoadOptions(resolved));
 
   return runCliImpl({
-    fsmPath: entryFile,
+    fsmPath: resolved.entryFile,
     runTargetLabel: opts.command,
     cwd: opts.cwd,
     stdout: opts.stdout,

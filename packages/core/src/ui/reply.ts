@@ -53,6 +53,7 @@ export type BrowserReplyControllerOptions = {
 export type BrowserReplyController = {
   parkOwnerInput(params: ToolRequestUserInputParams): Promise<ToolRequestUserInputResponse>;
   abandonInactiveOwnerInput(): void;
+  close(): void;
   handleReply(payload: unknown): Promise<BrowserReplyResult>;
 };
 
@@ -89,6 +90,14 @@ export function createBrowserReplyController(
   options: BrowserReplyControllerOptions,
 ): BrowserReplyController {
   let pendingOwnerInput: PendingOwnerInput | null = null;
+
+  function resolvePendingOwnerInputAsAbandoned(): void {
+    if (pendingOwnerInput === null) return;
+    const abandoned = pendingOwnerInput;
+    pendingOwnerInput = null;
+    abandoned.resolve(buildAbandonedToolRequestUserInputResponse(abandoned.params));
+    options.onOwnerInputResolved?.(abandoned.requestId);
+  }
 
   function handleOwnerInputReply(payload: Record<string, unknown>): BrowserReplyResult {
     const requestId = payload['requestId'];
@@ -210,6 +219,9 @@ export function createBrowserReplyController(
         message: 'parked owner input resolved after thread became inactive',
       });
       options.onOwnerInputResolved?.(abandoned.requestId);
+    },
+    close() {
+      resolvePendingOwnerInputAsAbandoned();
     },
     async handleReply(payload) {
       const kind = isRecord(payload) ? payload['kind'] : undefined;

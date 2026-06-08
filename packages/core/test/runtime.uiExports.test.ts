@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { createUiEventLog, serializeSseEvent, startUiServer } from '../src/runtime.js';
+import {
+  createUiEventLog,
+  serializeSseEvent,
+  startAharnessRun,
+  startUiServer,
+} from '../src/runtime.js';
 import type {
+  AharnessRunEvent,
+  AharnessRunHandle,
+  AharnessRunReplyResult,
+  AharnessRunResult,
+  StartAharnessRunOptions,
   AppEvent,
   ReplayableAppEvent,
   RunMeta,
@@ -34,6 +44,7 @@ describe('runtime UI exports', () => {
     expect(published.id).toBe('1');
     expect(frame).toContain('event: FrameworkNote');
     expect(typeof startUiServer).toBe('function');
+    expect(typeof startAharnessRun).toBe('function');
 
     const _serverOptions: StartUiServerOptions = {
       host: '127.0.0.1',
@@ -42,6 +53,19 @@ describe('runtime UI exports', () => {
       eventLog: log,
     };
     const _serverHandle: UiServerHandle | null = null;
+    const _runOptions: StartAharnessRunOptions = {
+      target: './demo.fsm.ts',
+      input: {},
+      ui: false,
+    };
+    const _runHandle: AharnessRunHandle | null = null;
+    const _runEvent: AharnessRunEvent | null = null;
+    const _replyResult: AharnessRunReplyResult | null = null;
+    const _runResult: AharnessRunResult | null = null;
     expect(_serverHandle).toBeNull();
+    expect(_runHandle).toBeNull();
+    expect(_runEvent).toBeNull();
+    expect(_replyResult).toBeNull();
+    expect(_runResult).toBeNull();
   });
 });

@@ -1,7 +1,7 @@
 # Reference
 
-This page documents the current public authoring and CLI surface. The canonical
-authoring entry point is `createFsm` from `@aharness/core`.
+This page documents the current public authoring, runtime API, and CLI surface.
+The canonical authoring entry point is `createFsm` from `@aharness/core`.
 
 ## Prerequisites
 
@@ -66,6 +66,131 @@ directories, symlinks, and realpath escapes are rejected for installable
 packages. Direct-file FSM loading does not add package-relative asset semantics;
 uncompiled calls to these helpers fail with an error telling the author that
 package asset calls must be compiled and validated by the package-aware loader.
+
+## Programmatic Run API
+
+`startAharnessRun(options)` is exported from `@aharness/core/runtime` for Node
+callers that need to start a live run, observe canonical run events, send
+browser-reply-equivalent inputs, and await a terminal result from TypeScript.
+It is a sibling to `aharness run`, not a separate daemon or server-backed
+multi-run UI. User `.fsm.ts` source must not import `@aharness/core/runtime`;
+FSM source imports the root `@aharness/core` authoring SDK only.
+
+```ts
+import {
+  startAharnessRun,
+  type AharnessRunEvent,
+} from '@aharness/core/runtime';
+
+const run = await startAharnessRun({
+  target: './workflow.fsm.ts',
+  cwd: fixtureRoot,
+  input: { ticketId: 'REQ-123' },
+  permissionMode: 'ask',
+  onEvent(event: AharnessRunEvent) {
+    ownerSimulation.observe(event);
+  },
+});
+
+await run.sendText('Here is the requested context.');
+const result = await run.result();
+```
+
+Options:
+
+- `target` is required and uses the same target semantics as
+  `aharness run <target>`: local `.fsm.ts` files, unique installed bare command
+  names, and fully qualified installed command identities.
+- `cwd` defaults to `process.cwd()` and is used for local target resolution,
+  run metadata, and the launched runtime's repository root.
+- `input` defaults to `{}`. Programmatic input is keyed by FSM input property
+  names, not kebab-case CLI flag names. It must be a non-null object, not an
+  array, and must not contain `undefined` values at any depth. FSM input
+  defaults are applied before schema validation. Missing required inputs,
+  unknown fields, invalid types, invalid custom schemas, and any provided input
+  for an FSM that declares no inputs fail before Codex starts.
+- `permissionMode` is optional. When omitted, it keeps the same default Codex
+  auto-review behavior as `aharness run` without `--ask` or `--yolo`. The
+  explicit values are `'autoReview'`, `'ask'`, and `'yolo'`. Use `'ask'` for
+  manual permission review and `'yolo'` only for the same dangerous approval
+  bypass exposed by the CLI.
+- `ui` defaults to `false`, so no browser UI server is started. `ui: true`
+  serves the same run-scoped browser UI without opening a system browser.
+  `ui: { open: true }` serves it and uses the CLI browser-launch behavior.
+- `onEvent` subscribes to canonical run events. The event object is the exact
+  `RunEventEnvelope` appended to `.aharness/runs/<runId>/events.jsonl`.
+
+The returned `AharnessRunHandle` exposes:
+
+- `runId`, `runDir`, and `eventsPath` for the local run artifacts.
+- `uiUrl` when a programmatic UI was requested.
+- `subscribe(listener)`, which receives future canonical
+  `AharnessRunEvent` envelopes and returns an unsubscribe function.
+- `sendText(text)` for open-state owner text.
+- `chooseOwnerOption({ state, visitCount, label })` for authored
+  `fsm.choice(...)` states.
+- `answerOwnerInput({ requestId, answers })` for model-originated
+  `request_user_input` prompts. Answers are `Record<string, string>`.
+- `resolveApproval({ requestId, decision })` for command and file approval
+  requests. Decisions are `'accept'`, `'acceptForSession'`, `'decline'`, and
+  `'cancel'`.
+- `resolvePermission({ requestId, decision })` for permission approval
+  requests. Decisions use the same values as approval resolution.
+- `resolveElicitation({ requestId, action, values })` for MCP elicitation
+  requests. Actions are `'accept'`, `'decline'`, and `'cancel'`. `values` is
+  needed only when the accepted elicitation requires form values.
+- `cancel(reason?)`, which requests live-run cancellation.
+- `result()`, which resolves the terminal `AharnessRunResult`.
+
+Reply helpers return `AharnessRunReplyResult`:
+
+```ts
+interface AharnessRunReplyResult {
+  readonly ok: boolean;
+  readonly status: number;
+  readonly body: unknown;
+}
+```
+
+`status` and `body` mirror the existing browser reply controller result without
+requiring HTTP in the caller. `ok` is derived as `status >= 200 && status < 300`.
+Invalid request ids, stale state visits, unavailable reply kinds, invalid answer
+maps, and closed runs are returned as non-OK reply results rather than thrown
+exceptions when the reply controller can handle the request.
+
+`startAharnessRun(...)` rejects before returning a handle when startup cannot
+create a valid live run, such as target resolution, verification, installed
+target trust, input validation, Codex auth, or Codex version-gate failures.
+After a handle exists, terminal state is reported through `run.result()`:
+
+```ts
+type AharnessRunStatus = 'completed' | 'failed' | 'cancelled';
+
+interface AharnessRunResult {
+  readonly status: AharnessRunStatus;
+  readonly exitCode: number;
+  readonly runId: string;
+  readonly runDir: string;
+  readonly eventsPath: string;
+  readonly terminalState?: string;
+  readonly terminalOutcome?: string;
+  readonly reason?: string;
+}
+```
+
+`cancel(reason?)` is idempotent from the caller's perspective. Where the live
+engine has canonical logging available, cancellation publishes `run.cancelled`,
+sets the terminal result status to `'cancelled'`, uses exit code `130`, and
+preserves the optional reason. Later reply helper calls resolve with a closed
+run reply result.
+
+Canonical event access has the same sensitivity boundary as `events.jsonl`.
+Programmatic subscribers can see raw runtime evidence that browser projections
+hide or summarize, including secret-marked owner input, browser replies, tool
+arguments and results, command output, file diffs, approval, permission, MCP
+elicitation data, token usage, cancellation reasons, sub-thread activity, and
+workflow context snapshots. Treat `eventsPath`, `runDir`, and in-memory
+canonical event streams as sensitive.
 
 ## State Options
 

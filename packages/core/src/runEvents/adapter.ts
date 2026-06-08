@@ -27,8 +27,8 @@ export function compactRunEventPayload<T extends Record<string, unknown>>(
 }
 
 export function runLifecycleRow(input: {
-  readonly event: 'run.started' | 'run.completed' | 'run.failed';
-  readonly status: 'started' | 'completed' | 'failed';
+  readonly event: 'run.started' | 'run.completed' | 'run.failed' | 'run.cancelled';
+  readonly status: 'started' | 'completed' | 'failed' | 'cancelled';
   readonly summary?: string;
 }): RunEventPayload {
   return compactRecord({
@@ -38,7 +38,9 @@ export function runLifecycleRow(input: {
         ? 'run started'
         : input.event === 'run.completed'
           ? 'run completed'
-          : 'run failed',
+          : input.event === 'run.failed'
+            ? 'run failed'
+            : 'run cancelled',
     status: input.status,
     summary: input.summary,
   });

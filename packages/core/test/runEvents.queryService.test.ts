@@ -827,6 +827,47 @@ describe('run event query service', () => {
     expect(completion.completionStats?.outcome).toBe('failure');
   });
 
+  it('projects cancelled runs as terminal in bootstrap and completion stats', () => {
+    const eventsPath = tempEventsPath();
+    writeJsonl(
+      eventsPath,
+      event(1, 'run.started', { data: { startedAt: '2026-05-29T00:00:01.000Z' } }),
+      event(2, 'run.cancelled', {
+        data: {
+          status: 'cancelled',
+          reason: 'owner stopped',
+          endedAt: '2026-05-29T00:00:03.000Z',
+        },
+      }),
+    );
+    const service = createRunEventQueryService({ runId: RUN_ID, eventsPath });
+
+    const bootstrap = service.getBootstrap({
+      getRunMeta: () => ({ fsmFile: '/repo/cancelled.fsm.ts' }),
+    });
+    const completion = service.getCompletionStats({
+      getRunMeta: () => ({ fsmFile: '/repo/cancelled.fsm.ts' }),
+    });
+
+    expect(bootstrap.ok).toBe(true);
+    expect(completion.ok).toBe(true);
+    if (!bootstrap.ok || !completion.ok) return;
+    expect(bootstrap.bootstrap.posture).toEqual({
+      isTerminal: true,
+      isAwaiting: false,
+      submittedThisTurn: false,
+      open: false,
+    });
+    expect(bootstrap.bootstrap.aggregateStats).toEqual(
+      expect.objectContaining({
+        status: 'cancelled',
+        endedAt: '2026-05-29T00:00:03.000Z',
+      }),
+    );
+    expect(bootstrap.bootstrap.completionStats?.outcome).toBe('cancelled');
+    expect(completion.completionStats?.outcome).toBe('cancelled');
+  });
+
   it('drains all currently indexed events after a cursor across multiple pages', () => {
     const eventsPath = tempEventsPath();
     writeJsonl(eventsPath, ...fixtureEvents());

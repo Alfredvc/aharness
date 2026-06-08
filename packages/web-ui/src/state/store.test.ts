@@ -3646,6 +3646,12 @@ describe('headless production store helpers', () => {
     });
 
     expect(markConnectionLost(running).connection).toBe('live');
+    expect(
+      markConnectionLost({
+        ...running,
+        aggregateStats: { status: 'cancelled', turnCount: 1 },
+      }).connection,
+    ).toBe('live');
   });
 
   it('returns the connection to live when hydrating after a lost connection', () => {
@@ -3769,5 +3775,16 @@ describe('final overview state', () => {
     expect(state.finalOverview.open).toBe(false);
     expect(state.finalOverview.autoOpened).toBe(false);
     expect(state.completionStats).toBeNull();
+
+    const cancelled = applyRunEvent(
+      initial,
+      apiEvent({
+        type: 'run.cancelled',
+        data: { status: 'cancelled', reason: 'owner stopped' },
+      }),
+    );
+    expect(cancelled.posture.isTerminal).toBe(true);
+    expect(cancelled.aggregateStats.status).toBe('cancelled');
+    expect(cancelled.finalOverview.open).toBe(false);
   });
 });

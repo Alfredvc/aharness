@@ -1,5 +1,17 @@
 import { describe, expectTypeOf, it } from 'vitest';
-import type { RunMeta, StartUiServerOptions } from '../src/runtime.js';
+import type {
+  AharnessApprovalResolution,
+  AharnessElicitationResolution,
+  AharnessOwnerChoiceInput,
+  AharnessOwnerInputAnswer,
+  AharnessPermissionResolution,
+  AharnessRunHandle,
+  AharnessRunReplyResult,
+  AharnessRunResult,
+  RunMeta,
+  StartAharnessRunOptions,
+  StartUiServerOptions,
+} from '../src/runtime.js';
 
 type RuntimeRunScopedOptions = NonNullable<StartUiServerOptions['runScoped']>;
 type RuntimeRunScopedService = RuntimeRunScopedOptions['service'];
@@ -70,5 +82,38 @@ describe('runtime UI export types', () => {
   it('accepts a structural run-scoped route service', () => {
     expectTypeOf<StructuralRunScopedService>().toMatchTypeOf<RuntimeRunScopedService>();
     expectTypeOf<StructuralStartUiServerOptions>().toMatchTypeOf<StartUiServerOptions>();
+  });
+
+  it('exports the programmatic run option, handle, and reply input types', () => {
+    expectTypeOf<StartAharnessRunOptions>().toHaveProperty('target').toEqualTypeOf<string>();
+    expectTypeOf<StartAharnessRunOptions>()
+      .toHaveProperty('cwd')
+      .toEqualTypeOf<string | undefined>();
+    expectTypeOf<StartAharnessRunOptions>()
+      .toHaveProperty('permissionMode')
+      .toEqualTypeOf<'autoReview' | 'ask' | 'yolo' | undefined>();
+    expectTypeOf<StartAharnessRunOptions>()
+      .toHaveProperty('ui')
+      .toEqualTypeOf<boolean | { readonly open?: boolean } | undefined>();
+    expectTypeOf<AharnessRunHandle['sendText']>().parameters.toEqualTypeOf<[text: string]>();
+    expectTypeOf<AharnessRunHandle['chooseOwnerOption']>().parameters.toEqualTypeOf<
+      [input: AharnessOwnerChoiceInput]
+    >();
+    expectTypeOf<AharnessRunHandle['answerOwnerInput']>().parameters.toEqualTypeOf<
+      [input: AharnessOwnerInputAnswer]
+    >();
+    expectTypeOf<AharnessRunHandle['resolveApproval']>().parameters.toEqualTypeOf<
+      [input: AharnessApprovalResolution]
+    >();
+    expectTypeOf<AharnessRunHandle['resolvePermission']>().parameters.toEqualTypeOf<
+      [input: AharnessPermissionResolution]
+    >();
+    expectTypeOf<AharnessRunHandle['resolveElicitation']>().parameters.toEqualTypeOf<
+      [input: AharnessElicitationResolution]
+    >();
+    expectTypeOf<AharnessRunReplyResult>().toHaveProperty('ok').toEqualTypeOf<boolean>();
+    expectTypeOf<AharnessRunResult>()
+      .toHaveProperty('status')
+      .toEqualTypeOf<'completed' | 'failed' | 'cancelled'>();
   });
 });
