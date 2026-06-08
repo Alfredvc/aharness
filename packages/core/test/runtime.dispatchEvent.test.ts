@@ -5,6 +5,7 @@ import { createFsm, aharness, state, terminal } from '@aharness/core';
 
 import { ActorHost } from '../src/runtime/actorHost.js';
 import { createEventDispatcher } from '../src/runtime/dispatchEvent.js';
+import { createAharnessOps } from '../src/state/aharnessOps.js';
 import type { CanonicalEventMeta } from '../src/state/exits.js';
 
 interface Ctx {
@@ -220,6 +221,50 @@ describe('createEventDispatcher', () => {
     await dispatch('ping', { inc: 1 });
 
     expect(events).toEqual(['flush:b', 'committed:a->b']);
+  });
+
+  it('passes runtime-bound ops to canonical event effects', async () => {
+    const emitted = vi.fn(async () => ({
+      handled: true,
+      stateChanged: false,
+      returnValue: 'nested-ok',
+    }));
+    const opsHandle = createAharnessOps({ emit: emitted });
+    const base = createFsm<Ctx>();
+    const fsm = base.withEvents({
+      ping: base.event<{ inc: number }>(),
+    });
+    const machine = fsm.machine({
+      data: () => ({ count: 0, nested: { marks: [] } }),
+      initial: 'a',
+      states: {
+        a: fsm.state({
+          prompt: 'a',
+          on: {
+            ping: {
+              effect: async ({ ops, payload }) => {
+                await ops.emit('nested', payload);
+              },
+              reduce: (draft, payload) => {
+                draft.count += payload.inc;
+              },
+            },
+          },
+        }),
+      },
+    });
+    const host = new ActorHost(machine, undefined);
+    host.start();
+    const dispatch = createEventDispatcher({
+      host,
+      flushSnapshot: vi.fn(),
+      ops: opsHandle.ops,
+    });
+
+    await dispatch('ping', { inc: 3 });
+
+    expect(emitted).toHaveBeenCalledWith('nested', { inc: 3 });
+    expect(host.currentContext().count).toBe(3);
   });
 
   it('runs terminal artifact and completion callbacks for event transitions to finals', async () => {

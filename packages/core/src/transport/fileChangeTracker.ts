@@ -18,6 +18,7 @@ export interface FileApprovalChangesUpdate extends PendingFileApprovalKey {
 
 export interface FileChangeTrackerOptions {
   readonly onPendingFileApprovalChanges?: (update: FileApprovalChangesUpdate) => void;
+  readonly isRoutableThread?: (threadId: string) => boolean;
   readonly isActiveThread?: (threadId: string) => boolean;
   readonly onAbandonedThreadDiagnostic?: (diagnostic: {
     readonly threadId: string;
@@ -108,8 +109,8 @@ export function createFileChangeTracker(options: FileChangeTrackerOptions = {}):
   const changesByKey = new Map<ChangeKey, ReadonlyArray<FileUpdateChange>>();
   const pendingByRequestId = new Map<string, PendingFileApprovalKey>();
 
-  function isActiveThread(threadId: string): boolean {
-    return options.isActiveThread?.(threadId) ?? true;
+  function isRoutableThread(threadId: string): boolean {
+    return options.isRoutableThread?.(threadId) ?? options.isActiveThread?.(threadId) ?? true;
   }
 
   function reportAbandonedThread(threadId: string, source: string, message: string): void {
@@ -149,7 +150,7 @@ export function createFileChangeTracker(options: FileChangeTrackerOptions = {}):
     },
     noteThreadItem(params) {
       if (!isFileChangeThreadItem(params.item)) return;
-      if (!isActiveThread(params.threadId)) {
+      if (!isRoutableThread(params.threadId)) {
         reportAbandonedThread(
           params.threadId,
           'fileChangeThreadItem',
@@ -164,7 +165,7 @@ export function createFileChangeTracker(options: FileChangeTrackerOptions = {}):
     notePatchUpdated(params) {
       const normalized = normalizePatchUpdated(params);
       if (normalized === null) return;
-      if (!isActiveThread(normalized.threadId)) {
+      if (!isRoutableThread(normalized.threadId)) {
         reportAbandonedThread(
           normalized.threadId,
           'fileChangePatchUpdated',

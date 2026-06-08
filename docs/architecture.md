@@ -23,10 +23,12 @@ installed command identities. Both use the same live-run engine:
 3. It connects as the sole WebSocket client for that run.
 4. It registers FSM-declared skill roots with Codex, calls `skills/list`, and
    validates required state skills against the startup catalog.
-5. It starts the Codex thread only after skill preflight succeeds.
-6. It hosts the XState actor, submit handling, owner input, approval dispatch,
+5. It creates the Codex sidecar manager after that skill preflight, using the
+   same app-server WebSocket client as the parent thread.
+6. It starts the Codex parent thread only after skill preflight succeeds.
+7. It hosts the XState actor, submit handling, owner input, approval dispatch,
    hook dispatch and canonical JSONL event logging in the same CLI process.
-7. It optionally serves a loopback browser UI protected by a per-run token.
+8. It optionally serves a loopback browser UI protected by a per-run token.
    The CLI serves and opens that URL unless `--no-open` is set. Programmatic
    runs default to no UI server; `ui: true` serves the same run-scoped UI
    without opening a browser, and `ui: { open: true }` uses the same browser
@@ -73,6 +75,16 @@ Codex writes code, runs tools, and produces natural-language reasoning. aharness
 does not ask Codex to remember the workflow. Instead, aharness exposes only the
 active state's allowed exits and moves the machine when a typed event satisfies
 the state's rules.
+
+FSM author code can also use runtime-bound `ops.codex` to create keyed Codex
+sidecar threads and `ops.emit` to dispatch authored canonical events. Sidecar
+threads are additional Codex app-server threads owned by the same live run and
+sharing the single WebSocket client. They are never installed as the active FSM
+thread, do not receive `aharness_submit`, and cannot drive parent state
+progression by convention or by dynamic-tool routing. Their notifications are
+consumed by the sidecar manager's own listeners while the `NotificationRouter`
+continues to route only the active parent thread and existing parent sub-thread
+correlations.
 
 The browser run UI defaults to a chronological compact transcript for the whole
 run, focused on model/owner messages, tool summaries, failed tool output,
@@ -187,6 +199,14 @@ Approval review mode controls where Codex permission prompts go. Default live
 runs start Codex with auto-review so eligible sandbox-boundary prompts can be
 handled by Codex. Runs started with `--ask` use manual user review and surface
 pending approval cards in the browser; `--yolo` bypasses approval prompts.
+Approval dispatch keeps two thread predicates: run-owned routability for browser
+approval, permission, and MCP elicitation cards, and active-parent routing for
+FSM `permissionRequest` hooks. Sidecar command, file, permission, and MCP
+elicitation requests can therefore use the browser approval channel and run
+approval mode without invoking parent-state permission hooks. Sidecar
+`request_user_input` is consumed by the sidecar manager and returned to author
+code as a sidecar boundary result; it does not create owner-input reply controls
+and does not drive the FSM.
 
 This is the core boundary: Codex performs the work; aharness constrains the
 process around that work.

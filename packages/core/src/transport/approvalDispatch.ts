@@ -124,12 +124,19 @@ export interface ApprovalDispatcherOptions {
   readonly publish: (event: ApprovalDispatchEvent) => void;
   readonly record?: (input: RunEventAppendInput) => void;
   readonly fileChangeTracker?: FileChangeTracker;
+  readonly isRoutableThread?: (threadId: string) => boolean;
+  readonly isPermissionHookThread?: (threadId: string) => boolean;
   readonly isActiveThread?: (threadId: string) => boolean;
   readonly onAbandonedThreadDiagnostic?: (diagnostic: {
     readonly threadId: string;
     readonly source: string;
     readonly message: string;
   }) => void;
+  readonly onBrowserRequestPending?: (request: {
+    readonly kind: PendingKind;
+    readonly requestId: string;
+    readonly threadId: string;
+  }) => (() => void) | void;
   readonly permissionRequest?: (
     event: PermissionRequestEvent,
     meta?: ServerRequestMeta,
@@ -169,6 +176,7 @@ type PendingEntry = {
   threadId: string;
   params: unknown;
   resolve: (response: unknown) => void;
+  releaseBrowserWait?: () => void;
 };
 
 type ParkOptions = {
@@ -339,14 +347,17 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
   let nextBrowserRequestId = 1;
   const pendingByRequestId = new Map<string, PendingEntry>();
   const pendingByCodexRequestKey = new Map<string, PendingEntry>();
-  const isActiveThread = (threadId: string): boolean => options.isActiveThread?.(threadId) ?? true;
+  const isRoutableThread = (threadId: string): boolean =>
+    options.isRoutableThread?.(threadId) ?? options.isActiveThread?.(threadId) ?? true;
+  const isPermissionHookThread = (threadId: string): boolean =>
+    options.isPermissionHookThread?.(threadId) ?? options.isActiveThread?.(threadId) ?? true;
   const reportAbandonedThread = (threadId: string, source: string, message: string): void => {
     options.onAbandonedThreadDiagnostic?.({ threadId, source, message });
   };
   const tracker =
     options.fileChangeTracker ??
     createFileChangeTracker({
-      isActiveThread,
+      isRoutableThread,
       onAbandonedThreadDiagnostic: (diagnostic) =>
         options.onAbandonedThreadDiagnostic?.(diagnostic),
       onPendingFileApprovalChanges(update) {
@@ -376,6 +387,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
   function removePending(entry: PendingEntry): void {
     pendingByRequestId.delete(entry.requestId);
     pendingByCodexRequestKey.delete(entry.codexRequestKey);
+    entry.releaseBrowserWait?.();
     if (entry.kind === 'file') tracker.noteFileApprovalResolved(entry.requestId);
   }
 
@@ -476,6 +488,14 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
         params: p.params,
         resolve: resolve as (response: unknown) => void,
       };
+      const releaseBrowserWait = options.onBrowserRequestPending?.({
+        kind: p.kind,
+        requestId: p.requestId,
+        threadId: p.threadId,
+      });
+      if (releaseBrowserWait !== undefined) {
+        entry.releaseBrowserWait = releaseBrowserWait;
+      }
       pendingByRequestId.set(p.requestId, entry);
       pendingByCodexRequestKey.set(codexRequestKey, entry);
       p.onResolve?.();
@@ -591,8 +611,19 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
     browserPath: () => Promise<T>,
     onPolicyResponse: (response: T) => void,
   ): T | Promise<T> {
+    if (!isPermissionHookThread(event.threadId)) {
+      if (!isRoutableThread(event.threadId)) {
+        reportAbandonedThread(
+          event.threadId,
+          event.kind === 'command' ? 'commandApproval' : 'fileApproval',
+          `abandoned ${event.kind} approval declined`,
+        );
+        return abandonedPermissionPolicyResponse<T>(event);
+      }
+      return browserPath();
+    }
     if (!options.permissionRequest) {
-      if (!isActiveThread(event.threadId)) {
+      if (!isRoutableThread(event.threadId)) {
         reportAbandonedThread(
           event.threadId,
           event.kind === 'command' ? 'commandApproval' : 'fileApproval',
@@ -607,7 +638,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
       if (isPromiseLike<PermissionRequestPolicyResult>(result)) {
         return result
           .then((resolved) => {
-            if (!isActiveThread(event.threadId)) {
+            if (!isRoutableThread(event.threadId)) {
               reportAbandonedThread(
                 event.threadId,
                 event.kind === 'command' ? 'commandApproval' : 'fileApproval',
@@ -625,7 +656,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
             return browserPath();
           })
           .catch(() => {
-            if (!isActiveThread(event.threadId)) {
+            if (!isRoutableThread(event.threadId)) {
               reportAbandonedThread(
                 event.threadId,
                 event.kind === 'command' ? 'commandApproval' : 'fileApproval',
@@ -638,7 +669,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
             return response;
           });
       }
-      if (!isActiveThread(event.threadId)) {
+      if (!isRoutableThread(event.threadId)) {
         reportAbandonedThread(
           event.threadId,
           event.kind === 'command' ? 'commandApproval' : 'fileApproval',
@@ -655,7 +686,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
       }
       return browserPath();
     } catch {
-      if (!isActiveThread(event.threadId)) {
+      if (!isRoutableThread(event.threadId)) {
         reportAbandonedThread(
           event.threadId,
           event.kind === 'command' ? 'commandApproval' : 'fileApproval',
@@ -674,7 +705,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
     handleCommandApproval(params, meta) {
       const narrowed = commandParams(params);
       if (!narrowed) return buildAbandonedCommandExecutionApprovalResponse();
-      if (!isActiveThread(narrowed.threadId)) {
+      if (!isRoutableThread(narrowed.threadId)) {
         reportAbandonedThread(
           narrowed.threadId,
           'commandApproval',
@@ -697,7 +728,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
     handleFileApproval(params, meta) {
       const narrowed = fileParams(params);
       if (!narrowed) return buildAbandonedFileChangeApprovalResponse();
-      if (!isActiveThread(narrowed.threadId)) {
+      if (!isRoutableThread(narrowed.threadId)) {
         reportAbandonedThread(
           narrowed.threadId,
           'fileApproval',
@@ -727,7 +758,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
     handlePermissionApproval(params, meta) {
       const narrowed = permissionParams(params);
       if (!narrowed) return emptyPermissionGrant();
-      if (!isActiveThread(narrowed.threadId)) {
+      if (!isRoutableThread(narrowed.threadId)) {
         reportAbandonedThread(
           narrowed.threadId,
           'permissionApproval',
@@ -760,7 +791,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
     handleElicitation(params, meta) {
       const narrowed = elicitationParams(params);
       if (!narrowed) return buildAbandonedMcpServerElicitationResponse();
-      if (!isActiveThread(narrowed.threadId)) {
+      if (!isRoutableThread(narrowed.threadId)) {
         reportAbandonedThread(
           narrowed.threadId,
           'elicitation',
@@ -862,7 +893,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
     handleServerRequestResolved(params) {
       if (!isRecord(params)) return;
       const threadId = params['threadId'];
-      if (typeof threadId === 'string' && !isActiveThread(threadId)) {
+      if (typeof threadId === 'string' && !isRoutableThread(threadId)) {
         reportAbandonedThread(
           threadId,
           'serverRequestResolved',
@@ -881,7 +912,7 @@ export function createApprovalDispatcher(options: ApprovalDispatcherOptions): Ap
     abandonInactiveRequests() {
       const pending = Array.from(pendingByRequestId.values());
       for (const entry of pending) {
-        if (isActiveThread(entry.threadId)) continue;
+        if (isRoutableThread(entry.threadId)) continue;
         removePending(entry);
         reportAbandonedThread(
           entry.threadId,

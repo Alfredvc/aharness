@@ -10,7 +10,8 @@
  */
 import { rmSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { dirname, join } from 'node:path';
 
 import type { AppServerHandle, SpawnAppServerOptions } from '../appServer/index.js';
 import type { VersionGateResult } from '../appServer/version.js';
@@ -61,6 +62,14 @@ import {
 } from '../runEvents/index.js';
 import { getAharnessMeta, iterStates, stateKeyPath } from '../state.js';
 import { createAharnessOps, type AharnessOps } from '../state/aharnessOps.js';
+import type {
+  CodexSidecarAnswerPayload,
+  CodexSidecarInput,
+  CodexSidecarOps,
+  CodexSidecarThread,
+  CodexSidecarThreadOptions,
+  CodexSidecarTurnOptions,
+} from '../state/codexSidecar.js';
 import { discoverDeclaredHookKinds } from '../state/discoverHooks.js';
 import type { ClearOnEntryMeta } from '../state/exits.js';
 import type { HookKind } from '../state/hooks.js';
@@ -94,10 +103,16 @@ import {
 } from './abandonedThreadResponses.js';
 import { ActorHost } from './actorHost.js';
 import { CacheMetrics, type CacheMetricsSummary } from './cacheMetrics.js';
+import {
+  createCodexSidecarManager,
+  type CodexSidecarManager,
+  type CodexSidecarTimeoutClock,
+} from './codexSidecar.js';
 import { preflightStateModel } from './clearOnEntryModelPreflight.js';
 import { resolveClearOnEntryOptions, resolveStateModelOptions } from './clearOnEntryCwd.js';
 import { createContextSnapshotRecorder, publicContextFromRunContext } from './contextSnapshots.js';
 import { scheduleCrossStateDance } from './crossStateDance.js';
+import { createEventDispatcher } from './dispatchEvent.js';
 import { createDriveForward, type DriveForwardHandle } from './driveForward.js';
 import { activeChoiceData, commitOwnerChoice, validateOwnerChoiceReply } from './dispatchChoice.js';
 import {
@@ -583,6 +598,12 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
     const threadId = readThreadIdParam(params);
     return threadId === null ? true : isLiveThreadId(threadId);
   };
+  const sidecarTimeoutClock = createThreadScopedPausableTimeoutClock();
+  const sidecarManagerRef: { current?: CodexSidecarManager } = {};
+  const isSidecarThreadId = (threadId: string): boolean =>
+    sidecarManagerRef.current?.ownsThread(threadId) === true;
+  const isRunRoutableThreadId = (threadId: string): boolean =>
+    isLiveThreadId(threadId) || isSidecarThreadId(threadId);
   const publishAbandonedThreadParamsDiagnostic = (
     params: unknown,
     source: string,
@@ -661,7 +682,12 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
     reportStateModelError(error);
     failRunAndShutdown('state-model update failed; shutting down');
   };
-  const serializeDispatch = makeSerializeDispatch();
+  const serializeDispatchQueue = makeSerializeDispatch();
+  const dispatchExecutionContext = new AsyncLocalStorage<boolean>();
+  const serializeDispatch = <T>(fn: () => Promise<T>): Promise<T> => {
+    if (dispatchExecutionContext.getStore() === true) return fn();
+    return serializeDispatchQueue(() => dispatchExecutionContext.run(true, fn));
+  };
   const stateModelSettings = createStateModelSettings({
     client: {
       request: <T>(method: string, params: unknown) => {
@@ -791,8 +817,13 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
       publishUiEventNonRecording(event);
     },
     record: recordRunEvent,
-    isActiveThread: isLiveThreadId,
+    isRoutableThread: isRunRoutableThreadId,
+    isPermissionHookThread: isLiveThreadId,
     onAbandonedThreadDiagnostic: publishAbandonedThreadDiagnostic,
+    onBrowserRequestPending: (request) => {
+      if (!isSidecarThreadId(request.threadId)) return undefined;
+      return sidecarTimeoutClock.pauseThread(request.threadId);
+    },
     permissionRequest: (event, meta) =>
       serializeDispatch(() => permissionRequestDispatch(event, meta)),
   });
@@ -1432,6 +1463,9 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
         appServer: currentAppServer,
         client: currentClient,
         runDir: finalRunDir,
+        ...(sidecarManagerRef.current !== undefined
+          ? { sidecarManager: sidecarManagerRef.current }
+          : {}),
         ownerInputProvider,
       });
       return;
@@ -1528,6 +1562,18 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
           approvalDispatcher.handleFileApproval(params, meta),
         );
         c.onServerRequest(METHOD.toolDynamicCall, (params: unknown, meta) => {
+          const requestThreadId = readThreadIdParam(params);
+          if (requestThreadId !== null && isSidecarThreadId(requestThreadId)) {
+            return {
+              success: false,
+              contentItems: [
+                {
+                  type: 'inputText',
+                  text: 'aharness: sidecar threads cannot call aharness dynamic tools.',
+                },
+              ],
+            } satisfies DynamicToolCallResponse;
+          }
           const abandonedResponse = () => {
             publishUnavailableRequestThreadParamsDiagnostic(
               params,
@@ -1567,6 +1613,14 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
         // `thread/start` call.
         c.onServerRequest(METHOD.toolRequestUserInput, (params: unknown) => {
           const ownerInputParams = isWellFormedRequestUserInputParams(params) ? params : null;
+          const requestThreadId = readThreadIdParam(params);
+          if (requestThreadId !== null && isSidecarThreadId(requestThreadId)) {
+            return ownerInputParams !== null
+              ? (sidecarManagerRef.current?.handleRequestUserInput(ownerInputParams) ?? {
+                  answers: {},
+                })
+              : { answers: {} };
+          }
           if (!isLiveThreadParams(params)) {
             publishUnavailableRequestThreadParamsDiagnostic(
               params,
@@ -1717,6 +1771,9 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
       appServer: appServerHandle,
       client: ws,
       runDir: finalRunDir,
+      ...(sidecarManagerRef.current !== undefined
+        ? { sidecarManager: sidecarManagerRef.current }
+        : {}),
       ownerInputProvider,
     });
   });
@@ -1766,6 +1823,33 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
   if (cancelledAfterSkillPreflight !== null) return cancelledAfterSkillPreflight;
   skillInjectionRef.current = createStateSkillInjectionService({
     resolvedSkills: resolvedRuntimeSkills,
+  });
+  const eventDispatcher = createEventDispatcher({
+    host,
+    flushSnapshot: () => undefined,
+    ops: opsHandle.ops,
+    writeFinalArtifacts: writeActiveFinalArtifacts,
+    isTerminalState: (stateId) => terminalMetaById(machine, stateId)?.kind === 'terminal',
+    onTerminal: () => signalTerminalCompletion(),
+    onCanonicalEventError: (info) => {
+      o.diagnostics.write(
+        `aharness: canonical event '${info.eventName}' ${info.phase} handler for state '${info.stateId}' branch ${String(info.branchIndex)} threw: ${info.error.message}\n`,
+      );
+    },
+    onCommittedTransition: (info) => handleCommittedRuntimeTransition(info, 'always'),
+  });
+  const runtimeSidecarManager = createCodexSidecarManager({
+    client: ws,
+    defaultCwd: repoRoot,
+    resolvedSkills: resolvedRuntimeSkills,
+    getActiveStateData: () => host.currentContext(),
+    getActiveStateSourceDir: () => activeStateSourceDir(loaded, host.currentStateId(), fsmAbs),
+    clock: sidecarTimeoutClock,
+  });
+  sidecarManagerRef.current = runtimeSidecarManager;
+  opsHandle.bind({
+    codex: createRuntimeCodexOps(runtimeSidecarManager, sidecarTimeoutClock),
+    emit: (eventName, payload) => serializeDispatch(() => eventDispatcher(eventName, payload)),
   });
 
   // 12. thread/start.
@@ -1942,8 +2026,14 @@ export async function runLiveRunEngine(o: LiveRunEngineOptions): Promise<LiveRun
   //     a TUI-visible "user message".
   try {
     await runActiveOnEntry();
-    await applyStateModelForActiveState();
-    if (isChoiceState(host)) {
+    if (!isTerminal(host)) {
+      await applyStateModelForActiveState();
+    }
+    if (isTerminal(host)) {
+      // Author onEntry may call ops.emit() and reach a terminal before the
+      // first parent orientation turn. Terminal completion has already been
+      // signalled by the event dispatcher in that case.
+    } else if (isChoiceState(host)) {
       publishActiveOwnerChoicePending();
     } else {
       const built = composeActiveStateTurnInput();
@@ -3115,12 +3205,186 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+interface ThreadScopedSidecarTimeoutClock extends CodexSidecarTimeoutClock {
+  runForThread<T>(threadId: string, work: () => T): T;
+  pauseThread(threadId: string): () => void;
+}
+
+interface PausableTimerEntry {
+  readonly token: NodeJS.Timeout;
+  readonly callback: () => void;
+  readonly threadId?: string;
+  remainingMs: number;
+  startedAt: number;
+  current: NodeJS.Timeout | undefined;
+  cleared: boolean;
+}
+
+function createThreadScopedPausableTimeoutClock(): ThreadScopedSidecarTimeoutClock {
+  const threadContext = new AsyncLocalStorage<string>();
+  const entries = new Map<NodeJS.Timeout, PausableTimerEntry>();
+  const pauseDepthByThreadId = new Map<string, number>();
+
+  const fire = (entry: PausableTimerEntry): void => {
+    if (entry.cleared) return;
+    entry.cleared = true;
+    entries.delete(entry.token);
+    entry.callback();
+  };
+
+  const arm = (entry: PausableTimerEntry): void => {
+    if (entry.cleared || entry.current !== undefined) return;
+    entry.startedAt = Date.now();
+    entry.current = setTimeout(
+      () => {
+        entry.current = undefined;
+        fire(entry);
+      },
+      Math.max(0, entry.remainingMs),
+    );
+  };
+
+  const pauseEntry = (entry: PausableTimerEntry): void => {
+    if (entry.current === undefined) return;
+    clearTimeout(entry.current);
+    entry.current = undefined;
+    entry.remainingMs = Math.max(0, entry.remainingMs - (Date.now() - entry.startedAt));
+  };
+
+  const isThreadPaused = (threadId: string | undefined): boolean =>
+    threadId !== undefined && (pauseDepthByThreadId.get(threadId) ?? 0) > 0;
+
+  return {
+    setTimeout(callback, timeoutMs) {
+      const threadId = threadContext.getStore();
+      const token = setTimeout(() => undefined, 2_147_483_647);
+      clearTimeout(token);
+      const entry: PausableTimerEntry = {
+        token,
+        callback,
+        ...(threadId !== undefined ? { threadId } : {}),
+        remainingMs: timeoutMs,
+        startedAt: Date.now(),
+        current: undefined,
+        cleared: false,
+      };
+      entries.set(token, entry);
+      if (!isThreadPaused(threadId)) arm(entry);
+      return token;
+    },
+    clearTimeout(timer) {
+      const entry = entries.get(timer);
+      if (entry === undefined) {
+        clearTimeout(timer);
+        return;
+      }
+      entry.cleared = true;
+      if (entry.current !== undefined) clearTimeout(entry.current);
+      entries.delete(timer);
+    },
+    runForThread(threadId, work) {
+      return threadContext.run(threadId, work);
+    },
+    pauseThread(threadId) {
+      const nextDepth = (pauseDepthByThreadId.get(threadId) ?? 0) + 1;
+      pauseDepthByThreadId.set(threadId, nextDepth);
+      if (nextDepth === 1) {
+        for (const entry of entries.values()) {
+          if (entry.threadId === threadId) pauseEntry(entry);
+        }
+      }
+      let released = false;
+      return () => {
+        if (released) return;
+        released = true;
+        const currentDepth = pauseDepthByThreadId.get(threadId) ?? 0;
+        if (currentDepth <= 1) {
+          pauseDepthByThreadId.delete(threadId);
+          for (const entry of entries.values()) {
+            if (entry.threadId === threadId) arm(entry);
+          }
+          return;
+        }
+        pauseDepthByThreadId.set(threadId, currentDepth - 1);
+      };
+    },
+  };
+}
+
+function createRuntimeCodexOps(
+  manager: CodexSidecarManager,
+  clock: ThreadScopedSidecarTimeoutClock,
+): CodexSidecarOps {
+  const wrappedByThreadId = new Map<string, CodexSidecarThread>();
+
+  const wrapThread = (thread: CodexSidecarThread): CodexSidecarThread => {
+    const existing = wrappedByThreadId.get(thread.threadId);
+    if (existing !== undefined) return existing;
+    const wrapped: CodexSidecarThread = Object.freeze({
+      key: thread.key,
+      threadId: thread.threadId,
+      ...(thread.label !== undefined ? { label: thread.label } : {}),
+      send: (input: string | readonly CodexSidecarInput[], opts?: CodexSidecarTurnOptions) =>
+        clock.runForThread(thread.threadId, () => thread.send(input, opts)),
+      sendOrThrow: (input: string | readonly CodexSidecarInput[], opts?: CodexSidecarTurnOptions) =>
+        clock.runForThread(thread.threadId, () => thread.sendOrThrow(input, opts)),
+      answer: (
+        requestId: string,
+        answers: CodexSidecarAnswerPayload,
+        opts?: CodexSidecarTurnOptions,
+      ) => clock.runForThread(thread.threadId, () => thread.answer(requestId, answers, opts)),
+      close: () => thread.close(),
+    });
+    wrappedByThreadId.set(thread.threadId, wrapped);
+    return wrapped;
+  };
+
+  return Object.freeze({
+    async createThread<Data = unknown>(
+      key: string,
+      options?: CodexSidecarThreadOptions<Data>,
+    ): Promise<CodexSidecarThread> {
+      const thread = await manager.createThread<Data>(key, options);
+      return wrapThread(thread);
+    },
+    thread(key: string): CodexSidecarThread {
+      return wrapThread(manager.thread(key));
+    },
+  });
+}
+
+function activeStateSourceDir(
+  loaded: LiveRunLoadedFsm,
+  stateId: string,
+  fallbackFilePath: string,
+): string {
+  const sourceFile = loaded.sourceLocations?.states[stateId]?.sourceFile;
+  if (sourceFile !== undefined) return dirname(sourceFile);
+  const prefixes = [...loaded.skillOriginManifest.sourceDirPrefixes].sort(
+    (a, b) => b.stateIdPrefix.length - a.stateIdPrefix.length,
+  );
+  const matched = prefixes.find(
+    (entry) => stateId === entry.stateIdPrefix || stateId.startsWith(`${entry.stateIdPrefix}.`),
+  );
+  return (
+    matched?.sourceDir ?? loaded.skillOriginManifest.rootSourceDir ?? dirname(fallbackFilePath)
+  );
+}
+
 async function runShutdown(o: {
   readonly appServer: AppServerHandle;
   readonly client: JsonRpcClient;
   readonly runDir: RunDir;
+  readonly sidecarManager?: CodexSidecarManager;
   readonly ownerInputProvider?: LiveRunOwnerInputProvider;
 }): Promise<void> {
+  try {
+    await o.sidecarManager?.shutdown();
+  } catch {
+    /* best-effort — proceed to app-server teardown regardless. */
+  }
+  o.sidecarManager?.markAppServerClosed();
+
   try {
     await o.client.close();
   } catch {

@@ -118,6 +118,87 @@ describe('createApprovalDispatcher', () => {
     dispatcher.close();
   });
 
+  it('routes sidecar approvals through the browser path without invoking parent permission hooks', async () => {
+    const events: ApprovalDispatchEvent[] = [];
+    const permissionRequest = vi.fn(() => 'accept' as const);
+    const dispatcher = createApprovalDispatcher({
+      publish: (event) => events.push(event),
+      permissionRequest,
+      isRoutableThread: (threadId) => threadId === 'parent-thread' || threadId === 'sidecar-thread',
+      isPermissionHookThread: (threadId) => threadId === 'parent-thread',
+    });
+
+    const parent = dispatcher.handleCommandApproval({
+      threadId: 'parent-thread',
+      turnId: 'parent-turn',
+      itemId: 'parent-cmd',
+      command: 'pnpm test',
+    });
+    expect(parent).toEqual({ decision: 'accept' });
+    expect(permissionRequest).toHaveBeenCalledTimes(1);
+
+    const sidecar = dispatcher.handleCommandApproval({
+      threadId: 'sidecar-thread',
+      turnId: 'sidecar-turn',
+      itemId: 'sidecar-cmd',
+      command: 'pnpm test',
+    });
+    expect(permissionRequest).toHaveBeenCalledTimes(1);
+    expect(events).toEqual([
+      expect.objectContaining({ kind: 'FrameworkNote' }),
+      expect.objectContaining({
+        kind: 'ServerRequest',
+        method: 'item/commandExecution/requestApproval',
+        threadId: 'sidecar-thread',
+        requestId: 'command:1',
+      }),
+    ]);
+
+    await dispatcher.handleBrowserReply({
+      kind: 'approval',
+      requestId: 'command:1',
+      decision: 'accept',
+    });
+    await expect(sidecar).resolves.toEqual({ decision: 'accept' });
+  });
+
+  it('brackets browser-mediated requests with pending and release callbacks', async () => {
+    const lifecycle: string[] = [];
+    const dispatcher = createApprovalDispatcher({
+      publish: () => undefined,
+      onBrowserRequestPending: (request) => {
+        lifecycle.push(`park:${request.kind}:${request.threadId}:${request.requestId}`);
+        return () => lifecycle.push(`release:${request.requestId}`);
+      },
+    });
+
+    const parked = dispatcher.handleElicitation({
+      mode: 'form',
+      threadId: 'sidecar-thread',
+      turnId: 'sidecar-turn',
+      serverName: 'srv',
+      _meta: null,
+      message: 'choose',
+      requestedSchema: { type: 'object' },
+    });
+
+    expect(lifecycle).toEqual(['park:elicitation:sidecar-thread:elicitation:1']);
+    await dispatcher.handleBrowserReply({
+      kind: 'elicitation',
+      requestId: 'elicitation:1',
+      action: 'decline',
+    });
+    await expect(parked).resolves.toEqual({
+      action: 'decline',
+      content: null,
+      _meta: null,
+    });
+    expect(lifecycle).toEqual([
+      'park:elicitation:sidecar-thread:elicitation:1',
+      'release:elicitation:1',
+    ]);
+  });
+
   it('short-circuits file approvals without publishing a pending browser card', async () => {
     const events: ApprovalDispatchEvent[] = [];
     const permissionRequest = vi.fn(async () => 'decline' as const);
