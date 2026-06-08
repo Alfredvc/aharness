@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { ROOT } from './release-helpers.mjs';
 
 const REPO_URL = 'https://github.com/Alfredvc/aharness';
+const REPO_RAW_URL = 'https://raw.githubusercontent.com/Alfredvc/aharness';
 const REPO_REF = 'main';
 const GENERATED_HEADER =
   '<!-- Generated from the repository root README.md by scripts/sync-package-readmes.mjs. Do not edit by hand. -->\n\n';
@@ -51,12 +52,21 @@ function githubUrlForRootRelativePath(pathPart, suffix) {
   return `${REPO_URL}/${kind}/${REPO_REF}/${encodeURI(normalized)}${suffix}`;
 }
 
-function rewriteRootReadmeLink(target) {
+function rawGithubUrlForRootRelativePath(pathPart, suffix) {
+  const normalized = normalizeRootRelativePath(pathPart);
+  return `${REPO_RAW_URL}/${REPO_REF}/${encodeURI(normalized)}${suffix}`;
+}
+
+function rewriteRootReadmeLink(target, { image = false } = {}) {
   if (isExternalOrAnchorLink(target)) {
     return target;
   }
 
   const { pathPart, suffix } = splitTarget(target);
+  if (image) {
+    return rawGithubUrlForRootRelativePath(pathPart, suffix);
+  }
+
   return githubUrlForRootRelativePath(pathPart, suffix);
 }
 
@@ -68,7 +78,7 @@ export function findRootRelativeMarkdownLinks(markdown) {
 
 export function buildCorePackageReadme(rootReadme) {
   const rewritten = rootReadme.replace(MARKDOWN_LINK_TARGET, (_match, open, target, close) => {
-    return `${open}${rewriteRootReadmeLink(target)}${close}`;
+    return `${open}${rewriteRootReadmeLink(target, { image: open.startsWith('!') })}${close}`;
   });
   return `${GENERATED_HEADER}${rewritten}`;
 }

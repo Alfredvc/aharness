@@ -233,6 +233,19 @@ describe('release manifest readiness', () => {
     expect(findRootRelativeMarkdownLinks(coreReadme)).toEqual([]);
   });
 
+  it('rewrites mirrored README images to raw GitHub URLs', () => {
+    const coreReadme = buildCorePackageReadme(
+      '![aharness banner](docs/readme-image.png)\n[reference](docs/reference.md)\n',
+    );
+
+    expect(coreReadme).toContain(
+      '![aharness banner](https://raw.githubusercontent.com/Alfredvc/aharness/main/docs/readme-image.png)',
+    );
+    expect(coreReadme).toContain(
+      '[reference](https://github.com/Alfredvc/aharness/blob/main/docs/reference.md)',
+    );
+  });
+
   it('license file and package license fields are Apache-2.0', () => {
     expect(readFileSync(join(root, 'LICENSE'), 'utf8')).toContain('Apache License');
     expect(readPackageJson('.').license).toBe('Apache-2.0');
