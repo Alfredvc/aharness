@@ -60,11 +60,23 @@ describe('runtime UI exports', () => {
     };
     const _runHandle: AharnessRunHandle | null = null;
     const _runEvent: AharnessRunEvent | null = null;
+    const _sidecarRunEvent: AharnessRunEvent = {
+      schema: 'aharness.event.v1',
+      runId: 'run-1',
+      seq: 2,
+      id: 'run-1:2',
+      time: '2026-06-08T00:00:00.000Z',
+      type: 'sidecar.thread.started',
+      threadId: 'sidecar-thread-1',
+      data: { sidecar: true, sidecarKey: 'helper' },
+      meta: { sidecar: true, sidecarKey: 'helper' },
+    };
     const _replyResult: AharnessRunReplyResult | null = null;
     const _runResult: AharnessRunResult | null = null;
     expect(_serverHandle).toBeNull();
     expect(_runHandle).toBeNull();
     expect(_runEvent).toBeNull();
+    expect(_sidecarRunEvent.type).toBe('sidecar.thread.started');
     expect(_replyResult).toBeNull();
     expect(_runResult).toBeNull();
   });

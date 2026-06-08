@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { JSONSchema7 } from 'json-schema';
 
-import { aharness, exit, skill, state, terminal } from '../src/index.js';
+import { aharness, createFsm, exit, skill, state, terminal } from '../src/index.js';
 import type { AppServerHandle } from '../src/appServer/index.js';
 import type {
   InstalledRuntimeSnapshot,
@@ -580,6 +580,210 @@ describe('startAharnessRun', () => {
     });
     expect(diagnostics.text()).toContain(
       'aharness: programmatic run engine failed: engine exploded',
+    );
+  });
+
+  it('runs sidecar author code through startAharnessRun using the shared live engine', async () => {
+    const repoRoot = mkdtempSync(join(tmpdir(), 'aharness-programmatic-sidecar-'));
+    tempRoots.push(repoRoot);
+    const fsmPath = join(repoRoot, 'workflow.fsm.ts');
+    writeFileSync(fsmPath, '// programmatic sidecar fixture\n');
+    const base = createFsm<{ status: string }>();
+    const fsm = base.withEvents({
+      sidecarDone: base.event<{ status: string }>(),
+    });
+    const machine = fsm.machine({
+      id: 'programmatic-sidecar-live-engine',
+      data: () => ({ status: 'pending' }),
+      initial: 'work',
+      states: {
+        work: fsm.state({
+          prompt: 'work',
+          entry: async (_data, ops) => {
+            const thread = await ops.codex.createThread('helper');
+            const result = await thread.send('complete sidecar work');
+            await thread.close();
+            await ops.emit('sidecarDone', {
+              status: result.ok ? result.kind : result.reason,
+            });
+          },
+          on: {
+            sidecarDone: {
+              to: 'done',
+              reduce: (draft, payload) => {
+                draft.status = payload.status;
+              },
+            },
+          },
+        }),
+        done: fsm.final({
+          outcome: 'success',
+          artifacts: {
+            'status.txt': (data) => data.status,
+          },
+        }),
+      },
+    });
+    const parentTurnStarts: unknown[] = [];
+    const outboundMethods: string[] = [];
+    let threadStartCount = 0;
+    let sidecarTurnCount = 0;
+    const connectHeadlessWsImpl: StartAharnessRunTestHooks['connectHeadlessWsImpl'] = async (
+      opts: ConnectHeadlessWsOptions,
+    ) => {
+      const transport: Transport = {
+        send(message: unknown): void {
+          const envelope = message as {
+            readonly id?: number;
+            readonly method?: string;
+            readonly params?: unknown;
+          };
+          if (envelope.method !== undefined) outboundMethods.push(envelope.method);
+          if (envelope.method === METHOD.initialize) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+              }),
+            );
+            return;
+          }
+          if (envelope.method === METHOD.skillsExtraRootsSet) {
+            queueMicrotask(() =>
+              transport.onMessage?.({ jsonrpc: '2.0', id: envelope.id, result: {} }),
+            );
+            return;
+          }
+          if (envelope.method === METHOD.skillsList) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { data: [{ cwd: repoRoot, skills: [], errors: [] }] },
+              }),
+            );
+            return;
+          }
+          if (envelope.method === METHOD.threadStart) {
+            threadStartCount += 1;
+            const threadId =
+              threadStartCount === 1 ? 'parent-thread' : `sidecar-thread-${threadStartCount - 1}`;
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { thread: { id: threadId, ephemeral: threadStartCount !== 1 } },
+              }),
+            );
+            return;
+          }
+          if (envelope.method === METHOD.turnStart) {
+            const params = envelope.params as { readonly threadId?: string };
+            if (params.threadId === 'parent-thread') {
+              parentTurnStarts.push(envelope.params);
+            }
+            if (
+              typeof params.threadId === 'string' &&
+              params.threadId.startsWith('sidecar-thread-')
+            ) {
+              sidecarTurnCount += 1;
+              const turnId = `sidecar-turn-${sidecarTurnCount}`;
+              queueMicrotask(() =>
+                transport.onMessage?.({
+                  jsonrpc: '2.0',
+                  id: envelope.id,
+                  result: { turn: { id: turnId } },
+                }),
+              );
+              queueMicrotask(() => {
+                transport.onMessage?.({
+                  jsonrpc: '2.0',
+                  method: METHOD.turnStarted,
+                  params: { threadId: params.threadId, turn: { id: turnId } },
+                });
+                transport.onMessage?.({
+                  jsonrpc: '2.0',
+                  method: METHOD.turnCompleted,
+                  params: { threadId: params.threadId, turn: { id: turnId } },
+                });
+              });
+              return;
+            }
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { turn: { id: 'parent-turn' } },
+              }),
+            );
+            return;
+          }
+          if (envelope.method === METHOD.threadUnsubscribe) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { status: 'unsubscribed' },
+              }),
+            );
+          }
+        },
+        async close() {
+          /* no-op */
+        },
+      };
+      const client = new JsonRpcClient(transport);
+      opts.registerHandlers?.(client);
+      await client.request(METHOD.initialize, {
+        clientInfo: opts.clientInfo,
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      });
+      return {
+        client,
+        close: async () => {
+          await client.close();
+        },
+      };
+    };
+
+    const run = await startAharnessRunForTest(
+      { target: './workflow.fsm.ts', cwd: repoRoot, ui: false },
+      {
+        diagnostics: captureStream().stream,
+        verify: async () => ({ exitCode: 0 }),
+        versionGate: async () => ({ ok: true, found: '0.0.0', required: '0.0.0' }),
+        authJsonExists: () => true,
+        loadFsmImpl: async () =>
+          loadedFsm({
+            machine,
+            modulePath: join(repoRoot, 'workflow.mjs'),
+            sourceLocations: {
+              states: { work: { sourceFile: fsmPath, line: 1 } },
+              exits: {},
+              whenBranches: {},
+              stateSkills: {},
+              availableSkills: [],
+            },
+          }),
+        spawnAppServer: async () => makeProgrammaticAppServer(),
+        connectHeadlessWsImpl,
+      },
+    );
+
+    await expect(run.result()).resolves.toMatchObject({ status: 'completed', exitCode: 0 });
+    expect(parentTurnStarts).toEqual([]);
+    expect(outboundMethods).toEqual(
+      expect.arrayContaining([METHOD.threadStart, METHOD.turnStart, METHOD.threadUnsubscribe]),
+    );
+    expect(readFileSync(join(run.runDir, 'artifacts', 'status.txt'), 'utf8')).toBe('completed');
+    expect(readJsonl(run.eventsPath).map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        'sidecar.thread.started',
+        'sidecar.turn.completed',
+        'sidecar.thread.closed',
+        'run.completed',
+      ]),
     );
   });
 

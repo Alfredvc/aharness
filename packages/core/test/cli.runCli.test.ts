@@ -31,7 +31,7 @@ import { basename, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { assign, createActor } from 'xstate';
 
-import { aharness, state, exit, terminal, skill } from '../src/index.js';
+import { aharness, createFsm, state, exit, terminal, skill } from '../src/index.js';
 import { runCliForTest, type RunCliForTestOpts, type RunCliTestHooks } from '../src/cli/runCli.js';
 import type { AppServerHandle, SpawnAppServerOptions } from '../src/appServer/index.js';
 import { JsonRpcClient, type Transport } from '../src/jsonrpc/client.js';
@@ -6129,5 +6129,214 @@ describe('runCliForTest — pre-spawn gates', () => {
 
     expect(r.exitCode).toBe(0);
     expect(stderrBuf.join('')).toContain('aharness: failed to launch browser: no opener');
+  });
+
+  it('runs an onEntry sidecar through the CLI live engine without rerouting parent turns', async () => {
+    const fsmPath = makeFsmFile(repoRoot, 'cli-sidecar-live-engine.fsm.ts');
+    const base = createFsm<{ status: string }>();
+    const fsm = base.withEvents({
+      sidecarDone: base.event<{ status: string }>(),
+    });
+    const machine = fsm.machine({
+      id: 'cli-sidecar-live-engine',
+      data: () => ({ status: 'pending' }),
+      initial: 'work',
+      states: {
+        work: fsm.state({
+          prompt: 'work',
+          entry: async (_data, ops) => {
+            const thread = await ops.codex.createThread('helper');
+            const result = await thread.send('complete sidecar work');
+            await thread.close();
+            await ops.emit('sidecarDone', {
+              status: result.ok ? result.kind : result.reason,
+            });
+          },
+          on: {
+            sidecarDone: {
+              to: 'done',
+              reduce: (draft, payload) => {
+                draft.status = payload.status;
+              },
+            },
+          },
+        }),
+        done: fsm.final({
+          outcome: 'success',
+          artifacts: {
+            'status.txt': (data) => data.status,
+          },
+        }),
+      },
+    });
+    let activeBinding: ActiveThreadBinding | undefined;
+    let threadStartCount = 0;
+    let sidecarTurnCount = 0;
+    const parentSnapshots: string[] = [];
+    const parentTurnStarts: unknown[] = [];
+    let transport!: Transport;
+    const connectStub = async (opts: ConnectHeadlessWsOptions) => {
+      transport = {
+        send(msg: unknown) {
+          const envelope = msg as {
+            readonly id?: number;
+            readonly method?: string;
+            readonly params?: unknown;
+          };
+          replyToSkillPreflightIfNeeded(transport, envelope);
+          if (envelope.method === METHOD.initialize) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { serverInfo: { name: 'stub', version: '0.0.0' } },
+              }),
+            );
+            return;
+          }
+          if (envelope.method === METHOD.threadStart) {
+            threadStartCount += 1;
+            const threadId =
+              threadStartCount === 1 ? 'parent-thread' : `sidecar-thread-${threadStartCount - 1}`;
+            if (threadStartCount > 1) {
+              parentSnapshots.push(activeBinding?.current() ?? '<unset>');
+            }
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { thread: { id: threadId, ephemeral: threadStartCount !== 1 } },
+              }),
+            );
+            return;
+          }
+          if (envelope.method === METHOD.turnStart) {
+            const params = envelope.params as { readonly threadId?: string };
+            if (params.threadId === 'parent-thread') {
+              parentTurnStarts.push(envelope.params);
+            }
+            if (
+              typeof params.threadId === 'string' &&
+              params.threadId.startsWith('sidecar-thread-')
+            ) {
+              parentSnapshots.push(activeBinding?.current() ?? '<unset>');
+              sidecarTurnCount += 1;
+              const turnId = `sidecar-turn-${sidecarTurnCount}`;
+              queueMicrotask(() =>
+                transport.onMessage?.({
+                  jsonrpc: '2.0',
+                  id: envelope.id,
+                  result: { turn: { id: turnId } },
+                }),
+              );
+              queueMicrotask(() => {
+                transport.onMessage?.({
+                  jsonrpc: '2.0',
+                  method: METHOD.turnStarted,
+                  params: { threadId: params.threadId, turn: { id: turnId } },
+                });
+                transport.onMessage?.({
+                  jsonrpc: '2.0',
+                  method: METHOD.agentMessageDelta,
+                  params: {
+                    threadId: params.threadId,
+                    turnId,
+                    itemId: 'assistant',
+                    delta: 'done',
+                  },
+                });
+                transport.onMessage?.({
+                  jsonrpc: '2.0',
+                  method: METHOD.turnCompleted,
+                  params: { threadId: params.threadId, turn: { id: turnId } },
+                });
+              });
+              return;
+            }
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { turn: { id: 'parent-turn' } },
+              }),
+            );
+            return;
+          }
+          if (envelope.method === METHOD.threadUnsubscribe) {
+            queueMicrotask(() =>
+              transport.onMessage?.({
+                jsonrpc: '2.0',
+                id: envelope.id,
+                result: { status: 'unsubscribed' },
+              }),
+            );
+          }
+        },
+        async close() {
+          /* no-op */
+        },
+      };
+      const client = new JsonRpcClient(transport);
+      opts.registerHandlers?.(client);
+      await client.request(METHOD.initialize, {
+        clientInfo: opts.clientInfo,
+        capabilities: { experimentalApi: true, requestAttestation: false },
+      });
+      return {
+        client,
+        close: async () => {
+          await client.close();
+        },
+      };
+    };
+    const opts = buildOpts({
+      cwd: repoRoot,
+      fsmPath,
+      hooks: {
+        loadFsmImpl: (async () => ({
+          machine,
+          sidecar: {},
+          modulePath: '/tmp/cli-sidecar-live-engine.mjs',
+          issues: [],
+          skillOriginManifest: EMPTY_SKILL_ORIGIN_MANIFEST,
+          cacheHit: false,
+          hash: 'cli-sidecar-live-engine',
+          sourceLocations: {
+            states: { work: { sourceFile: fsmPath, line: 1 } },
+            exits: {},
+            whenBranches: {},
+            stateSkills: {},
+            availableSkills: [],
+          },
+        })) as unknown as RunCliTestHooks['loadFsmImpl'],
+        spawnAppServer: (async () =>
+          makeStubAppServer()) as unknown as RunCliTestHooks['spawnAppServer'],
+        connectHeadlessWsImpl: connectStub as unknown as RunCliTestHooks['connectHeadlessWsImpl'],
+        startUiServerImpl: async () => ({
+          url: 'http://127.0.0.1:45678',
+          close: vi.fn(async () => undefined),
+        }),
+        _testOnActiveThreadBinding: (binding) => {
+          activeBinding = binding;
+        },
+      },
+    });
+    opts.noOpen = true;
+    opts.stderr = stderrSink;
+
+    const r = await runCliForTest(opts);
+
+    expect(r.exitCode).toBe(0);
+    expect(parentTurnStarts).toEqual([]);
+    expect(parentSnapshots).toEqual(['parent-thread', 'parent-thread']);
+    const events = expectCanonicalRunEventStream(repoRoot);
+    expect(events.map((event) => event.type)).toEqual(
+      expect.arrayContaining([
+        'sidecar.thread.started',
+        'sidecar.turn.completed',
+        'sidecar.thread.closed',
+        'run.completed',
+      ]),
+    );
   });
 });
