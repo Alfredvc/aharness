@@ -4,10 +4,9 @@
 
 # aharness
 
-**Make agent workflows executable.**
-
-The workflow harness for Codex: typed gates, validated evidence, controlled
-transitions, repair paths, and inspectable run logs for any workflow.
+For long-running agentic workflows where "please follow this process"
+is not enough: define the path once, start the run, and let enforced gates keep
+the agent on track.
 
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Node >=20](https://img.shields.io/badge/node-%3E%3D20-43853d.svg)](package.json)
@@ -27,38 +26,33 @@ aharness turns the process into a runtime: states define what Codex may do next,
 typed submissions prove what happened, and transitions only occur through
 validated exits.
 
+aharness plugs into the Codex setup you already use. It runs with your
+`AGENTS.md`, skills, MCP servers, permissions, and local tools instead of asking
+you to adopt a separate agent ecosystem.
+
+A [finite state machine](https://en.wikipedia.org/wiki/Finite-state_machine)
+(FSM) is a graph of named states and allowed transitions. For Codex workflows,
+FSMs sit between two bad extremes: raw code is flexible but hard to constrain,
+while YAML or JSON is easy to validate but too rigid for real workflows.
+aharness defines FSMs in TypeScript so workflows stay enforceable while still
+using typed data, guards, reducers, effects, the npm package ecosystem, and
+ordinary code-level composition.
+
 The bet is that useful workflows are reusable software. They should be authored,
 reviewed, versioned, composed from smaller FSMs, and published as npm packages
 instead of copied around as prompts.
 
-## What You Get
+## What aharness Adds
 
-- **Enforced workflow gates.** Codex can only leave a state through exits the
-  FSM exposes. If execution is not a valid next step, the model cannot
-  transition there by narration.
-- **Typed transitions and evidence.** Model submissions go through
-  `fsm.submit<T>()`, schema validation, reducers, guards, and effects before the
-  workflow advances.
-- **Fresh context and model control.** Each state can choose the Codex model,
-  effort level, and whether to start in a fresh thread or working directory with
-  `clearOnEntry`.
-- **Reusable workflow packages.** FSMs can ship as npm packages with
-  `aharness.package.commands`, bundled skills, and package-relative assets, then
-  run as installed aharness commands.
-- **Hierarchical composition.** Larger workflows can embed smaller FSMs with
-  `fsm.embed(...)`, including reusable child workflows distributed through
-  packages.
-- **Owner and policy control.** Owner choices, permission requests, pre-tool
-  hooks, post-tool hooks, and prompt-submission events can become explicit FSM
-  transitions.
-- **State-scoped skills.** Skills guide Codex inside a state, while the FSM owns
-  process control, valid exits, recovery paths, and terminal outcomes.
-- **Inspectable runs.** Every run writes durable event logs, state history,
-  artifacts, and recorded browser views so the workflow can be audited after the
-  fact.
-- **Advanced runtime surfaces.** Node hosts can drive live runs directly, and
-  advanced FSMs can coordinate scoped Codex sidecar threads; see
-  [`docs/advanced-runtime-surfaces.md`](docs/advanced-runtime-surfaces.md).
+| Vanilla coding agents | With aharness |
+| --- | --- |
+| Put the process in instructions or a skill and hope it sticks | Encode the process as states the agent cannot skip |
+| "Don't continue until I approve" | Approval is a real workflow gate |
+| "Tell me what you did when you're done" | Evidence is typed, validated, and saved into workflow data |
+| "If this fails, try to fix it, but don't loop forever" | Repair paths, retry limits, and failure outcomes are explicit |
+| Long runs survive by compaction, summaries, or subagents | State, context clearing, and subprocess boundaries are deliberate |
+| "Use the stronger model for the hard part" | Model and effort are selected per state |
+| "Can I inspect what happened?" | Runs write state history, events, artifacts, and browser views |
 
 ## Install
 
@@ -76,14 +70,6 @@ npm install -g @aharness/core
 The global install puts the `aharness` command on `PATH`. Scaffolded projects
 still get local authoring dependencies so editors and `tsc` can typecheck FSM
 source.
-
-If setup fails, run:
-
-```bash
-aharness doctor
-```
-
-`doctor` checks the Codex CLI version gate and reports active run health.
 
 ## Quickstart
 
@@ -117,7 +103,6 @@ and more information.
 - [Installing FSM Packages](#installing-fsm-packages)
 - [Try The Demo](#try-the-demo)
 - [How It Works](#how-it-works)
-- [When To Use It](#when-to-use-it)
 - [Common Commands](#common-commands)
 - [Packages](#packages)
 - [Documentation](#documentation)
@@ -298,21 +283,6 @@ replies, tool arguments and results, command output, file diffs, approvals,
 token usage, and workflow context snapshots. Treat `.aharness/runs` as private
 runtime evidence, not as a sanitized transcript.
 
-## When To Use It
-
-aharness is the middle layer for workflows that need more enforcement than a
-prompt and less infrastructure than a custom agent platform.
-
-| Use | Better fit |
-| --- | --- |
-| Ordered phases: plan, approve, execute, verify, repair, report | One-shot prompts and tiny edits |
-| Typed submissions and required evidence | Manual sessions where the owner steers every turn |
-| Owner approvals and policy hooks | General unconstrained agent orchestration |
-| Reusable workflows packaged as commands | Teams ready to build and own a full custom runtime |
-
-The core package provides mechanisms, not one team's process. Workflow opinions
-belong in your FSMs, examples, or installable FSM packages.
-
 ## Common Commands
 
 ```bash
@@ -371,7 +341,7 @@ programmatic live runs and Codex sidecar threads.
 
 - __Why Codex__: This project was originally based on Claude Code, but Claude Code is closed source and changes often. That made it difficult to develop aharness while keeping up with upstream changes. Codex is open source, and its app-server split makes building on top of it much easier.
 
-- __When should I use aharness instead of a normal Codex session__: Use aharness when the process matters enough to enforce states, approvals, typed evidence, recovery paths, and terminal outcomes. For tiny one-shot edits or fully owner-steered sessions, a normal Codex session is usually simpler.
+- __When should I use aharness instead of a normal Codex session__: Use aharness when process drift matters: ordered phases, approvals, typed evidence, recovery paths, or terminal outcomes should be enforced instead of remembered. For tiny one-shot edits or fully owner-steered sessions, a normal Codex session is usually simpler.
 
 - __Does aharness replace Codex__: No. Codex still does the language, code, and tool work. Aharness owns the workflow boundary around that work: active states, valid exits, schema validation, owner choices, approval routing, hooks, transitions, and durable run evidence.
 
